@@ -2,17 +2,13 @@ const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws, currentStream, peerConnections = {}, knownViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
-let kbmPanicActive = false;  // Emergency freeze for all viewer KBM input
+let kbmPanicActive = false;
 
-// ── Audio Settings (Hidden from UI) ──────────────────────────────────────
-// forceAudioEnabled: Always attempt to capture audio, defaulted to true
-// Users don't see this in the UI — it's for reliability on PipeWire systems
 let audioSettings = {
-  forceAudioEnabled: localStorage.getItem('ns_force_audio_enabled') !== 'false',  // default true
-  defaultDevice: localStorage.getItem('ns_audio_device') || 'default'
+    forceAudioEnabled: localStorage.getItem('ns_force_audio_enabled') !== 'false',
+        defaultDevice: localStorage.getItem('ns_audio_device') || 'default'
 };
 
-// --- Pusher Arcade Integration ---
 Pusher.logToConsole = true;
 const pusher = new Pusher('a93f5405058cd9fc7967', {
     cluster: 'us2',
@@ -20,16 +16,14 @@ const pusher = new Pusher('a93f5405058cd9fc7967', {
 });
 const arcadeChannel = pusher.subscribe('private-arcade-global');
 let arcadePingInterval = null;
-let arcadeOverrodePin = false; // true when arcade disabled PIN so we can restore it on stop
+let arcadeOverrodePin = false;
 const hostSessionId = 'ns-' + Math.random().toString(36).substr(2, 9);
 
-// ── DYNAMIC BITRATE CONGESTION CONTROL ─────────────────────────────────────
 const congestionControl = {
     enabled: true,
     minRttMs: 40,
-    maxRttMs: 120, // Bump this up! 100-150 is a good threshold before panicking
-    packetLossThreshold: 5, // Bumping this from 3 to 5 gives it a bit more breathing room
-    // ...
+    maxRttMs: 120,
+    packetLossThreshold: 5,
 };
 
 async function monitorCongestion(pc, viewerId) {
@@ -98,9 +92,7 @@ async function monitorCongestion(pc, viewerId) {
                     congestionControl.lastAdjustment[viewerId] = { bitrate: currentBitrate, time: Date.now() };
                     log(`Congestion: Bitrate reduced to ${Math.round(newBitrate/1000)}kbps (${reason})`, 'warn');
                 }
-        } catch (e) {
-            // Silently ignore stats polling errors
-        }
+        } catch (e) {}
     };
 
     const interval = setInterval(async () => {
@@ -112,7 +104,6 @@ async function monitorCongestion(pc, viewerId) {
     }, congestionControl.statsPollInterval);
 }
 
-// Load saved settings
 const savedCodec = localStorage.getItem('ns_codec');
 if (savedCodec) document.getElementById('codecSelect').value = savedCodec;
 document.getElementById('codecSelect').addEventListener('change', (e) => localStorage.setItem('ns_codec', e.target.value));
@@ -132,7 +123,7 @@ document.getElementById('resSelect').addEventListener('change', (e) => localStor
 const savedFps = localStorage.getItem('ns_fps');
 if (savedFps) document.getElementById('fpsSelect').value = savedFps;
 document.getElementById('fpsSelect').addEventListener('change', (e) => localStorage.setItem('ns_fps', e.target.value));
-// ── iGPU Detection — default H264 if integrated graphics detected ─────────────
+
 (function detectIGPU() {
     try {
         const canvas = document.createElement('canvas');
@@ -141,9 +132,8 @@ document.getElementById('fpsSelect').addEventListener('change', (e) => localStor
         const ext = gl.getExtension('WEBGL_debug_renderer_info');
         if (!ext) return;
         const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL).toLowerCase();
-        // Match known iGPU patterns; exclude discrete GPU markers
         const isIGPU = /intel|iris|uhd|vega|radeon.*graphics|rdna.*u|apu|780m|680m|graphics \d+/.test(renderer)
-                    && !/rtx|gtx|rx \d{3,4}|arc a\d/.test(renderer);
+        && !/rtx|gtx|rx \d{3,4}|arc a\d/.test(renderer);
         if (isIGPU && !localStorage.getItem('ns_codec')) {
             document.getElementById('codecSelect').value = 'H264';
             localStorage.setItem('ns_codec', 'H264');
@@ -152,9 +142,16 @@ document.getElementById('fpsSelect').addEventListener('change', (e) => localStor
     } catch (e) {}
 })();
 
-
-
-// fetchGameThumbnail defined below
+async function fetchGameThumbnail(gameTitle) {
+    try {
+        const res = await fetch(`https://nearsec.cutefame.net/api/game-art?title=${encodeURIComponent(gameTitle)}`);
+        const data = await res.json();
+        return data.thumbnail || '';
+    } catch (e) {
+        console.warn('Could not fetch official thumbnail:', e);
+        return '';
+    }
+}
 
 function preferVideoCodec(pc) {
     const caps = RTCRtpSender.getCapabilities?.('video');
@@ -173,22 +170,23 @@ function preferVideoCodec(pc) {
     return used;
 }
 
+// ── DYNAMIC FRAMERATE BINDING ──
 async function setLowLatencyParams(pc) {
     const sender = pc.getSenders().find(s => s.track?.kind === 'video');
     if (!sender) return;
     try {
         const params = sender.getParameters();
         const bitVal = parseInt(document.getElementById('bitrateSelect').value, 10);
-        const degVal = document.getElementById('degSelect').value;
+        const fpsVal = parseInt(document.getElementById('fpsSelect')?.value) || 60;
         if (params.encodings?.length) {
             if (bitVal > 0) {
                 params.encodings[0].maxBitrate = bitVal;
             } else {
                 delete params.encodings[0].maxBitrate;
             }
+            params.encodings[0].maxFramerate = fpsVal;
             params.encodings[0].networkPriority = 'high';
             params.encodings[0].priority = 'high';
-            // HARDCODE FRAMERATE: Never drop below 60fps. Make it blurry instead.
             params.encodings[0].degradationPreference = 'maintain-framerate';
         }
         await sender.setParameters(params);
@@ -209,25 +207,12 @@ function log(msg, cls) {
     d.className = 'll' + (cls ? ' ' + cls : '');
     d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
     if (el) { el.appendChild(d); el.scrollTop = el.scrollHeight; }
-    // Mirror last line to sidebar mini indicator
     const mini = document.getElementById('lastLogLine');
     if (mini) { mini.textContent = msg; mini.style.color = cls === 'ok' ? 'var(--accent)' : cls === 'err' ? 'var(--danger)' : cls === 'warn' ? 'var(--warn)' : '#333'; }
 }
 
-let lastChatMsg = '';  // Track last message to prevent duplicates
-let lastChatTime = 0;  // Track timestamp to allow same message after delay
-
 function appendChat(name, text, isMe) {
     const el = document.getElementById('chatLog');
-    // Prevent duplicate messages within same second (sender-side deduplication)
-    if (isMe) {
-        const now = Date.now();
-        if (text === lastChatMsg && now - lastChatTime < 1000) {
-            return;  // Ignore duplicate
-        }
-        lastChatMsg = text;
-        lastChatTime = now;
-    }
     const d = document.createElement('div');
     d.className = 'cmsg';
     d.innerHTML = '<span class="cname' + (isMe ? ' me' : '') + '">' + name + '</span>' + text;
@@ -279,14 +264,12 @@ function renderUrls(d) {
         el.appendChild(div); el.appendChild(sub);
     });
 }
-// ── ROSTER & INPUT MODE LOGIC ────────────────────────────────────────────────
+
 const savedViewerModes = JSON.parse(localStorage.getItem('ns_saved_modes') || '{}');
 
 function renderRoster(list) {
     const c = document.getElementById('roster');
     const o = document.getElementById('rosterEmpty');
-
-    // Show ALL viewers so you can always change their input mode back
     const controllers = list;
 
     if (controllers.length === 0) {
@@ -307,7 +290,6 @@ function renderRoster(list) {
         let currentMode = v.inputMode || 'gamepad';
         const isGuest = v.name.startsWith('Guest');
 
-        // Apply saved preferences for named users
         if (!isGuest && savedViewerModes[v.name] && currentMode !== savedViewerModes[v.name]) {
             currentMode = savedViewerModes[v.name];
             changeInputMode(v.id, currentMode, v.name);
@@ -334,25 +316,19 @@ function renderRoster(list) {
         </div>
         <div class="rstat">${v.slot !== null ? '(Assigned)' : ''}</div>
         <button class="rlock" onclick="toggleSlotLock('${v.id}')" title="Lock this slot" style="background:none; border:none; cursor:pointer; padding:0 4px; width:20px; height:20px; display:flex; align-items:center;">
-          <img src="/assets/icons/${v.locked ? 'lock' : 'lock-open'}.svg" style="width:14px;height:14px;filter:invert(0.5);" />
+        <img src="/assets/icons/${v.locked ? 'lock' : 'lock-open'}.svg" style="width:14px;height:14px;filter:invert(0.5);" />
         </button>
         <button class="rkick" onclick="killGp('${v.id}')" title="Revoke input">×</button>
         `;
         c.appendChild(r);
     });
-
     attachDragDrop(c);
 }
 
 function changeInputMode(viewerId, newMode, viewerName) {
     if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({
-            type: 'set-input-mode',
-            viewerId: viewerId,
-            mode: newMode
-        }));
+        ws.send(JSON.stringify({ type: 'set-input-mode', viewerId: viewerId, mode: newMode }));
         log(`Input mode for viewer ${viewerId} set to ${newMode}`, 'ok');
-
         if (viewerName && !viewerName.startsWith('Guest')) {
             savedViewerModes[viewerName] = newMode;
             localStorage.setItem('ns_saved_modes', JSON.stringify(savedViewerModes));
@@ -408,11 +384,7 @@ function toggleSlotLock(rosterId) {
         const lockBtn = event.target;
         const lockImg = lockBtn.querySelector('img');
         const isCurrentlyLocked = lockImg && lockImg.src.includes('lock.svg') && !lockImg.src.includes('lock-open');
-        ws.send(JSON.stringify({
-            type: 'toggle-slot-lock',
-            viewerId: rosterId,
-            locked: !isCurrentlyLocked
-        }));
+        ws.send(JSON.stringify({ type: 'toggle-slot-lock', viewerId: rosterId, locked: !isCurrentlyLocked }));
         log(`Slot lock for ${rosterId} set to ${!isCurrentlyLocked ? 'LOCKED' : 'UNLOCKED'}`, 'ok');
     }
 }
@@ -432,7 +404,6 @@ function regeneratePin() {
     }
 }
 
-// ── WEBSOCKET CONNECTION ─────────────────────────────────────────────────────
 function connectWS() {
     ws = new WebSocket(proto + '://' + location.host + '/ws/host');
     ws.onopen = () => {
@@ -473,7 +444,10 @@ function connectWS() {
         }
         if (msg.type === 'answer') {
             const pc = peerConnections[msg._viewerId];
-            if (pc) { try { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); } catch (e) { log('answer err: ' + e.message, 'err'); } }
+            if (pc) {
+                if (pc.signalingState !== 'have-local-offer') return;
+                try { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); } catch (e) { log('answer err: ' + e.message, 'err'); }
+            }
         }
         if (msg.type === 'ice-viewer') {
             const pc = peerConnections[msg._viewerId];
@@ -510,23 +484,14 @@ async function sendOfferToViewer(viewerId) {
         delete peerConnections[viewerId];
     }
     const pc = new RTCPeerConnection({
+        // ── CRITICAL FIX: Removed dead TURN servers causing 15-second hang loops ──
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' },
-            { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-            { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-            { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-            { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+            { urls: 'stun:stun.cloudflare.com:3478' }
         ],
-        // LOW LATENCY: Single DTLS connection for all tracks — halves handshake time
         bundlePolicy: 'max-bundle',
-        // LOW LATENCY: RTCP multiplexed onto the RTP port — fewer ports, faster ICE
         rtcpMuxPolicy: 'require',
-        // LOW LATENCY: Pre-gather 10 candidates before signaling — reduces offer-answer RTT
-        iceCandidatePoolSize: 10,
-        // Explicit unified-plan — prevents legacy Chrome Plan-B path
         sdpSemantics: 'unified-plan',
     });
     peerConnections[viewerId] = pc;
@@ -538,6 +503,14 @@ async function sendOfferToViewer(viewerId) {
     const codec = preferVideoCodec(pc);
     if (codec) document.getElementById('codecBadge').textContent = codec.split('/')[1];
 
+    // ── CRITICAL FIX: 3-Second Fast Retry Handshake (Bypasses 15-second ICE fails) ──
+    let connectTimeout = setTimeout(() => {
+        if (pc.connectionState !== 'connected' && peerConnections[viewerId] === pc) {
+            log('Handshake timeout for ' + viewerId + ', fast retrying...', 'warn');
+            sendOfferToViewer(viewerId);
+        }
+    }, 3000);
+
     pc.onicecandidate = (e) => {
         if (e.candidate && e.candidate.candidate) {
             ws.send(JSON.stringify({ type: 'ice-host', candidate: e.candidate, _viewerId: viewerId }));
@@ -547,51 +520,48 @@ async function sendOfferToViewer(viewerId) {
         const s = pc.connectionState;
         log('Viewer ' + viewerId + ': ' + s, s === 'connected' ? 'ok' : s === 'failed' ? 'err' : '');
         if (s === 'connected') {
+            clearTimeout(connectTimeout);
             setLowLatencyParams(pc);
             monitorCongestion(pc, viewerId);
         }
-        if (s === 'failed') {
-            log('Retrying offer to ' + viewerId, 'warn');
-            delete peerConnections[viewerId];
-            setTimeout(() => sendOfferToViewer(viewerId), 1000);
+        if (s === 'failed' || s === 'disconnected') {
+            clearTimeout(connectTimeout);
+            if (peerConnections[viewerId] === pc) {
+                log('Retrying offer to ' + viewerId, 'warn');
+                delete peerConnections[viewerId];
+                setTimeout(() => sendOfferToViewer(viewerId), 1000);
+            }
         }
     };
 
-    const offer = await pc.createOffer();
-
-    let modifiedSdp = offer.sdp;
-    const bitVal = parseInt(document.getElementById('bitrateSelect').value, 10);
-
-    await pc.setLocalDescription({ type: offer.type, sdp: modifiedSdp });
-    ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: viewerId }));
-    log('Offer → viewer ' + viewerId, 'ok');
+    try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
+        ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: viewerId }));
+        log('Offer → viewer ' + viewerId, 'ok');
+    } catch (err) {
+        log('Fatal WebRTC Error for ' + viewerId + ': ' + err.message, 'err');
+    }
 }
 
-// ── SOURCE SELECTION MODAL (Windows/macOS) ──────────────────────────────────
 let selectedSourceId = null;
 
 async function showSourceSelectionModal() {
     if (!window.electronAPI || !window.electronAPI.getWindowSources) {
+        log('Source selection not available on this platform', 'warn');
         startCapture();
         return;
     }
 
     try {
         const sources = await window.electronAPI.getWindowSources();
-
-        // Wayland Detection: Wayland aggressively blocks desktopCapturer, returning 0 sources.
         if (!sources || sources.length === 0) {
-            log('Wayland detected: Launching native OS screen picker.', 'info');
+            log('No sources available, using default capture', 'warn');
             startCapture();
             return;
         }
 
         const sourceGrid = document.getElementById('sourceGrid');
-        if (!sourceGrid) {
-            startCapture();
-            return;
-        }
-
         sourceGrid.innerHTML = '';
         selectedSourceId = null;
         document.getElementById('confirmSourceBtn').disabled = true;
@@ -617,27 +587,33 @@ async function showSourceSelectionModal() {
 
         document.getElementById('sourceModal').classList.remove('gone');
     } catch (e) {
-        log('Error loading sources: ' + e.message, 'err');
+        log('Error loading sources: ' + e.message, 'error');
         startCapture();
     }
 }
 
-// Helper functions for the custom modal
-function selectSource(idx, id) {
-    document.querySelectorAll('.source-card').forEach(c => c.classList.remove('selected'));
-    document.getElementById('source-' + idx).classList.add('selected');
-    selectedSourceId = id;
-    document.getElementById('confirmSourceBtn').disabled = false;
-}
+function selectSource(idx, sourceId) {
+    document.querySelectorAll('.source-card').forEach(card => {
+        card.style.borderColor = '';
+        card.style.background = '';
+    });
 
-function confirmSource() {
-    document.getElementById('sourceModal').classList.add('gone');
-    startCapture();
+    const selectedCard = document.getElementById('source-' + idx);
+    selectedCard.style.borderColor = 'var(--ok)';
+    selectedCard.style.background = 'rgba(100, 200, 100, 0.1)';
+
+    selectedSourceId = sourceId;
+    document.getElementById('confirmSourceBtn').disabled = false;
 }
 
 function closeSourceModal() {
     document.getElementById('sourceModal').classList.add('gone');
     selectedSourceId = null;
+}
+
+async function confirmSource() {
+    closeSourceModal();
+    await startCapture();
 }
 
 async function startCapture() {
@@ -648,44 +624,52 @@ async function startCapture() {
     Object.values(peerConnections).forEach(pc => pc.close());
     peerConnections = {};
 
+    // ── CRITICAL FIX: Safe Audio Config to prevent "Capture Cancelled" on Windows ──
+    const isLinux = navigator.userAgent.includes('Linux') || navigator.platform.toLowerCase().includes('linux');
+    const sysAudioConfig = isLinux ? false : audioSettings.forceAudioEnabled;
+
+    // ── CRITICAL FIX: Direct UI binding without Abort-crashing constraints ──
+    const fpsVal = parseInt(document.getElementById('fpsSelect')?.value) || 60;
+    const resVal = document.getElementById('resSelect')?.value || '1080p';
+
+    let videoConstraints = { frameRate: { ideal: fpsVal } };
+    if (resVal === '720p') videoConstraints.height = { ideal: 720 };
+    if (resVal === '1080p') videoConstraints.height = { ideal: 1080 };
+    if (resVal === '1440p') videoConstraints.height = { ideal: 1440 };
+    if (resVal === '4k') videoConstraints.height = { ideal: 2160 };
+
     try {
         let screenStream;
 
         if (selectedSourceId && window.electronAPI) {
-            // Path A: Windows / Mac / Linux X11 (Custom Modal was used)
             try {
+                // Window Capture MUST use getUserMedia, not getDisplayMedia
                 screenStream = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
+                    audio: isLinux ? false : (audioSettings.forceAudioEnabled ? {
+                        mandatory: { chromeMediaSource: 'desktop' }
+                    } : false),
                     video: {
                         mandatory: {
                             chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: selectedSourceId
+                            chromeMediaSourceId: selectedSourceId,
+                            maxFrameRate: fpsVal
                         }
                     }
                 });
                 log('Using selected source: ' + selectedSourceId, 'ok');
             } catch (e) {
-                throw new Error('Could not capture selected source: ' + e.message);
+                log('Source selection failed, falling back to system dialog: ' + e.message, 'warn');
+                selectedSourceId = null;
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: videoConstraints,
+                    audio: sysAudioConfig
+                });
             }
         } else {
-            // Path B: Linux Wayland (Native OS Picker fallback)
-            try {
-                // First try capturing with audio requested
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { frameRate: { ideal: 60, max: 60 } },
-                    audio: audioSettings.forceAudioEnabled
-                });
-            } catch (e) {
-                // If the user manually clicked Cancel, respect it
-                if (e.name === 'NotAllowedError' || e.name === 'AbortError') throw e;
-
-                // Otherwise, PipeWire likely crashed because it rejected audio loopback. Try video-only!
-                log('Audio loopback rejected by OS, falling back to video-only...', 'warn');
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { frameRate: { ideal: 60, max: 60 } },
-                    audio: false
-                });
-            }
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: videoConstraints,
+                audio: sysAudioConfig
+            });
         }
 
         selectedSourceId = null;
@@ -698,23 +682,47 @@ async function startCapture() {
 
         vTrack.contentHint = 'motion';
         const settings = vTrack.getSettings();
-        let aTrack = screenStream.getAudioTracks()[0] || null;
+        const combined = new MediaStream();
+        combined.addTrack(vTrack);
 
-        if (aTrack) {
+        // Linux System Audio Virtual Sink Logic
+        let aTrack = screenStream.getAudioTracks()[0] || null;
+        if (isLinux) {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const loopbackDevice = devices.find(d => d.kind === 'audioinput' &&
+                (d.label.includes('NearsecAppAudio') || d.label.toLowerCase().includes('monitor of')));
+
+                if (loopbackDevice) {
+                    const audioStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            deviceId: { exact: loopbackDevice.deviceId },
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
+                        }
+                    });
+                    aTrack = audioStream.getAudioTracks()[0];
+                    if (aTrack) {
+                        combined.addTrack(aTrack);
+                        log('System Audio Mixed: ' + loopbackDevice.label, 'ok');
+                    }
+                }
+            } catch (audErr) {
+                console.warn('Linux audio loopback initialization failed:', audErr);
+            }
+        } else if (aTrack) {
             log('System Audio Track Found: ' + (aTrack.label || 'default'), 'ok');
-        } else {
+        }
+
+        if (!aTrack) {
             log('No audio track selected in capture prompt', 'warn');
         }
 
-        const combined = new MediaStream();
-        combined.addTrack(vTrack);
-        if (aTrack) combined.addTrack(aTrack);
-
-        // Mic capture
-        if (typeof appSettings !== 'undefined' && appSettings.captureMic) {
+        if (appSettings.captureMic) {
             try {
                 const micConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-                if (typeof selectedMicDeviceId !== 'undefined' && selectedMicDeviceId !== 'default') {
+                if (selectedMicDeviceId && selectedMicDeviceId !== 'default') {
                     micConstraints.deviceId = { exact: selectedMicDeviceId };
                 }
                 const micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints, video: false });
@@ -731,8 +739,8 @@ async function startCapture() {
         currentStream = combined;
 
         const prev = document.getElementById('preview');
-        if (typeof appSettings !== 'undefined' && appSettings.hidePreviewOnStart) {
-            if (typeof previewHidden !== 'undefined') previewHidden = true;
+        if (appSettings.hidePreviewOnStart) {
+            previewHidden = true;
             prev.style.display = 'none';
             const btn = document.getElementById('btnPreviewToggle');
             if (btn) { btn.textContent = '▶ Show Preview'; btn.style.color = 'var(--warn)'; }
@@ -745,30 +753,20 @@ async function startCapture() {
         document.getElementById('trackInfo').innerHTML =
         '<strong>' + (vTrack.label || 'Screen') + '</strong><br>' +
         settings.width + '×' + settings.height + ' @ ' + Math.round(settings.frameRate || 0) + 'fps<br>' +
-        (aTrack ? 'Audio: ' + (aTrack.label || 'default') : 'No audio');
+        (aTrack ? 'Audio Mixed via Null Sink' : 'No system audio forward');
 
         setCapDot('live');
+        if (aTrack) { setAudDot('live', 'Audio active'); startAudioMeter(combined); }
+        else setAudDot('warn', 'No audio — Check source');
 
-        setTimeout(() => {
-            let aTrack = currentStream ? currentStream.getAudioTracks()[0] : null;
-            if (aTrack) {
-                setAudDot('live', 'System Audio Active');
-                startAudioMeter(currentStream);
-            } else {
-                setAudDot('', '');
-            }
-        }, 500);
-
-        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+        ws.send(JSON.stringify({ type: 'host-stream-ready' }));
         sysChat('Stream started.');
-        [...knownViewers].forEach(id => {
-            if (typeof sendOfferToViewer === 'function') sendOfferToViewer(id);
-        });
+        [...knownViewers].forEach(id => sendOfferToViewer(id));
 
-            vTrack.onended = () => { log('Capture ended by OS', 'warn'); if (typeof stopCapture === 'function') stopCapture(); };
-            document.getElementById('btnSwitch').disabled = false;
-            document.getElementById('btnStop').disabled = false;
-            document.getElementById('btnKbmPanic').disabled = false;
+        vTrack.onended = () => { log('Capture ended by OS', 'warn'); stopCapture(); };
+        document.getElementById('btnSwitch').disabled = false;
+        document.getElementById('btnStop').disabled = false;
+        document.getElementById('btnKbmPanic').disabled = false;
     } catch (err) {
         if (err.name === 'NotAllowedError' || err.name === 'AbortError') log('Capture cancelled', 'warn');
         else { log('Capture failed: ' + err.message, 'err'); setCapDot('err'); }
@@ -787,17 +785,15 @@ function stopCapture() {
     document.getElementById('btnSwitch').disabled = true;
     document.getElementById('btnStop').disabled = true;
     document.getElementById('btnKbmPanic').disabled = true;
-    kbmPanicActive = false;  // Reset panic state
+    kbmPanicActive = false;
     updateKbmPanicButton();
     Object.values(peerConnections).forEach(pc => pc.close());
     peerConnections = {};
 
-    // Notify local host server that stream stopped
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'host-stream-stopped' }));
     }
 
-    // --- PUSHER: If arcade mode was active, notify Arcade to remove the session ---
     if (arcadePingInterval) {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
@@ -805,7 +801,6 @@ function stopCapture() {
         log('Arcade Mode: Session ended on Arcade', 'warn');
     }
 
-    // Restore PIN if arcade disabled it
     if (arcadeOverrodePin) {
         arcadeOverrodePin = false;
         pinEnabled = true;
@@ -819,32 +814,29 @@ function stopCapture() {
     sysChat('Host stopped sharing.');
 }
 
-// ── KBM PANIC MODE (Emergency input freeze) ────────────────────────────────────
 function updateKbmPanicButton() {
     const btn = document.getElementById('btnKbmPanic');
     if (!btn) return;
-    
+
     if (kbmPanicActive) {
         btn.textContent = 'Release KBM';
         btn.style.background = '#FF0000';
         btn.style.borderColor = '#FFF';
-        btn.title = 'Click to release KBM control to viewers';
     } else {
         btn.textContent = 'KBM Panic';
         btn.style.background = '#8B0000';
         btn.style.borderColor = '#FF0000';
-        btn.title = 'Emergency: Freeze all keyboard/mouse input from viewers';
     }
 }
 
 function toggleKbmPanic() {
     kbmPanicActive = !kbmPanicActive;
     updateKbmPanicButton();
-    
+
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'panic_toggle', enabled: kbmPanicActive }));
     }
-    
+
     if (kbmPanicActive) {
         log('⚠ KBM PANIC ACTIVATED - All viewer keyboard/mouse input frozen', 'warn');
     } else {
@@ -866,45 +858,15 @@ function stopAudioMeter() {
     document.getElementById('meter').style.width = '0%';
 }
 
-// ── TUNNEL PICKER MODAL ───────────────────────────────────────────────────────
 function showTunnelModal() {
     resetTunnelModal();
-
-    // Detect OS for tailored recommendations
-    const isWindows = navigator.userAgent.includes("Win");
-    const isMac = navigator.userAgent.includes("Mac");
-
-    // Grab the cards to modify them dynamically
-    const cloudflaredCard = document.querySelector('input[value="cloudflared"]').closest('.provider-card');
-    const zrokCard = document.querySelector('input[value="zrok"]').closest('.provider-card');
-    const lhrCard = document.querySelector('input[value="localhostrun"]').closest('.provider-card');
-
-    // Reset any previous modifications (important if the modal is opened multiple times)
-    document.querySelectorAll('.os-hint').forEach(el => el.remove());
-
-    if (isWindows) {
-        // Highlight best options for Windows
-        zrokCard.querySelector('.prov-desc').insertAdjacentHTML('beforeend', '<span class="os-hint" style="color:var(--accent); display:block; margin-top:4px;">✨ Recommended for Windows</span>');
-        cloudflaredCard.querySelector('.prov-desc').insertAdjacentHTML('beforeend', '<span class="os-hint" style="color:var(--accent); display:block; margin-top:4px;">✨ Recommended for Windows</span>');
-
-        // Warn about SSH tunnels on Windows
-        lhrCard.querySelector('.prov-desc').insertAdjacentHTML('beforeend', '<span class="os-hint" style="color:var(--warn); display:block; margin-top:4px;">⚠ May require OpenSSH Client installed</span>');
-    } else if (isMac) {
-        // Highlight best option for Mac
-        cloudflaredCard.querySelector('.prov-desc').insertAdjacentHTML('beforeend', '<span class="os-hint" style="color:var(--accent); display:block; margin-top:4px;">✨ Best for macOS</span>');
-    }
-
     document.getElementById('tunnelModal').classList.remove('gone');
 
-    // Pre-populate modal from saved config so the user sees their current preference
     fetch('/api/config').then(r => r.json()).then(cfg => {
         if (!cfg || !cfg.tunnelProvider) return;
-
-        // Tick Remember if preference is already saved
         const rememberBox = document.getElementById('rememberCheck');
         if (rememberBox) rememberBox.checked = !!cfg.neverAsk;
 
-        // Select the saved provider radio
         const radio = document.querySelector('input[name="provider"][value="' + cfg.tunnelProvider + '"]');
         if (radio) {
             radio.checked = true;
@@ -912,8 +874,6 @@ function showTunnelModal() {
                 c.classList.toggle('selected', c.querySelector('input').checked);
             });
         }
-
-        // Pre-fill VPS host input if saved
         if (cfg.tunnelProvider === 'vps' && cfg.vpsHost) {
             const vpsInput = document.getElementById('vpsHostInput');
             if (vpsInput) vpsInput.value = cfg.vpsHost;
@@ -999,32 +959,6 @@ document.querySelectorAll('.provider-card').forEach(card => {
     });
 });
 
-let currentHostName = "Guest";
-let isRumbleEnabled = true;
-
-window.addEventListener('DOMContentLoaded', async () => {
-    if (!window.electronAPI) return;
-    const cfg = await window.electronAPI.getSettings();
-
-    // 1. Language Sync (Cross-Origin Bridge!)
-    const hostLocalLang = localStorage.getItem('ns_lang') || 'en';
-    if (cfg.lang && cfg.lang !== hostLocalLang) {
-        localStorage.setItem('ns_lang', cfg.lang);
-        location.reload();
-        return;
-    }
-
-    // 2. Custom Name Sync
-    currentHostName = cfg.hostName || "Host_" + Math.floor(Math.random() * 1000);
-    const hostNameDisplay = document.getElementById('displayHostName');
-    if (hostNameDisplay) {
-        hostNameDisplay.textContent = "Host: " + currentHostName;
-    }
-
-    // 3. Rumble Sync
-    isRumbleEnabled = cfg.rumble !== false;
-});
-
 async function checkTunnelOnConnect() {
     try {
         const cfg = await fetch('/api/config').then(r => r.json());
@@ -1034,7 +968,6 @@ async function checkTunnelOnConnect() {
     } catch { }
 }
 
-// ── CONTROLLER SETTINGS MODAL & STATE ───────────────────────────────────────
 const ctrlSettings = {
     forceXboxOne: localStorage.getItem('ns_ctrl_forceXboxOne') === 'true',
         enableDualShock: localStorage.getItem('ns_ctrl_enableDualShock') === 'true',
@@ -1109,7 +1042,6 @@ function closeCtrlModal() {
     document.getElementById('ctrlModal').classList.add('gone');
 }
 
-// ── ARCADE MODE MODAL & STATE ──────────────────────────────────────────────
 const arcadeConfig = {
     title: localStorage.getItem('ns_arcade_title') || 'Unknown Game',
     desc: localStorage.getItem('ns_arcade_desc') || '',
@@ -1130,10 +1062,8 @@ function closeArcadeModal() {
     document.getElementById('arcadeModal').classList.add('gone');
 }
 
-// Function to securely fetch official game art via our Cloudflare proxy
 async function fetchGameThumbnail(gameTitle) {
     try {
-        // Must use the absolute URL to hit your Cloudflare Worker, not the local Node server
         const res = await fetch(`https://nearsec.cutefame.net/api/game-art?title=${encodeURIComponent(gameTitle)}`);
         const data = await res.json();
         return data.thumbnail || '';
@@ -1149,7 +1079,6 @@ async function startArcadeSession() {
     arcadeConfig.maxPlayers = document.getElementById('arcadeMaxPlayers').value;
     arcadeConfig.requirePin = document.getElementById('arcadeRequirePin').checked;
 
-    // Fetch the game art via the secure proxy
     arcadeConfig.thumbnail = await fetchGameThumbnail(arcadeConfig.title);
 
     localStorage.setItem('ns_arcade_title', arcadeConfig.title);
@@ -1160,7 +1089,6 @@ async function startArcadeSession() {
 
     closeArcadeModal();
 
-    // Start capture first if not already streaming
     const needsCapture = !currentStream;
     if (needsCapture) {
         startCapture().then(() => _doArcadeRegister());
@@ -1169,7 +1097,6 @@ async function startArcadeSession() {
     }
 }
 
-// Helper to detect the host's operating system
 const getHostOS = () => {
     const ua = navigator.userAgent;
     if (ua.includes("Win")) return "Windows";
@@ -1186,7 +1113,6 @@ function _doArcadeRegister() {
         }
         log(`Arcade Mode: ${arcadeConfig.title} (${arcadeConfig.maxPlayers} players) → ${info.tunnelUrl}`, 'ok');
 
-        // If host chose no PIN for this arcade session, disable it via the same path the toggle uses
         if (!arcadeConfig.requirePin && pinEnabled) {
             pinEnabled = false;
             arcadeOverrodePin = true;
@@ -1196,7 +1122,6 @@ function _doArcadeRegister() {
             log('PIN disabled for Arcade session', 'ok');
         }
 
-        // Helper to build the ping data dynamically so it updates on every heartbeat
         const getPingData = () => ({
             id: hostSessionId,
             game: arcadeConfig.title,
@@ -1206,11 +1131,9 @@ function _doArcadeRegister() {
             region: `${knownViewers.size}/${arcadeConfig.maxPlayers} Players • ${getHostOS()}`
         });
 
-        // Send an immediate ping to show up instantly
         arcadeChannel.trigger('client-session-ping', getPingData());
         sysChat('Arcade Mode started: ' + arcadeConfig.title);
 
-        // Keep pinging every 10 seconds to stay alive on the Arcade
         if (arcadePingInterval) clearInterval(arcadePingInterval);
         arcadePingInterval = setInterval(() => {
             arcadeChannel.trigger('client-session-ping', getPingData());
@@ -1219,8 +1142,6 @@ function _doArcadeRegister() {
     }).catch(() => log('Arcade: Could not read server info', 'err'));
 }
 
-
-// ── Preview toggle — hides stream preview to save APU GPU cycles ─────────────
 let previewHidden = false;
 function togglePreview() {
     previewHidden = !previewHidden;
@@ -1244,13 +1165,11 @@ function togglePreview() {
     }
 }
 
-
-// ── APP SETTINGS ──────────────────────────────────────────────────────────────
 const appSettings = {
-    tray:              localStorage.getItem('ns_app_tray') !== 'false',       // default on
-    alwaysOnTop:       localStorage.getItem('ns_app_alwaysOnTop') === 'true', // default off
-    hidePreviewOnStart:localStorage.getItem('ns_app_hidePreview') === 'true', // default off
-    captureMic:        localStorage.getItem('ns_app_captureMic') === 'true',  // default off
+    tray:              localStorage.getItem('ns_app_tray') !== 'false',
+    alwaysOnTop:       localStorage.getItem('ns_app_alwaysOnTop') === 'true',
+    hidePreviewOnStart:localStorage.getItem('ns_app_hidePreview') === 'true',
+    captureMic:        localStorage.getItem('ns_app_captureMic') === 'true',
 };
 let selectedMicDeviceId   = localStorage.getItem('ns_audio_input')  || 'default';
 let selectedOutputDeviceId= localStorage.getItem('ns_audio_output') || 'default';
@@ -1277,9 +1196,8 @@ function applyAppSettingsUI() {
         if (track) track.classList.toggle('on', !!appSettings[key]);
         if (row)   row.classList.toggle('active', !!appSettings[key]);
     });
-    // Show/hide mic device row
-    const micRow = document.getElementById('micDeviceRow');
-    if (micRow) micRow.style.display = appSettings.captureMic ? 'block' : 'none';
+        const micRow = document.getElementById('micDeviceRow');
+        if (micRow) micRow.style.display = appSettings.captureMic ? 'block' : 'none';
 }
 
 function toggleAppSetting(key) {
@@ -1287,7 +1205,6 @@ function toggleAppSetting(key) {
     localStorage.setItem('ns_app_' + key, appSettings[key]);
     applyAppSettingsUI();
 
-    // Sync Electron-side settings where applicable
     if (key === 'alwaysOnTop' && window.electronAPI?.toggleAlwaysOnTop) {
         window.electronAPI.toggleAlwaysOnTop();
     }
@@ -1306,10 +1223,9 @@ function saveAudioDevice(type, deviceId) {
 
 async function enumerateAudioDevices() {
     try {
-        // Request brief getUserMedia to unlock device labels
         const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         tempStream.getTracks().forEach(t => t.stop());
-    } catch (e) { /* label enumeration fails gracefully */ }
+    } catch (e) { }
 
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -1343,15 +1259,12 @@ async function enumerateAudioDevices() {
     }
 }
 
-// ── SYSTEM CHAT ───────────────────────────────────────────────────────────────
-// Broadcasts a non-sensitive event message to all viewers as "Nearsec"
 function sysChat(text) {
     if (!ws || ws.readyState !== 1) return;
     ws.send(JSON.stringify({ type: 'chat', from: 'Nearsec', msg: text }));
     appendChat('Nearsec', text, false);
 }
 
-// ── INITIALIZATION ────────────────────────────────────────────────────────
 function createVirtualAudioCable() {
     log('Creating virtual audio cable...', 'ok');
     fetch('/api/create-virtual-audio', { method: 'POST' })
@@ -1359,7 +1272,6 @@ function createVirtualAudioCable() {
     .then(res => {
         if (res.success) {
             log('Virtual cable created! Updating devices...', 'ok');
-            // Give Linux 1 second to register the new device, then refresh the dropdowns
             setTimeout(() => {
                 enumerateAudioDevices();
                 document.getElementById('virtualAudioHelp').style.color = 'var(--accent)';
@@ -1372,3 +1284,25 @@ function createVirtualAudioCable() {
 
 applyCtrlSettingsUI();
 connectWS();
+
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('auto') === '1') {
+    const autoTitle = urlParams.get('title') || 'Arcade Game';
+    const autoTunnel = urlParams.get('tunnel') || 'cloudflared';
+
+    console.log(`[Headless] Initializing automated boot for: ${autoTitle}`);
+
+    document.getElementById('arcadeGameTitle').value = autoTitle;
+    document.getElementById('arcadeMaxPlayers').value = "4";
+    document.getElementById('arcadeRequirePin').checked = false;
+
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tunnelProvider: autoTunnel, neverAsk: true })
+    }).then(() => {
+        setTimeout(() => {
+            startArcadeSession();
+        }, 2000);
+    });
+}

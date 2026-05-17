@@ -11,9 +11,6 @@
   <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
 </div>
 
-
-# NearsecTogether
-
 ## Project Description
 NearsecTogether is a low-latency, open-source platform that allows you to play local co-op games over the internet with your friends. By leveraging WebRTC for UDP-first streaming and built-in browser hardware encoders, NearsecTogether provides near-imperceptible latency that rivals commercial cloud gaming platforms — tailored specifically for self-hosted instances.
 

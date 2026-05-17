@@ -3,39 +3,32 @@ const host = location.host;
 let ws, pc, myId = sessionStorage.getItem('ns_viewer_id');
 let myName = localStorage.getItem('ns_name') || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
 document.getElementById('nameInput').value = myName;
+const CLIENT_VERSION = "1.0.0";
 let enteredPin = '', audioMuted = false;
-let kbEnabled = false; // set true only when host grants KBM mode — gates pointer lock
+let kbEnabled = false;
 
-// ── Controller guide logic ───────────────────────────────────────────────────
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
 
 function openControllerGuide() { document.getElementById('controllerGuideModal').classList.remove('hidden'); }
 function closeControllerGuide() { document.getElementById('controllerGuideModal').classList.add('hidden'); }
 function acknowledgeControllerGuide() {
-    // Removed localStorage - guide now shows every time to ensure people see it
     closeControllerGuide();
 }
 function maybeShowControllerGuide() {
-    // Always show guide on first connect (no localStorage check)
     setTimeout(() => { openControllerGuide(); }, 700);
 }
 
-// ── WebRTC Peer Connection (Restored) ─────────────────────────────────────────
 async function createPC() {
     if (pc) {
         try { pc.close(); } catch (e) {}
     }
 
     pc = new RTCPeerConnection({
+        // ── CRITICAL FIX: Removed dead TURN servers to fix 15-second timeouts ──
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' },
-            // Free TURN servers to guarantee connection if firewalls are strict
-            { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-            { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-            { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+            { urls: 'stun:stun.cloudflare.com:3478' }
         ],
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -43,20 +36,17 @@ async function createPC() {
     });
 
     pc.onicecandidate = (e) => {
-        if (e.candidate && ws && ws.readyState === 1) {
+        if (e.candidate && e.candidate.candidate && ws && ws.readyState === 1) {
             ws.send(JSON.stringify({ type: 'ice-viewer', candidate: e.candidate }));
         }
     };
 
     pc.ontrack = (e) => {
-        // KILL THE JITTER BUFFER: Forces 0ms display latency for fighting/FPS games
         try {
             if (e.receiver) e.receiver.playoutDelayHint = 0.035;
         } catch (err) {}
 
         const track = e.track;
-
-        // Apply your codec priorities
         preferReceiverCodec(e.transceiver);
 
         if (track.kind === 'video') {
@@ -81,7 +71,6 @@ async function createPC() {
     };
 }
 
-// ── Codec priority for receiver ────────────────────────────────────────────────
 const CODEC_PRIORITY = ['video/H264', 'video/VP8'];
 
 function preferReceiverCodec(transceiver) {
@@ -94,7 +83,6 @@ function preferReceiverCodec(transceiver) {
     try { transceiver.setCodecPreferences(sorted); return sorted[0]?.mimeType || null; } catch { return null; }
 }
 
-// ── Always-latest-frame engine ────────────────────────────────────────────────
 const video = document.getElementById('video');
 const frameCanvas = document.getElementById('frameCanvas');
 const frameCtx = frameCanvas.getContext('2d', { alpha: false });
@@ -163,7 +151,6 @@ function startFrameProcessor(track) {
     });
 }
 
-// ── Keyboard & Mouse Capture ───────────────────────────────────────────────
 const keyMap = {
     'KeyW': 'KEY_W', 'KeyA': 'KEY_A', 'KeyS': 'KEY_S', 'KeyD': 'KEY_D',
     'ArrowUp': 'KEY_UP', 'ArrowDown': 'KEY_DOWN', 'ArrowLeft': 'KEY_LEFT', 'ArrowRight': 'KEY_RIGHT',
@@ -176,13 +163,12 @@ const mouseMap = { 0: 'BTN_LEFT', 1: 'BTN_MIDDLE', 2: 'BTN_RIGHT' };
 
 function sendKbm(data) {
     if (ws && ws.readyState === 1 && document.pointerLockElement) {
-        data.type = 'keyboard'; // Fix schema mismatch so the server enforces permissions
+        data.type = 'keyboard';
         ws.send(JSON.stringify(data));
     }
 }
 
 function requestPointerLock() {
-    // Only lock when host has granted KBM mode — prevents accidental capture on tab-in clicks
     if (!kbEnabled) return;
     if (!document.pointerLockElement) {
         const container = document.getElementById('video-container') || document.body;
@@ -193,7 +179,6 @@ frameCanvas.addEventListener('click', requestPointerLock);
 video.addEventListener('click', requestPointerLock);
 
 document.addEventListener('click', (e) => {
-    // Only trigger if clicking on the video or canvas areas
     if (e.target === frameCanvas || e.target === video) {
         requestPointerLock();
     }
@@ -220,7 +205,6 @@ document.addEventListener('mouseup', e => {
     if (mouseMap[e.button]) sendKbm({ event: 'keyup', key: mouseMap[e.button] });
 });
 
-// ── Touch UI & Phone Gyro Engine ────────────────────────────────────────────────
 let touchMode = false;
 let useGyro = false;
 
@@ -234,10 +218,8 @@ function toggleTouch() {
     document.getElementById('touchUI').classList.toggle('gone', !touchMode);
     document.getElementById('touchToggleBtn').style.color = touchMode ? 'var(--accent)' : '';
     document.getElementById('bar').classList.remove('open');
-    // Removed the auto-fullscreen here to respect default portrait mode
 }
 
-// Auto-enable touch mode if the client is on a mobile device
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 if (isMobileDevice) {
     touchMode = true;
@@ -337,7 +319,6 @@ if (jBase) {
     }, {passive: false});
 }
 
-// ── WebHID Gyro Engine (Sony + Nintendo) ─────────────────────────────────────
 let hidDevice = null;
 let hostMotionEnabled = false;
 let hidGyroX = 0, hidGyroY = 0;
@@ -350,8 +331,8 @@ async function requestHID() {
     try {
         const devices = await navigator.hid.requestDevice({
             filters: [
-                { vendorId: 0x054c }, // PlayStation
-                { vendorId: 0x057e }  // Nintendo Switch
+                { vendorId: 0x054c },
+                { vendorId: 0x057e }
             ]
         });
 
@@ -406,11 +387,8 @@ function handleHIDReport(event) {
     }
 }
 
-// ── Calibration maps received from gamepad-popup.html via postMessage ───────────
-// key: hardware id string → { lt, rt, rsx, rsy } from brute-force calibration
 const calibMaps = {};
 
-// Load any saved maps from localStorage (same keys the popup uses)
 (function loadSavedCalibMaps() {
     const PREFIX = 'nearsec_map_';
     for (let i = 0; i < localStorage.length; i++) {
@@ -421,7 +399,6 @@ const calibMaps = {};
     }
 })();
 
-// Accept live updates from the popup iframe
 window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'NEARSEC_CONFIG_UPDATE' && e.data.hardwareId) {
         calibMaps[e.data.hardwareId] = e.data.map;
@@ -430,22 +407,18 @@ window.addEventListener('message', (e) => {
 });
 
 function applyCalibration(gp, state) {
-    // Derive a safe key matching the popup's getSafeId()
     const safeId = gp.id.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
     const m = calibMaps[safeId];
-    if (!m) return; // no calibration for this controller
+    if (!m) return;
 
-    // Right stick remapping
     if (m.rsx != null) state.axes[2] = Math.round((gp.axes[m.rsx] || 0) * 32767);
     if (m.rsy != null) state.axes[3] = Math.round((gp.axes[m.rsy] || 0) * 32767);
 
-    // Trigger remapping — normalise to 0-255 for buttons[6/7]
     function readTrigger(mapping) {
         if (!mapping) return 0;
         if (mapping.type === 'btn') {
             return Math.round((gp.buttons[mapping.idx]?.value || 0) * 255);
         }
-        // axis: raw range is typically -1→1, normalise to 0→255
         const raw = gp.axes[mapping.idx] ?? -1;
         const norm = Math.max(0, (raw + 1) / 2);
         return norm < 0.05 ? 0 : Math.round(norm * 255);
@@ -461,7 +434,6 @@ function applyCalibration(gp, state) {
     }
 }
 
-// ── Gamepad polling + heartbeat ───────────────────────────────────────────────
 let gpPolling = false, gpRaf = null, lastGpStr = {}, lastGpSend = {};
 let sentGpid = new Set();
 
@@ -473,7 +445,6 @@ function activateGamepad() {
         pmt.classList.add('active');
         pmt.textContent = 'Grab A Gamepad!';
     }
-    // 250Hz polling — rAF is capped at ~60Hz which loses rapid button presses
     setInterval(pollGamepad, 4);
 }
 
@@ -482,7 +453,6 @@ function pollGamepad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const now = Date.now();
 
-    // Process physical controllers
     for (const gp of pads) {
         if (!gp) continue;
         if (!sentGpid.has(gp.index)) {
@@ -502,10 +472,8 @@ function pollGamepad() {
             buttons: gp.buttons.map(b => ({ pressed: b.pressed, value: Math.round(b.value * 255) }))
         };
 
-        // Apply brute-force calibration map (remaps right stick + triggers to standard slots)
         applyCalibration(gp, state);
 
-        // INJECT PHYSICAL GYRO INTO RIGHT STICK IF ENABLED
         if (hidDevice && hostMotionEnabled) {
             let newRx = state.axes[2] + Math.round(hidGyroX * 32767);
             let newRy = state.axes[3] + Math.round(hidGyroY * 32767);
@@ -521,7 +489,6 @@ function pollGamepad() {
         }
     }
 
-    // Process Virtual Touch UI
     if (touchMode) {
         const vIndex = 99;
         if (!sentGpid.has(vIndex)) {
@@ -559,7 +526,6 @@ window.addEventListener('gamepadconnected', (e) => {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'gpid', padIndex: e.gamepad.index, id: e.gamepad.id, name: cleanName }));
 });
 
-// ── Overlay / status helpers ──────────────────────────────────────────────────
 function setStatus(msg, live) {
     document.getElementById('overlayStatus').textContent = msg;
     document.getElementById('topStatus').textContent = msg;
@@ -569,8 +535,6 @@ function showOverlay(v) {
     document.getElementById('overlay').classList.toggle('gone', !v);
 }
 
-
-// ── WebSocket signaling ───────────────────────────────────────────────────────
 function connect() {
     const url = proto + '://' + host + '/ws/viewer' + (enteredPin ? '?pin=' + enteredPin : '');
     ws = new WebSocket(url);
@@ -598,17 +562,16 @@ function connect() {
         }
         if (msg.type === 'host-stream-ready') {
             setStatus('Host found, connecting...');
-            await createPC();
             maybeShowControllerGuide();
         }
         if (msg.type === 'offer') {
-            // If PC exists and is not in stable state, it means we got a new offer mid-connection
-            // Close the old PC and create a new one to handle the re-offer properly
-            if (pc && pc.signalingState !== 'stable') {
+            if (pc) {
                 try { pc.close(); } catch (e) {}
                 pc = null;
             }
-            if (!pc) await createPC();
+
+            await createPC();
+
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                 pc._remoteSet = true;
@@ -646,14 +609,12 @@ function connect() {
             video.srcObject = null;
         }
 
-        // LISTEN FOR HOST SETTINGS
         if (msg.type === 'ctrl-settings') {
             hostMotionEnabled = msg.enableMotion;
             const hBtn = document.getElementById('hidBtn');
             if(hBtn) hBtn.style.display = hostMotionEnabled ? 'block' : 'none';
         }
 
-        // Track KBM permission — gates pointer lock so normal clicks never capture mouse
         if (msg.type === 'input-state') {
             kbEnabled = !!msg.kb;
             if (!kbEnabled && document.pointerLockElement) {
@@ -669,7 +630,6 @@ function connect() {
         ws.onclose = () => { setStatus('Reconnecting...'); setTimeout(connect, 2000); };
 }
 
-// ── PIN flow ──────────────────────────────────────────────────────────────────
 let pinRequired = false;
 fetch('/api/pin-required').then(r => r.json()).then(d => {
     pinRequired = d.required;
@@ -708,17 +668,15 @@ function submitPin() {
     });
 }
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
-let lastChatMsg = '';  // Track last message to prevent duplicates
-let lastChatTime = 0;  // Track timestamp to allow same message after delay
+let lastChatMsg = '';
+let lastChatTime = 0;
 
 function appendChat(name, text, isMe) {
     const el = document.getElementById('chatLog');
-    // Prevent duplicate messages within same second (sender-side deduplication)
     if (isMe) {
         const now = Date.now();
         if (text === lastChatMsg && now - lastChatTime < 1000) {
-            return;  // Ignore duplicate
+            return;
         }
         lastChatMsg = text;
         lastChatTime = now;
@@ -744,7 +702,6 @@ function toggleAudio() {
     document.getElementById('audBtn').textContent = audioMuted ? 'Muted' : 'Audio';
 }
 
-// ── Screen wake lock — prevent phone sleeping during stream ──────────────────
 let wakeLock = null;
 async function acquireWakeLock() {
     if (!('wakeLock' in navigator)) return;
@@ -760,7 +717,6 @@ document.addEventListener('visibilitychange', () => {
 });
 acquireWakeLock();
 
-// ── Live stats HUD ────────────────────────────────────────────────────────────
 const statsHud = document.getElementById('statsHud');
 let prevBytesReceived = 0, prevStatsTime = 0, prevJitterDelay = 0, prevEmitted = 0;
 
@@ -803,7 +759,6 @@ async function updateStats() {
 }
 setInterval(updateStats, 2000);
 
-// ── Fullscreen + landscape ────────────────────────────────────────────────────
 function landscape() {
     if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { });
 }
@@ -835,32 +790,27 @@ function updateRumbleBtn() {
 
 document.addEventListener('DOMContentLoaded', updateRumbleBtn);
 
-// Removed auto-fullscreen on first touch to prevent accidental fullscreen triggers.
-// Fullscreen is now only accessible via:
-// 1. The fullscreen button (fsBtn)
-// 2. KBM fullscreen shortcut (if KBM is enabled and connected)
 document.addEventListener('fullscreenchange', () => {
     if (document.fullscreenElement) landscape();
     document.getElementById('fsBtn').textContent = document.fullscreenElement ? '[x] Full' : '[ ] Full';
 });
 
-// ── Fullscreen button auto-hide after 2.7s, ignores jitter, hides cursor ─────
 (function () {
     const fsBtn = document.getElementById('fsOverlayBtn');
     if (!fsBtn) return;
     let hideTimer = null;
     let lastX = 0, lastY = 0;
-    const MOVE_THRESHOLD = 14; // px — filters optical sensor jitter & slight hand tremor
+    const MOVE_THRESHOLD = 14;
 
     function showBtn() {
         fsBtn.style.opacity = '1';
         fsBtn.style.pointerEvents = 'auto';
-        document.body.style.cursor = ''; // restore cursor on movement
+        document.body.style.cursor = '';
         clearTimeout(hideTimer);
         hideTimer = setTimeout(() => {
             fsBtn.style.opacity = '0';
             fsBtn.style.pointerEvents = 'none';
-            document.body.style.cursor = 'none'; // hide cursor during idle
+            document.body.style.cursor = 'none';
         }, 2700);
     }
 
@@ -873,5 +823,5 @@ document.addEventListener('fullscreenchange', () => {
         showBtn();
     }, { passive: true });
 
-    showBtn(); // start the timer immediately on load
+    showBtn();
 })();

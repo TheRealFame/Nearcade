@@ -9,13 +9,30 @@ BATCH_SECTION
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
-# 1. PREEMPTIVE GHOST KILLER
-# Instantly terminate any lingering process holding Port 3000 before we even try to boot
-lsof -ti:3000 | xargs kill -9 >/dev/null 2>&1
+# 1. GRACEFUL GHOST CLEANUP (UNIX)
+# Ask the process holding Port 3000 (Nearsec) to close nicely
+PORT_PID=$(lsof -ti:3000)
+if [ -n "$PORT_PID" ]; then
+    echo "  ~ Asking previous Nearsec session to close nicely (saving VPS state)..."
+    # Send SIGTERM (15) to trigger server.js cleanup() and cleanly drop SSH tunnels
+    kill -15 $PORT_PID >/dev/null 2>&1
+    sleep 2 # Give Node/Electron 2 seconds to gracefully close
+
+    # Force kill only if it completely froze
+    kill -9 $PORT_PID >/dev/null 2>&1
+fi
+
+# Failsafe: Clean up the Nearsec Python controller sidecar
+pkill -15 -f "sidecar/input_driver.py" >/dev/null 2>&1
 
 cleanup() {
     echo "\n  ! Shutting down... cleaning up port 3000"
-    lsof -ti:3000 | xargs kill -9 >/dev/null 2>&1
+    C_PID=$(lsof -ti:3000)
+    if [ -n "$C_PID" ]; then
+        kill -15 $C_PID >/dev/null 2>&1
+        sleep 1
+        kill -9 $C_PID >/dev/null 2>&1
+    fi
     exit
 }
 trap cleanup 2 15
@@ -66,8 +83,19 @@ title NearsecTogether
 
 cd /d "%~dp0.."
 
-:: Kill any existing process on port 3000
-for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :3000') do taskkill /f /pid %%a >nul 2>&1
+:: 1. GRACEFUL GHOST CLEANUP (WINDOWS)
+:: Find the process ID holding Port 3000
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :3000') do (
+    if not "%%a"=="0" (
+        echo   ~ Asking previous Nearsec session to close nicely...
+        :: Try graceful shutdown first (no /f flag sends WM_CLOSE/SIGTERM)
+        taskkill /pid %%a >nul 2>&1
+        :: Wait 2 seconds for Node to clean up
+        timeout /t 2 /nobreak >nul
+        :: Force kill if it refused to close gracefully
+        taskkill /f /pid %%a >nul 2>&1
+    )
+)
 
 if not exist .env (
     echo CF_TOKEN= > .env

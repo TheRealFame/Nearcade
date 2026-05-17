@@ -13,7 +13,7 @@ async function translateChunk(chunkObj, langName, batchIdx, totalBatches) {
     console.log(`    -> Processing batch ${batchIdx} of ${totalBatches}...`);
 
     const requestBody = {
-        model: "qwen2.5-coder:14b",
+        model: "qwen2.5-coder:7b",
         prompt: JSON.stringify(chunkObj),
         system: `You are a translation script. Translate ONLY the values (right-side strings) into ${langName}. Leave keys, colons, quotes, and structural brackets exactly identical. Output ONLY raw JSON. No chat, no warnings, no markdown wraps.`,
         stream: false,

@@ -713,7 +713,7 @@
 
         const hosts = appConfig.autoHosts || [];
         if (hosts.length === 0) {
-            list.innerHTML = `<h2>Saved Configurations</h2><div style="padding: 30px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">No containers configured yet.</div><button style="width:100%; padding:10px; margin-top:10px; border-radius:6px; cursor:pointer; background:transparent; border:1px solid var(--border); color:var(--text);" onclick="openAutoHostEditor()">Edit Raw JSON</button>`;
+            list.innerHTML = `<h2>Saved Configurations</h2><div style="padding: 30px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">No containers configured yet.</div>`;
             return;
         }
 
@@ -726,9 +726,17 @@
             const isRunning = currentGameStatus.running && currentGameStatus.command === h.cmd;
 
             let logDisplay = '';
-            if (currentGameStatus.command === h.cmd && currentGameStatus.log) {
-                const logColor = currentGameStatus.log.includes('ERROR') || currentGameStatus.log.includes('Crashed') ? '#ff4444' : '#eab308';
-                logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #333; border-radius:4px; font-family:monospace; font-size:10px; color:${logColor};">> ${currentGameStatus.log}</div>`;
+            if (isRunning) {
+                logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #333; border-radius:4px; font-family:monospace; font-size:10px; color:#eab308;">> Game loop active inside Display :99</div>`;
+            } else {
+                logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #222; border-radius:4px; font-family:monospace; font-size:10px; color:#555;">To launch, run: ./bin/headless-host.cmd in a terminal</div>`;
+            }
+
+            let activeUrl = '';
+            if (isRunning && currentGameStatus.tunnelUrl) {
+                const cleanUrl = currentGameStatus.tunnelUrl.replace(/\/$/, '');
+                const shareUrl = `${cleanUrl}/?s=${h.id.toString().slice(-4)}`;
+                activeUrl = `<div style="font-size:10px; color:#00ff88; margin-top:8px; padding-top:8px; border-top:1px solid #333;">Live Arcade Tunnel: <a href="${shareUrl}" target="_blank" style="color:#00ff88; text-decoration:none;">${shareUrl}</a></div>`;
             }
 
             const statusDot = isRunning
@@ -744,9 +752,7 @@
                     </div>
                     <div style="font-size: 11px; color: var(--muted); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top:6px;">> ${h.cmd}</div>
                     ${logDisplay}
-                </div>
-                <div style="display:flex; gap: 8px;">
-                    <button style="padding: 8px 16px; min-width: 80px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; ${isRunning ? 'background:#ff4444; color:#fff;' : 'background:var(--accent); color:#000;'}" onclick="${isRunning ? 'killGame()' : `toggleAutoHost(${h.id})`}">${isRunning ? 'Stop' : 'Start'}</button>
+                    ${activeUrl}
                 </div>
             </div>`;
         });
