@@ -1,4 +1,4 @@
-name: Translate README
+name: Translate Readme
 
 on:
   push:
@@ -6,43 +6,19 @@ on:
       - main
       - master
     paths:
-      - 'README.md' # Only runs when your root README actually changes
+      - 'README.md'
 
 jobs:
   translate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Grants the built-in GITHUB_TOKEN permission to save files
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          fetch-depth: 3
 
-      - name: Adding README - Spanish
-        uses: ephraimduncan/translate-readme@main
+      - name: Auto Translate
+        uses: Lin-jun-xiang/action-translate-readme@v2
         with:
-          LANG: es
-
-      - name: Adding README - French
-        uses: ephraimduncan/translate-readme@main
-        with:
-          LANG: fr
-
-      - name: Adding README - German
-        uses: ephraimduncan/translate-readme@main
-        with:
-          LANG: de
-
-      - name: Adding README - Portuguese
-        uses: ephraimduncan/translate-readme@main
-        with:
-          LANG: pt
-
-      - name: Adding README - Japanese
-        uses: ephraimduncan/translate-readme@main
-        with:
-          LANG: ja
+          token: ${{ secrets.Action_Bot }}
+          langs: "es,fr,de,pt,ja"
