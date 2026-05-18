@@ -730,6 +730,8 @@ async function startCapture() {
                 console.warn('Linux audio loopback initialization failed:', audErr);
             }
         } else if (aTrack) {
+            // ── THIS IS THE FIX: Add the Windows/Mac audio track to the stream ──
+            combined.addTrack(aTrack);
             log('System Audio Track Found: ' + (aTrack.label || 'default'), 'ok');
         }
 

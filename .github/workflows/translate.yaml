@@ -1,4 +1,4 @@
-name: Translate Readme
+name: Translate README
 
 on:
   push:
@@ -11,17 +11,16 @@ on:
 jobs:
   translate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Allows the workflow to commit the files using your default token
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 3
 
-      - name: Auto Translate
-        uses: Lin-jun-xiang/action-translate-readme@v2
+      - name: Auto Translate Markdown
+        uses: offensive-vk/auto-translate@v1.0.0
         with:
-          token: ${{ secrets.Action_Bot }}
-          langs: "es,fr,de,pt,ja"
-        env:
-          # This satisfies the code error and forces it to use the free model
-          OPENAI_API_KEY: "placeholder-value"
+          # Your language array (excluding English)
+          languages: '["es", "fr", "de", "pt", "ja"]'
+          # Finds your root README.md
+          files: '["README.md"]'
