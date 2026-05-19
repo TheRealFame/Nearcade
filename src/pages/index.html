@@ -746,6 +746,24 @@
       gap: 8px;
     }
 
+    /* Portrait Mode Fix: Shrink controls and align them properly until they Fullscreen */
+    @media screen and (orientation: portrait) {
+      .controls-left, .controls-right {
+        bottom: 20px;
+        transform: scale(0.75); /* Shrink the buttons/joystick slightly */
+      }
+      .controls-left { left: 5px; }
+      .controls-right { right: 5px; }
+
+      .center-ui {
+        top: 15%; /* Move the gyro toggle up so it doesn't block the screen */
+      }
+
+      #video-container {
+        align-items: flex-start; /* Push the video to the top half of the screen */
+        padding-top: 10vh;
+      }
+    }
   </style>
 </head>
 

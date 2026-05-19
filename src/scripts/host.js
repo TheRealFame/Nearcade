@@ -565,19 +565,22 @@ async function sendOfferToViewer(viewerId) {
 let selectedSourceId = null;
 
 async function showSourceSelectionModal() {
-    if (!window.electronAPI || !window.electronAPI.getWindowSources) {
-        log('Source selection not available on this platform', 'warn');
+    // CRITICAL FIX: Bypass custom modal on Linux.
+    // Electron's desktopCapturer.getSources() triggers a video-only xdg-desktop-portal
+    // on Wayland, which hides the "Share Audio" checkbox.
+    const isLinux = navigator.userAgent.toLowerCase().includes('linux');
+
+    // Only show modal if electronAPI is available AND we are not on Linux
+    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux) {
+        if (isLinux) log('Linux Wayland detected: Delegating to native portal for audio support', 'ok');
+        else log('Source selection not available on this platform', 'warn');
+
         startCapture();
         return;
     }
 
     try {
         const sources = await window.electronAPI.getWindowSources();
-        if (!sources || sources.length === 0) {
-            log('No sources available, using default capture', 'warn');
-            startCapture();
-            return;
-        }
 
         const sourceGrid = document.getElementById('sourceGrid');
         sourceGrid.innerHTML = '';
@@ -643,7 +646,6 @@ async function startCapture() {
     peerConnections = {};
 
     const isLinux = navigator.userAgent.includes('Linux') || navigator.platform.toLowerCase().includes('linux');
-    const sysAudioConfig = isLinux ? false : audioSettings.forceAudioEnabled;
 
     const fpsVal = parseInt(document.getElementById('fpsSelect')?.value) || 60;
     const resVal = document.getElementById('resSelect')?.value || '1080p';
@@ -660,16 +662,8 @@ async function startCapture() {
         if (selectedSourceId && window.electronAPI) {
             try {
                 screenStream = await navigator.mediaDevices.getUserMedia({
-                    audio: isLinux ? false : (audioSettings.forceAudioEnabled ? {
-                        mandatory: { chromeMediaSource: 'desktop' }
-                    } : false),
-                    video: {
-                        mandatory: {
-                            chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: selectedSourceId,
-                            maxFrameRate: fpsVal
-                        }
-                    }
+                    audio: isLinux ? false : (audioSettings.forceAudioEnabled ? { mandatory: { chromeMediaSource: 'desktop' } } : false),
+                                                                         video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: selectedSourceId, maxFrameRate: fpsVal } }
                 });
                 log('Using selected source: ' + selectedSourceId, 'ok');
             } catch (e) {
@@ -677,13 +671,15 @@ async function startCapture() {
                 selectedSourceId = null;
                 screenStream = await navigator.mediaDevices.getDisplayMedia({
                     video: videoConstraints,
-                    audio: sysAudioConfig
+                    audio: isLinux ? false : audioSettings.forceAudioEnabled,
+                    systemAudio: 'include'
                 });
             }
         } else {
             screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: videoConstraints,
-                audio: sysAudioConfig
+                audio: isLinux ? false : audioSettings.forceAudioEnabled,
+                systemAudio: 'include'
             });
         }
 
@@ -700,9 +696,11 @@ async function startCapture() {
         const combined = new MediaStream();
         combined.addTrack(vTrack);
 
+        // ── RESTORED LINUX LOOPBACK CODE ──
         let aTrack = screenStream.getAudioTracks()[0] || null;
         if (isLinux) {
             try {
+                // Hunt for the PipeWire virtual sink or Monitor
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const loopbackDevice = devices.find(d => d.kind === 'audioinput' &&
                 (d.label.includes('NearsecAppAudio') || d.label.toLowerCase().includes('monitor of')));
@@ -711,15 +709,13 @@ async function startCapture() {
                     const audioStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
                             deviceId: { exact: loopbackDevice.deviceId },
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
+                            echoCancellation: false, noiseSuppression: false, autoGainControl: false
                         }
                     });
                     aTrack = audioStream.getAudioTracks()[0];
                     if (aTrack) {
                         combined.addTrack(aTrack);
-                        log('System Audio Mixed: ' + loopbackDevice.label, 'ok');
+                        log('System Audio Mixed via Native Loopback: ' + loopbackDevice.label, 'ok');
                     }
                 }
             } catch (audErr) {
@@ -770,15 +766,19 @@ async function startCapture() {
         document.getElementById('trackInfo').innerHTML =
         '<strong>' + (vTrack.label || 'Screen') + '</strong><br>' +
         settings.width + '×' + settings.height + ' @ ' + Math.round(settings.frameRate || 0) + 'fps<br>' +
-        (finalAudioTracks.length > 0 ? 'Audio Mixed via Null Sink' : 'No system audio forward');
+        (finalAudioTracks.length > 0 ? 'Audio: ' + finalAudioTracks[0].label : 'No system audio forward');
 
         setCapDot('live');
-        if (finalAudioTracks.length > 0) {
-            setAudDot('live', 'Audio active');
-            startAudioMeter(currentStream);
-        } else {
-            setAudDot('warn', 'No audio — Check source');
-        }
+
+        setTimeout(() => {
+            const checkTrack = currentStream ? currentStream.getAudioTracks()[0] : null;
+            if (checkTrack) {
+                setAudDot('live', 'Audio active');
+                startAudioMeter(currentStream);
+            } else {
+                setAudDot('warn', 'No audio — Check source');
+            }
+        }, 500);
 
         ws.send(JSON.stringify({ type: 'host-stream-ready' }));
         sysChat('Stream started.');
