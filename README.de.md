@@ -2,7 +2,7 @@
   <img src="assets/NearsecTogether.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
-[Englisch](README.md)\|[Spanisch](assets/locales/readmes/README.es.md)\|[Französisch](assets/locales/readmes/README.fr.md)\|[Deutsch](assets/locales/readmes/README.de.md)\|[Portugiesisch](assets/locales/readmes/README.pt.md)\|[japanisch](assets/locales/readmes/README.ja.md)
+[Englisch](README.md)\|[Spanisch](README.es.md)\|[Französisch](README.fr.md)\|[Deutsch](README.de.md)\|[Portugiesisch](README.pt.md)\|[japanisch](README.ja.md)
 
 ## Screenshots – Dashboard, Viewer-Seite, Arcade
 
@@ -42,7 +42,14 @@ Im Gegensatz zu herkömmlichen Cloud-Gaming-Lösungen, die auf riesigen Rechenze
 
 ¹ Windows-Gamepad erforderlich[ViGEmBus-Treiber](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Detaillierte Plattform-Setup-Anleitung](PLATFORM_SETUP.md)**— Schritt-für-Schritt-Anleitungen, Fehlerbehebung und Problemumgehungen für jede Plattform.
+## Dokumentation
+
+Alle technischen Einstellungen, Benutzerhandbücher und erweiterten Logikerklärungen wurden in die verschoben`/src/docs/`Verzeichnis. Sie können diese auch direkt im Host-Dashboard der Anwendung anzeigen, indem Sie auf das Buchsymbol klicken.
+
+-   [Erste Schritte](src/docs/GETTING_STARTED.md)
+-   [Host-Nutzung](src/docs/HOST_USAGE.md)
+-   [API und Einrichtung](src/docs/API_AND_SETUP.md)
+-   [Erweiterte Logikarchitektur](src/docs/ADVANCED_LOGIC.md)
 
 * * *
 
@@ -143,7 +150,7 @@ Bei ungewöhnlichen Architekturen müssen Sie Electron möglicherweise aus der Q
 -   Core-Host-Benutzeroberfläche mit integrierten WebRTC-Erfassungssteuerelementen.
 -   Portweiterleitung, Cloudflared und automatische Tunneling-Integration.
 -   Controller-Eingangsvirtualisierung über`uinput`für eine nahtlose Umgehung des Dampfeingangs.
--   Dynamische Bitratenskalierung mit vom Benutzer wählbarer Verschlechterungspräferenz.
+-   Vollständige PipeWire-Audio-Loopback- und Voice-over-IP-Isolierung.
 -   Mobile Touch-Benutzeroberfläche mit virtuellem Joystick und optionalem Gyro-Zielen.
 -   Arcade-Modus – Listen Sie Ihre Sitzung öffentlich auf Nearsec Arcade auf, damit andere sie entdecken und daran teilnehmen können.
 

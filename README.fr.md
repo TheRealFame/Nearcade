@@ -2,7 +2,7 @@
   <img src="assets/NearsecTogether.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
-[Anglais](README.md)\|[Espagnol](assets/locales/readmes/README.es.md)\|[Français](assets/locales/readmes/README.fr.md)\|[Allemand](assets/locales/readmes/README.de.md)\|[portugais](assets/locales/readmes/README.pt.md)\|[japonais](assets/locales/readmes/README.ja.md)
+[Anglais](README.md)\|[Espagnol](README.es.md)\|[Français](README.fr.md)\|[Allemand](README.de.md)\|[portugais](README.pt.md)\|[japonais](README.ja.md)
 
 ## Captures d'écran - Tableau de bord, page de visualisation, Arcade
 
@@ -42,7 +42,14 @@ Contrairement aux solutions de cloud gaming traditionnelles qui reposaient sur d
 
 ¹ La manette de jeu Windows nécessite[Pilote ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guide de configuration détaillé de la plateforme](PLATFORM_SETUP.md)**— Instructions étape par étape, dépannage et solutions de contournement pour chaque plate-forme.
+## Documentation
+
+Toutes les configurations techniques, les guides d'utilisation et les explications de logique avancée ont été déplacés vers`/src/docs/`annuaire. Vous pouvez également les visualiser directement dans le tableau de bord hôte de l'application en cliquant sur l'icône Livre.
+
+-   [Commencer](src/docs/GETTING_STARTED.md)
+-   [Utilisation de l'hôte](src/docs/HOST_USAGE.md)
+-   [API et configuration](src/docs/API_AND_SETUP.md)
+-   [Architecture logique avancée](src/docs/ADVANCED_LOGIC.md)
 
 * * *
 
@@ -143,7 +150,7 @@ Sur des architectures inhabituelles, vous devrez peut-être construire Electron 
 -   Interface utilisateur principale de l'hôte avec contrôles de capture WebRTC intégrés.
 -   Redirection de port, Cloudflared et intégration de tunneling automatique.
 -   Virtualisation des entrées du contrôleur via`uinput`pour un contournement transparent de l’entrée de vapeur.
--   Mise à l'échelle dynamique du débit binaire avec préférence de dégradation sélectionnable par l'utilisateur.
+-   Bouclage audio PipeWire complet et isolation voix sur IP.
 -   Interface utilisateur tactile mobile avec joystick virtuel et visée gyroscopique en option.
 -   Mode Arcade : publiez votre session publiquement sur Nearsec Arcade pour que d'autres puissent la découvrir et la rejoindre.
 

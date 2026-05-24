@@ -2,7 +2,7 @@
   <img src="assets/NearsecTogether.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
-[Inglés](README.md)\|[Español](assets/locales/readmes/README.es.md)\|[Francés](assets/locales/readmes/README.fr.md)\|[Alemán](assets/locales/readmes/README.de.md)\|[portugués](assets/locales/readmes/README.pt.md)\|[japonés](assets/locales/readmes/README.ja.md)
+[Inglés](README.md)\|[Español](README.es.md)\|[Francés](README.fr.md)\|[Alemán](README.de.md)\|[portugués](README.pt.md)\|[japonés](README.ja.md)
 
 ## Capturas de pantalla: Panel de control, Página del visor, Arcade
 
@@ -42,7 +42,14 @@ A diferencia de las soluciones tradicionales de juegos en la nube que dependían
 
 ¹ El gamepad de Windows requiere[Controlador ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guía detallada de configuración de la plataforma](PLATFORM_SETUP.md)**— Instrucciones paso a paso, solución de problemas y soluciones alternativas para cada plataforma.
+## Documentación
+
+Toda la configuración técnica, las guías de uso y las explicaciones de lógica avanzada se han trasladado a la`/src/docs/`directorio. También puede verlos directamente dentro del Panel de host de la aplicación haciendo clic en el ícono Libro.
+
+-   [Empezando](src/docs/GETTING_STARTED.md)
+-   [Uso del host](src/docs/HOST_USAGE.md)
+-   [API y configuración](src/docs/API_AND_SETUP.md)
+-   [Arquitectura lógica avanzada](src/docs/ADVANCED_LOGIC.md)
 
 * * *
 
@@ -143,7 +150,7 @@ En arquitecturas inusuales, es posible que necesites construir Electron desde la
 -   Core Host UI con controles de captura WebRTC integrados.
 -   Reenvío de puertos, Cloudflared e integración de túneles automáticos.
 -   Virtualización de entrada del controlador mediante`uinput`para evitar sin problemas la entrada de vapor.
--   Escalado dinámico de la tasa de bits con preferencia de degradación seleccionable por el usuario.
+-   Bucle de audio completo PipeWire y aislamiento de voz sobre IP.
 -   Interfaz de usuario táctil móvil con joystick virtual y giroscopio opcional.
 -   Modo Arcade: publica tu sesión en Nearsec Arcade para que otros la descubran y se unan.
 

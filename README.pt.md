@@ -2,7 +2,7 @@
   <img src="assets/NearsecTogether.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
-[Inglês](README.md)\|[Espanhol](assets/locales/readmes/README.es.md)\|[Francês](assets/locales/readmes/README.fr.md)\|[Alemão](assets/locales/readmes/README.de.md)\|[Português](assets/locales/readmes/README.pt.md)\|[japonês](assets/locales/readmes/README.ja.md)
+[Inglês](README.md)\|[Espanhol](README.es.md)\|[Francês](README.fr.md)\|[Alemão](README.de.md)\|[Português](README.pt.md)\|[japonês](README.ja.md)
 
 ## Capturas de tela – Painel, Página do Visualizador, Arcade
 
@@ -42,7 +42,14 @@ Ao contrário das soluções tradicionais de jogos em nuvem que dependiam de eno
 
 ¹ O gamepad do Windows requer[Driver ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guia detalhado de configuração da plataforma](PLATFORM_SETUP.md)**— Instruções passo a passo, solução de problemas e soluções alternativas para cada plataforma.
+## Documentação
+
+Todas as configurações técnicas, guias de uso e explicações lógicas avançadas foram movidos para o`/src/docs/`diretório. Você também pode visualizá-los diretamente no Painel do Host do aplicativo clicando no ícone Livro.
+
+-   [Começando](src/docs/GETTING_STARTED.md)
+-   [Uso de host](src/docs/HOST_USAGE.md)
+-   [API e configuração](src/docs/API_AND_SETUP.md)
+-   [Arquitetura Lógica Avançada](src/docs/ADVANCED_LOGIC.md)
 
 * * *
 
@@ -143,7 +150,7 @@ Em arquiteturas incomuns, você pode precisar construir o Electron a partir da f
 -   UI principal do host com controles de captura WebRTC integrados.
 -   Encaminhamento de porta, Cloudflared e integração automática de tunelamento.
 -   Virtualização de entrada do controlador via`uinput`para ignorar perfeitamente a entrada do Steam.
--   Escala de taxa de bits dinâmica com preferência de degradação selecionável pelo usuário.
+-   Loopback de áudio PipeWire completo e isolamento de voz sobre IP.
 -   UI de toque móvel com joystick virtual e giroscópio opcional.
 -   Modo Arcade – liste sua sessão publicamente no Nearsec Arcade para que outras pessoas descubram e participem.
 
