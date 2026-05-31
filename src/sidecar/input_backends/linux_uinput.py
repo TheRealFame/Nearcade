@@ -28,7 +28,7 @@ except ImportError:
 
 if UINPUT_OK:
     W3C_MAP = {
-        0: uinput.BTN_A,    1: uinput.BTN_B,    2: uinput.BTN_X,    3: uinput.BTN_Y,
+        0: uinput.BTN_A,    1: uinput.BTN_B,    2: uinput.BTN_Y,    3: uinput.BTN_X, # FIX: Swapped X/Y for PS4 Native
         4: uinput.BTN_TL,   5: uinput.BTN_TR,
         8: uinput.BTN_SELECT, 9: uinput.BTN_START,
         10: uinput.BTN_THUMBL, 11: uinput.BTN_THUMBR,
@@ -246,9 +246,10 @@ def _emit_gp(pad_id, msg):
     if len(axes) >= 4:
         gp.emit(uinput.ABS_RX, int(axes[2]), syn=False)
         gp.emit(uinput.ABS_RY, int(axes[3]), syn=False)
-    if len(axes) >= 6:
-        gp.emit(uinput.ABS_Z,  int(axes[4]), syn=False)
-        gp.emit(uinput.ABS_RZ, int(axes[5]), syn=False)
+    if len(btns) > 6:
+        gp.emit(uinput.ABS_Z, int(btns[6].get("value", 0)), syn=False)
+    if len(btns) > 7:
+        gp.emit(uinput.ABS_RZ, int(btns[7].get("value", 0)), syn=False)
     if len(btns) > 15:
         hx = -1 if btns[14]["pressed"] else 1 if btns[15]["pressed"] else 0
         hy = -1 if btns[12]["pressed"] else 1 if btns[13]["pressed"] else 0

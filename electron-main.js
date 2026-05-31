@@ -91,7 +91,9 @@ app.commandLine.appendSwitch('force-high-performance-gpu');
 app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
-app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+}
 
 // ── FIX #12: Single centralized config ───────────────────────────────────────
 // All settings live here. Renderer pages MUST go through electronAPI.getSettings /

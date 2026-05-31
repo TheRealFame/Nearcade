@@ -542,7 +542,17 @@ const keyMap = {
     'Space':'KEY_SPACE','Enter':'KEY_ENTER','Escape':'KEY_ESC',
     'ShiftLeft':'KEY_LEFTSHIFT','ControlLeft':'KEY_LEFTCTRL','Tab':'KEY_TAB',
     'KeyQ':'KEY_Q','KeyE':'KEY_E','KeyR':'KEY_R','KeyF':'KEY_F','KeyC':'KEY_C',
-    'KeyZ':'KEY_Z','KeyX':'KEY_X','KeyV':'KEY_V','KeyB':'KEY_B','Digit1':'KEY_1','Digit2':'KEY_2'
+    'KeyZ':'KEY_Z','KeyX':'KEY_X','KeyV':'KEY_V','KeyB':'KEY_B','Digit1':'KEY_1','Digit2':'KEY_2',
+    // ── NEW FULL ALPHABET & NUMBERS ──
+    'KeyT':'KEY_T','KeyY':'KEY_Y','KeyU':'KEY_U','KeyI':'KEY_I','KeyO':'KEY_O','KeyP':'KEY_P',
+    'KeyG':'KEY_G','KeyH':'KEY_H','KeyJ':'KEY_J','KeyK':'KEY_K','KeyL':'KEY_L',
+    'KeyM':'KEY_M','KeyN':'KEY_N',
+    'Digit3':'KEY_3','Digit4':'KEY_4','Digit5':'KEY_5','Digit6':'KEY_6',
+    'Digit7':'KEY_7','Digit8':'KEY_8','Digit9':'KEY_9','Digit0':'KEY_0',
+    'Minus':'KEY_MINUS','Equal':'KEY_EQUAL','Backspace':'KEY_BACKSPACE',
+    'BracketLeft':'KEY_LEFTBRACE','BracketRight':'KEY_RIGHTBRACE','Backslash':'KEY_BACKSLASH',
+    'Semicolon':'KEY_SEMICOLON','Quote':'KEY_APOSTROPHE','Comma':'KEY_COMMA',
+    'Period':'KEY_DOT','Slash':'KEY_SLASH','AltLeft':'KEY_LEFTALT','Capslock':'KEY_CAPSLOCK'
 };
 const mouseMap = { 0:'BTN_LEFT', 1:'BTN_MIDDLE', 2:'BTN_RIGHT' };
 

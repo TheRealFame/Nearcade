@@ -22,7 +22,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Use 18 or 20, standard for modern web apps
+          node-version: '22.x'
           cache: 'npm'
 
       # 3. Set up Java 17 (Required by modern Gradle/Android builds)
