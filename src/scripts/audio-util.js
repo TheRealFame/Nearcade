@@ -94,12 +94,12 @@ function fallbackPlay(filePath, callback) {
 function getFallbackCommand(filePath) {
   switch (PLATFORM) {
     case 'win32':
-      // Windows: Use PowerShell Media.SoundPlayer (doesn't require external tools)
-      // Must escape backslashes for PowerShell
-      const escapedPath = filePath.replace(/\\/g, '\\\\');
+      // Windows: Use PowerShell System.Media.SoundPlayer
+      // Single quotes must be escaped by doubling them in PowerShell
+      const escapedPath = filePath.replace(/'/g, "''");
       return {
         method: 'powershell',
-        command: `powershell -Command "(New-Object Media.SoundPlayer).PlaySync('${escapedPath}')"`,
+        command: `powershell -Command "(New-Object System.Media.SoundPlayer '${escapedPath}').PlaySync()"`,
       };
 
     case 'darwin':
