@@ -330,6 +330,64 @@ async function createWindow() {
     } catch (_) { return []; }
   });
 
+  // Fix: Listen for 'run-setup', matching what the dashboard actually sends
+  ipcMain.on('run-setup', (event) => {
+    const { exec } = require('child_process');
+    const path = require('path');
+    const os = require('os');
+    const fs = require('fs');
+
+    if (os.platform() === 'win32') {
+      // WINDOWS: Run the PowerShell setup script natively as Administrator
+      const scriptPath = path.join(__dirname, 'bin', 'windows_setup.ps1');
+      const psCommand = `Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File ""${scriptPath}""' -Verb RunAs`;
+
+      exec(`powershell -Command "${psCommand}"`, (error) => {
+        if (error) {
+          console.error('[Setup] Windows setup failed:', error.message);
+          event.reply('setup-failed', error.message);
+        } else {
+          event.reply('setup-success');
+        }
+      });
+    }
+    else if (os.platform() === 'linux') {
+      const scriptPath = path.join(__dirname, 'bin', 'linux_setup.sh');
+      const wrapperPath = path.join(os.tmpdir(), 'nearsec_setup_wrapper.sh');
+      const statusFile = path.join(os.tmpdir(), 'nearsec_setup_status');
+
+      // Create a clean wrapper that forces the native password prompt and logs the exit code
+      const wrapperContent = `#!/bin/bash\nclear\necho "Starting Nearsec Setup..."\nsudo bash "${scriptPath}"\nif [ $? -eq 0 ]; then echo "SUCCESS" > "${statusFile}"; else echo "FAIL" > "${statusFile}"; fi\necho ""\nread -p "Press Enter to close..."\n`;
+
+      try {
+        fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
+        if (fs.existsSync(statusFile)) fs.unlinkSync(statusFile); // Clear old status
+      } catch (e) {
+        console.error('[Setup] Failed to write wrapper:', e);
+        event.reply('setup-failed', e.message);
+        return;
+      }
+
+      // x-terminal-emulator respects the OS's chosen default terminal.
+      // The rest are strictly fallbacks for non-Debian distros.
+      const command = `x-terminal-emulator -e "${wrapperPath}" || konsole -e "${wrapperPath}" || gnome-terminal -- "${wrapperPath}" || xterm -e "${wrapperPath}"`;
+
+      exec(command, (error) => {
+        // Read the status file to tell the UI if the drivers actually installed
+        try {
+          const status = fs.readFileSync(statusFile, 'utf8');
+          if (status.includes('SUCCESS')) {
+            event.reply('setup-success');
+          } else {
+            event.reply('setup-failed', 'Setup aborted or failed.');
+          }
+        } catch(e) {
+          event.reply('setup-failed', 'Terminal closed early.');
+        }
+      });
+    }
+  });
+
   // FIX #22: Clipboard IPC bridge
   ipcMain.handle('clipboard-write', (_, text) => {
     try { clipboard.writeText(String(text)); return true; } catch (_) { return false; }

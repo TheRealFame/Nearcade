@@ -787,8 +787,10 @@
     let currentGameStatus = { running: false, command: null, tunnelUrl: null, log: '' };
 
     setInterval(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const activePort = urlParams.get('port') || '3000';
         const port = _getServerPort();
-        fetch(`http://localhost:${port}/api/game-status`).then(r => r.json()).then(status => {
+        fetch(`http://localhost:${activePort}/api/status`).then(r => r.json()).then(status => {
             if (status.running !== currentGameStatus.running || status.log !== currentGameStatus.log) {
                 currentGameStatus = status;
                 renderAutoHosts();

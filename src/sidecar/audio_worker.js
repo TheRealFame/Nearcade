@@ -146,8 +146,8 @@ async function initVirtualAudio() {
   );
 
   // 5. Lock system default to the virtual sink
-  await new Promise(r => setTimeout(r, 400));
-  await _pactlExec('pactl set-default-sink NearsecVirtual');
+  // await new Promise(r => setTimeout(r, 400));
+  // await _pactlExec('pactl set-default-sink NearsecVirtual');
 
   // 6. Optionally start blacklist daemon (sidecar — require path forwarded from main)
   if (workerData && workerData.daemonPath && fs.existsSync(workerData.daemonPath)) {
@@ -202,7 +202,7 @@ async function destroyVirtualAudio() {
   if (nearsecLine) {
     const nearsecId  = nearsecLine.trim().split(/\s+/)[0];
     const defaultSink = (await _pactlExec('pactl get-default-sink')).trim();
-    if (nearsecId && defaultSink && defaultSink !== 'NearsecAppAudio') {
+    if (nearsecId && defaultSink && defaultSink !== 'NearsecVirtual') {
       const inputs = await _pactlExec('pactl list short sink-inputs');
       for (const line of (inputs || '').split('\n').filter(Boolean)) {
         const parts   = line.trim().split(/\s+/);
@@ -346,13 +346,13 @@ function _routeViaPatctl(gameProcessName) {
 
         exec('pactl list short sinks', (e3, sinks) => {
           if (e3 || !sinks) return;
-          const nearsecLine = sinks.split('\n').find(l => l.includes('NearsecAppAudio'));
+          const nearsecLine = sinks.split('\n').find(l => l.includes('NearsecVirtual'));
           if (!nearsecLine) return;
           const nearsecSinkId = nearsecLine.split(/\s+/)[0];
           if (!nearsecSinkId || currentSink === nearsecSinkId) return;
 
           exec(`pactl move-sink-input ${inputId} ${nearsecSinkId}`, e4 => {
-            if (!e4) log(`pactl routed sink-input ${inputId} (${identifier}) → NearsecAppAudio`);
+            if (!e4) log(`pactl routed sink-input ${inputId} (${identifier}) → NearsecVirtual`);
           });
         });
       });

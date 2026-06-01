@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Session & Navigation ──
+  installDrivers: () => ipcRenderer.send('install-drivers'),
   backToDashboard: () => ipcRenderer.send('back-to-dashboard-from-host'),
   joinSession: (url, meta)        => ipcRenderer.invoke('join-session', { url, meta }),
   pingSession: (url)              => ipcRenderer.invoke('ping-session', url),
