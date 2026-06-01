@@ -107,12 +107,16 @@ export default {
     }
 
     // ==========================================
-    // FALLBACK: Serve the Static Arcade site
+    // FALLBACK: Graceful Routing Pass-Through
     // ==========================================
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }
 
-    return new Response("Assets not bound correctly", { status: 500 });
+    // Redirect or return a clean index message instead of a fatal 500 crash
+    return new Response(JSON.stringify({ status: "online", service: "Nearsec Arcade Gateway" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...corsHeaders }
+    });
   }
 };
