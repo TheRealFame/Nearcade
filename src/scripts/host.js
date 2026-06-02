@@ -27,7 +27,7 @@ const arcadeChannel = pusher.subscribe('private-arcade-global');
 // ── NEW: Catch the Ban 403 error and alert the Host ──
 arcadeChannel.bind('pusher:subscription_error', (status) => {
     if (status === 403) {
-        log('Arcade Error: Your IP is banned from the network.', 'err');
+        log(I18N.t('Arcade Error: Your IP is banned from the network.'), 'err');
 
         // Change the Arcade Live button to show the ban
         const btnArcade = document.getElementById('btnArcade');
@@ -108,7 +108,7 @@ function toggleMasterMute() {
             currentStream.getAudioTracks().forEach(t => t.enabled = false);
         if (btn)  { btn.classList.add('master-mic-kill'); btn.title = 'Audio MUTED — click to restore'; }
         if (icon) { icon.src = '/assets/icons/speaker-off.svg'; icon.style.filter = 'invert(0.4) sepia(1) saturate(6) hue-rotate(-20deg)'; }
-        if (typeof log === 'function') log('Master mute: desktop audio cut', 'warn');
+        if (typeof log === 'function') log(I18N.t('Master mute: desktop audio cut'), 'warn');
     } else {
         if (_desktopGainNode) _desktopGainNode.gain.value = window._savedDesktopGain;
         if (_hostMicGainNode)  _hostMicGainNode.gain.value  = window._savedMicGain;
@@ -116,7 +116,7 @@ function toggleMasterMute() {
             currentStream.getAudioTracks().forEach(t => t.enabled = true);
         if (btn)  { btn.classList.remove('master-mic-kill'); btn.title = 'Cut Desktop Audio to Stream'; }
         if (icon) { icon.src = '/assets/icons/speaker.svg'; icon.style.filter = 'invert(0.6)'; }
-        if (typeof log === 'function') log('Master mute: audio restored', 'ok');
+        if (typeof log === 'function') log(I18N.t('Master mute: audio restored'), 'ok');
     }
 }
 
@@ -169,7 +169,7 @@ async function monitorCongestion(pc, viewerId) {
 
             if (!congestionControl.baselineRtt && rttMs > 0) {
                 congestionControl.baselineRtt = rttMs;
-                log(`Congestion: Baseline RTT ${rttMs}ms`, 'ok');
+                log(I18N.t('Congestion: Baseline RTT ${rttMs}ms').replace('${rttMs}', rttMs), 'ok');
             }
 
             const sender = pc.getSenders().find(s => s.track?.kind === 'video');
@@ -198,7 +198,7 @@ async function monitorCongestion(pc, viewerId) {
             }
             await sender.setParameters(params);
             congestionControl.lastAdjustment[viewerId] = { bitrate: recovered, time: Date.now() };
-            log(`Congestion: Bitrate recovered to ${Math.round(recovered/1000)}kbps for ${viewerId}`, 'ok');
+            log(I18N.t('Congestion: Bitrate recovered to ${Math.round(recovered/1000)}kbps for ${viewerId}').replace('${Math.round(recovered/1000)}', Math.round(recovered/1000)).replace('${viewerId}', viewerId), 'ok');
             return;
                 }
 
@@ -209,7 +209,7 @@ async function monitorCongestion(pc, viewerId) {
                     }
                     await sender.setParameters(params);
                     congestionControl.lastAdjustment[viewerId] = { bitrate: currentBitrate, time: Date.now() };
-                    log(`Congestion: Bitrate reduced to ${Math.round(newBitrate/1000)}kbps (${reason})`, 'warn');
+                    log(I18N.t('Congestion: Bitrate reduced to ${Math.round(newBitrate/1000)}kbps (${reason})').replace('${Math.round(newBitrate/1000)}', Math.round(newBitrate/1000)).replace('${reason}', reason), 'warn');
                 }
         } catch (e) {}
     };
@@ -258,7 +258,7 @@ function toggleStreamState() {
         // Update UI to "Start" state
         btn.classList.remove('danger-btn');
         iconPath.setAttribute('d', 'M5 3l14 9-14 9V3z'); // Play Icon
-        log('Session stopped by user', 'ok');
+        log(I18N.t('Session stopped by user'), 'ok');
     }
 }
 
@@ -376,7 +376,7 @@ async function applyBitrateToAll() {
         await setLowLatencyParams(pc);
     }
     const bitVal = parseInt(document.getElementById('bitrateSelect').value, 10);
-    log('Stream bitrate changed to ' + (bitVal > 0 ? (bitVal / 1000000) + ' Mbps' : 'Auto'), 'ok');
+    log(I18N.t('Stream bitrate changed to') + ' ' + (bitVal > 0 ? (bitVal / 1000000) + ' Mbps' : 'Auto'), 'ok');
 }
 
 function log(msg, cls) {
@@ -657,7 +657,7 @@ let _lastRosterList = [];
 function changeInputMode(viewerId, newMode, viewerName) {
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'set-input-mode', viewerId: viewerId, mode: newMode }));
-        log(`Input mode for viewer ${viewerId} set to ${newMode}`, 'ok');
+        log(I18N.t('Input mode for viewer ${viewerId} set to ${newMode}').replace('${viewerId}', viewerId).replace('${newMode}', newMode), 'ok');
         if (viewerName && !viewerName.startsWith('Guest')) {
             savedViewerModes[viewerName] = newMode;
             localStorage.setItem('ns_saved_modes', JSON.stringify(savedViewerModes));
@@ -719,7 +719,7 @@ function toggleSlotLock(rosterId) {
 }
 
 function togglePin() {
-    if (arcadePingInterval) { log('Cannot change PIN during active Arcade session', 'warn'); return; }
+    if (arcadePingInterval) { log(I18N.t('Cannot change PIN during active Arcade session'), 'warn'); return; }
     pinEnabled = !pinEnabled;
     const btn = document.getElementById('pinToggle');
     if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
@@ -729,14 +729,14 @@ function togglePin() {
 function regeneratePin() {
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'regen-pin' }));
-        log('Requesting new PIN...', 'ok');
+        log(I18N.t('Requesting new PIN...'), 'ok');
     }
 }
 
 function connectWS() {
     ws = new WebSocket(proto + '://' + location.host + '/ws/host');
     ws.onopen = () => {
-        log('Connected to server', 'ok');
+        log(I18N.t('Connected to server'), 'ok');
 
         // NEW: Fetch host name for UI
         fetch('/api/config').then(r => r.json()).then(cfg => {
@@ -759,9 +759,9 @@ function connectWS() {
             const isNew = !knownViewers.has(msg.viewerId);
             knownViewers.add(msg.viewerId);
             if (isNew) {
-                log('Viewer ' + (msg.name || msg.viewerId) + ' joined', 'ok');
+                log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' joined', 'ok');
             } else {
-                log('Viewer ' + (msg.name || msg.viewerId) + ' re-offer requested', 'ok');
+                log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' re-offer requested', 'ok');
             }
             if (currentStream) {
                 await sendOfferToViewer(msg.viewerId);
@@ -772,7 +772,7 @@ function connectWS() {
         if (msg.type === 'viewer-left') {
             knownViewers.delete(msg.viewerId);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
-            log('Viewer ' + msg.viewerId + ' left');
+            log(I18N.t('Viewer') + ' ' + msg.viewerId + ' left');
         }
         if (msg.type === 'roster') {
             _lastRosterList = msg.viewers || [];
@@ -787,7 +787,7 @@ function connectWS() {
                     console.log(`[webrtc] Stale answer dropped. State is: ${pc.signalingState}`);
                     return;
                 }
-                try { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); } catch (e) { log('answer err: ' + e.message, 'err'); }
+                try { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); } catch (e) { log(I18N.t('answer err:') + ' ' + e.message, 'err'); }
             }
         }
         if (msg.type === 'ice-viewer') {
@@ -797,31 +797,31 @@ function connectWS() {
 
         // NEW: Intercept viewer mic trigger
         if (msg.type === 'viewer-mic-ready') {
-            log('Viewer ' + msg._viewerId + ' enabled microphone. Re-syncing tracks...', 'ok');
+            log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone. Re-syncing tracks...', 'ok');
             sendOfferToViewer(msg._viewerId);
         }
 
         if (msg.type === 'tunnel-url') {
-            log('Tunnel ready: ' + msg.url, 'ok');
+            log(I18N.t('Tunnel ready:') + ' ' + msg.url, 'ok');
             fetch('/api/info').then(r => r.json()).then(d => { d.tunnelUrl = msg.url; renderUrls(d); });
             closeTunnelModal();
         }
         if (msg.type === 'tunnel-error') {
-            log('Tunnel failed: ' + msg.provider, 'err');
+            log(I18N.t('Tunnel failed:') + ' ' + msg.provider, 'err');
             showTunnelError('Failed to start ' + msg.provider + '.\n\nIf using a SSH tunnel (localhost.run / serveo), outbound port 22 is likely blocked by your router/ISP.\n\nTry using cloudflared instead.');
         }
         if (msg.type === 'chat') appendChat(msg.from, msg.msg, false);
-        if (msg.type === 'viewer-gpid') log('Controller: ' + msg.id, 'ok');
-        if (msg.type === 'arcade-session-active') log('Arcade session is LIVE on Nearsec Arcade!', 'ok');
-        if (msg.type === 'arcade-session-error') log('Arcade error: ' + (msg.reason || 'unknown'), 'err');
+        if (msg.type === 'viewer-gpid') log(I18N.t('Controller:') + ' ' + msg.id, 'ok');
+        if (msg.type === 'arcade-session-active') log(I18N.t('Arcade session is LIVE on Nearsec Arcade!'), 'ok');
+        if (msg.type === 'arcade-session-error') log(I18N.t('Arcade error:') + ' ' + (msg.reason || 'unknown'), 'err');
         if (msg.type === 'regen-pin') {
             currentPin = msg.pin;
             document.getElementById('pinVal').textContent = msg.pin;
-            log('PIN regenerated: ' + msg.pin, 'ok');
+            log(I18N.t('PIN regenerated:') + ' ' + msg.pin, 'ok');
         }
     };
-    ws.onclose = () => { log('Disconnected — retrying', 'warn'); setTimeout(connectWS, 2000); };
-    ws.onerror = () => log('WS error', 'err');
+    ws.onclose = () => { log(I18N.t('Disconnected — retrying'), 'warn'); setTimeout(connectWS, 2000); };
+    ws.onerror = () => log(I18N.t('WS error'), 'err');
 }
 
 async function sendOfferToViewer(viewerId) {
@@ -868,7 +868,7 @@ async function sendOfferToViewer(viewerId) {
 
     let connectTimeout = setTimeout(() => {
         if (pc.connectionState !== 'connected' && peerConnections[viewerId] === pc) {
-            log('Handshake timeout for ' + viewerId + ', fast retrying...', 'warn');
+            log(I18N.t('Handshake timeout for') + ' ' + viewerId + ', fast retrying...', 'warn');
             sendOfferToViewer(viewerId);
         }
     }, 3000);
@@ -905,7 +905,7 @@ async function sendOfferToViewer(viewerId) {
     };
     pc.onconnectionstatechange = () => {
         const s = pc.connectionState;
-        log('Viewer ' + viewerId + ': ' + s, s === 'connected' ? 'ok' : s === 'failed' ? 'err' : '');
+        log(I18N.t('Viewer') + ' ' + viewerId + ': ' + s, s === 'connected' ? 'ok' : s === 'failed' ? 'err' : '');
 
         if (s === 'connected') {
             clearTimeout(connectTimeout);
@@ -916,7 +916,7 @@ async function sendOfferToViewer(viewerId) {
         if (s === 'failed' || s === 'disconnected') {
             clearTimeout(connectTimeout);
             if (peerConnections[viewerId] === pc) {
-                log('Retrying offer to ' + viewerId, 'warn');
+                log(I18N.t('Retrying offer to') + ' ' + viewerId, 'warn');
                 delete peerConnections[viewerId];
                 setTimeout(() => sendOfferToViewer(viewerId), 500);
             }
@@ -927,9 +927,9 @@ async function sendOfferToViewer(viewerId) {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
         ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: viewerId }));
-        log('Offer → viewer ' + viewerId, 'ok');
+        log(I18N.t('Offer → viewer') + ' ' + viewerId, 'ok');
     } catch (err) {
-        log('Fatal WebRTC Error for ' + viewerId + ': ' + err.message, 'err');
+        log(I18N.t('Fatal WebRTC Error for') + ' ' + viewerId + ': ' + err.message, 'err');
     }
 }
 
@@ -943,8 +943,8 @@ async function showSourceSelectionModal() {
 
     // Only show modal if electronAPI is available AND we are not on Linux
     if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux) {
-        if (isLinux) log('Linux Wayland detected: Delegating to native portal for audio support', 'ok');
-        else log('Source selection not available on this platform', 'warn');
+        if (isLinux) log(I18N.t('Linux Wayland detected: Delegating to native portal for audio support'), 'ok');
+        else log(I18N.t('Source selection not available on this platform'), 'warn');
 
         startCapture();
         return;
@@ -981,7 +981,7 @@ async function _populateSourceGrid() {
 
         if (!sources || sources.length === 0) {
             if (noSources) noSources.style.display = 'flex';
-            log('No capture sources found — try clicking Refresh or opening a window', 'warn');
+            log(I18N.t('No capture sources found — try clicking Refresh or opening a window'), 'warn');
             return;
         }
 
@@ -1004,9 +1004,9 @@ async function _populateSourceGrid() {
             sourceGrid.appendChild(card);
         });
 
-        log(`Found ${sources.length} capture source(s)`, 'ok');
+        log(I18N.t('Found ${sources.length} capture source(s)').replace('${sources.length}', sources.length), 'ok');
     } catch (e) {
-        log('Error loading sources: ' + e.message, 'err');
+        log(I18N.t('Error loading sources:') + ' ' + e.message, 'err');
         sourceGrid.innerHTML = '';
         if (noSources) {
             noSources.style.display = 'flex';
@@ -1079,9 +1079,9 @@ async function startCapture() {
                     audio: isLinux ? false : (audioSettings.forceAudioEnabled ? { mandatory: { chromeMediaSource: 'desktop' } } : false),
                                                                          video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: selectedSourceId, maxFrameRate: fpsVal } }
                 });
-                log('Using selected source: ' + selectedSourceId, 'ok');
+                log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
             } catch (e) {
-                log('Source selection failed, falling back: ' + e.message, 'warn');
+                log(I18N.t('Source selection failed, falling back:') + ' ' + e.message, 'warn');
                 selectedSourceId = null;
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
             }
@@ -1093,7 +1093,7 @@ async function startCapture() {
 
         const vTrack = screenStream.getVideoTracks()[0];
         if (!vTrack || vTrack.readyState === 'ended') {
-            log('Screen capture cancelled', 'warn'); setCapDot('');
+            log(I18N.t('Screen capture cancelled'), 'warn'); setCapDot('');
             document.getElementById('btnStart').disabled = false; return;
         }
 
@@ -1110,7 +1110,7 @@ async function startCapture() {
                 try {
                     const unlockStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     unlockStream.getTracks().forEach(t => t.stop());
-                } catch(e) { log('Audio permission missing, loopback labels hidden', 'warn'); }
+                } catch(e) { log(I18N.t('Audio permission missing, loopback labels hidden'), 'warn'); }
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const audioInputs = devices.filter(d => d.kind === 'audioinput');
@@ -1140,10 +1140,10 @@ async function startCapture() {
                         }
                     });
                     aTrack = audioStream.getAudioTracks()[0];
-                    if (aTrack) log('System audio captured', 'ok');
+                    if (aTrack) log(I18N.t('System audio captured'), 'ok');
                 } else {
                     const labels = audioInputs.map(d => d.label || 'Hidden').join(', ');
-                    log('Virtual cable not found. Seen labels: ' + labels, 'warn');
+                    log(I18N.t('Virtual cable not found. Seen labels:') + ' ' + labels, 'warn');
                 }
             } catch (audErr) {
                 console.warn('Linux audio loopback initialization failed:', audErr);
@@ -1157,14 +1157,14 @@ async function startCapture() {
             combined.addTrack(aTrack);
             // Link the slider node to the track so the Host can change the volume!
             if (typeof attachDesktopGain === 'function') attachDesktopGain(combined);
-            log('System Audio Track Found: ' + (aTrack.label || 'default'), 'ok');
+            log(I18N.t('System Audio Track Found:') + ' ' + (aTrack.label || 'default'), 'ok');
             if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'stop-audio-fallback' }));
         } else {
             if (!disableFallback) {
-                log('Browser capture failed. Engaging Python OS-level audio fallback...', 'warn');
+                log(I18N.t('Browser capture failed. Engaging Python OS-level audio fallback...'), 'warn');
                 if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start-audio-fallback' }));
             } else {
-                log('Browser capture failed. (Python Fallback disabled)', 'err');
+                log(I18N.t('Browser capture failed. (Python Fallback disabled)'), 'err');
             }
         }
 
@@ -1178,9 +1178,9 @@ async function startCapture() {
                 const micTrack = micStream.getAudioTracks()[0];
                 if (micTrack) {
                     combined.addTrack(micTrack);
-                    log('Microphone added: ' + (micTrack.label || 'default'), 'ok');
+                    log(I18N.t('Microphone added:') + ' ' + (micTrack.label || 'default'), 'ok');
                 }
-            } catch (e) { log('Mic capture failed: ' + e.message, 'warn'); }
+            } catch (e) { log(I18N.t('Mic capture failed:') + ' ' + e.message, 'warn'); }
         }
 
         currentStream = combined;
@@ -1247,16 +1247,16 @@ async function startCapture() {
         }, 500);
 
         ws.send(JSON.stringify({ type: 'host-stream-ready' }));
-        sysChat('Stream started.');
+        sysChat(I18N.t('Stream started.'));
         [...knownViewers].forEach(id => sendOfferToViewer(id));
 
-        vTrack.onended = () => { log('Capture ended by OS', 'warn'); stopCapture(); };
+        vTrack.onended = () => { log(I18N.t('Capture ended by OS'), 'warn'); stopCapture(); };
         _elDisabled('btnSwitch', false);
         _elDisabled('btnStop', false);
         _elDisabled('btnKbmPanic', false);
     } catch (err) {
-        if (err.name === 'NotAllowedError' || err.name === 'AbortError') log('Capture cancelled', 'warn');
-        else { log('Capture failed: ' + err.message, 'err'); setCapDot('err'); }
+        if (err.name === 'NotAllowedError' || err.name === 'AbortError') log(I18N.t('Capture cancelled'), 'warn');
+        else { log(I18N.t('Capture failed:') + ' ' + err.message, 'err'); setCapDot('err'); }
         _elDisabled('btnStart', false);
     }
 }
@@ -1299,7 +1299,7 @@ function stopCapture() {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
         arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
-        log('Arcade Mode: Session ended on Arcade', 'warn');
+        log(I18N.t('Arcade Mode: Session ended on Arcade'), 'warn');
 
         // Restore the Arcade button SVG icon
         const btnArcade = document.getElementById('btnArcade');
@@ -1314,7 +1314,7 @@ function stopCapture() {
         const btn = document.getElementById('pinToggle');
         if (btn) { btn.textContent = 'ON'; btn.className = 'pin-toggle-btn on'; }
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: true }));
-        log('PIN re-enabled after Arcade session', 'ok');
+        log(I18N.t('PIN re-enabled after Arcade session'), 'ok');
     }
 
     // NEW: Unlock PIN UI when session ends (MOVED HERE SO IT ALWAYS RUNS)
@@ -1329,8 +1329,8 @@ function stopCapture() {
         pinDisplay.textContent = pinDisplay.dataset.originalPin;
     }
 
-    log('Capture stopped');
-    sysChat('Host stopped sharing.');
+    log(I18N.t('Capture stopped'));
+    sysChat(I18N.t('Host stopped sharing.'));
 
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('auto') === '1') {
@@ -1458,19 +1458,19 @@ function confirmTunnel() {
             fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tunnelProvider: 'portforward', neverAsk: true }) });
         }
         closeTunnelModal();
-        log('Using direct Port Forwarding. Share your Public IP URL.', 'ok');
+        log(I18N.t('Using direct Port Forwarding. Share your Public IP URL.'), 'ok');
         return;
     }
 
     document.getElementById('tunnelLoading').classList.remove('gone');
-    document.getElementById('tunnelLoadText').textContent = 'Starting ' + provider + '...';
+    document.getElementById('tunnelLoadText').textContent = I18N.t('Starting') + ' ' + provider + '...';
 
-    log('Starting ' + provider + ' tunnel' + (remember ? ' (saved)' : '') + '…', 'ok');
+    log(I18N.t('Starting') + ' ' + provider + ' tunnel' + (remember ? ' (saved)' : '') + '…', 'ok');
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, remember, vpsHost: document.getElementById("vpsHostInput")?.value?.trim() })
-    }).catch(() => showTunnelError('Network request failed'));
+    }).catch(() => showTunnelError(I18N.t('Network request failed')));
 }
 
 document.querySelectorAll('input[name="provider"]').forEach(radio => {
@@ -1545,7 +1545,7 @@ function toggleCtrlSetting(key) {
     localStorage.setItem('ns_ctrl_' + key, ctrlSettings[key]);
     applyCtrlSettingsUI();
     sendCtrlSettings();
-    log('ctrl-settings: ' + key + ' = ' + ctrlSettings[key], 'ok');
+    log(I18N.t('ctrl-settings:') + ' ' + key + ' = ' + ctrlSettings[key], 'ok');
 }
 
 
@@ -1558,9 +1558,9 @@ function toggleHybridInput() {
         (_lastRosterList || []).forEach(v => {
             ws.send(JSON.stringify({ type: 'set-input', viewerId: v.id, gp: true, kb: true }));
         });
-        log('Hybrid Input ON — Gamepad + KBM active for all viewers', 'ok');
+        log(I18N.t('Hybrid Input ON — Gamepad + KBM active for all viewers'), 'ok');
     } else {
-        log('Hybrid Input OFF', 'warn');
+        log(I18N.t('Hybrid Input OFF'), 'warn');
     }
 }
 
@@ -1574,7 +1574,7 @@ function changeCtrlType(type) {
             ws.send(JSON.stringify({ type: 'set-ctrl-type', viewerId: v.id.split('_')[0], ctrlType: type }));
         });
     }
-    log('Controller type: ' + type, 'ok');
+    log(I18N.t('Controller type:') + ' ' + type, 'ok');
 }
 
 function changeDefaultInputMode(mode) {
@@ -1582,7 +1582,7 @@ function changeDefaultInputMode(mode) {
     localStorage.setItem('ns_ctrl_defaultInputMode', mode);
     applyCtrlSettingsUI();
     sendCtrlSettings();
-    log('Default input mode set to: ' + mode, 'ok');
+    log(I18N.t('Default input mode set to:') + ' ' + mode, 'ok');
 }
 
 function sendCtrlSettings() {
@@ -1676,10 +1676,10 @@ const getHostOS = () => {
 function _doArcadeRegister() {
     fetch('/api/info').then(r => r.json()).then(info => {
         if (!info.tunnelUrl) {
-            log('⚠ Arcade: No tunnel URL yet. Start a tunnel first, then launch Arcade.', 'warn');
+            log(I18N.t('⚠ Arcade: No tunnel URL yet. Start a tunnel first, then launch Arcade.'), 'warn');
             return;
         }
-        log(`Arcade Mode: ${arcadeConfig.title} (${arcadeConfig.maxPlayers} players) → ${info.tunnelUrl}`, 'ok');
+        log(I18N.t('Arcade Mode: ${arcadeConfig.title} (${arcadeConfig.maxPlayers} players) → ${info.tunnelUrl}').replace('${arcadeConfig.title}', arcadeConfig.title).replace('${arcadeConfig.maxPlayers}', arcadeConfig.maxPlayers).replace('${info.tunnelUrl}', info.tunnelUrl), 'ok');
 
         if (info.tunnelUrl && !info.tunnelUrl.includes('voiceMode')) {
             const _sep = info.tunnelUrl.includes('?') ? '&' : '?';
@@ -1691,7 +1691,7 @@ function _doArcadeRegister() {
             const btn = document.getElementById('pinToggle');
             if (btn) { btn.textContent = 'OFF'; btn.className = 'pin-toggle-btn'; }
             if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: false }));
-            log('PIN disabled for Arcade session', 'ok');
+            log(I18N.t('PIN disabled for Arcade session'), 'ok');
         }
 
         const getPingData = () => ({
@@ -1704,7 +1704,7 @@ function _doArcadeRegister() {
         });
 
         arcadeChannel.trigger('client-session-ping', getPingData());
-        sysChat('Arcade Mode started: ' + arcadeConfig.title);
+        sysChat(I18N.t('Arcade Mode started:') + ' ' + arcadeConfig.title);
         document.getElementById('btnArcade').innerHTML = '<span style="color:var(--green); font-weight:bold; font-size: 10px;">ARCADE<br>LIVE</span>';
 
         if (arcadePingInterval) clearInterval(arcadePingInterval);
@@ -1712,7 +1712,7 @@ function _doArcadeRegister() {
             arcadeChannel.trigger('client-session-ping', getPingData());
         }, 10000);
 
-    }).catch(() => log('Arcade: Could not read server info', 'err'));
+    }).catch(() => log(I18N.t('Arcade: Could not read server info'), 'err'));
 }
 
 const SVG_EYE_OPEN   = '<img src="/assets/icons/eye.svg"     style="width:20px;height:20px;filter:invert(0.6);pointer-events:none;" alt="">';
@@ -1737,7 +1737,7 @@ function togglePreview() {
                 : 'Click Start to begin sharing';
         }
         if (btn) { btn.innerHTML = SVG_EYE_CLOSED; btn.style.color = 'var(--warn)'; }
-        log('Preview hidden — stream unaffected', 'ok');
+        log(I18N.t('Preview hidden — stream unaffected'), 'ok');
     } else {
         prev.style.display = 'block';
         if (currentStream) {
@@ -1745,7 +1745,7 @@ function togglePreview() {
             if (overlay) overlay.classList.add('hidden');
         }
         if (btn) { btn.innerHTML = SVG_EYE_OPEN; btn.style.color = ''; }
-        log('Preview restored', 'ok');
+        log(I18N.t('Preview restored'), 'ok');
     }
 }
 
@@ -1792,7 +1792,7 @@ function toggleAppSetting(key) {
     if (key === 'alwaysOnTop' && window.electronAPI?.toggleAlwaysOnTop) {
         window.electronAPI.toggleAlwaysOnTop();
     }
-    log('Setting ' + key + ' = ' + appSettings[key], 'ok');
+    log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
 
 function saveAudioDevice(type, deviceId) {
@@ -1852,7 +1852,7 @@ async function enumerateAudioDevices() {
             outputSel.appendChild(o);
         });
     } catch (e) {
-        log('Audio device enumeration failed: ' + e.message, 'warn');
+        log(I18N.t('Audio device enumeration failed:') + ' ' + e.message, 'warn');
     }
 }
 
@@ -1878,20 +1878,20 @@ window.setGlobalViewerVolume = function(val) {
 };
 
 function createVirtualAudioCable() {
-    log('Creating virtual audio cable...', 'ok');
+    log(I18N.t('Creating virtual audio cable...'), 'ok');
     fetch('/api/create-virtual-audio', { method: 'POST' })
     .then(r => r.json())
     .then(res => {
         if (res.success) {
-            log('Virtual cable created! Updating devices...', 'ok');
+            log(I18N.t('Virtual cable created! Updating devices...'), 'ok');
             setTimeout(() => {
                 enumerateAudioDevices();
                 document.getElementById('virtualAudioHelp').style.color = 'var(--accent)';
             }, 1000);
         } else {
-            log('Failed to create cable: ' + res.error, 'err');
+            log(I18N.t('Failed to create cable:') + ' ' + res.error, 'err');
         }
-    }).catch(e => log('Network error creating cable', 'err'));
+    }).catch(e => log(I18N.t('Network error creating cable'), 'err'));
 }
 
 applyCtrlSettingsUI();

@@ -139,7 +139,7 @@ async function createPC() {
 
     pc.onconnectionstatechange = () => {
         console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
-        if (pc.connectionState === 'failed')      setStatus('Connection failed. Retrying...');
+        if (pc.connectionState === 'failed')      setStatus(I18N.t('Connection failed. Retrying...'));
         if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
     };
     pc.oniceconnectionstatechange = () => console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
@@ -489,7 +489,7 @@ function startFrameProcessor(track) {
         if (!video.srcObject) video.srcObject = new MediaStream();
         video.srcObject.addTrack(track);
         video.onplaying = () => {
-            showOverlay(false); setStatus('Live', true);
+            showOverlay(false); setStatus(I18N.t('Live'), true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             document.getElementById('kbmHint').style.display = 'inline';
@@ -522,7 +522,7 @@ function startFrameProcessor(track) {
         pending.close(); pending = null;
         if (firstFrame) {
             firstFrame = false;
-            showOverlay(false); setStatus('Live', true);
+            showOverlay(false); setStatus(I18N.t('Live'), true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             document.getElementById('kbmHint').style.display = 'inline';
@@ -812,7 +812,7 @@ async function connect() {
             if (videoEl?.srcObject) { videoEl.srcObject.getTracks().forEach(t=>t.stop()); videoEl.srcObject = null; }
             document.getElementById('frameCanvas').style.display = 'none';
             processorRunning = false;
-            showOverlay(true); setStatus('Host reconnected, waiting for stream...');
+            showOverlay(true); setStatus(I18N.t('Host reconnected, waiting for stream...'));
             document.getElementById('spinner').style.display = 'block';
             setTimeout(() => ws?.readyState===1 && ws.send(JSON.stringify({ type:'request-offer' })), 800);
             return;
@@ -857,14 +857,14 @@ async function connect() {
             if (nameEl) nameEl.textContent = myName + ' (You)';
             return;
         }
-        if (msg.type === 'host-stream-ready') { setStatus('Host found, connecting...'); maybeShowControllerGuide(); return; }
+        if (msg.type === 'host-stream-ready') { setStatus(I18N.t('Host found, connecting...')); maybeShowControllerGuide(); return; }
         if (msg.type === 'host-disconnected' || msg.type === 'host-stream-stopped') {
-            showOverlay(true); setStatus('Host stopped streaming');
+            showOverlay(true); setStatus(I18N.t('Host stopped streaming'));
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
         }
         if (msg.type === 'host-not-streaming') {
-            showOverlay(true); setStatus('Host is not sharing their screen yet...');
+            showOverlay(true); setStatus(I18N.t('Host is not sharing their screen yet...'));
             document.getElementById('spinner').style.display = 'none';
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
@@ -888,10 +888,10 @@ async function connect() {
         if (msg.type === 'host-voice-cmd' && msg.targetViewerId === myId) {
             if (msg.action === 'mute') {
                 forceMutedByHost = true; disableMic(); updateMicButton();
-                appendChat('Nearsec', 'The host has muted your microphone.', false);
+                appendChat('Nearsec', I18N.t('The host has muted your microphone.'), false);
             } else {
                 forceMutedByHost = false; updateMicButton();
-                appendChat('Nearsec', 'The host unmuted you.', false);
+                appendChat('Nearsec', I18N.t('The host unmuted you.'), false);
             }
             return;
         }
