@@ -651,131 +651,18 @@
     }
   });
 
-  // ── VOLUME DISPLAY FUNCTIONS ──────────────────────────────────────────────
-  // These must be globally accessible before any oninput fires.
-  // Defined at script parse time (not inside DOMContentLoaded) for that reason.
-  let _desktopGainNode = null;
-  let _hostMicGainNode = null;
-
-  // Master mute state — persists across gain node re-assignments
-  window._masterMuteActive = false;
-  window._savedDesktopGain = 1.0;
-  window._savedMicGain     = 1.0;
-
-  function setDesktopVolume(val) {
-    const v = parseInt(val, 10);
-    const el = document.getElementById('desktopVolVal');
-    if (el) el.textContent = v;
-    localStorage.setItem('ns_host_desktop_vol', v);
-    // Respect master mute — don't let the slider override an active kill
-    if (!window._masterMuteActive && _desktopGainNode) {
-      _desktopGainNode.gain.value = v / 100;
-    }
-  }
-
-  function setHostMicGain(val) {
-    const v = parseInt(val, 10);
-    const el = document.getElementById('hostMicVal');
-    if (el) el.textContent = v;
-    localStorage.setItem('ns_host_mic_gain', v);
-    if (!window._masterMuteActive && _hostMicGainNode) {
-      _hostMicGainNode.gain.value = v / 100;
-    }
-  }
-
-  function attachDesktopGain(stream) {
-    const aTrack = stream.getAudioTracks()[0];
-    if (!aTrack) return;
-    try {
-      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-      const src  = ctx.createMediaStreamSource(new MediaStream([aTrack]));
-      const gain = ctx.createGain();
-      const dst  = ctx.createMediaStreamDestination();
-      // Apply saved volume, clamped to 0 if master mute is already active
-      const savedVol = parseInt(localStorage.getItem('ns_host_desktop_vol') ?? '100', 10) / 100;
-      gain.gain.value = window._masterMuteActive ? 0 : savedVol;
-      src.connect(gain); gain.connect(dst);
-      _desktopGainNode = gain;
-      stream.removeTrack(aTrack);
-      stream.addTrack(dst.stream.getAudioTracks()[0]);
-    } catch(e) { console.warn('[HostAudio] Gain node failed:', e); }
-  }
-
-  // ── MASTER AUDIO KILLSWITCH ───────────────────────────────────────────────
-  window.toggleMasterMute = function() {
-    window._masterMuteActive = !window._masterMuteActive;
-    const active = window._masterMuteActive;
-    const btn = document.getElementById('btnMasterAudioKill');
-    const audStatus = document.getElementById('audStatus'); // NEW
-    const audDot = document.getElementById('audDot');       // NEW
-
-    if (active) {
-      window._savedDesktopGain = _desktopGainNode ? _desktopGainNode.gain.value : 1.0;
-      window._savedMicGain     = _hostMicGainNode  ? _hostMicGainNode.gain.value  : 1.0;
-      if (_desktopGainNode) _desktopGainNode.gain.value = 0;
-      if (_hostMicGainNode)  _hostMicGainNode.gain.value  = 0;
-
-      if (typeof currentStream !== 'undefined' && currentStream) {
-          currentStream.getAudioTracks().forEach(t => t.enabled = false);
-      }
-
-      if (btn) {
-        btn.title = 'Audio MUTED — click to restore';
-        btn.style.color = '';
-        btn.style.borderColor = '';
-        btn.classList.add('master-mic-kill');
-        const _spk = document.getElementById('speakerIcon');
-        if (_spk) { _spk.src = '/assets/icons/speaker-off.svg'; _spk.style.filter = 'invert(0.4) sepia(1) saturate(6) hue-rotate(-20deg)'; }
-      }
-      if (audStatus) audStatus.textContent = 'Audio MUTED'; // SYNC
-      if (audDot) audDot.className = 'dot err';             // SYNC
-
-      if (typeof log === 'function') log('Master mute: desktop audio cut from WebRTC stream', 'warn');
-    } else {
-      if (_desktopGainNode) _desktopGainNode.gain.value = window._savedDesktopGain;
-      if (_hostMicGainNode)  _hostMicGainNode.gain.value  = window._savedMicGain;
-
-      if (typeof currentStream !== 'undefined' && currentStream) {
-          currentStream.getAudioTracks().forEach(t => t.enabled = true);
-      }
-
-      if (btn) {
-        btn.title = 'Cut Desktop Audio to Stream';
-        btn.classList.remove('master-mic-kill');
-        const _spk2 = document.getElementById('speakerIcon');
-        if (_spk2) { _spk2.src = '/assets/icons/speaker.svg'; _spk2.style.filter = 'invert(0.6)'; }
-      }
-      if (audStatus) audStatus.textContent = 'Audio Active'; // SYNC
-      if (audDot) audDot.className = 'dot live';             // SYNC
-
-      if (typeof log === 'function') log('Master mute: audio restored', 'ok');
-    }
-  };
-
-  // globalViewerVolume declared in host.js — assign here only
-  globalViewerVolume = 1.0;
-  window.setGlobalViewerVolume = function(val) {
-    globalViewerVolume = val / 100;
-    const el = document.getElementById('globalViewerVolVal');
-    if (el) el.textContent = val;
-    if (typeof viewerAudioStates !== 'undefined') {
-      Object.keys(viewerAudioStates).forEach(vid => {
-        const audioEl = document.getElementById('remote-audio-' + vid);
-        if (audioEl && viewerAudioStates[vid].state < 2) {
-          audioEl.volume = (viewerAudioStates[vid].vol / 100) * globalViewerVolume;
-        }
-      });
-    }
-  };
-
-  // Restore saved slider positions on load
   _whenReady(() => {
     const dv = localStorage.getItem('ns_host_desktop_vol') ?? '100';
     const mv = localStorage.getItem('ns_host_mic_gain')    ?? '100';
+    const gv = localStorage.getItem('ns_vol_others')       ?? '100';
+
     const dvEl = document.getElementById('desktopVolSlider');
     const mvEl = document.getElementById('hostMicSlider');
+    const gvEl = document.getElementById('globalViewerVolSlider');
+
     if (dvEl) { dvEl.value = dv; setDesktopVolume(dv); }
     if (mvEl) { mvEl.value = mv; setHostMicGain(mv); }
+    if (gvEl) { gvEl.value = gv; if(window.setGlobalViewerVolume) window.setGlobalViewerVolume(gv); }
   });
 
 </script>

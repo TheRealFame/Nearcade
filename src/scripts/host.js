@@ -140,6 +140,9 @@ const congestionControl = {
     minRttMs: 40,
     maxRttMs: 120,
     packetLossThreshold: 5,
+    statsPollInterval: 2000,   // FIX: Prevents the 0ms infinite loop!
+    recoveryTimeout: 5000,     // FIX: Prevents NaN math errors during bandwidth recovery
+    lastAdjustment: {}         // FIX: Stores individual viewer states
 };
 
 async function monitorCongestion(pc, viewerId) {
