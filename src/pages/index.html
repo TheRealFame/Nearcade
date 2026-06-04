@@ -459,6 +459,43 @@
     .toast-icon { font-size: 16px; flex-shrink:0; }
     .toast-msg  { font-family: var(--mono); font-size: 11px; }
 
+
+    /* ─── CHAT TOAST ────────────────────────────────────────────────────── */
+.chat-toast {
+    position: fixed;
+    bottom: 80px; /* Hovers just above the bottom control bar */
+    right: 20px;
+    background: rgba(30, 30, 35, 0.95);
+    border: 1px solid var(--accent);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 10000;
+    pointer-events: none; /* Clicks pass right through it */
+    opacity: 0;
+    transform: translateY(15px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    max-width: 280px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+#chatToastName {
+    font-weight: bold;
+    color: var(--accent);
+}
+
+#chatToastMsg {
+    color: var(--muted);
+}
     /* ─── CHAT PANEL ────────────────────────────────────────────────────── */
     /* Narrow chat + click-outside backdrop */
     #chatBackdrop {
@@ -1020,6 +1057,10 @@ if (window.IS_CLIENT_ONLY) {
     </div>
   </div>
 
+
+  <div id="chatToast" class="chat-toast">
+    <span id="chatToastName">Name</span>: <span id="chatToastMsg">Message</span>
+</div>
   <!-- ════ CHAT BACKDROP (click outside to close) ════ -->
   <div id="chatBackdrop" onclick="closeChatPanel()"></div>
 
@@ -1238,28 +1279,53 @@ if (window.IS_CLIENT_ONLY) {
       }
     };
 
-    // ── Unread message badge logic ──
-    let _chatUnread = 0;
-    let _badgeHideTimer = null;
-    const _origAppendChat = window.appendChat;
-    window.appendChat = function(name, text, isMe) {
-      if (typeof _origAppendChat === 'function') _origAppendChat(name, text, isMe);
-      if (isMe) return; // don't badge own messages
-      const panel = document.getElementById('chatPanel');
-      if (panel.classList.contains('open')) return; // already reading
-      _chatUnread++;
-      const badge = document.getElementById('chatBadge');
-      if (!badge) return;
-      badge.textContent = _chatUnread > 9 ? '9+' : String(_chatUnread);
-      badge.style.display = 'flex';
-      // Auto-hide after 2s, but reset timer if another message arrives
-      clearTimeout(_badgeHideTimer);
-      _badgeHideTimer = setTimeout(() => {
-        if (!panel.classList.contains('open')) {
-          badge.style.display = 'none';
+    // ── Chat Unread Badge & Toast Notification Logic ──
+let _chatUnread = 0;
+let _lastToastTime = 0;
+let _toastTimeout = null;
+
+const _origAppendChat = window.appendChat;
+window.appendChat = function(name, text, isMe) {
+    // 1. Actually add the message to the log
+    if (typeof _origAppendChat === 'function') _origAppendChat(name, text, isMe);
+
+    // 2. Check if the chat panel is currently closed
+    const panel = document.getElementById('chatPanel');
+    const isClosed = panel && !panel.classList.contains('open');
+
+    if (isClosed) {
+        // Update the red unread badge
+        _chatUnread++;
+        const badge = document.getElementById('chatBadge');
+        if (badge) {
+            badge.style.display = 'flex';
+            badge.textContent = _chatUnread > 9 ? '9+' : String(_chatUnread);
         }
-      }, 2000);
-    };
+
+        // 3. TOAST POPUP LOGIC (With Anti-Spam Cooldown)
+        const now = Date.now();
+        // Only pop up if it's NOT you, and it has been at least 2.5 seconds since the last popup
+        if (!isMe && (now - _lastToastTime > 2500)) {
+            _lastToastTime = now;
+            const toast = document.getElementById('chatToast');
+            const toastName = document.getElementById('chatToastName');
+            const toastMsg = document.getElementById('chatToastMsg');
+
+            if (toast && toastName && toastMsg) {
+                toastName.textContent = name;
+                toastMsg.textContent = text;
+
+                toast.classList.add('show');
+
+                // Clear any existing hide timer, and hide this one after 3 seconds
+                if (_toastTimeout) clearTimeout(_toastTimeout);
+                _toastTimeout = setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+        }
+    }
+};
 
     // ── Click outside: close nsBar, chatPanel, audioPanel ──
     const nsBar = document.getElementById('nsBar');

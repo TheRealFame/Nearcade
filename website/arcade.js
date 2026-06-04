@@ -11,7 +11,7 @@ const WS_URL = (() => {
     : 'nearsec.cutefame.net';
     return `${proto}://${host}/ws/arcade`;
 })();
-const POLL_INTERVAL = 6000;
+const POLL_INTERVAL = 4500;
 
 // ── Security: only sessions from these tunnel providers are shown ─────────────
 // Enforced client-side as a second layer; server validates before broadcasting.
