@@ -139,7 +139,7 @@ async function createPC() {
 
     pc.onconnectionstatechange = () => {
         console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
-        if (pc.connectionState === 'failed')      setStatus(I18N.t('Connection failed. Retrying...'));
+        if (pc.connectionState === 'failed')      setStatus('Connection failed. Retrying...');
         if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
     };
     pc.oniceconnectionstatechange = () => console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
@@ -489,7 +489,7 @@ function startFrameProcessor(track) {
         if (!video.srcObject) video.srcObject = new MediaStream();
         video.srcObject.addTrack(track);
         video.onplaying = () => {
-            showOverlay(false); setStatus(I18N.t('Live'), true);
+            showOverlay(false); setStatus('Live', true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             document.getElementById('kbmHint').style.display = 'inline';
@@ -522,7 +522,7 @@ function startFrameProcessor(track) {
         pending.close(); pending = null;
         if (firstFrame) {
             firstFrame = false;
-            showOverlay(false); setStatus(I18N.t('Live'), true);
+            showOverlay(false); setStatus('Live', true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             document.getElementById('kbmHint').style.display = 'inline';
@@ -812,7 +812,7 @@ async function connect() {
             if (videoEl?.srcObject) { videoEl.srcObject.getTracks().forEach(t=>t.stop()); videoEl.srcObject = null; }
             document.getElementById('frameCanvas').style.display = 'none';
             processorRunning = false;
-            showOverlay(true); setStatus(I18N.t('Host reconnected, waiting for stream...'));
+            showOverlay(true); setStatus('Host reconnected, waiting for stream...');
             document.getElementById('spinner').style.display = 'block';
             setTimeout(() => ws?.readyState===1 && ws.send(JSON.stringify({ type:'request-offer' })), 800);
             return;
@@ -857,7 +857,7 @@ async function connect() {
             if (nameEl) nameEl.textContent = myName + ' (You)';
             return;
         }
-        if (msg.type === 'host-stream-ready') { setStatus(I18N.t('Host found, connecting...')); maybeShowControllerGuide(); return; }
+        if (msg.type === 'host-stream-ready') { setStatus('Host found, connecting...'); maybeShowControllerGuide(); return; }
 
         // ── RUMBLE ────────────────────────────────────────────────────────────
         if (msg.type === 'rumble') {
@@ -881,12 +881,64 @@ async function connect() {
             return;
         }
         if (msg.type === 'host-disconnected' || msg.type === 'host-stream-stopped') {
-            showOverlay(true); setStatus(I18N.t('Host stopped streaming'));
+            // Freeze the last frame rather than going black — shows the viewer
+            // what was on screen and makes it clear the host dropped, not them.
+            _freezeFrameForSwap();
+            // Swap the spinner text to a disconnect message
+            if (_swapOverlayEl) {
+                const ctx2d = _swapOverlayEl.getContext('2d');
+                const cx = _swapOverlayEl.width / 2, cy = _swapOverlayEl.height / 2;
+                ctx2d.clearRect(0, 0, _swapOverlayEl.width, _swapOverlayEl.height);
+                ctx2d.drawImage(document.getElementById('frameCanvas'), 0, 0);
+                ctx2d.fillStyle = 'rgba(0,0,0,0.55)';
+                ctx2d.fillRect(0, 0, _swapOverlayEl.width, _swapOverlayEl.height);
+                ctx2d.font = `bold ${Math.round(_swapOverlayEl.height * 0.04)}px sans-serif`;
+                ctx2d.fillStyle = 'rgba(255,255,255,0.85)';
+                ctx2d.textAlign = 'center';
+                ctx2d.textBaseline = 'middle';
+                ctx2d.fillText('Host stopped streaming', cx, cy);
+            }
+            showOverlay(false);
+            setStatus('Host stopped streaming');
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
         }
+
+        if (msg.type === 'session-full') {
+            showOverlay(true);
+            setStatus(`Session full — ${msg.reason || 'maximum players reached'}`);
+            document.getElementById('spinner').style.display = 'none';
+            if (pc) { pc.close(); pc = null; }
+            return;
+        }
+
+        if (msg.type === 'session-password-required') {
+            // Show the styled pin screen with the session password field
+            // instead of the browser's native prompt() dialog.
+            const pinScreen = document.getElementById('pinScreen');
+            const pinWrap   = document.getElementById('pinWrap');
+            const pwWrap    = document.getElementById('sessionPasswordWrap');
+            const pwInput   = document.getElementById('sessionPasswordInput');
+            const submitBtn = document.querySelector('.pin-submit-btn');
+            const errEl     = document.getElementById('pinErr');
+
+            if (pinScreen && pwWrap && pwInput) {
+                if (pinWrap)  pinWrap.style.display  = 'none';
+                pwWrap.style.display = 'block';
+                pinScreen.classList.remove('gone');
+                if (errEl) errEl.textContent = 'This session requires a password.';
+                if (submitBtn) {
+                    submitBtn.textContent = 'Enter Session →';
+                    submitBtn.onclick = () => submitSessionPassword();
+                }
+                setTimeout(() => pwInput.focus(), 80);
+            }
+
+            if (pc) { pc.close(); pc = null; }
+            return;
+        }
         if (msg.type === 'host-not-streaming') {
-            showOverlay(true); setStatus(I18N.t('Host is not sharing their screen yet...'));
+            showOverlay(true); setStatus('Host is not sharing their screen yet...');
             document.getElementById('spinner').style.display = 'none';
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
@@ -910,10 +962,10 @@ async function connect() {
         if (msg.type === 'host-voice-cmd' && msg.targetViewerId === myId) {
             if (msg.action === 'mute') {
                 forceMutedByHost = true; disableMic(); updateMicButton();
-                appendChat('Nearsec', I18N.t('The host has muted your microphone.'), false);
+                appendChat('Nearsec', 'The host has muted your microphone.', false);
             } else {
                 forceMutedByHost = false; updateMicButton();
-                appendChat('Nearsec', I18N.t('The host unmuted you.'), false);
+                appendChat('Nearsec', 'The host unmuted you.', false);
             }
             return;
         }
@@ -973,6 +1025,30 @@ function submitPin() {
     }).catch(() => { connect(); if (!gpPolling) activateGamepad(); });
 }
 
+function submitSessionPassword() {
+    const pwInput = document.getElementById('sessionPasswordInput');
+    const errEl   = document.getElementById('pinErr');
+    const pw = (pwInput?.value || '').trim();
+    if (!pw) { if (errEl) errEl.textContent = 'Password cannot be empty.'; return; }
+
+    // Restore pin screen state for next time
+    const pinWrap   = document.getElementById('pinWrap');
+    const pwWrap    = document.getElementById('sessionPasswordWrap');
+    const submitBtn = document.querySelector('.pin-submit-btn');
+    if (pinWrap)  pinWrap.style.display  = '';
+    if (pwWrap)   pwWrap.style.display   = 'none';
+    if (submitBtn) { submitBtn.textContent = 'Join Stream →'; submitBtn.onclick = () => submitPin(); }
+    if (errEl)    errEl.textContent = '';
+    document.getElementById('pinScreen')?.classList.add('gone');
+
+    // Reconnect with password as query param
+    const sep = (typeof wsUrl !== 'undefined' && wsUrl.includes('?')) ? '&' : '?';
+    if (typeof wsUrl !== 'undefined') {
+        wsUrl = wsUrl.replace(/[?&]password=[^&]*/g, '') + sep + 'password=' + encodeURIComponent(pw);
+    }
+    setTimeout(connect, 200);
+}
+
 // ── CHAT ──────────────────────────────────────────────────────────────────────
 let lastChatMsg = '', lastChatTime = 0;
 function appendChat(name, text, isMe) {
@@ -1029,23 +1105,47 @@ async function updateStats() {
     if (!pc) return;
     try {
         const stats = await pc.getStats();
-        let rtt = null, jitter = null, kbps = null;
+        let rtt = null, jitter = null, kbps = null, packetsLost = 0, packetsReceived = 0;
         for (const r of stats.values()) {
-            if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) rtt = (r.currentRoundTripTime * 1000).toFixed(0);
-            if (r.type === 'inbound-rtp' && r.kind === 'video' && prevStatsTime) {
-                const eDelta = (r.jitterBufferEmittedCount||1) - prevEmitted;
-                if (eDelta > 0) jitter = (((r.jitterBufferDelay||0) - prevJitterDelay) / eDelta * 1000).toFixed(0);
-                kbps = (((r.bytesReceived - prevBytesReceived) * 8) / ((r.timestamp - prevStatsTime) / 1000) / 1000).toFixed(0);
-                prevBytesReceived = r.bytesReceived; prevStatsTime = r.timestamp;
-                prevJitterDelay = r.jitterBufferDelay||0; prevEmitted = r.jitterBufferEmittedCount||1;
-            } else if (r.type === 'inbound-rtp' && r.kind === 'video') {
-                prevBytesReceived = r.bytesReceived; prevStatsTime = r.timestamp;
-                prevJitterDelay = r.jitterBufferDelay||0; prevEmitted = r.jitterBufferEmittedCount||1;
+            if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null)
+                rtt = (r.currentRoundTripTime * 1000).toFixed(0);
+            if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                packetsLost     = r.packetsLost     || 0;
+                packetsReceived = r.packetsReceived || 1;
+                if (prevStatsTime) {
+                    const eDelta = (r.jitterBufferEmittedCount||1) - prevEmitted;
+                    if (eDelta > 0) jitter = (((r.jitterBufferDelay||0) - prevJitterDelay) / eDelta * 1000).toFixed(0);
+                    kbps = (((r.bytesReceived - prevBytesReceived) * 8) / ((r.timestamp - prevStatsTime) / 1000) / 1000).toFixed(0);
+                    prevBytesReceived = r.bytesReceived; prevStatsTime = r.timestamp;
+                    prevJitterDelay = r.jitterBufferDelay||0; prevEmitted = r.jitterBufferEmittedCount||1;
+                } else {
+                    prevBytesReceived = r.bytesReceived; prevStatsTime = r.timestamp;
+                    prevJitterDelay = r.jitterBufferDelay||0; prevEmitted = r.jitterBufferEmittedCount||1;
+                }
             }
         }
         if (rtt !== null) {
             statsHud.style.display = 'flex';
-            statsHud.textContent = [rtt+'ms RTT', jitter&&jitter+'ms buf', kbps&&kbps+'kbps'].filter(Boolean).join(' · ');
+
+            // ── Quality tier from RTT + packet loss ──────────────────────────
+            const rttN      = parseInt(rtt);
+            const lossRatio = packetsReceived > 0 ? (packetsLost / (packetsLost + packetsReceived)) * 100 : 0;
+
+            let bars, colour;
+            if      (rttN < 40  && lossRatio < 1)  { bars = '▪▪▪▪'; colour = '#4ade80'; } // excellent — green
+            else if (rttN < 80  && lossRatio < 3)  { bars = '▪▪▪○'; colour = '#a3e635'; } // good — lime
+            else if (rttN < 140 && lossRatio < 6)  { bars = '▪▪○○'; colour = '#facc15'; } // fair — yellow
+            else if (rttN < 220 && lossRatio < 12) { bars = '▪○○○'; colour = '#fb923c'; } // poor — orange
+            else                                    { bars = '○○○○'; colour = '#f87171'; } // bad  — red
+
+            const parts = [
+                `<span style="color:${colour};letter-spacing:1px">${bars}</span>`,
+                `<span style="color:${colour}">${rtt}ms</span>`,
+            ];
+            if (jitter) parts.push(`${jitter}ms buf`);
+            if (kbps)   parts.push(`${kbps}kbps`);
+
+            statsHud.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
         }
     } catch {}
 }

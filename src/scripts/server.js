@@ -689,6 +689,9 @@ async function main() {
   const PUBLIC_IP = await getPublicIP();
   let PIN = makePin();
   let pinEnabled = true;
+  // Per-session password — set by host via 'set-session-password' WS message.
+  // Empty string means no session password. Separate from the global PIN.
+  let sessionPassword = '';
 
   console.log("\n  \x1b[1mNearsecTogether\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
@@ -770,6 +773,16 @@ async function main() {
   app.get("/api/config", (req, res) => res.json(loadConfig()));
   app.post("/api/config", express.json(), (req, res) => { res.json(saveConfig(req.body || {})); });
 
+  app.post('/api/set-session-password', express.json(), (req, res) => {
+    sessionPassword = (req.body?.password || '').trim();
+    console.log(`[host] Session password ${sessionPassword ? 'set' : 'cleared'}`);
+    res.json({ ok: true, hasPassword: !!sessionPassword });
+  });
+
+  app.get('/api/session-password-status', (req, res) => {
+    res.json({ hasPassword: !!sessionPassword });
+  });
+
   app.get("/api/status", (req, res) => {
     res.json({
       online: !!hostWS,
@@ -808,14 +821,68 @@ async function main() {
       console.warn("[Audio] PatchBay not ready.");
       return res.json({ success: false });
     }
-
-    // If no process is typed in, it defaults to Desktop (ignoring Discord)
     const targetProcess = req.body.processName || "ALL_DESKTOP";
     console.log(`[Audio] Engaging auto-router: ${targetProcess}`);
-
     routeGameAudio(targetProcess);
     res.json({ success: true });
   });
+
+  // ── FFmpeg Experimental Pipeline ──────────────────────────────────────────
+  // Only registered when FFMPEG_EXPERIMENTAL env var is set.
+  // Disabled by default — not part of the stable release.
+  if (process.env.FFMPEG_EXPERIMENTAL === '1') {
+    console.log('[server] ⚠  FFmpeg experimental routes active.');
+
+    let ffmpegCapture = null;
+    try {
+      ffmpegCapture = require(path.join(__dirname, '..', 'sidecar', 'ffmpeg_capture.js'));
+    } catch (e) {
+      console.error('[ffmpeg] Failed to load ffmpeg_capture.js:', e.message);
+    }
+
+    app.get('/api/ffmpeg-status', (req, res) => {
+      if (!ffmpegCapture) return res.json({ available: false, reason: 'module load failed' });
+      res.json({
+        available:   true,
+        active:      ffmpegCapture.isActive(),
+        encoderType: ffmpegCapture.encoderType() || null,
+      });
+    });
+
+    app.post('/api/start-ffmpeg-capture', express.json(), async (req, res) => {
+      if (!ffmpegCapture) return res.status(500).json({ ok: false, reason: 'module not loaded' });
+      if (process.platform !== 'linux') return res.status(400).json({ ok: false, reason: 'Linux only' });
+      try {
+        const { width, height, fps, bitrate } = req.body || {};
+        // startCapture returns a MediaStreamTrack — it lives in the renderer,
+        // not here. We just confirm FFmpeg spawned successfully.
+        await ffmpegCapture.startCapture({ width, height, fps, bitrate });
+        res.json({ ok: true, encoderType: ffmpegCapture.encoderType() });
+      } catch (e) {
+        console.error('[ffmpeg] startCapture failed:', e.message);
+        res.status(500).json({ ok: false, reason: e.message });
+      }
+    });
+
+    app.post('/api/stop-ffmpeg-capture', async (req, res) => {
+      if (!ffmpegCapture) return res.json({ ok: true });
+      try {
+        await ffmpegCapture.stopCapture();
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ ok: false, reason: e.message });
+      }
+    });
+
+    // Toggle ffmpegExperimental in the Nearsec config file so it persists
+    // across relaunches without needing the --ffmpeg-experimental flag again.
+    app.post('/api/ffmpeg-toggle', express.json(), (req, res) => {
+      const cfg = loadConfig();
+      cfg.ffmpegExperimental = req.body?.enabled ?? !cfg.ffmpegExperimental;
+      saveConfig(cfg);
+      res.json({ ok: true, ffmpegExperimental: cfg.ffmpegExperimental });
+    });
+  }
 
   app.post("/api/restart-game", express.json(), (req, res) => {
     if (activeGameProc) {
@@ -1041,6 +1108,9 @@ async function main() {
       console.log("[host] connected");
       hostWS = ws;
       broadcast(JSON.stringify({ type: "host-connected" }));
+
+      // Start audio routing as soon as the host session opens
+      if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
       viewers.forEach((_, id) => ws.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id })));
 
       if (tunnelUrl) ws.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
@@ -1294,6 +1364,8 @@ async function main() {
           broadcastToArcade({ type: 'arcade-session-stopped', id });
         }
         broadcast(JSON.stringify({ type: "host-disconnected" }));
+        // Stop routing daemon — no session active, audio should return to normal
+        if (_audioWorker) _audioWorker.postMessage({ type: 'route-stop' });
       });
 
       // ── VIEWER ───────────────────────────────────────────────────────────────
@@ -1327,8 +1399,39 @@ async function main() {
         console.log(`[viewer] IP ${clientIp} (requirePin=${requirePin}) bypassing PIN check`);
       }
 
+      // ── Session password check ────────────────────────────────────────────
+      if (sessionPassword) {
+        const provided = ws.protocol || params.get('password') || '';
+        if (provided !== sessionPassword) {
+          ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' }));
+          ws.close();
+          console.log(`[viewer] rejected — wrong session password from ${clientIp}`);
+          return;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       let id = "v" + (++vidCount);
       const defaultName = "Guest" + (1000 + Math.floor(Math.random() * 9000));
+
+      // ── Arcade viewer cap ─────────────────────────────────────────────────
+      // If an arcade session is active and has a maxPlayers limit, reject
+      // viewers beyond that count before they are added to the viewers map.
+      if (arcadeSessions.size > 0) {
+        const sess = [...arcadeSessions.values()][0];
+        if (sess && sess.maxPlayers && viewers.size >= sess.maxPlayers) {
+          console.log(`[viewer] ${id} rejected — arcade session full (${viewers.size}/${sess.maxPlayers})`);
+          ws.send(JSON.stringify({
+            type:   'session-full',
+            max:    sess.maxPlayers,
+            reason: `This session is full (${sess.maxPlayers} players max).`,
+          }));
+          ws.close();
+          return;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       viewers.set(id, ws);
       viewerNames.set(id, defaultName);
 

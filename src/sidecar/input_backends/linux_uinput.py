@@ -277,25 +277,49 @@ def _load_csv():
     if not _CSV_PATH:
         return
     rows = []
+    bad  = 0
     try:
         with open(_CSV_PATH, newline='', encoding='utf-8') as f:
-            for row in csv.reader(f):
+            for line_num, row in enumerate(csv.reader(f), start=1):
                 if not row or row[0].strip().startswith('#'):
                     continue
                 frag = row[0].strip().lower()
                 if not frag:
                     continue
+
+                # Validate column count — a row with fewer than 2 columns has
+                # no bindings and is almost always a formatting mistake.
+                if len(row) < 2:
+                    print(f"[input] CSV line {line_num}: skipping row '{row[0].strip()}' — no binding columns", flush=True)
+                    bad += 1
+                    continue
+
+                # Validate that binding values look like key names (KEY_* or BTN_*)
+                # rather than garbage data from a broken export.
                 binds = {}
                 for i, key in enumerate(CSV_KEYS):
                     col = i + 1
                     if col < len(row):
                         val = row[col].strip()
-                        if val:
-                            binds[key] = val
+                        if not val:
+                            continue
+                        if not (val.startswith('KEY_') or val.startswith('BTN_') or val.startswith('ABS_')):
+                            print(f"[input] CSV line {line_num}: unrecognised binding value '{val}' for {key} — skipping column", flush=True)
+                            bad += 1
+                            continue
+                        binds[key] = val
+
                 if binds:
                     rows.append((frag, binds))
+                else:
+                    print(f"[input] CSV line {line_num}: '{row[0].strip()}' has no valid bindings — skipping", flush=True)
+                    bad += 1
+
         _csv_entries = rows
-        print(f"[input] Loaded {len(_csv_entries)} CSV game profiles", flush=True)
+        if bad:
+            print(f"[input] CSV loaded {len(_csv_entries)} profiles ({bad} row(s) skipped — check game_profiles.csv)", flush=True)
+        else:
+            print(f"[input] Loaded {len(_csv_entries)} CSV game profiles", flush=True)
     except Exception as e:
         print(f"[input] CSV load error: {e}", flush=True)
 

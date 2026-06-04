@@ -58,7 +58,41 @@ async function runTests() {
             ws.on('error', (e) => reject(e));
         });
 
-        // 3. Graceful Shutdown
+        // 3. Test viewer WS endpoint
+        await new Promise((resolve, reject) => {
+            const ws = new WebSocket(`ws://localhost:${port}/ws/viewer`);
+            const timeout = setTimeout(() => reject(new Error("Viewer WS Timeout")), 3000);
+            ws.on('open', () => {
+                clearTimeout(timeout);
+                console.log("  ✅ WebSocket    (/ws/viewer) handshake successful");
+                ws.close();
+                resolve();
+            });
+            ws.on('error', (e) => { clearTimeout(timeout); resolve(); }); // non-fatal
+        });
+
+        // 4. Test session-password API
+        await new Promise((resolve, reject) => {
+            const req = http.request({
+                hostname: 'localhost', port, path: '/api/session-password-status', method: 'GET'
+            }, (res) => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                    try {
+                        const j = JSON.parse(data);
+                        if (typeof j.hasPassword !== 'undefined') {
+                            console.log("  ✅ Session pwd  (/api/session-password-status) responsive");
+                            resolve();
+                        } else reject(new Error("Unexpected payload"));
+                    } catch (e) { reject(e); }
+                });
+            });
+            req.on('error', reject);
+            req.end();
+        });
+
+        // 5. Graceful Shutdown
         finishTests(true);
 
     } catch (err) {
@@ -87,7 +121,7 @@ serverProc.stdout.on('data', (data) => {
         checks.uinputAlive = true;
         console.log("  ✅ Input Driver (uinput python sidecar active)");
     }
-    if (out.includes('[VirtualAudio] Ready')) {
+    if (out.includes('[VirtualAudio] Worker ready.') || out.includes('[VirtualAudio] Ready')) {
         checks.virtualAudioAlive = true;
         console.log("  ✅ Audio Engine (Virtual audio modules loaded)");
     }

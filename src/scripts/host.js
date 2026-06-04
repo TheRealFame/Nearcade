@@ -79,22 +79,24 @@ function attachDesktopGain(stream) {
     const aTrack = stream.getAudioTracks()[0];
     if (!aTrack) return;
     try {
-        const ctx    = new (window.AudioContext || window.webkitAudioContext)();
-        const src    = ctx.createMediaStreamSource(new MediaStream([aTrack]));
-        const boost  = ctx.createGain();
-        const gain   = ctx.createGain();
-        const dst    = ctx.createMediaStreamDestination();
+        const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+        const src  = ctx.createMediaStreamSource(new MediaStream([aTrack]));
+        const gain = ctx.createGain();
+        const dst  = ctx.createMediaStreamDestination();
         const savedVol = parseInt(localStorage.getItem('ns_host_desktop_vol') ?? '100', 10) / 100;
 
-        // 1.4× amplification so viewers hear a full, loud stream signal
-        boost.gain.value = 1.4;
-        gain.gain.value  = window._masterMuteActive ? 0 : savedVol;
+        // 🔊 Apply the 1.4x Volume Buff here!
+        gain.gain.value = window._masterMuteActive ? 0 : (savedVol * 1.4);
 
-        src.connect(boost);
-        boost.connect(gain);
+        src.connect(gain);
         gain.connect(dst);
-
         _desktopGainNode = gain;
+
+        // 🛡️ Prevent Chrome from aggressively deleting the audio pipeline
+        window._nsAudioCtx = ctx;
+        window._nsAudioSrc = src;
+        if (ctx.state === 'suspended') ctx.resume();
+
         stream.removeTrack(aTrack);
         stream.addTrack(dst.stream.getAudioTracks()[0]);
     } catch(e) { console.warn('[HostAudio] Gain node failed:', e); }
@@ -172,10 +174,17 @@ async function monitorCongestion(pc, viewerId) {
             const params = sender.getParameters();
             const configuredBitrate = parseInt(document.getElementById('bitrateSelect').value, 10) || 0;
             const currentBitrate = params.encodings?.[0]?.maxBitrate || configuredBitrate;
-            const lastAdj = congestionControl.lastAdjustment[viewerId] || { bitrate: currentBitrate, time: 0 };
-            const timeSinceLastAdj = Date.now() - lastAdj.time;
+            if (!congestionControl.lastAdjustment[viewerId]) {
+                congestionControl.lastAdjustment[viewerId] = { bitrate: currentBitrate, time: 0, baselineRtt: 0 };
+            }
+            const lastAdj = congestionControl.lastAdjustment[viewerId];
 
-            // Always preserve the user's degradationPreference — never let setParameters reset it
+            if (!lastAdj.baselineRtt && rttMs > 0) {
+                lastAdj.baselineRtt = rttMs;
+                log(`Congestion: Baseline RTT ${rttMs}ms`, 'ok');
+            }
+
+            const timeSinceLastAdj = Date.now() - lastAdj.time;
             const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
 
             let shouldReduce = false;
@@ -190,8 +199,6 @@ async function monitorCongestion(pc, viewerId) {
             } else if (timeSinceLastAdj > congestionControl.recoveryTimeout &&
                 currentBitrate < (configuredBitrate || lastAdj.bitrate) * 0.95 &&
                 rttMs < congestionControl.minRttMs) {
-                // Recovery ceiling is the user's CONFIGURED bitrate, not the pre-reduction value.
-                // This allows full recovery to the intended quality after congestion clears.
                 const ceiling  = configuredBitrate > 0 ? configuredBitrate : lastAdj.bitrate;
                 const recovered = Math.min(ceiling, currentBitrate * 1.1);
                 if (params.encodings?.length) {
@@ -199,7 +206,7 @@ async function monitorCongestion(pc, viewerId) {
                     params.encodings[0].degradationPreference = degPref;
                 }
                 await sender.setParameters(params);
-                congestionControl.lastAdjustment[viewerId] = { bitrate: recovered, time: Date.now() };
+                congestionControl.lastAdjustment[viewerId] = { bitrate: recovered, time: Date.now(), baselineRtt: lastAdj.baselineRtt };
                 log(I18N.t('Congestion: Bitrate recovered to ${Math.round(recovered/1000)}kbps for ${viewerId}').replace('${Math.round(recovered/1000)}', Math.round(recovered/1000)).replace('${viewerId}', viewerId), 'ok');
                 return;
             }
@@ -211,7 +218,7 @@ async function monitorCongestion(pc, viewerId) {
                     params.encodings[0].degradationPreference = degPref;
                 }
                 await sender.setParameters(params);
-                congestionControl.lastAdjustment[viewerId] = { bitrate: currentBitrate, time: Date.now() };
+                congestionControl.lastAdjustment[viewerId] = { bitrate: currentBitrate, time: Date.now(), baselineRtt: lastAdj.baselineRtt };
                 log(I18N.t('Congestion: Bitrate reduced to ${Math.round(newBitrate/1000)}kbps (${reason})').replace('${Math.round(newBitrate/1000)}', Math.round(newBitrate/1000)).replace('${reason}', reason), 'warn');
             }
         } catch (e) {}
@@ -225,35 +232,6 @@ async function monitorCongestion(pc, viewerId) {
         await poll();
     }, congestionControl.statsPollInterval);
 }
-
-const savedCodec = localStorage.getItem('ns_codec');
-if (savedCodec) document.getElementById('codecSelect').value = savedCodec;
-document.getElementById('codecSelect').addEventListener('change', (e) => {
-    localStorage.setItem('ns_codec', e.target.value);
-    if (currentStream) hotSwapStream();
-});
-
-const savedBitrate = localStorage.getItem('ns_bitrate');
-if (savedBitrate) document.getElementById('bitrateSelect').value = savedBitrate;
-document.getElementById('bitrateSelect').addEventListener('change', (e) => localStorage.setItem('ns_bitrate', e.target.value));
-
-const savedDeg = localStorage.getItem('ns_deg');
-if (savedDeg) document.getElementById('degSelect').value = savedDeg;
-document.getElementById('degSelect').addEventListener('change', (e) => localStorage.setItem('ns_deg', e.target.value));
-
-const savedRes = localStorage.getItem('ns_res');
-if (savedRes) document.getElementById('resSelect').value = savedRes;
-document.getElementById('resSelect').addEventListener('change', (e) => {
-    localStorage.setItem('ns_res', e.target.value);
-    if (currentStream) hotSwapStream();
-});
-
-const savedFps = localStorage.getItem('ns_fps');
-if (savedFps) document.getElementById('fpsSelect').value = savedFps;
-document.getElementById('fpsSelect').addEventListener('change', (e) => {
-    localStorage.setItem('ns_fps', e.target.value);
-    if (currentStream) hotSwapStream();
-});
 
 function toggleStreamState() {
     const btn = document.getElementById('btnStartStop');
@@ -291,41 +269,6 @@ function toggleStreamState() {
         }
     } catch (e) {}
 })();
-
-// Example modification for your host.js WebRTC setup
-async function captureSystemAudio() {
-    try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-
-        // 1. Look for the EXACT source name we created in server.js
-        const virtualMic = devices.find(d =>
-        d.kind === 'audioinput' &&
-        (d.label.includes('Nearsec_App_Mic') ||
-         d.label.includes('Nearsec_Virtual_Mic') ||
-         d.label.includes('NearsecAppMic'))
-        );
-
-        // 2. If found, explicitly disable processing.
-        // If not found, falling back to 'true' usually grabs the system default,
-        // which might be your actual microphone (don't want that!).
-        const audioConstraints = virtualMic ? {
-            deviceId: { exact: virtualMic.deviceId },
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false
-        } : true;
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: audioConstraints,
-            video: false
-        });
-
-        console.log("✅ Successfully captured:", virtualMic ? virtualMic.label : "Default Audio");
-        return stream.getAudioTracks()[0];
-    } catch (err) {
-        console.error("❌ Audio capture failed. Check PipeWire routing:", err);
-    }
-}
 
 async function fetchGameThumbnail(gameTitle) {
     try {
@@ -753,11 +696,11 @@ function connectWS() {
     ws.onopen = () => {
         log(I18N.t('Connected to server'), 'ok');
 
-        // NEW: Fetch host name for UI
+        // Single fetch for both hostName display and info — avoids two hits on connect
         fetch('/api/config').then(r => r.json()).then(cfg => {
             const hostNameEl = document.getElementById('displayHostName');
             if (hostNameEl) hostNameEl.textContent = cfg.hostName || 'Guest';
-        }); // <--- THIS WAS MISSING. IT CLOSES THE FETCH.
+        });
 
         fetch('/api/info').then(r => r.json()).then(d => {
             currentPin = d.pin;
@@ -1057,22 +1000,96 @@ async function confirmSource() {
 
 let activeSourceId = null;
 
-async function hotSwapStream() {
-    if (!currentStream) return; // Only swap if already live
+const savedCodec = localStorage.getItem('ns_codec');
+if (savedCodec) document.getElementById('codecSelect').value = savedCodec;
+document.getElementById('codecSelect').addEventListener('change', (e) => localStorage.setItem('ns_codec', e.target.value));
 
-    log('Hot-swapping stream settings...', 'warn');
+const savedBitrate = localStorage.getItem('ns_bitrate');
+if (savedBitrate) document.getElementById('bitrateSelect').value = savedBitrate;
+document.getElementById('bitrateSelect').addEventListener('change', (e) => {
+    localStorage.setItem('ns_bitrate', e.target.value);
+    if (currentStream) applyBitrateToAll();
+});
 
-    // 1. Tell viewers to freeze their screens
+const savedDeg = localStorage.getItem('ns_deg');
+if (savedDeg) document.getElementById('degSelect').value = savedDeg;
+document.getElementById('degSelect').addEventListener('change', (e) => {
+    localStorage.setItem('ns_deg', e.target.value);
+    if (currentStream) applyBitrateToAll();
+});
+
+const savedRes = localStorage.getItem('ns_res');
+if (savedRes) document.getElementById('resSelect').value = savedRes;
+document.getElementById('resSelect').addEventListener('change', (e) => {
+    localStorage.setItem('ns_res', e.target.value);
+    if (currentStream) hotSwapCapture();
+});
+
+const savedFps = localStorage.getItem('ns_fps');
+if (savedFps) document.getElementById('fpsSelect').value = savedFps;
+document.getElementById('fpsSelect').addEventListener('change', (e) => {
+    localStorage.setItem('ns_fps', e.target.value);
+    if (currentStream) hotSwapCapture();
+});
+
+// 🔥 THE HOT SWAP ENGINE
+async function hotSwapCapture() {
+    if (!currentStream) return;
+    log(I18N.t('Applying new stream resolution/FPS...'), 'warn');
+
+    // 1. Tell viewers to freeze their screen on the last frame
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'host-encoder-swap-start' }));
     }
 
-    // 2. Give the network 150ms to deliver the freeze command, then restart
-    setTimeout(async () => {
-        if (activeSourceId) selectedSourceId = activeSourceId;
-        await startCapture();
-        log('Stream hot-swapped successfully.', 'ok');
-    }, 150);
+    const _appFpsUnlock = (typeof appConfig !== 'undefined') && appConfig.fpsUnlock;
+    const fpsVal = _appFpsUnlock ? Math.max(parseInt(document.getElementById('fpsSelect')?.value) || 60, 120) : (parseInt(document.getElementById('fpsSelect')?.value) || 60);
+    const resVal = document.getElementById('resSelect')?.value || '1080p';
+
+    let videoConstraints = { frameRate: { ideal: fpsVal }, cursor: 'never' };
+    if (resVal === '720p') videoConstraints.height = { ideal: 720 };
+    if (resVal === '1080p') videoConstraints.height = { ideal: 1080 };
+    if (resVal === '1440p') videoConstraints.height = { ideal: 1440 };
+    if (resVal === '4k') videoConstraints.height = { ideal: 2160 };
+
+    try {
+        // 2. Grab the new video track
+        let newScreenStream;
+        if (window._lastSourceId && window.electronAPI) {
+            newScreenStream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: window._lastSourceId, maxFrameRate: fpsVal } }
+            });
+        } else {
+            newScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
+        }
+
+        const newVideoTrack = newScreenStream.getVideoTracks()[0];
+        newVideoTrack.contentHint = 'motion';
+
+        // 3. Swap the track inside all active WebRTC peer connections (NO disconnects!)
+        for (const viewerId in peerConnections) {
+            const pc = peerConnections[viewerId];
+            const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+            if (sender) {
+                await sender.replaceTrack(newVideoTrack);
+                setLowLatencyParams(pc);
+            }
+        }
+
+        // 4. Swap it out locally
+        const oldVideoTrack = currentStream.getVideoTracks()[0];
+        currentStream.removeTrack(oldVideoTrack);
+        oldVideoTrack.stop();
+        currentStream.addTrack(newVideoTrack);
+
+        const prev = document.getElementById('preview');
+        if (prev && !previewHidden) prev.srcObject = currentStream;
+
+        log(I18N.t('Stream settings applied seamlessly!'), 'ok');
+    } catch (err) {
+        log(I18N.t('Failed to swap video track:') + ' ' + err.message, 'err');
+    }
 }
 
 async function startCapture() {
@@ -1110,6 +1127,7 @@ async function startCapture() {
 
         if (selectedSourceId && window.electronAPI) {
             try {
+                window._lastSourceId = selectedSourceId;
                 screenStream = await navigator.mediaDevices.getUserMedia({
                     audio: isLinux ? false : (audioSettings.forceAudioEnabled ? { mandatory: { chromeMediaSource: 'desktop' } } : false),
                                                                          video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: selectedSourceId, maxFrameRate: fpsVal } }
@@ -1175,7 +1193,9 @@ async function startCapture() {
                         }
                     });
                     aTrack = audioStream.getAudioTracks()[0];
-                    if (aTrack) log(I18N.t('System audio captured'), 'ok');
+                    if (aTrack) {
+                        log(I18N.t('System audio captured'), 'ok');
+                    }
                 } else {
                     const labels = audioInputs.map(d => d.label || 'Hidden').join(', ');
                     log(I18N.t('Virtual cable not found. Seen labels:') + ' ' + labels, 'warn');
@@ -1301,6 +1321,10 @@ function stopCapture() {
     if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
     if (window._resInterval) { clearInterval(window._resInterval); window._resInterval = null; }
     stopAudioMeter();
+
+    // Stop FFmpeg experimental pipeline if it was running
+    fetch(`/api/stop-ffmpeg-capture`, { method: 'POST' }).catch(() => {});
+    if (window._ffmpegHealthInterval) { clearInterval(window._ffmpegHealthInterval); window._ffmpegHealthInterval = null; }
     const prevEl = document.getElementById('preview');
     if (prevEl) prevEl.srcObject = null;
     _elClass('prevOverlay', 'hidden', false);

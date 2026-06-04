@@ -23,17 +23,17 @@
     "discord-rpc": "^4.0.1",
     "electron-updater": "^6.8.3",
     "express": "^4.18.0",
-    "kill-port": "latest",
-    "open": "latest",
-    "play-sound": "latest",
+    "kill-port": "^2.0.1",
+    "open": "^10.1.0",
+    "play-sound": "^1.1.6",
     "pusher-js": "^8.5.0",
-    "which": "latest",
+    "which": "^4.0.0",
     "ws": "^8.0.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.4",
-    "electron": "^28.0.0",
+    "electron": "^33.0.0",
     "electron-builder": "^24.13.3",
     "wrangler": "^4.90.0"
   },

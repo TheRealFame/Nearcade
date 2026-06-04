@@ -9,8 +9,9 @@ const { powerSaveBlocker } = require('electron');
 powerSaveBlocker.start('prevent-app-suspension');
 
 // ── CRITICAL FIX: Detect Arcade Worker immediately ──
-const isArcadeWorker = process.argv.includes('--arcade-worker');
-const gotTheLock     = isArcadeWorker ? true : app.requestSingleInstanceLock();
+const isArcadeWorker      = process.argv.includes('--arcade-worker');
+const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
+const gotTheLock          = isArcadeWorker ? true : app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
   app.quit();
@@ -34,7 +35,7 @@ function _electronSignalCleanup(signal) {
     if (process.platform === 'linux') {
       try {
         execSync(
-          "pactl list short modules | awk '/NearsecAppAudio|NearsecAppMic|NearsecVirtualCapture|NearsecVirtual/{print $1}' | xargs -r pactl unload-module",
+          "pactl list short modules | awk '/NearsecVirtual|NearsecVirtualCapture/{print $1}' | xargs -r pactl unload-module",
           { stdio: 'ignore' }
         );
       } catch (_) {}
@@ -113,6 +114,8 @@ const DEFAULTS = {
   hwDecode: true, fpsUnlock: false, vsyncOff: false, zeroCopy: false,
   // Streaming
   hidePreviewOnStart: false, captureMic: false,
+  // Experimental
+  ffmpegExperimental: false,
   // Identity
   hostName: '',
   // Controller
@@ -151,6 +154,19 @@ let serverCore = null;
 function startServer() {
   return new Promise((resolve) => {
     process.env.ELECTRON_MODE = '1';
+
+    // If launched with --ffmpeg-experimental, persist it to config and tell server
+    if (isFFmpegExperimental) {
+      settings.ffmpegExperimental = true;
+      saveSettings(settings);
+      process.env.FFMPEG_EXPERIMENTAL = '1';
+      console.log('[electron] ⚠  FFmpeg experimental pipeline ENABLED via launch flag.');
+    } else if (settings.ffmpegExperimental) {
+      // Also honour the saved config preference without needing the flag every time
+      process.env.FFMPEG_EXPERIMENTAL = '1';
+      console.log('[electron] ⚠  FFmpeg experimental pipeline ENABLED via saved config.');
+    }
+
     serverCore = require('./src/scripts/server.js');
     const _log = console.log.bind(console);
     console.log = function (...args) {

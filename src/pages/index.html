@@ -887,6 +887,13 @@ if (window.IS_CLIENT_ONLY) {
           onkeydown="if(event.key==='Enter')submitPin()">
       </div>
 
+      <!-- Session password — hidden until server sends session-password-required -->
+      <div id="sessionPasswordWrap" style="display:none;">
+        <div class="pin-field-label" style="margin-top:4px;">Session Password</div>
+        <input id="sessionPasswordInput" type="password" placeholder="Enter session password"
+          class="pin-input" onkeydown="if(event.key==='Enter')submitSessionPassword()">
+      </div>
+
       <button class="pin-submit-btn" onclick="submitPin()">Join Stream →</button>
       <div id="pinErr"></div>
     </div>
@@ -987,7 +994,6 @@ if (window.IS_CLIENT_ONLY) {
         Gyro HID: OFF
       </button>
 
-      <div class="ns-bar-divider"></div>
       <div class="ns-bar-divider"></div>
       <div class="ns-bar-section">Stream Quality</div>
       <div style="display:flex;gap:4px;padding:0 2px;">
