@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   getSettings:                    () => ipcRenderer.invoke('get-settings'),
   saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),
+  // VPS SFU config — dedicated handlers so the master key is handled explicitly
+  getVpsConfig:   ()    => ipcRenderer.invoke('get-vps-config'),
+  saveVpsConfig:  (cfg) => ipcRenderer.invoke('save-vps-config', cfg),
   toggleAlwaysOnTop:              () => ipcRenderer.invoke('toggle-always-on-top'),
   onSettingsUpdated:              (cb) => ipcRenderer.on('settings-updated', (_, s) => cb(s)),
 

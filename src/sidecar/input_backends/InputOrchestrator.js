@@ -1,16 +1,78 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { EventEmitter } = require('events');
+
+// ── Visualizer event bus — host.js listens on inputDriver.events ──────────────
+const events = new EventEmitter();
 
 // ── Shared Buffers for Zero-Copy Native C++ Submission ──
-const _gpBuf = Buffer.alloc(14);
+// Buffer layout MUST match uinputBridge.cpp exactly.
+// GAMEPAD packet (16 bytes):
+//   [0]     = 0x01 (PKT::GAMEPAD)
+//   [1-2]   = lx  (int16LE)
+//   [3-4]   = ly  (int16LE)
+//   [5-6]   = rx  (int16LE)
+//   [7-8]   = ry  (int16LE)
+//   [9]     = lt  (uint8, 0-255)
+//   [10]    = rt  (uint8, 0-255)
+//   [11-12] = btn (uint16LE, C++ W3C_BTN bit format)
+//   [13]    = hx  (int8, dpad X: -1/0/1)
+//   [14]    = hy  (int8, dpad Y: -1/0/1)
+//   [15]    = slot (uint8)
+const _gpBuf = Buffer.alloc(16);
 const _alBuf = Buffer.alloc(40);
 const _flBuf = Buffer.alloc(2);
 const _frBuf = Buffer.alloc(2);
 
-_alBuf[0] = 0x03; // ALLOCATE
-_flBuf[0] = 0x02; // FLUSH
-_frBuf[0] = 0x04; // FREE
+_alBuf[0] = 0x10; // PKT::ALLOC_GP
+_flBuf[0] = 0x20; // PKT::FLUSH
+_frBuf[0] = 0x11; // PKT::FREE_GP
+
+// ── Button Bitmask Converter ───────────────────────────────────────────────────
+// The viewer.js uses the KBM_BTN_MAP bit layout. The C++ bridge uses a different
+// W3C_BTN enum. This function converts between the two AND extracts dpad as hx/hy
+// (the C++ bridge uses ABS_HAT0X/Y for dpad, not button bits).
+//
+// JS viewer bit layout:         C++ W3C_BTN layout:
+//   bit 0  = A                    bit 0  = A       (BTN_SOUTH)
+//   bit 1  = B                    bit 1  = B       (BTN_EAST)
+//   bit 2  = X                    bit 2  = *Y-slot (BTN_WEST = X physical)
+//   bit 3  = Y                    bit 3  = *X-slot (BTN_NORTH = Y physical)
+//   bit 4  = D-Up   → hx/hy      bit 4  = LB      (BTN_TL)
+//   bit 5  = D-Down → hx/hy      bit 5  = RB      (BTN_TR)
+//   bit 6  = D-Left → hx/hy      bit 8  = BACK    (BTN_SELECT)
+//   bit 7  = D-Right→ hx/hy      bit 9  = START   (BTN_START)
+//   bit 8  = LB → C++ bit 4      bit 10 = LS      (BTN_THUMBL)
+//   bit 9  = RB → C++ bit 5      bit 11 = RS      (BTN_THUMBR)
+//   bit 10 = L3                   (* C++ X/Y naming is swapped but emits correctly)
+//   bit 11 = R3
+//   bit 12 = START → C++ bit 9
+//   bit 13 = SELECT → C++ bit 8
+//   bit 14 = GUIDE (C++ reads uint16 so bit16 unreachable — skip)
+function _jsBtnsToCpp(jsBtns) {
+    let cpp = 0;
+    // A, B, X, Y — bits 0-3 pass through (C++ X/Y label swap is intentional, emits correctly)
+    cpp |= (jsBtns & 0x000F);
+    // LB: JS bit8 → C++ bit4
+    if (jsBtns & 0x0100) cpp |= 0x0010;
+    // RB: JS bit9 → C++ bit5
+    if (jsBtns & 0x0200) cpp |= 0x0020;
+    // L3: JS bit10 → C++ bit10 (unchanged)
+    if (jsBtns & 0x0400) cpp |= 0x0400;
+    // R3: JS bit11 → C++ bit11 (unchanged)
+    if (jsBtns & 0x0800) cpp |= 0x0800;
+    // START: JS bit12 → C++ bit9
+    if (jsBtns & 0x1000) cpp |= 0x0200;
+    // SELECT/BACK: JS bit13 → C++ bit8
+    if (jsBtns & 0x2000) cpp |= 0x0100;
+    // GUIDE: JS bit14 → C++ bit16 — uint16 can't hold bit16, skip
+
+    // Dpad bits 4-7 → ABS_HAT values written to [13][14] in the buffer
+    const hx = (jsBtns & 0x0040) ? -1 : (jsBtns & 0x0080) ? 1 : 0;  // LEFT / RIGHT
+    const hy = (jsBtns & 0x0010) ? -1 : (jsBtns & 0x0020) ? 1 : 0;  // UP / DOWN
+    return { cpp, hx, hy };
+}
 
 // ── State ──────────────────────────────────────────────────────────────────────
 const viewerSlots    = new Map();
@@ -45,34 +107,91 @@ const PROFILES = {
 };
 
 // ── Initialization ─────────────────────────────────────────────────────────────
+const isWin = process.platform === 'win32';
+
 function init(screenWidth, screenHeight) {
     _loadProfiles();
 
-    // 1. Try Native C++ Fast Lane
-    try {
-        const nodePath = path.join(__dirname, 'build', 'Release', 'uinputBridge.node');
-        _bridge = require(nodePath);
-        _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
-        console.log(`[input] Native uinputBridge loaded: ${nodePath}`);
-        return true;
-    } catch (e) {
-        console.warn(`[input] Native bridge failed to load (${e.message}). Falling back to Python.`);
-        _bridge = null;
+    // On Windows the uinputBridge C++ addon is Linux-only (uinput kernel module).
+    // Skip it entirely and go straight to the Python sidecar.
+    if (!isWin) {
+        // 1. Try Native C++ Fast Lane (Linux only)
+        try {
+            const nodePath = path.join(__dirname, 'build', 'Release', 'uinputBridge.node');
+            _bridge = require(nodePath);
+            _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
+            console.log(`[input] Native uinputBridge loaded: ${nodePath}`);
+            return true;
+        } catch (e) {
+            console.warn(`[input] Native bridge failed to load (${e.message}). Falling back to Python.`);
+            _bridge = null;
+        }
+    } else {
+        console.log('[input] Windows detected — skipping uinputBridge, using Python/ViGEmBus sidecar.');
     }
 
-    // 2. Fallback to Python Sidecar
-    const pythonScript = path.join(__dirname, 'linux_uinput.py');
+    // 2. Python Sidecar — platform-aware script selection
+    const scriptName = isWin ? 'windows_vigem.py' : 'linux_uinput.py';
+    // input_driver.py auto-dispatches to the correct backend; use it as the entry point
+    const driverScript = path.join(__dirname, 'input_driver.py');
+    const backendScript = path.join(__dirname, 'input_backends', scriptName);
+
+    const pythonScript = fs.existsSync(driverScript) ? driverScript : backendScript;
     if (!fs.existsSync(pythonScript)) {
         console.error(`[input] FATAL: Python fallback not found at ${pythonScript}`);
         return false;
     }
 
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
-    _pythonProc = spawn(pythonCmd, [pythonScript], { stdio: ["pipe", "pipe", "inherit"] });
-    _pythonProc.on("error", e => console.error("[uinput] Python spawn error:", e.message));
-    _pythonProc.on("close", () => { _pythonProc = null; console.log("[uinput] Python sidecar exited"); });
+    const pythonCmd = isWin ? 'python' : 'python3';
+    _pythonProc = spawn(pythonCmd, [pythonScript], { stdio: ['pipe', 'pipe', 'inherit'] });
 
-    console.log("[input] Python sidecar fallback started.");
+    // Parse stdout from the Python sidecar as JSON lines.
+    // The sidecar emits structured { "type": "...", "message": "..." } payloads
+    // so we can detect ViGEmBus driver failures and surface them to the Electron UI.
+    let _stdoutBuf = '';
+    _pythonProc.stdout.on('data', (chunk) => {
+        _stdoutBuf += chunk.toString('utf8');
+        const lines = _stdoutBuf.split('\n');
+        _stdoutBuf = lines.pop(); // keep incomplete last line in buffer
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            // Try JSON first
+            try {
+                const msg = JSON.parse(trimmed);
+                if (msg.type === 'error') {
+                    console.error(`[input][python] ${msg.message}`);
+                    events.emit('input-error', { message: msg.message, code: msg.code || 'PYTHON_ERROR' });
+                } else if (msg.type === 'ready') {
+                    console.log('[input][python] Sidecar ready:', msg.message || '');
+                    events.emit('input-ready', { message: msg.message });
+                } else if (msg.type === 'log') {
+                    console.log('[input][python]', msg.message);
+                }
+            } catch (_) {
+                // Plain string log — pass through
+                console.log('[input][python]', trimmed);
+                // Still try to detect ViGEmBus errors in plain text output
+                if (trimmed.toLowerCase().includes('vigembus') || trimmed.toLowerCase().includes('vigem')) {
+                    events.emit('input-error', { message: trimmed, code: 'VIGEMBUS_MISSING' });
+                }
+            }
+        }
+    });
+
+    _pythonProc.on('error', e => {
+        console.error('[uinput] Python spawn error:', e.message);
+        events.emit('input-error', { message: `Python sidecar failed to start: ${e.message}`, code: 'SPAWN_ERROR' });
+    });
+    _pythonProc.on('close', (code) => {
+        _pythonProc = null;
+        console.log(`[uinput] Python sidecar exited (code ${code})`);
+        if (code !== 0 && code !== null) {
+            events.emit('input-error', { message: `Python sidecar exited with code ${code}`, code: 'SIDECAR_EXIT' });
+        }
+    });
+
+    console.log(`[input] Python sidecar started: ${pythonScript}`);
     return true;
 }
 
@@ -182,17 +301,30 @@ function _handleGamepad(msg) {
 
     if (!_bridge) return;
 
+    // Convert JS viewer bitmask to C++ W3C_BTN format and extract dpad as hx/hy
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(msg.buttons || 0);
+
+    // Write packet in the EXACT layout uinputBridge.cpp expects
     _gpBuf[0] = 0x01;
-    _gpBuf[1] = slotIndex;
-    _gpBuf.writeUInt16LE(msg.buttons || 0, 2);
-    _gpBuf[4] = Math.round((msg.lt || 0) * 255);
-    _gpBuf[5] = Math.round((msg.rt || 0) * 255);
-    _gpBuf.writeInt16LE(Math.round((msg.lx || 0) * 32767), 6);
-    _gpBuf.writeInt16LE(Math.round((msg.ly || 0) * 32767), 8);
-    _gpBuf.writeInt16LE(Math.round((msg.rx || 0) * 32767), 10);
-    _gpBuf.writeInt16LE(Math.round((msg.ry || 0) * 32767), 12);
+    _gpBuf.writeInt16LE(Math.round((msg.lx || 0) * 32767), 1);
+    _gpBuf.writeInt16LE(Math.round((msg.ly || 0) * 32767), 3);
+    _gpBuf.writeInt16LE(Math.round((msg.rx || 0) * 32767), 5);
+    _gpBuf.writeInt16LE(Math.round((msg.ry || 0) * 32767), 7);
+    _gpBuf[9]  = Math.round((msg.lt || 0) * 255);
+    _gpBuf[10] = Math.round((msg.rt || 0) * 255);
+    _gpBuf.writeUInt16LE(cppBtns, 11);
+    _gpBuf.writeInt8(hx, 13);
+    _gpBuf.writeInt8(hy, 14);
+    _gpBuf[15] = slotIndex;
 
     _bridge.submitInputPacket(_gpBuf);
+    events.emit('input-packet', {
+        source: 'gamepad', viewerId, slotIndex,
+        buttons: msg.buttons || 0,
+        lt: msg.lt || 0, rt: msg.rt || 0,
+        lx: msg.lx || 0, ly: msg.ly || 0,
+        rx: msg.rx || 0, ry: msg.ry || 0,
+    });
 }
 
 function _emitKbmBinding(padId, key, isDown, binds) {
@@ -215,16 +347,18 @@ function _emitKbmBinding(padId, key, isDown, binds) {
         const resolved = aliasMap[target] || target;
 
         if (resolved.startsWith('BTN_')) {
-            const w3cBit = {
-                BTN_A: W3C_BTN.A, BTN_B: W3C_BTN.B, BTN_X: W3C_BTN.X, BTN_Y: W3C_BTN.Y,
-                BTN_TL: W3C_BTN.LB, BTN_TR: W3C_BTN.RB, BTN_SELECT: W3C_BTN.BACK, BTN_START: W3C_BTN.START,
-                BTN_THUMBL: W3C_BTN.LS, BTN_THUMBR: W3C_BTN.RS, BTN_MODE: W3C_BTN.GUIDE,
+            // Map Linux BTN_ names to the JS KBM_BTN_MAP bit positions
+            const btnBit = {
+                BTN_A: 0x0001, BTN_B: 0x0002, BTN_X: 0x0004, BTN_Y: 0x0008,
+                BTN_TL: 0x0100, BTN_TR: 0x0200,
+                BTN_SELECT: 0x2000, BTN_START: 0x1000,
+                BTN_THUMBL: 0x0400, BTN_THUMBR: 0x0800,
+                BTN_MODE: 0x4000,
             }[resolved];
 
-            if (w3cBit !== undefined) {
-                // Apply or remove the button bit WITHOUT erasing the other pressed buttons
-                if (isDown) state.buttons |= w3cBit;
-                else state.buttons &= ~w3cBit;
+            if (btnBit !== undefined) {
+                if (isDown) state.buttons |= btnBit;
+                else state.buttons &= ~btnBit;
             }
         } else if (resolved.startsWith('ABS_')) {
             // Apply axis values
@@ -237,10 +371,10 @@ function _emitKbmBinding(padId, key, isDown, binds) {
         // Nested JSON logic
         const btnTarget = binds.buttons?.[key];
         if (btnTarget) {
-            const w3cBit = { BTN_A: W3C_BTN.A, BTN_B: W3C_BTN.B, BTN_X: W3C_BTN.X, BTN_Y: W3C_BTN.Y }[btnTarget];
-            if (w3cBit !== undefined) {
-                if (isDown) state.buttons |= w3cBit;
-                else state.buttons &= ~w3cBit;
+            const btnBit = { BTN_A: 0x0001, BTN_B: 0x0002, BTN_X: 0x0004, BTN_Y: 0x0008 }[btnTarget];
+            if (btnBit !== undefined) {
+                if (isDown) state.buttons |= btnBit;
+                else state.buttons &= ~btnBit;
             }
         }
         for (const section of ['left_stick', 'dpad']) {
@@ -252,17 +386,22 @@ function _emitKbmBinding(padId, key, isDown, binds) {
         }
     }
 
-    // Now send the FULL PERSISTENT STATE to the C++ module
-    _gpBuf.fill(0, 1, 20);
-    _gpBuf[0] = 0x01; // Gamepad Packet Type
+    // Now send the FULL PERSISTENT STATE to the C++ module using correct buffer layout
+    _gpBuf.fill(0, 0, 16);
+    _gpBuf[0] = 0x01; // PKT::GAMEPAD
+    // state.buttons uses the JS KBM_BTN_MAP format — convert before writing
+    const { cpp: cppBtns, hx: kbmHx, hy: kbmHy } = _jsBtnsToCpp(state.buttons);
+    // Axes in _emitKbmBinding are already in -32767..+32767 integer range
+    _gpBuf.writeInt16LE(state.lx || 0, 1);
+    _gpBuf.writeInt16LE(state.ly || 0, 3);
+    _gpBuf.writeInt16LE(state.rx || 0, 5);
+    _gpBuf.writeInt16LE(state.ry || 0, 7);
+    _gpBuf[9]  = Math.round((state.lt || 0) * 255);
+    _gpBuf[10] = Math.round((state.rt || 0) * 255);
+    _gpBuf.writeUInt16LE(cppBtns, 11);
+    _gpBuf.writeInt8(kbmHx, 13);
+    _gpBuf.writeInt8(kbmHy, 14);
     _gpBuf[15] = slotIdx;
-
-    // Write buttons and sticks
-    _gpBuf.writeUInt16LE(state.buttons, 11);
-    _gpBuf.writeInt16LE(state.lx, 1);
-    _gpBuf.writeInt16LE(state.ly, 3);
-    _gpBuf.writeInt16LE(state.rx, 5);
-    _gpBuf.writeInt16LE(state.ry, 7);
 
     _bridge.submitInputPacket(_gpBuf);
 }
@@ -347,30 +486,118 @@ function _handleKbm(msg) {
 // Ensure this helper function exists right below _handleKbm
 function _sendKbmStateToBuffer(slotIndex, state) {
     if (!_bridge) return;
-    _gpBuf[0] = 0x01; // Gamepad Packet
-    _gpBuf[1] = slotIndex;
-    _gpBuf.writeUInt16LE(state.buttons, 2);
-    _gpBuf[4] = Math.round(state.lt * 255);
-    _gpBuf[5] = Math.round(state.rt * 255);
-    _gpBuf.writeInt16LE(Math.round(state.lx * 32767), 6);
-    _gpBuf.writeInt16LE(Math.round(state.ly * 32767), 8);
-    _gpBuf.writeInt16LE(Math.round(state.rx * 32767), 10);
-    _gpBuf.writeInt16LE(Math.round(state.ry * 32767), 12);
+
+    // state.buttons uses JS KBM_BTN_MAP format — convert to C++ W3C_BTN and extract dpad
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(state.buttons);
+
+    _gpBuf[0] = 0x01;
+    // KBM lx/ly/rx/ry are -1..1 floats; scale to int16 range for C++
+    _gpBuf.writeInt16LE(Math.round((state.lx || 0) * 32767), 1);
+    _gpBuf.writeInt16LE(Math.round((state.ly || 0) * 32767), 3);
+    _gpBuf.writeInt16LE(Math.round((state.rx || 0) * 32767), 5);
+    _gpBuf.writeInt16LE(Math.round((state.ry || 0) * 32767), 7);
+    _gpBuf[9]  = Math.round((state.lt || 0) * 255);
+    _gpBuf[10] = Math.round((state.rt || 0) * 255);
+    _gpBuf.writeUInt16LE(cppBtns, 11);
+    _gpBuf.writeInt8(hx, 13);
+    _gpBuf.writeInt8(hy, 14);
+    _gpBuf[15] = slotIndex;
+
     _bridge.submitInputPacket(_gpBuf);
+    events.emit('input-packet', {
+        source: 'kbm', slotIndex,
+        buttons: state.buttons,
+        lt: state.lt, rt: state.rt,
+        lx: state.lx, ly: state.ly,
+        rx: state.rx, ry: state.ry,
+    });
 }
 
-// ── Dispatcher & Exports ───────────────────────────────────────────────────────
+// ── Dispatcher & Exports ──────────────────────────────────────────────────────
+// ── Payload Schema Validation ─────────────────────────────────────────────────
+// Malicious or corrupted viewer payloads can crash the C++ bridge or overflow
+// integer buffers. Validate and clamp every field before it reaches the backend.
+const MAX_PAYLOAD_BYTES = 4096;
+
+function _clampAxis(val) {
+    // Axes: -32767..+32767 as integers (already scaled by viewer.js)
+    return Math.max(-32767, Math.min(32767, Number(val) || 0));
+}
+function _clampTrigger(val) {
+    // Triggers: 0..1 float range
+    return Math.max(0, Math.min(1, Number(val) || 0));
+}
+function _clampButtons(val) {
+    // 16-bit bitmask
+    const n = Number(val) || 0;
+    return (n & 0xFFFF) >>> 0;
+}
+function _clampDelta(val) {
+    // Mouse delta: sane screen range
+    return Math.max(-4096, Math.min(4096, Number(val) || 0));
+}
+
+function _validateGamepadMsg(msg) {
+    // Size guard: reject absurdly large objects
+    try {
+        if (JSON.stringify(msg).length > MAX_PAYLOAD_BYTES) return null;
+    } catch (_) { return null; }
+
+    return {
+        type:     'gamepad',
+        pad_id:   String(msg.pad_id   || msg.viewerId || '').slice(0, 64),
+        viewer_id:String(msg.viewer_id|| msg.viewerId || '').slice(0, 64),
+        viewerId: String(msg.viewerId || '').slice(0, 64),
+        buttons:  _clampButtons(msg.buttons),
+        lt:       _clampTrigger(msg.lt),
+        rt:       _clampTrigger(msg.rt),
+        lx:       _clampAxis(msg.lx),
+        ly:       _clampAxis(msg.ly),
+        rx:       _clampAxis(msg.rx),
+        ry:       _clampAxis(msg.ry),
+    };
+}
+
+function _validateKbmMsg(msg) {
+    try {
+        if (JSON.stringify(msg).length > MAX_PAYLOAD_BYTES) return null;
+    } catch (_) { return null; }
+
+    const event = String(msg.event || '').slice(0, 32);
+    if (!['keydown', 'keyup', 'mousemove'].includes(event)) return null;
+
+    return {
+        type:     msg.type,
+        pad_id:   String(msg.pad_id   || msg.viewerId || '').slice(0, 64),
+        viewerId: String(msg.viewerId || '').slice(0, 64),
+        event,
+        key:      String(msg.key  || '').slice(0, 32),
+        dx:       _clampDelta(msg.dx),
+        dy:       _clampDelta(msg.dy),
+    };
+}
+
 function send(msg) {
+    // ── Schema validation — drop malformed or oversized payloads silently ──────
+    let validated = msg;
+    if (msg.type === 'gamepad') {
+        validated = _validateGamepadMsg(msg);
+        if (!validated) return; // drop
+    } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
+        validated = _validateKbmMsg(msg);
+        if (!validated) return; // drop
+    }
+
     // Fallback passthrough to Python if Native module failed
     if (!_bridge && _pythonProc && _pythonProc.stdin.writable) {
-        try { _pythonProc.stdin.write(JSON.stringify(msg) + '\n'); } catch (e) {}
+        try { _pythonProc.stdin.write(JSON.stringify(validated) + '\n'); } catch (e) {}
         return;
     }
 
-    if (msg.type === 'gamepad') {
-        _handleGamepad(msg);
-    } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
-        _handleKbm(msg);
+    if (validated.type === 'gamepad') {
+        _handleGamepad(validated);
+    } else if (validated.type === 'kbm' || validated.type === 'keyboard') {
+        _handleKbm(validated);
     } else if (msg.type === 'set-ctrl-type') {
         viewerCtrlType.set(msg.viewerId, msg.ctrlType);
     } else if (msg.type === 'set-input-mode') {
@@ -405,4 +632,4 @@ function destroy() {
     console.log("[input] Orchestrator destroyed.");
 }
 
-module.exports = { init, send, destroy };
+module.exports = { init, send, destroy, events };

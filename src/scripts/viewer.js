@@ -238,8 +238,9 @@ async function createPC() {
 
                         // --- RESILIENCY LAYER ---
                         if (waitingForKeyframe) {
-                            if (!isKey) return; // Drop delta frames until we get a keyframe
+                            if (!isKey) return;
                             waitingForKeyframe = false;
+                            window.nsWaitKey = false;
                             console.log('[WebCodecs] Locked onto keyframe stream.');
                         }
 
@@ -253,6 +254,7 @@ async function createPC() {
                         } catch (err) {
                             console.error('[WebCodecs] Decode error, dropping frame...', err);
                             waitingForKeyframe = true;
+                            window.nsWaitKey = true;
                         }
                     }
                 };
@@ -663,18 +665,27 @@ const keyMap = {
 };
 const mouseMap = { 0:'BTN_LEFT', 1:'BTN_MIDDLE', 2:'BTN_RIGHT' };
 
+// ── Fast-Lane Input Dispatcher ────────────────────────────────────────────────
+// Tries WebRTC DataChannel first (zero-latency), falls back to inputWs, then ws.
+function sendInputData(data) {
+    const str = typeof data === 'string' ? data : JSON.stringify(data);
+    if (window._fastLaneChannel && window._fastLaneChannel.readyState === 'open') {
+        try { window._fastLaneChannel.send(str); return; } catch (_) {}
+    }
+    if (inputWs && inputWs.readyState === 1) {
+        inputWs.send(str); return;
+    }
+    if (ws && ws.readyState === 1) {
+        ws.send(str);
+    }
+}
+
 function sendKbm(data) {
     if (document.pointerLockElement) {
         data.type = 'keyboard';
         data.viewerId = myId;
         data.pad_id = myId + '_0';
-
-        const str = JSON.stringify(data);
-        if (inputWs && inputWs.readyState === 1) {
-            inputWs.send(str);
-        } else if (ws && ws.readyState === 1) {
-            ws.send(str);
-        }
+        sendInputData(data);
     }
 }
 function requestPointerLock() {
@@ -874,12 +885,7 @@ function pollGamepad() {
         if (str !== lastGpStr[gp.index] || forceHb) {
             lastGpStr[gp.index] = str;
             lastGpSend[gp.index] = now;
-            // Fast Lane Routing
-            if (inputWs && inputWs.readyState === 1) {
-                inputWs.send(str);
-            } else if (ws && ws.readyState === 1) {
-                ws.send(str);
-            }
+            sendInputData(str);
         }
     }
     if (touchMode) {
@@ -891,7 +897,7 @@ function pollGamepad() {
         const state = { type:'gamepad', padIndex:vIndex, axes:touchState.axes.map(v=>Math.round(v*32767)), buttons:touchState.buttons.map(b=>({ pressed:b.pressed, value:Math.round(b.value*255) })) };
         const str = JSON.stringify(state);
         const forceHb = now - (lastGpSend[vIndex]||0) > 100;
-        if (str !== lastGpStr[vIndex] || forceHb) { lastGpStr[vIndex] = str; lastGpSend[vIndex] = now; if (ws?.readyState===1) ws.send(str); }
+        if (str !== lastGpStr[vIndex] || forceHb) { lastGpStr[vIndex] = str; lastGpSend[vIndex] = now; sendInputData(str); }
     }
 }
 
@@ -967,11 +973,38 @@ async function connect() {
     ws.onopen = () => ws.send(JSON.stringify({ type:'join', viewerId:myId, name:myName, pin:enteredPin, clientVersion:CLIENT_VERSION }));
 
     ws.onmessage = async (e) => {
-        // Binary audio
+        // ── BINARY ROUTING ────────────────────────────────────────────────────
+        // VPS SFU mode routes both video chunks and PCM audio as ArrayBuffers
+        // over the same WebSocket. Distinguish by the 9-byte video header.
         if (e.data instanceof ArrayBuffer) {
+            const byteLen = e.data.byteLength;
+            if (byteLen > 9) {
+                const firstByte = new Uint8Array(e.data, 0, 1)[0];
+                if (firstByte === 0 || firstByte === 1) {
+                    // WebCodecs video chunk: [isKey(1)] [timestamp(8)] [payload...]
+                    if (!wcDecoder || wcDecoder.state !== 'configured') return;
+                    const isKey = firstByte === 1;
+                    if (window.nsWaitKey) {
+                        if (!isKey) return;
+                        window.nsWaitKey = false;
+                        console.log('[WebCodecs/VPS] Locked onto keyframe.');
+                    }
+                    const view      = new DataView(e.data);
+                    const timestamp = view.getFloat64(1, true);
+                    const chunkData = new Uint8Array(e.data, 9);
+                    try {
+                        wcDecoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp, data: chunkData }));
+                    } catch (err) {
+                        console.error('[WebCodecs/VPS] Decode error:', err);
+                        window.nsWaitKey = true;
+                    }
+                    return;
+                }
+            }
+            // PCM audio — only feed after user gesture has unlocked AudioContext
             if (!sysAudioCtx || sysAudioCtx.state !== 'running') return;
             try {
-                let safeLen = e.data.byteLength - (e.data.byteLength % 2);
+                let safeLen = byteLen - (byteLen % 2);
                 if (!safeLen) return;
                 const int16   = new Int16Array(e.data.slice(0, safeLen));
                 const float32 = new Float32Array(int16.length);
@@ -986,9 +1019,46 @@ async function connect() {
             } catch(err) { console.error('[Audio] Playback error:', err); }
             return;
         }
+        if (e.data instanceof Blob) return;
 
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
+
+        // webcodecs-config arrives on the main WS in VPS mode (replayed by the
+        // Rust router on join). In WebRTC-only mode it arrives on the DataChannel.
+        if (msg.type === 'webcodecs-config') {
+            window.nsWaitKey = true;
+            initWebCodecsViewer(msg);
+            return;
+        }
+
+        // stream-idle: host connected to VPS but not yet capturing.
+        // Use a fixed iframe pointing to the physical standby.html file served by Caddy.
+        // The iframe approach avoids any Caddy routing issues — the file is served at
+        // the same origin so same-origin fetch rules apply automatically.
+        if (msg.type === 'stream-idle') {
+            let sf = document.getElementById('_nsStandbyFrame');
+            if (!sf) {
+                sf = document.createElement('iframe');
+                sf.id = '_nsStandbyFrame';
+                sf.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:none;z-index:9000;background:#080808;';
+                sf.src = '/standby.html';
+                document.body.appendChild(sf);
+            } else {
+                sf.style.display = 'block';
+            }
+            showOverlay(false);
+            return;
+        }
+
+        // stream-active: host started capturing — dismiss standby iframe
+        if (msg.type === 'stream-active') {
+            const sf = document.getElementById('_nsStandbyFrame');
+            if (sf) sf.style.display = 'none';
+            window.nsWaitKey = true;
+            setStatus('Host found, connecting...');
+            return;
+        }
 
         if (msg.type === 'host-connected') {
             if (pc) { try { pc.close(); } catch {} pc = null; }
@@ -998,6 +1068,16 @@ async function connect() {
             processorRunning = false;
             showOverlay(true); setStatus('Host reconnected, waiting for stream...');
             document.getElementById('spinner').style.display = 'block';
+            // Display the host's saved name in both the overlay and the topbar pill
+            if (msg.hostName) {
+                const overlayEl = document.getElementById('sessionHostName');
+                if (overlayEl) { overlayEl.textContent = 'HOST SESSION — ' + msg.hostName; overlayEl.style.display = 'block'; }
+                const topEl = document.getElementById('topHostName');
+                if (topEl) topEl.textContent = msg.hostName;
+                const pillEl = document.getElementById('hostNamePill');
+                if (pillEl) pillEl.style.display = '';
+                document.title = 'Nearsec — ' + msg.hostName;
+            }
             setTimeout(() => ws?.readyState===1 && ws.send(JSON.stringify({ type:'request-offer' })), 800);
             return;
         }
@@ -1044,7 +1124,14 @@ async function connect() {
             connectInputWS();
             return;
         }
-        if (msg.type === 'host-stream-ready') { setStatus('Host found, connecting...'); maybeShowControllerGuide(); return; }
+        if (msg.type === 'host-stream-ready') {
+            const sf = document.getElementById('_nsStandbyFrame');
+            if (sf) sf.style.display = 'none';
+            window.nsWaitKey = true;
+            setStatus('Host found, connecting...');
+            maybeShowControllerGuide();
+            return;
+        }
 
         // ── RUMBLE ────────────────────────────────────────────────────────────
         if (msg.type === 'rumble') {
@@ -1385,16 +1472,10 @@ function initWebCodecsViewer(config) {
     if (!wcCanvas) {
         wcCanvas = document.createElement('canvas');
         wcCanvas.id = 'webcodecs-canvas';
-        // USE NATIVE CSS SCALING: This completely prevents out-of-bounds errors
-        wcCanvas.style.cssText = 'width: 100%; height: 100%; object-fit: contain; display: block; position: absolute; top: 0; left: 0;';
-
-        document.getElementById('video-container')?.appendChild(wcCanvas) ??
-        document.body.appendChild(wcCanvas);
-
-        // THIS FIXES KBM: Bind pointer lock to the canvas so you can actually click it!
-        wcCanvas.addEventListener('click', () => {
-            if (typeof requestPointerLock === 'function') requestPointerLock();
-        });
+        // BUG 2 FIX: Add CSS so the stream scales to fit the viewport instead of top-left clipping
+        wcCanvas.style.cssText = 'width: 100%; height: 100%; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10;';
+        document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
+        wcCtx = wcCanvas.getContext('2d', { alpha: false, desynchronized: true });
     } else {
         wcCanvas.style.display = 'block';
     }
@@ -1408,16 +1489,29 @@ function initWebCodecsViewer(config) {
         wcCtx = wcCanvas.getContext('2d', { alpha: false, desynchronized: true });
     }
 
-    if (wcDecoder && wcDecoder.state !== 'closed') wcDecoder.close();
+    // Clean up any existing decoder before creating a new one.
+    // Leaving the old instance open causes "Decoder already closed" exceptions
+    // and zombie contexts when the host restarts their stream.
+    if (wcDecoder) {
+        try {
+            if (wcDecoder.state !== 'closed') wcDecoder.close();
+        } catch (_) {}
+        wcDecoder = null;
+    }
+
+    // Reset the global keyframe gate so the new decoder waits for a clean
+    // keyframe before attempting to decode any delta frames.
+    window.nsWaitKey = true;
 
     let _wcFirstFrame = true;
 
     wcDecoder = new VideoDecoder({
         output: (frame) => {
-            // CSS object-fit handles the scaling now. Just map 1:1 resolution.
-            if (wcCanvas.width !== frame.displayWidth || wcCanvas.height !== frame.displayHeight) {
-                wcCanvas.width  = frame.displayWidth;
-                wcCanvas.height = frame.displayHeight;
+            // BUG 2/5 FIX: Use hardware codedWidth, and re-acquire the context after resize!
+            if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
+                wcCanvas.width  = frame.codedWidth;
+                wcCanvas.height = frame.codedHeight;
+                wcCtx = wcCanvas.getContext('2d', { alpha: false, desynchronized: true });
             }
             if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
             frame.close();
@@ -1432,7 +1526,10 @@ function initWebCodecsViewer(config) {
                 }
             }
         },
-        error: (e) => console.error('[WebCodecs] Decoder Error:', e)
+        error: (e) => {
+            console.error('[WebCodecs] Decoder Error:', e);
+            window.nsWaitKey = true;
+        }
     });
 
     const decoderConfig = {

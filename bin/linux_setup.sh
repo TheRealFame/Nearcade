@@ -158,7 +158,7 @@ RULE_FILE="/etc/udev/rules.d/99-nearsec-input.rules"
 cat > "$RULE_FILE" << 'RULES'
 # NearsecTogether — virtual controller udev rules
 # Ensure uinput itself is accessible without root
-KERNEL=="uinput", MODE="0666", OPTIONS+="static_node=uinput"
+KERNEL=="uinput", MODE="0666", GROUP="input", OPTIONS+="static_node=uinput"
 
 # Xbox 360 Virtual Pad
 SUBSYSTEM=="input", ATTRS{idVendor}=="045e", ATTRS{idProduct}=="028e", TAG+="uaccess"
@@ -176,6 +176,10 @@ SUBSYSTEM=="input", ATTRS{name}=="Microsoft Xbox*", \
 RULES
 
 udevadm control --reload-rules && udevadm trigger
+if [ ! -f /etc/modules-load.d/uinput.conf ]; then
+    echo "uinput" | tee /etc/modules-load.d/uinput.conf > /dev/null
+    modprobe uinput || true
+fi
 ok "udev rules written to $RULE_FILE and reloaded"
 
 # ── Done ──────────────────────────────────────────────────────────────────────

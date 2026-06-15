@@ -1,0 +1,90 @@
+# /etc/systemd/system/nearsec-router.service
+#
+# NearsecTogether VPS SFU Router — universal systemd unit
+#
+# DIRECTORY LAYOUT (set up once on the server):
+#
+#   /opt/nearsec-router/
+#       nearsec-router          <- compiled binary
+#
+#   /etc/nearsec/
+#       .env                    <- secrets file (chmod 600, owned root:root)
+#
+# QUICK SETUP:
+#
+#   1. Build and install the binary:
+#        cargo build --release --manifest-path /path/to/vps/Cargo.toml
+#        sudo mkdir -p /opt/nearsec-router
+#        sudo cp target/release/nearsec-router /opt/nearsec-router/
+#        sudo chmod 755 /opt/nearsec-router/nearsec-router
+#
+#   2. Create the secrets file:
+#        sudo mkdir -p /etc/nearsec
+#        echo "MASTER_KEY=your-64-char-hex-key" | sudo tee /etc/nearsec/.env
+#        echo "PORT=9000"                       | sudo tee -a /etc/nearsec/.env
+#        sudo chmod 600 /etc/nearsec/.env
+#        sudo chown root:root /etc/nearsec/.env
+#
+#   3. Create the service user (no login shell, no home dir):
+#        sudo useradd --system --no-create-home --shell /usr/sbin/nologin nearsec
+#        sudo chown -R nearsec:nearsec /opt/nearsec-router
+#
+#   4. Install and start:
+#        sudo cp nearsec-router.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now nearsec-router
+#
+#   5. Verify:
+#        sudo systemctl status nearsec-router
+#        sudo journalctl -u nearsec-router -f
+#
+# If you prefer to run as your own user instead of a service account, change
+# User= and Group= below to your username (e.g. ubuntu) and remove the
+# useradd step. The binary at /opt/nearsec-router is world-executable so
+# either approach works.
+
+[Unit]
+Description=NearsecTogether VPS SFU Dumb-Pipe Router
+Documentation=https://github.com/nearsec/NearsecTogether
+After=network-online.target
+Wants=network-online.target
+# StartLimitIntervalSec/Burst must be in [Unit] on systemd >= 230 (Ubuntu 22.04+).
+# If placed in [Service] they produce a deprecation warning and may be ignored.
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# Dedicated no-login system account. Change to your own user if preferred.
+# On Ubuntu the default deploy user is 'ubuntu' — either works fine.
+User=nearsec
+Group=nearsec
+
+ExecStart=/opt/nearsec-router/nearsec-router
+WorkingDirectory=/opt/nearsec-router
+
+# Secrets are loaded from a root-owned 600 file.
+# MASTER_KEY and PORT are read from here at startup.
+EnvironmentFile=/etc/nearsec/.env
+
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+CapabilityBoundingSet=
+NoNewPrivileges=true
+PrivateTmp=true
+# strict makes / read-only but leaves /opt and /etc accessible.
+ProtectSystem=strict
+# Binary lives in /opt, not /home, so ProtectHome can safely be set to true.
+ProtectHome=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nearsec-router
+
+LimitNOFILE=65536
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

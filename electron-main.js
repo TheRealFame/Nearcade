@@ -7,7 +7,7 @@ const path = require('path');
 const fs   = require('fs');
 const { powerSaveBlocker } = require('electron');
 powerSaveBlocker.start('prevent-app-suspension');
-
+process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 // ── CRITICAL FIX: Detect Arcade Worker immediately ──
 const isArcadeWorker      = process.argv.includes('--arcade-worker');
 const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
@@ -104,7 +104,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
-} else if (process.platform === 'linux' && (process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland')) {
+} else if (process.platform === 'linux') {
   // Force native Wayland with decorations
   app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
   // Combine WebRTC PipeWire capture with VAAPI Hardware Encoding for AMD
@@ -147,6 +147,8 @@ const DEFAULTS = {
     defaultInputMode: 'gamepad', hybridInput: false,
       // Tunnels
       tunnelProvider: null, neverAsk: false, vpsHost: '',
+      // VPS SFU routing
+      vpsEnabled: false, vpsUrl: '', vpsMasterKey: '',
       // Auto-hosts
       autoHosts: [],
       // First run
@@ -364,6 +366,23 @@ async function createWindow() {
     return true;
   });
   ipcMain.handle('get-settings', () => settings);
+  // Dedicated VPS config handler — exposes only VPS fields to the renderer,
+  // keeping the master key separate from general settings for clarity.
+  ipcMain.handle('get-vps-config', () => ({
+    vpsEnabled:   !!settings.vpsEnabled,
+    vpsUrl:       String(settings.vpsUrl       || ''),
+    vpsMasterKey: String(settings.vpsMasterKey || ''),
+  }));
+  ipcMain.handle('save-vps-config', (_, cfg) => {
+    const safe = {
+      vpsEnabled:   !!cfg.vpsEnabled,
+      vpsUrl:       String(cfg.vpsUrl       || '').slice(0, 512),
+      vpsMasterKey: String(cfg.vpsMasterKey || '').slice(0, 256),
+    };
+    settings = Object.assign(settings, safe);
+    saveSettings(settings);
+    return safe;
+  });
   ipcMain.handle('save-settings', (_, s) => {
     settings = Object.assign(settings, s);
     saveSettings(settings);

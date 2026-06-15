@@ -1,47 +1,79 @@
 """
 NearsecTogether Input Driver Dispatcher
 
-This is a thin dispatcher that detects the current OS at startup and loads 
-the appropriate backend module for virtual controller injection.
+Thin dispatcher: detects the OS at startup and loads the appropriate backend
+module for virtual controller injection.
 
 - Linux:   Uses uinput (stable, primary target)
 - Windows: EXPERIMENTAL - Uses ViGEmBus + vgamepad
 - macOS:   EXPERIMENTAL - KBM only via pyautogui (no gamepad)
+
+All fatal errors are emitted as JSON to stdout so Node.js can parse them:
+  {"type": "error", "message": "...", "code": "..."}
 """
 
 import sys
+import json
 import platform
+
+
+def _emit(payload: dict):
+    """Write a JSON line to stdout, flushed immediately."""
+    print(json.dumps(payload), flush=True)
+
+
+def _emit_error(message: str, code: str = "INIT_ERROR"):
+    _emit({"type": "error", "message": message, "code": code})
+
 
 OS = platform.system()
 
-print(f"[input] Detected OS: {OS}", flush=True)
+_emit({"type": "log", "message": f"Detected OS: {OS}"})
 
 if OS == "Linux":
-    print("[input] Loading Linux uinput backend (stable)", flush=True)
-    from input_backends.linux_uinput import run
+    _emit({"type": "log", "message": "Loading Linux uinput backend (stable)"})
+    try:
+        from input_backends.linux_uinput import run
+    except ImportError as e:
+        _emit_error(f"Failed to import linux_uinput: {e}", "IMPORT_ERROR")
+        sys.exit(1)
+
 elif OS == "Windows":
-    print("[input] WARNING: Windows backend is EXPERIMENTAL.", flush=True)
-    print(
-        "[input] Requires ViGEmBus driver: https://github.com/nefarius/ViGEmBus/releases",
-        flush=True,
-    )
-    from input_backends.windows_vigem import run
+    _emit({"type": "log", "message": "Loading Windows ViGEmBus backend (EXPERIMENTAL)"})
+    _emit({
+        "type": "log",
+        "message": "Requires ViGEmBus driver: https://github.com/nefarius/ViGEmBus/releases"
+    })
+    try:
+        from input_backends.windows_vigem import run
+    except ImportError as e:
+        _emit_error(
+            f"Failed to import windows_vigem: {e}. "
+            "Install with: pip install vgamepad pyautogui",
+            "IMPORT_ERROR"
+        )
+        sys.exit(1)
+
 elif OS == "Darwin":
-    print("[input] WARNING: macOS backend is EXPERIMENTAL.", flush=True)
-    print("[input] Gamepad injection is NOT supported on macOS.", flush=True)
-    print("[input] Only keyboard/mouse passthrough is available.", flush=True)
-    from input_backends.mac_stub import run
+    _emit({"type": "log", "message": "Loading macOS stub backend (EXPERIMENTAL, KBM only)"})
+    _emit({"type": "log", "message": "Gamepad injection is NOT supported on macOS."})
+    try:
+        from input_backends.mac_stub import run
+    except ImportError as e:
+        _emit_error(f"Failed to import mac_stub: {e}", "IMPORT_ERROR")
+        sys.exit(1)
+
 else:
-    print(f"[input] ERROR: Unsupported OS: {OS}. Exiting.", flush=True)
+    _emit_error(f"Unsupported OS: {OS}", "UNSUPPORTED_OS")
     sys.exit(1)
 
-# Run the backend dispatcher
+
 if __name__ == "__main__":
     try:
         run()
     except KeyboardInterrupt:
-        print("[input] Shutting down gracefully", flush=True)
+        _emit({"type": "log", "message": "Shutting down gracefully"})
         sys.exit(0)
     except Exception as e:
-        print(f"[input] Fatal error: {e}", flush=True)
+        _emit_error(f"Fatal error in backend run(): {e}", "RUNTIME_ERROR")
         sys.exit(1)

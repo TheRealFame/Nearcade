@@ -393,23 +393,25 @@ background: #000;
 
 /* ── BOTTOM DOCK ─────────────────────────────────────────────────── */
 .bottom-dock {
-    height: 220px;
+    min-height: 188px;
     border-radius: 20px;
     flex-shrink: 0;
     display: grid;
-    grid-template-columns: 1.4fr 1fr 1.2fr;
+    grid-template-columns: 1.1fr 1.6fr 1fr;
+    align-items: start;
     gap: 16px;
-    padding: 16px;
-    transition: height 0.3s ease;
+    padding: 14px 16px;
 }
 
 .dock-card {
     background: rgba(255,255,255,0.03);
     border: 1px solid var(--border);
     border-radius: 14px;
-    padding: 16px 18px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .dock-label {
@@ -493,7 +495,7 @@ background: #000;
 .url-card-inner { flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
 
 .url-entry {
-    font-size: 13px;
+    font-size: 11px;
     font-family: var(--mono);
     word-break: break-all;
     cursor: pointer;
@@ -506,6 +508,8 @@ background: #000;
     padding: 2px 6px;
     margin-left: -6px;
     border-radius: 4px;
+    max-width: 100%;
+    display: block;
 }
 
 .url-entry:hover {
@@ -823,7 +827,7 @@ gap: 4px;
 
 .prov-install {
     margin-top: auto;
-    padding: 7px 10px;
+    padding: 10px 12px;
     background: rgba(0,0,0,0.5);
     border-radius: 6px;
     font-size: 9px;
@@ -836,7 +840,7 @@ gap: 4px;
     display: none;
 }
 
-.provider-card.selected .prov-install { display: block; }
+.provider-card.selected .prov-install { display: flex; }
 .prov-install .cmd     { color: var(--green); }
 .prov-install .comment { color: var(--muted2); }
 
@@ -1215,3 +1219,95 @@ color: var(--muted) !important;
 
 /* ── CLIENT-ONLY MODE: hide host-specific sections ───────────────────────── */
 body.client-only .host-only { display: none !important; }
+
+/* ── v2.0.6: Stats HUD (inline in dock) ────────────────────────────────────── */
+.stats-inline-cell {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+}
+.stats-inline-key {
+    font-size: 7px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    font-family: var(--mono);
+    line-height: 1;
+}
+.stats-inline-val {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--accent);
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+/* ── v2.0.6: Viewer card styles (used inside settingsModal Viewers tab) ──────── */
+.viewer-panel-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.viewer-panel-card.revoked {
+    border-color: rgba(248,113,113,0.35);
+    background: rgba(248,113,113,0.06);
+}
+.vpc-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text);
+}
+.vpc-profile {
+    font-size: 9px;
+    color: var(--muted2);
+    font-family: var(--mono);
+}
+.vpc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.vpc-revoke-btn {
+    font-size: 9px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border2);
+    background: rgba(255,255,255,0.05);
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--mono);
+    transition: all 0.15s;
+}
+.vpc-revoke-btn:hover    { border-color: var(--danger); color: var(--danger); }
+.vpc-revoke-btn.revoked  { border-color: var(--green); color: var(--green); background: rgba(52,211,153,0.08); }
+
+/* ── v2.0.6: Unified Settings Modal Tabs ───────────────────────────────────── */
+.settings-tabs {
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+}
+.settings-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 10px 14px 8px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    letter-spacing: 0.02em;
+}
+.settings-tab:hover { color: var(--text); }
+.settings-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+.stab-content { padding-bottom: 8px; }

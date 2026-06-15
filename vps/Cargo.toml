@@ -1,0 +1,32 @@
+[package]
+name        = "nearsec-router"
+version     = "1.0.0"
+edition     = "2021"
+description = "NearsecTogether VPS SFU — dumb-pipe WebSocket router"
+authors     = ["NearsecTogether"]
+
+[[bin]]
+name = "nearsec-router"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio            = { version = "1",  features = ["full"] }
+# WebSocket protocol (tokio-native-tls feature not needed — plain ws or ws+tls via nginx)
+tokio-tungstenite = { version = "0.21", features = [] }
+# Async futures utilities
+futures           = "0.3"
+# JSON serialization
+serde             = { version = "1", features = ["derive"] }
+serde_json        = "1"
+# UUID generation for viewer IDs
+uuid              = { version = "1", features = ["v4"] }
+# Single shared mutable state via RwLock
+
+[profile.release]
+# Optimise fully for the VPS — smaller binary, faster throughput
+opt-level   = 3
+lto         = true
+codegen-units = 1
+panic       = "abort"
+strip       = true

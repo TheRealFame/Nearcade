@@ -47,7 +47,7 @@ INCS_Debug := \
 	-I/home/fame/.cache/node-gyp/22.22.1/deps/uv/include \
 	-I/home/fame/.cache/node-gyp/22.22.1/deps/zlib \
 	-I/home/fame/.cache/node-gyp/22.22.1/deps/v8/include \
-	-I/home/fame/NearsecTogether/src/node_modules/node-addon-api
+	-I/home/fame/Documents/NearsecTogether/node_modules/node-addon-api
 
 DEFS_Release := \
 	'-DNODE_GYP_MODULE_NAME=uinputBridge' \
@@ -92,7 +92,7 @@ INCS_Release := \
 	-I/home/fame/.cache/node-gyp/22.22.1/deps/uv/include \
 	-I/home/fame/.cache/node-gyp/22.22.1/deps/zlib \
 	-I/home/fame/.cache/node-gyp/22.22.1/deps/v8/include \
-	-I/home/fame/NearsecTogether/src/node_modules/node-addon-api
+	-I/home/fame/Documents/NearsecTogether/node_modules/node-addon-api
 
 OBJS := \
 	$(obj).target/$(TARGET)/uinputBridge.o
@@ -101,7 +101,7 @@ OBJS := \
 all_deps += $(OBJS)
 
 # Make sure our dependencies are built before any of us.
-$(OBJS): | $(builddir)/nothing.a $(obj).target/../../node_modules/node-addon-api/nothing.a
+$(OBJS): | $(builddir)/nothing.a $(obj).target/../../../node_modules/node-addon-api/src/nothing.a
 
 # CFLAGS et al overrides must be target-local.
 # See "Target-specific Variable Values" in the GNU Make manual.
@@ -139,7 +139,7 @@ LIBS :=
 $(obj).target/uinputBridge.node: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(obj).target/uinputBridge.node: LIBS := $(LIBS)
 $(obj).target/uinputBridge.node: TOOLSET := $(TOOLSET)
-$(obj).target/uinputBridge.node: $(OBJS) $(obj).target/../../node_modules/node-addon-api/nothing.a FORCE_DO_CMD
+$(obj).target/uinputBridge.node: $(OBJS) $(obj).target/../../../node_modules/node-addon-api/src/nothing.a FORCE_DO_CMD
 	$(call do_cmd,solink_module)
 
 all_deps += $(obj).target/uinputBridge.node

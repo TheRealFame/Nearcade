@@ -67,6 +67,7 @@ function spawnAudioWorker() {
       case 'module-ids': Object.assign(_vAudioModules, msg.ids); break;
       case 'ready':      console.log('[VirtualAudio] Worker ready.'); break;
       case 'destroyed':  console.log('[VirtualAudio] Worker teardown complete.'); break;
+      case 'backend-selected': console.log(`[VirtualAudio] Using ${msg.backend} backend.`); break;
     }
   });
 
@@ -81,7 +82,9 @@ function spawnAudioWorker() {
 
 /**
  * PUBLIC — Create all virtual audio modules in sequence.
- * Delegates to audio_worker. Optional callback fires on 'ready'.
+ * Attempts PipeWire native (pw-loopback) first for zero-latency capture.
+ * Falls back to PulseAudio (pactl) if PipeWire is unavailable.
+ * Delegates heavy shell work to audio_worker.js.
  */
 function initVirtualAudio(callback) {
   if (process.platform !== 'linux') {
@@ -94,6 +97,17 @@ function initVirtualAudio(callback) {
   } else {
     _audioWorker.postMessage({ type: 'init' });
   }
+
+  // Probe PipeWire availability and pass the result to the worker
+  // so it can choose the right capture path without the main thread blocking.
+  const { execFile } = require('child_process');
+  execFile('pw-cli', ['info', 'all'], { timeout: 2000 }, (err) => {
+    const pwAvailable = !err;
+    if (_audioWorker) {
+      _audioWorker.postMessage({ type: 'set-audio-backend', pipewire: pwAvailable });
+      console.log(`[VirtualAudio] Backend probe: ${pwAvailable ? 'PipeWire (native)' : 'PulseAudio (legacy)'}`);
+    }
+  });
 
   if (callback && _audioWorker) {
     const onMsg = (msg) => {
@@ -779,6 +793,42 @@ async function main() {
     });
   });
 
+  // ── Input Visualizer — SSE stream of parsed driver packets ────────────────
+  app.get('/api/input-visualizer', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const onPacket = (data) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    inputDriver.events.on('input-packet', onPacket);
+
+    req.on('close', () => {
+      inputDriver.events.off('input-packet', onPacket);
+    });
+  });
+
+  // ── Viewer Input Permission — revoke / restore ────────────────────────────
+  app.post('/api/viewer-input-perm', express.json(), (req, res) => {
+    const { viewerId, revoked } = req.body || {};
+    if (!viewerId) return res.status(400).json({ ok: false, reason: 'missing viewerId' });
+    const padId = viewerId + '_0';
+    const cur = inputPerms.get(padId) || { gp: true, kb: false, slot: null };
+    const updated = { ...cur, gp: !revoked, kb: revoked ? false : cur.kb, revokedByHost: !!revoked };
+    inputPerms.set(padId, updated);
+    // Flush neutral state so the game doesn't see a stuck button
+    if (revoked) {
+      inputDriver.send({ type: 'flush_neutral', viewer_id: padId });
+    }
+    // Notify host WS client so the viewer panel updates live
+    if (typeof hostWS !== 'undefined' && hostWS && hostWS.readyState === 1) {
+      hostWS.send(JSON.stringify({ type: 'input-perm-changed', viewerId, revoked: !!revoked }));
+    }
+    res.json({ ok: true, viewerId, revoked: !!revoked });
+  });
+
   app.get("/api/arcade/sessions", (req, res) => {
     res.json([...arcadeSessions.values()]);
   });
@@ -931,6 +981,20 @@ async function main() {
 
   // This will try C++ first, and automatically fall back to Python if the .node file is missing
   const inputReady = inputDriver.init(screenW, screenH);
+
+  // Forward input driver errors (e.g. ViGEmBus missing on Windows) to the host UI
+  inputDriver.events.on('input-error', (err) => {
+    console.error('[InputOrchestrator] input-error:', err.message, '(code:', err.code + ')');
+    if (hostWS && hostWS.readyState === 1) {
+      hostWS.send(JSON.stringify({ type: 'input-error', message: err.message, code: err.code || '' }));
+    }
+  });
+  inputDriver.events.on('input-ready', (info) => {
+    console.log('[InputOrchestrator] input-ready:', info.message || '');
+    if (hostWS && hostWS.readyState === 1) {
+      hostWS.send(JSON.stringify({ type: 'input-ready', message: info.message || '' }));
+    }
+  });
 
   let hostStreaming = false;
   const audioViewers = new Set();
@@ -1260,6 +1324,69 @@ async function main() {
             }
           }
 
+          // ── VPS viewer registration ───────────────────────────────────────
+          // When a viewer connects via the Rust SFU router, host.js forwards
+          // synthetic join/leave messages so the server can manage the roster,
+          // input permissions, and controller slots without a direct viewer WS.
+          if (msg.type === 'vps-viewer-join') {
+            const id = String(msg.viewerId || '').slice(0, 64);
+            if (!id) return;
+            if (!viewers.has(id)) {
+              // Register with a null WS — the viewer is on the VPS, not local.
+              // All places that do vws.readyState checks already guard with (vws &&).
+              viewers.set(id, null);
+              viewerNames.set(id, String(msg.name || id).slice(0, 48));
+              const cfg = loadConfig();
+              const defaultMode = cfg.defaultInputMode || 'gamepad';
+              const padId = id + '_0';
+              inputPerms.set(padId, {
+                gp: defaultMode !== 'kbm',
+                kb: defaultMode !== 'gamepad',
+                slot: null,
+              });
+              toUinput({ type: 'set-ctrl-type', viewerId: padId, ctrlType: global.currentCtrlType || 'xbox360' });
+              if (hostWS && hostWS.readyState === 1) {
+                hostWS.send(JSON.stringify({ type: 'viewer-joined', viewerId: id, name: viewerNames.get(id) }));
+              }
+              broadcastRoster();
+              console.log('[VPS] Viewer joined:', id);
+            }
+            return;
+          }
+
+          if (msg.type === 'vps-viewer-leave') {
+            const id = String(msg.viewerId || '').slice(0, 64);
+            if (!id || !viewers.has(id)) return;
+            viewers.delete(id);
+            viewerNames.delete(id);
+            const padId = id + '_0';
+            toUinput({ type: 'flush_neutral',     viewer_id: padId });
+            toUinput({ type: 'disconnect_viewer', viewer_id: padId });
+            inputPerms.delete(padId);
+            if (hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify({ type: 'viewer-left', viewerId: id }));
+            }
+            broadcastRoster();
+            console.log('[VPS] Viewer left:', id);
+            return;
+          }
+
+          // ── VPS viewer input ──────────────────────────────────────────────
+          // Gamepad/KBM packets stamped with viewerId by host.js VPS bridge.
+          // Route directly to the uinput driver — same path as local viewers.
+          if ((msg.type === 'gamepad' || msg.type === 'keyboard' || msg.type === 'kbm') && msg.viewerId) {
+            if (msg.type === 'keyboard') msg.type = 'kbm';
+            const id = String(msg.viewerId).split('_')[0];
+            const padId = msg.pad_id || (id + '_0');
+            msg.pad_id   = padId;
+            msg.viewer_id = id;
+            const perms = inputPerms.get(padId) || { gp: true, kb: false };
+            if (msg.type === 'gamepad' && !perms.gp) return;
+            if (msg.type === 'kbm'     && !perms.kb) return;
+            inputDriver.send(msg);
+            return;
+          }
+
           broadcast(JSON.stringify(msg));
 
         } catch (err) {
@@ -1382,7 +1509,9 @@ async function main() {
 
             if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: joinName }));
-              ws.send(JSON.stringify({ type: "host-connected" }));
+              // Include the saved host name so the viewer can display "HOST SESSION — Name"
+              const hCfg = loadConfig();
+              ws.send(JSON.stringify({ type: "host-connected", hostName: hCfg.hostName || 'Host' }));
               if (hostStreaming) {
                 ws.send(JSON.stringify({ type: "host-stream-ready" }));
               }
@@ -1514,6 +1643,26 @@ async function main() {
 
           if (msg.type === "gamepad" || msg.type === "keyboard") {
             if (msg.type === "keyboard") msg.type = "kbm";
+
+            // ── PPS flood protection ──────────────────────────────────────────
+            // Track packets per second per viewer. Drop the packet and kick the
+            // viewer if they exceed 300 input messages per second.
+            const _ppsNow = Date.now();
+            if (!ws._ppsWindow || _ppsNow - ws._ppsWindow >= 1000) {
+              ws._ppsWindow = _ppsNow;
+              ws._ppsCount  = 1;
+            } else {
+              ws._ppsCount = (ws._ppsCount || 0) + 1;
+              if (ws._ppsCount > 300) {
+                console.warn(`[PPS] Viewer ${id} exceeded 300 inputs/sec — disconnecting`);
+                if (hostWS && hostWS.readyState === 1) {
+                  hostWS.send(JSON.stringify({ type: 'viewer-flood-kick', viewerId: id }));
+                }
+                ws.close(1008, 'pps_flood');
+                return;
+              }
+            }
+            // ─────────────────────────────────────────────────────────────────
             const padIdx = msg.padIndex || 0;
             const rosterId = msg.type === "gamepad" ? id + '_' + padIdx : id + '_0';
 
@@ -1646,6 +1795,12 @@ async function main() {
         console.log(`  \x1b[31m~\x1b[0m VPS Tunnel failed to start on boot.`);
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: 'vps' }));
       }
+    } else if (cfg.tunnelProvider === 'vps-sfu') {
+      // VPS SFU mode — the host app manages its own WebSocket to the Rust router.
+      // The local server must NOT start any tunnel process. The domain is defined
+      // by the user's saved VPS URL, not by any local tunnel provider.
+      console.log("  \x1b[36m~\x1b[0m Tunnel: VPS SFU mode (managed by host app — no local tunnel started)");
+      // Do NOT modify tunnelProvider or neverAsk here.
     } else if (cfg.neverAsk && cfg.tunnelProvider === 'portforward') {
       console.log("  ~ Tunnel: port forward mode (saved).");
     } else if (cfg.neverAsk && cfg.tunnelProvider) {
@@ -1724,8 +1879,15 @@ function cleanup(isElectron = false) {
       }
     }
 
-    // Belt and braces cleanup
+    // Belt and braces PulseAudio cleanup
     try { execSync("pactl list short modules | awk '/NearsecAppAudio|NearsecAppMic|NearsecVirtualCapture|NearsecVirtual/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) {}
+
+    // PipeWire node cleanup — destroy any pw-loopback nodes created by the worker
+    try {
+      execSync("pw-cli list-objects | grep -A2 'Nearsec' | grep 'id ' | awk '{print $2}' | tr -d ',' | xargs -r -I{} pw-cli destroy {}", { stdio: 'ignore', timeout: 2000 });
+    } catch (_) {}
+    // Belt-and-braces: kill any dangling pw-loopback processes we spawned
+    try { execSync("pkill -f 'pw-loopback.*Nearsec'", { stdio: 'ignore' }); } catch (_) {}
   }
 
   if (!isElectron) {

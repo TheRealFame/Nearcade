@@ -102,6 +102,18 @@
     // Per-controller state: index → { calibStep, calibCooldown, tempMap, mapCache }
     const controllers = new Map();
 
+    // BUG 3 FIX: Prevent infinite ReferenceError loop on controller connect
+    function updatePrompt(index) {
+      const state = controllers.get(index);
+      if (!state) return;
+
+      const promptEl = document.getElementById(`c${index}-prompt`);
+      if (promptEl) {
+          if (state.calibStep === 0) promptEl.textContent = 'Awaiting Calibration...';
+          else promptEl.textContent = `Step ${state.calibStep} / 12`;
+      }
+    }
+
     function getSafeId(gp) {
       return gp.id.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
     }

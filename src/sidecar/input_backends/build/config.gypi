@@ -482,7 +482,7 @@
     "cache": "/home/fame/.npm",
     "prefix": "/usr/local",
     "metrics_registry": "https://registry.npmjs.org/",
-    "local_prefix": "/home/fame/NearsecTogether/src/sidecar",
+    "local_prefix": "/home/fame/Documents/NearsecTogether",
     "userconfig": "/home/fame/.npmrc",
     "user_agent": "npm/9.2.0 node/v22.22.1 linux x64 workspaces/false"
   },

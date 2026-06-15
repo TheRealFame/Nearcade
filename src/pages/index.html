@@ -90,6 +90,9 @@
       display: none;
       position: fixed;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
       background: #000;
       z-index: 1;
     }
@@ -957,6 +960,7 @@ if (window.IS_CLIENT_ONLY) {
       <img src="/assets/NearsecTogether.png" alt="" class="brand-img" style="height:52px;">
       <div class="brand-name" style="font-size:11px;">NearsecTogether</div>
     </div>
+    <div id="sessionHostName" style="font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted2);font-family:var(--mono);display:none;"></div>
     <div class="spin" id="spinner"></div>
     <div id="overlayStatus">Connecting...</div>
     <div id="gpPrompt" onclick="activateGamepad()">
@@ -979,6 +983,9 @@ if (window.IS_CLIENT_ONLY) {
     <div class="hud-pill" id="statusPill">
       <span id="liveDot"></span>
       <span id="topStatus">Connecting...</span>
+    </div>
+    <div class="hud-pill" id="hostNamePill" style="display:none;font-size:9px;letter-spacing:0.1em;opacity:0.7;">
+      HOST: <span id="topHostName"></span>
     </div>
     <span id="kbmHint" class="hud-pill" style="display:none;font-size:9px;">
       Click video — lock mouse · ESC to release
