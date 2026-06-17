@@ -173,7 +173,7 @@ function addSessionToGrid(session) {
             id: session.id || ('arcade-' + Date.now()),
             game: session.game || session.gameTitle,
             thumbnail: session.thumbnail,
-            region: 'Live Arcade',
+            region: session.hostRegion || 'Live Arcade',
             hasPin: session.hasPin || session.requirePin,
             url: session.url || session.tunnelUrl,
             viewers: session.viewers || session.viewerCount || 0,
@@ -357,7 +357,7 @@ function buildCard(s, index) {
     <div class="card-body">
     <div class="card-title">${escHtml(s.game)}</div>
     <div class="card-info">
-    ${s.region ? `<span class="tag">${escHtml(s.region)}</span>` : ''}
+    ${s.hostRegion ? `<span class="tag"><span class="fi fi-${s.hostRegion.toLowerCase()}"></span> ${escHtml(s.hostRegion.toUpperCase())}</span>` : (s.region ? `<span class="tag"><span class="fi fi-${s.region.toLowerCase()}"></span> ${escHtml(s.region)}</span>` : '')}
     <span class="tag">${s.hasPin ? I18N.t('PIN Required') : I18N.t('Public')}</span>
     ${customTagsHtml}
     </div>

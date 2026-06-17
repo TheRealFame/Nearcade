@@ -62,7 +62,108 @@ function _checkPps(viewerId) {
 let _vpsWs         = null;
 let _vpsConfig     = null;   // { vpsEnabled, vpsUrl, vpsMasterKey }
 let _vpsAuthOk     = false;
+let _smartDb       = {};
+let _viewerRegions = {};
+let _pendingVpsViewers = new Map();
+let hostRegion     = '';
+let _tunnelBusy    = false;
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function loadAppConfig() {
+    if (window.electronAPI?.getSettings) return window.electronAPI.getSettings();
+    try {
+        const r = await fetch('/api/config');
+        return await r.json();
+    } catch (_) { return {}; }
+}
+
+async function saveAppConfig(patch) {
+    if (window.electronAPI?.saveSettings) {
+        await window.electronAPI.saveSettings(patch);
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch)
+        }).catch(() => {});
+        return;
+    }
+    await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+    });
+}
+
+// Helper to save a setting to BOTH localStorage AND config file
+async function saveSetting(localStorageKey, value, configKey) {
+    if (!configKey) configKey = localStorageKey;
+    localStorage.setItem(localStorageKey, value);
+    saveAppConfig({ [configKey]: value });
+}
+
+function setTunnelBusy(busy) {
+    _tunnelBusy = busy;
+    document.querySelectorAll('.provider-card, #tunnelModal .modal-footer button').forEach(el => {
+        el.style.pointerEvents = busy ? 'none' : '';
+        el.style.opacity = busy ? '0.5' : '';
+    });
+}
+
+function forceWebCodecsKeyframe() {
+    if (_wcEncoder && _wcEncoder.state === 'configured') _wcForceKeyframe = true;
+}
+
+function vpsDispatch(viewerId, payload) {
+    if (!_vpsWs || _vpsWs.readyState !== 1) return;
+    _vpsWs.send(JSON.stringify({
+        type: 'viewer-dispatch',
+        viewerId,
+        payload: typeof payload === 'string' ? payload : JSON.stringify(payload),
+    }));
+}
+
+async function sendVpsViewerBootstrap(viewerId) {
+    const cfg = await loadAppConfig();
+    vpsDispatch(viewerId, {
+        type: 'host-connected',
+        hostName: cfg.hostName || 'Host',
+        hostRegion,
+    });
+    if (_smartDb && Object.keys(_smartDb).length) {
+        vpsDispatch(viewerId, { type: 'smart-db', payload: _smartDb });
+    }
+    if (currentStream) {
+        vpsDispatch(viewerId, { type: 'host-stream-ready' });
+    } else {
+        vpsDispatch(viewerId, { type: 'host-not-streaming', viewerId });
+    }
+}
+
+function handleVpsJoin(viewerId, inner) {
+    const name = String(inner.name || 'Viewer').slice(0, 20);
+    const pin  = String(inner.pin || '');
+    const region = String(inner.viewerRegion || '').toLowerCase().slice(0, 2);
+    if (region) _viewerRegions[viewerId] = region;
+
+    if (pinEnabled && pin !== currentPin) {
+        vpsDispatch(viewerId, { type: 'pin-rejected' });
+        return;
+    }
+
+    _pendingVpsViewers.set(viewerId, { name, region });
+    if (_vpsWs && _vpsWs.readyState === 1) {
+        _vpsWs.send(JSON.stringify({ type: 'viewer-authorized', viewerId }));
+    }
+}
+
+fetch('https://get.geojs.io/v1/ip/country.json')
+    .then(r => r.json())
+    .then(d => { hostRegion = String(d.country || '').toLowerCase().slice(0, 2); })
+    .catch(() => {});
+
+if (window.electronAPI?.getControllers) {
+    window.electronAPI.getControllers().then(db => { _smartDb = db || {}; }).catch(() => {});
+}
 
 // ── NULL-SAFE DOM HELPERS ─────────────────────────────────────────────────────
 // Prevents TypeError crashes when an element ID is missing after a layout refactor.
@@ -120,7 +221,7 @@ function setDesktopVolume(val) {
     const v = parseInt(val, 10);
     const el = document.getElementById('desktopVolVal');
     if (el) el.textContent = v;
-    localStorage.setItem('ns_host_desktop_vol', v);
+    saveSetting('ns_host_desktop_vol', v, 'volumeDesktop');
     if (!window._masterMuteActive && _desktopGainNode)
         _desktopGainNode.gain.value = v / 100;
 }
@@ -129,7 +230,7 @@ function setHostMicGain(val) {
     const v = parseInt(val, 10);
     const el = document.getElementById('hostMicVal');
     if (el) el.textContent = v;
-    localStorage.setItem('ns_host_mic_gain', v);
+    saveSetting('ns_host_mic_gain', v, 'volumeMic');
     if (!window._masterMuteActive && _hostMicGainNode)
         _hostMicGainNode.gain.value = v / 100;
 }
@@ -600,7 +701,7 @@ function renderRoster(list) {
         r.innerHTML = `
         <div class="rnum">${index + 1}</div>
         <div style="flex:1; overflow:hidden;">
-        <div class="rname">${v.name}</div>
+        <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${v.name}</div>
         <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
         <img src="${iconSrc}" style="width:14px;height:14px;filter:invert(0.8);" id="icon-${v.id}" />
         <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;"
@@ -823,9 +924,14 @@ function connectWS() {
     };
     ws.onmessage = async (e) => {
         const msg = JSON.parse(e.data);
+        if (msg.type === 'request-keyframe') {
+            forceWebCodecsKeyframe();
+            return;
+        }
         if (msg.type === 'viewer-joined') {
             const isNew = !knownViewers.has(msg.viewerId);
             knownViewers.add(msg.viewerId);
+            if (msg.viewerRegion) _viewerRegions[msg.viewerId] = String(msg.viewerRegion).toLowerCase().slice(0, 2);
             if (isNew) {
                 log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' joined', 'ok');
             } else {
@@ -839,6 +945,7 @@ function connectWS() {
         }
         if (msg.type === 'viewer-left') {
             knownViewers.delete(msg.viewerId);
+            delete _viewerRegions[msg.viewerId];
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
         }
@@ -888,6 +995,22 @@ function connectWS() {
         if (msg.type === 'tunnel-error') {
             log(I18N.t('Tunnel failed:') + ' ' + msg.provider, 'err');
             showTunnelError('Failed to start ' + msg.provider + '.\n\nIf using a SSH tunnel (localhost.run / serveo), outbound port 22 is likely blocked by your router/ISP.\n\nTry using cloudflared instead.');
+        }
+        if (msg.type === 'vps-broadcast') {
+            if (_vpsWs && _vpsWs.readyState === 1) {
+                _vpsWs.send(msg.payload);
+            }
+        }
+        if (msg.type === 'offer' || msg.type === 'ice-host' || msg.type === 'host-voice-cmd' || msg.type === 'input-state' || msg.type === 'pin-rejected') {
+            // These messages are bounced back from server.js if the target viewer is on the VPS.
+            if (_vpsWs && _vpsWs.readyState === 1) {
+                const target = msg._viewerId || msg.targetViewerId;
+                if (target) {
+                    vpsDispatch(target, msg);
+                } else {
+                    _vpsWs.send(JSON.stringify(msg));
+                }
+            }
         }
         if (msg.type === 'play-system-sound') {
             // Relative path from src/pages/host.html to assets/
@@ -985,7 +1108,7 @@ async function sendOfferToViewer(viewerId) {
             log(I18N.t('Handshake timeout for') + ' ' + viewerId + ', fast retrying...', 'warn');
             sendOfferToViewer(viewerId);
         }
-    }, 3000);
+    }, 12000);
 
     pc.onicecandidate = (e) => {
         if (e.candidate && e.candidate.candidate) {
@@ -1148,6 +1271,13 @@ function selectSource(idx, sourceId) {
 function closeSourceModal() {
     document.getElementById('sourceModal').classList.add('gone');
     selectedSourceId = null;
+    // FREEZE FIX: Re-enable the Start button whenever the user dismisses without
+    // confirming. Without this, the button stays disabled after cancellation because
+    // startCapture() was never called (or is still awaiting getUserMedia).
+    _elDisabled('btnStart', false);
+    _elDisabled('btnSwitch', true);
+    _elDisabled('btnStop', true);
+    if (typeof setCapDot === 'function') setCapDot('');
 }
 
 async function confirmSource() {
@@ -1166,17 +1296,23 @@ function hydrateSelectsFromStorage() {
         { key: 'ns_codec',   id: 'codecSelect',   onChange: null },
         { key: 'ns_bitrate', id: 'bitrateSelect',  onChange: () => { if (currentStream) applyBitrateToAll(); } },
         { key: 'ns_deg',     id: 'degSelect',      onChange: () => { if (currentStream) applyBitrateToAll(); } },
-        { key: 'ns_res',     id: 'resSelect',      onChange: () => { if (currentStream) hotSwapCapture(); } },
-        { key: 'ns_fps',     id: 'fpsSelect',      onChange: () => { if (currentStream) hotSwapCapture(); } },
+        { key: 'ns_res',     id: 'resSelect',      onChange: async () => { if (currentStream) await hotSwapCapture(); } },
+        { key: 'ns_fps',     id: 'fpsSelect',      onChange: async () => { if (currentStream) await hotSwapCapture(); } },
     ];
     selectDefs.forEach(({ key, id, onChange }) => {
         const el = document.getElementById(id);
         if (!el) return;
         const saved = localStorage.getItem(key);
         if (saved) el.value = saved;
-        el.addEventListener('change', (e) => {
-            localStorage.setItem(key, e.target.value);
-            if (onChange) onChange();
+        el.addEventListener('change', async (e) => {
+            saveSetting(key, e.target.value, key.replace('ns_', 'quality_'));
+            if (onChange) {
+                try {
+                    await Promise.resolve(onChange());
+                } catch (err) {
+                    console.error('Quality setting change error:', err);
+                }
+            }
         });
     });
 
@@ -1201,28 +1337,47 @@ async function hotSwapCapture() {
     if (!currentStream) return;
     log(I18N.t('Applying new stream resolution/FPS...'), 'warn');
 
-    // 1. Tell viewers to freeze their screen on the last frame
-    if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: 'host-encoder-swap-start' }));
-    }
+    // Disable buttons during swap to prevent re-entry
+    _elDisabled('codecSelect', true);
+    _elDisabled('bitrateSelect', true);
+    _elDisabled('resSelect', true);
+    _elDisabled('fpsSelect', true);
+    _elDisabled('degSelect', true);
 
-    const _appFpsUnlock = (typeof appConfig !== 'undefined') && appConfig.fpsUnlock;
-    const fpsVal = _appFpsUnlock ? Math.max(parseInt(document.getElementById('fpsSelect')?.value) || 60, 120) : (parseInt(document.getElementById('fpsSelect')?.value) || 60);
-    const resVal = document.getElementById('resSelect')?.value || '1080p';
-
-    // Strip artificial height constraints so the browser doesn't crop the screen
-    let videoConstraints = { frameRate: { ideal: fpsVal } };
-
+    let timeout;
     try {
-        // 2. Grab the new video track
+        // Set a 15-second timeout to prevent indefinite hanging
+        timeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Stream swap timeout - dialog might be stuck')), 15000)
+        );
+
+        // 1. Tell viewers to freeze their screen on the last frame
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'host-encoder-swap-start' }));
+        }
+
+        const _appFpsUnlock = (typeof appConfig !== 'undefined') && appConfig.fpsUnlock;
+        const fpsVal = _appFpsUnlock ? Math.max(parseInt(document.getElementById('fpsSelect')?.value) || 60, 120) : (parseInt(document.getElementById('fpsSelect')?.value) || 60);
+        const resVal = document.getElementById('resSelect')?.value || '1080p';
+
+        // Strip artificial height constraints so the browser doesn't crop the screen
+        let videoConstraints = { frameRate: { ideal: fpsVal } };
+
+        // 2. Grab the new video track (with timeout protection)
         let newScreenStream;
         if (window._lastSourceId && window.electronAPI) {
-            newScreenStream = await navigator.mediaDevices.getUserMedia({
-                audio: false,
-                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: window._lastSourceId, maxFrameRate: fpsVal } }
-            });
+            newScreenStream = await Promise.race([
+                navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: window._lastSourceId, maxFrameRate: fpsVal } }
+                }),
+                timeout
+            ]);
         } else {
-            newScreenStream = await navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
+            newScreenStream = await Promise.race([
+                navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false }),
+                timeout
+            ]);
         }
 
         const newVideoTrack = newScreenStream.getVideoTracks()[0];
@@ -1249,7 +1404,21 @@ async function hotSwapCapture() {
 
         log(I18N.t('Stream settings applied seamlessly!'), 'ok');
     } catch (err) {
-        log(I18N.t('Failed to swap video track:') + ' ' + err.message, 'err');
+        // Handle user cancel (NotAllowedError, AbortError) vs real errors
+        if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
+            log(I18N.t('Stream settings change cancelled by user'), 'warn');
+        } else if (err.message === 'Stream swap timeout - dialog might be stuck') {
+            log(I18N.t('Stream swap operation timed out — try again'), 'err');
+        } else {
+            log(I18N.t('Failed to swap video track:') + ' ' + err.message, 'err');
+        }
+    } finally {
+        // ALWAYS re-enable controls, no matter what happened
+        _elDisabled('codecSelect', false);
+        _elDisabled('bitrateSelect', false);
+        _elDisabled('resSelect', false);
+        _elDisabled('fpsSelect', false);
+        _elDisabled('degSelect', false);
     }
 }
 
@@ -1941,6 +2110,30 @@ function _broadcastP2P(data) {
  * routed to the local input dispatcher.
  * @param {{ vpsEnabled: boolean, vpsUrl: string, vpsMasterKey: string }} cfg
  */
+// ── VPS URL Sanitizer ────────────────────────────────────────────────
+// Rules (per spec):
+//  1. Strip any http(s):// or ws(s):// prefix the user may have pasted
+//  2. Force wss:// for domain names (contain a TLD) or if page is served over HTTPS
+//  3. Use ws:// for raw IPs, localhost, or 127.0.0.1
+//  4. Preserve any :port suffix exactly as typed
+function sanitizeVpsUrl(raw) {
+    if (!raw) return '';
+    // Strip all known scheme prefixes
+    let host = raw.trim().replace(/\/+$/, '')
+        .replace(/^wss?:\/\//i, '')
+        .replace(/^https?:\/\//i, '');
+    // Separate host and port
+    const portMatch = host.match(/:([\d]+)$/);
+    const port      = portMatch ? portMatch[0] : '';       // e.g. ':9000'
+    const base      = portMatch ? host.slice(0, -port.length) : host;
+    // Choose scheme
+    const isRawIp    = /^(\d{1,3}\.){3}\d{1,3}$/.test(base);
+    const isLocal    = base === 'localhost' || base === '127.0.0.1';
+    const isSecurePage = typeof location !== 'undefined' && location.protocol === 'https:';
+    const scheme = (isRawIp || isLocal) && !isSecurePage ? 'ws' : 'wss';
+    return `${scheme}://${base}${port}`;
+}
+
 function connectVps(cfg) {
     if (_vpsWs) {
         try { _vpsWs.close(); } catch (_) {}
@@ -1951,18 +2144,7 @@ function connectVps(cfg) {
 
     if (!cfg.vpsEnabled || !cfg.vpsUrl) return;
 
-    // Normalise the URL. Accept bare hostnames, ws://, wss://, http://, https://.
-    // Never append :3000 — if the user typed a bare domain (e.g. publicnearsec.cutefame.net)
-    // Caddy is handling TLS on 443 and appending a port would break the connection.
-    let rawUrl = cfg.vpsUrl.trim().replace(/\/$/, '');
-    if (!rawUrl.startsWith('ws://') && !rawUrl.startsWith('wss://')) {
-        // Convert http(s) schemes or bare hostnames to the correct WS scheme
-        rawUrl = rawUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
-        if (!rawUrl.startsWith('ws://') && !rawUrl.startsWith('wss://')) {
-            rawUrl = 'wss://' + rawUrl;
-        }
-    }
-    const url = rawUrl;
+    const url = sanitizeVpsUrl(cfg.vpsUrl);
     log('VPS: Connecting to ' + url, 'ok');
 
     _vpsWs = new WebSocket(url);
@@ -1972,7 +2154,7 @@ function connectVps(cfg) {
         // Tell the VPS router who we are
         _vpsWs.send(JSON.stringify({
             type: 'auth',
-            role: 'host',              // <--- ADD THIS LINE
+            role: 'host',
             key:  cfg.vpsMasterKey,
         }));
         log('VPS: Authenticating...', 'ok');
@@ -1993,7 +2175,7 @@ function connectVps(cfg) {
                     const scheme = wsUrl.protocol === 'wss:' ? 'https' : 'http';
                     const origin = scheme + '://' + wsUrl.host;
                     // Read hostName from config API — displayHostName element may not be populated yet
-                    fetch('/api/config').then(r => r.json()).then(cfg => {
+                    loadAppConfig().then(cfg => {
                         const hostParam = encodeURIComponent(cfg.hostName || 'Host');
                         const viewerUrl = origin + '/?v3&host=' + hostParam;
                         const el = document.getElementById('urlList');
@@ -2026,23 +2208,25 @@ function connectVps(cfg) {
                 return;
             }
 
-            // Rust router uses snake_case field names — normalise to camelCase
+            // Rust router uses kebab-case field names — normalise to camelCase
             // before forwarding to the local server WebSocket dispatcher.
-            const viewerId = msg.viewer_id || msg.viewerId;
+            const viewerId = msg['viewer-id'] || msg.viewer_id || msg.viewerId;
 
-            // viewer-joined: a viewer connected to the VPS.
-            // Forward as a fake 'join' to the local server so it registers the viewer,
-            // creates a controller slot, and updates the roster.
+            // viewer-joined: fired only after PIN authorization in the waiting room.
             if (msg.type === 'viewer-joined' && viewerId) {
-                log('VPS viewer connected: ' + viewerId, 'ok');
+                const pending = _pendingVpsViewers.get(viewerId) || { name: 'Viewer', region: '' };
+                _pendingVpsViewers.delete(viewerId);
+                if (pending.region) _viewerRegions[viewerId] = pending.region;
+                log('VPS viewer authorized: ' + viewerId, 'ok');
                 if (ws && ws.readyState === 1) {
-                    // Inject a synthetic join message so server.js handles registration
                     ws.send(JSON.stringify({
                         type: 'vps-viewer-join',
                         viewerId,
-                        name: 'Viewer',
+                        name: pending.name,
+                        viewerRegion: pending.region,
                     }));
                 }
+                sendVpsViewerBootstrap(viewerId);
                 return;
             }
 
@@ -2063,10 +2247,28 @@ function connectVps(cfg) {
                 let inner;
                 try { inner = JSON.parse(msg.payload); } catch (_) { return; }
 
+                if (inner.type === 'join') {
+                    handleVpsJoin(viewerId, inner);
+                    return;
+                }
+                if (inner.type === 'request-keyframe') {
+                    forceWebCodecsKeyframe();
+                    return;
+                }
+
                 // Stamp the viewer ID so the server can map it to a slot
                 if (!inner.viewerId)   inner.viewerId   = viewerId;
                 if (!inner.viewer_id)  inner.viewer_id  = viewerId;
                 if (inner.type === 'gamepad' && !inner.pad_id) inner.pad_id = viewerId + '_0';
+
+                if (inner.type === 'answer' || inner.type === 'ice-viewer' || inner.type === 'viewer-mic-ready') {
+                    inner._viewerId = viewerId;
+                    // Feed directly to the local host's websocket handler so it processes the WebRTC handshake
+                    if (ws && typeof ws.onmessage === 'function') {
+                        ws.onmessage({ data: JSON.stringify(inner) });
+                    }
+                    return;
+                }
 
                 if (ws && ws.readyState === 1) {
                     ws.send(JSON.stringify(inner));
@@ -2128,16 +2330,68 @@ function toggleKbmPanic() {
     }
 }
 
+function showTunnelModal() {
+    resetTunnelModal();
+    document.getElementById('tunnelModal').classList.remove('gone');
+
+    loadAppConfig().then(cfg => {
+        if (!cfg) return;
+        const rememberBox = document.getElementById('rememberCheck');
+        if (rememberBox) rememberBox.checked = !!cfg.neverAsk;
+
+        if (cfg.tunnelProvider) {
+            const radio = document.querySelector('input[name="provider"][value="' + cfg.tunnelProvider + '"]');
+            if (radio) {
+                radio.checked = true;
+                document.querySelectorAll('.provider-card').forEach(c => {
+                    c.classList.toggle('selected', c.querySelector('input').checked);
+                });
+            }
+        }
+        if (cfg.tunnelProvider === 'vps' && cfg.vpsHost) {
+            const vpsInput = document.getElementById('vpsHostInput');
+            if (vpsInput) vpsInput.value = cfg.vpsHost;
+        }
+        // Always restore VPS SFU fields — they should persist regardless of
+        // which provider is currently selected, so switching away and back
+        // never clears the URL and key the user already entered.
+        if (window.electronAPI && typeof window.electronAPI.getVpsConfig === 'function') {
+            window.electronAPI.getVpsConfig().then(vpsCfg => {
+                if (!vpsCfg) return;
+                const urlEl = document.getElementById('vpsUrlInput');
+                const keyEl = document.getElementById('vpsKeyInput');
+                if (urlEl && vpsCfg.vpsUrl)      urlEl.value = vpsCfg.vpsUrl;
+                if (keyEl && vpsCfg.vpsMasterKey) keyEl.value = vpsCfg.vpsMasterKey;
+            }).catch(() => {});
+        }
+    }).catch(() => {});
+
+    document.querySelectorAll('.provider-card').forEach(c => {
+        c.classList.toggle('selected', c.querySelector('input').checked);
+    });
+}
+
 // ── SAVING THE CAPTURE METHOD (PIPELINE) ──
 function saveCaptureMethod(method) {
+    const pSelect = document.getElementById('pipelineSelect');
+    
+    // Determine what the CURRENT active pipeline is based on URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    let activeMethod = 'native';
+    if (urlParams.get('wc') === '1') activeMethod = 'webcodecs';
+    else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
+    
     if (window.electronAPI && window.electronAPI.saveSettings) {
-        window.electronAPI.saveSettings({ captureMethod: method });
-        console.log(`[Host] Capture pipeline saved as: ${method}. Requires restart to take effect.`);
-
         // Let the user know they need to restart
         const confirmMsg = "Capture pipeline changed to " + method.toUpperCase() + ". You must restart NearsecTogether for this to take effect. Close the app now?";
         if (confirm(confirmMsg)) {
-            window.electronAPI.close();
+            window.electronAPI.saveSettings({ captureMethod: method });
+            console.log(`[Host] Capture pipeline saved as: ${method}. Closing app...`);
+            window.electronAPI.closeApp();
+        } else {
+            // Revert the dropdown
+            if (pSelect) pSelect.value = activeMethod;
+            console.log(`[Host] Pipeline change cancelled. Reverted to ${activeMethod}.`);
         }
     }
 }
@@ -2176,43 +2430,8 @@ function stopAudioMeter() {
     document.getElementById('meter').style.width = '0%';
 }
 
-function showTunnelModal() {
-    resetTunnelModal();
-    document.getElementById('tunnelModal').classList.remove('gone');
 
-    fetch('/api/config').then(r => r.json()).then(cfg => {
-        if (!cfg || !cfg.tunnelProvider) return;
-        const rememberBox = document.getElementById('rememberCheck');
-        if (rememberBox) rememberBox.checked = !!cfg.neverAsk;
 
-        const radio = document.querySelector('input[name="provider"][value="' + cfg.tunnelProvider + '"]');
-        if (radio) {
-            radio.checked = true;
-            document.querySelectorAll('.provider-card').forEach(c => {
-                c.classList.toggle('selected', c.querySelector('input').checked);
-            });
-        }
-        if (cfg.tunnelProvider === 'vps' && cfg.vpsHost) {
-            const vpsInput = document.getElementById('vpsHostInput');
-            if (vpsInput) vpsInput.value = cfg.vpsHost;
-        }
-        // Pre-populate VPS SFU fields from saved Electron settings
-        if (cfg.tunnelProvider === 'vps-sfu' &&
-            window.electronAPI && typeof window.electronAPI.getVpsConfig === 'function') {
-            window.electronAPI.getVpsConfig().then(vpsCfg => {
-                if (!vpsCfg) return;
-                const urlEl = document.getElementById('vpsUrlInput');
-                const keyEl = document.getElementById('vpsKeyInput');
-                if (urlEl && vpsCfg.vpsUrl)       urlEl.value = vpsCfg.vpsUrl;
-                if (keyEl && vpsCfg.vpsMasterKey)  keyEl.value = vpsCfg.vpsMasterKey;
-            }).catch(() => {});
-        }
-    }).catch(() => {});
-
-    document.querySelectorAll('.provider-card').forEach(c => {
-        c.classList.toggle('selected', c.querySelector('input').checked);
-    });
-}
 function resetTunnelModal() {
     document.getElementById('tunnelLoading').classList.add('gone');
     document.getElementById('tunnelSpinner').classList.remove('gone');
@@ -2221,9 +2440,11 @@ function resetTunnelModal() {
 }
 function closeTunnelModal() {
     document.getElementById('tunnelModal').classList.add('gone');
+    setTunnelBusy(false);
     resetTunnelModal();
 }
 function showTunnelError(msg) {
+    setTunnelBusy(false);
     document.getElementById('tunnelSpinner').classList.add('gone');
     document.getElementById('tunnelLoadText').textContent = 'Connection Failed';
     document.getElementById('tunnelErrorText').textContent = msg;
@@ -2248,15 +2469,18 @@ function copyCmd(e, cmd) {
 }
 
 function confirmTunnel() {
+    if (_tunnelBusy) return;
     const radio = document.querySelector('input[name="provider"]:checked');
     if (!radio) return;
     const provider = radio.value;
     const remember = document.getElementById('rememberCheck').checked;
+    setTunnelBusy(true);
 
     if (provider === 'portforward') {
         if (remember) {
-            fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tunnelProvider: 'portforward', neverAsk: true }) });
+            saveAppConfig({ tunnelProvider: 'portforward', neverAsk: true });
         }
+        setTunnelBusy(false);
         closeTunnelModal();
         log(I18N.t('Using direct Port Forwarding. Share your Public IP URL.'), 'ok');
         return;
@@ -2268,30 +2492,27 @@ function confirmTunnel() {
         const vpsMasterKey = (document.getElementById('vpsKeyInput')?.value  || '').trim();
 
         if (!vpsUrl) {
+            setTunnelBusy(false);
             showTunnelError('Please enter a WebSocket URL for your VPS (e.g. ws://your-vps-ip:9000)');
             return;
         }
         if (!vpsMasterKey) {
+            setTunnelBusy(false);
             showTunnelError('Please enter the Master Key configured on your VPS.');
             return;
         }
 
         const vpsCfg = { vpsEnabled: true, vpsUrl, vpsMasterKey };
 
-        // Persist via Electron IPC so connection survives app restarts
         if (window.electronAPI && typeof window.electronAPI.saveVpsConfig === 'function') {
             window.electronAPI.saveVpsConfig(vpsCfg);
         }
-        // Also save provider choice so the modal pre-selects correctly on reopen
         if (remember) {
-            fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tunnelProvider: 'vps-sfu', neverAsk: true })
-            });
+            saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: true });
         }
 
         connectVps(vpsCfg);
+        setTunnelBusy(false);
         closeTunnelModal();
         log('VPS SFU enabled — connecting to ' + vpsUrl, 'ok');
         return;
@@ -2306,19 +2527,23 @@ function confirmTunnel() {
         }
     }
 
-    document.getElementById('tunnelLoading').classList.remove('gone');
-    document.getElementById('tunnelLoadText').textContent = I18N.t('Starting') + ' ' + provider + '...';
+    // Close the modal immediately — the tunnel URL will render via WS when ready.
+    // Also schedule a guaranteed close after 5s in case of slow tunnel startup.
+    setTunnelBusy(false);
+    closeTunnelModal();
+    let _autoCloseTimer = setTimeout(() => { closeTunnelModal(); }, 5000);
 
-    log(I18N.t('Starting') + ' ' + provider + ' tunnel' + (remember ? ' (saved)' : '') + '…', 'ok');
+    log(I18N.t('Starting') + ' ' + provider + ' tunnel' + (remember ? ' (saved)' : '') + '...', 'ok');
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById("vpsHostInput")?.value?.trim() })
-    }).catch(() => showTunnelError(I18N.t('Network request failed')));
+        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim() })
+    }).then(() => { clearTimeout(_autoCloseTimer); }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
 }
 
 document.querySelectorAll('input[name="provider"]').forEach(radio => {
     radio.addEventListener('change', () => {
+        if (_tunnelBusy) return;
         document.querySelectorAll('.provider-card').forEach(c => {
             c.classList.toggle('selected', c.querySelector('input').checked);
         });
@@ -2326,6 +2551,7 @@ document.querySelectorAll('input[name="provider"]').forEach(radio => {
 });
 document.querySelectorAll('.provider-card').forEach(card => {
     card.addEventListener('click', () => {
+        if (_tunnelBusy) return;
         card.querySelector('input').checked = true;
         document.querySelectorAll('.provider-card').forEach(c =>
         c.classList.toggle('selected', c.querySelector('input').checked));
@@ -2334,8 +2560,6 @@ document.querySelectorAll('.provider-card').forEach(card => {
 
 async function checkTunnelOnConnect() {
     if (_vpsConfig && _vpsConfig.vpsEnabled) {
-        // VPS mode is active — update the dock label to reflect this without
-        // starting any tunnel or touching the saved tunnelProvider config.
         const el = document.getElementById('urlList');
         if (el && !el.querySelector('.url-row')) {
             el.innerHTML = '<div style="color:var(--muted);font-size:10px;padding:4px 0;">VPS SFU mode — connecting...</div>';
@@ -2343,10 +2567,16 @@ async function checkTunnelOnConnect() {
         return;
     }
     try {
-        const cfg = await fetch('/api/config').then(r => r.json());
-        if (cfg.neverAsk) return;
         const info = await fetch('/api/info').then(r => r.json());
-        if (!info.tunnelUrl) showTunnelModal();
+        // ALWAYS render whatever URL the server already has, regardless of neverAsk.
+        // Previously this bailed when neverAsk:true, leaving the UI stuck on boot.
+        if (info.tunnelUrl) {
+            renderUrls(info);
+            return;
+        }
+        // No tunnel yet — only prompt for one if the user hasn't chosen "never ask"
+        const cfg = await loadAppConfig();
+        if (!cfg.neverAsk) showTunnelModal();
     } catch { }
 }
 
@@ -2386,7 +2616,7 @@ function applyCtrlSettingsUI() {
 
 function toggleCtrlSetting(key) {
     ctrlSettings[key] = !ctrlSettings[key];
-    localStorage.setItem('ns_ctrl_' + key, ctrlSettings[key]);
+    saveSetting('ns_ctrl_' + key, ctrlSettings[key], 'ctrlSetting_' + key);
     applyCtrlSettingsUI();
     sendCtrlSettings();
     log(I18N.t('ctrl-settings:') + ' ' + key + ' = ' + ctrlSettings[key], 'ok');
@@ -2395,22 +2625,34 @@ function toggleCtrlSetting(key) {
 
 function toggleHybridInput() {
     ctrlSettings.hybridInput = !ctrlSettings.hybridInput;
-    localStorage.setItem('ns_ctrl_hybridInput', ctrlSettings.hybridInput);
+    saveSetting('ns_ctrl_hybridInput', ctrlSettings.hybridInput, 'ctrlSetting_hybridInput');
+    
+    if (ctrlSettings.hybridInput) {
+        ctrlSettings.defaultInputMode = 'kbm_emulated';
+        saveSetting('ns_ctrl_defaultInputMode', 'kbm_emulated', 'ctrlSetting_defaultInputMode');
+    } else {
+        ctrlSettings.defaultInputMode = 'gamepad';
+        saveSetting('ns_ctrl_defaultInputMode', 'gamepad', 'ctrlSetting_defaultInputMode');
+    }
+    
     applyCtrlSettingsUI();
     sendCtrlSettings();
     if (ws && ws.readyState === 1 && ctrlSettings.hybridInput) {
         (_lastRosterList || []).forEach(v => {
-            ws.send(JSON.stringify({ type: 'set-input', viewerId: v.id, gp: true, kb: true }));
+            changeInputMode(v.id, 'kbm_emulated', v.name);
         });
         log(I18N.t('Hybrid Input ON — Gamepad + KBM active for all viewers'), 'ok');
-    } else {
+    } else if (ws && ws.readyState === 1) {
+        (_lastRosterList || []).forEach(v => {
+            changeInputMode(v.id, 'gamepad', v.name);
+        });
         log(I18N.t('Hybrid Input OFF'), 'warn');
     }
 }
 
 function changeCtrlType(type) {
     ctrlSettings.ctrlType = type;
-    localStorage.setItem('ns_ctrl_ctrlType', type);
+    saveSetting('ns_ctrl_ctrlType', type, 'ctrlSetting_ctrlType');
     applyCtrlSettingsUI();
     sendCtrlSettings();
     if (ws && ws.readyState === 1) {
@@ -2423,7 +2665,7 @@ function changeCtrlType(type) {
 
 function changeDefaultInputMode(mode) {
     ctrlSettings.defaultInputMode = mode;
-    localStorage.setItem('ns_ctrl_defaultInputMode', mode);
+    saveSetting('ns_ctrl_defaultInputMode', mode, 'ctrlSetting_defaultInputMode');
     applyCtrlSettingsUI();
     sendCtrlSettings();
     log(I18N.t('Default input mode set to:') + ' ' + mode, 'ok');
@@ -2675,7 +2917,7 @@ function toggleViewerInputPerm(viewerId, btn) {
 
 // Audio backend setting (saved for the worker init path)
 function saveAudioBackend(val) {
-    localStorage.setItem('ns_audio_backend', val);
+    saveSetting('ns_audio_backend', val, 'audioBackend');
     const port = new URLSearchParams(location.search).get('port') || location.port || 3000;
     fetch(`http://localhost:${port}/api/config`, {
         method: 'POST',
@@ -2800,6 +3042,7 @@ function _doArcadeRegister() {
             thumbnail: arcadeConfig.thumbnail,
             hasPin: arcadeConfig.requirePin,
             url: info.tunnelUrl,
+            hostRegion,
             region: `${knownViewers.size + 1}/${arcadeConfig.maxPlayers} Players • ${getHostOS()}`
         });
 
@@ -2985,7 +3228,39 @@ function createVirtualAudioCable() {
 }
 
 applyCtrlSettingsUI();
+
+// ── HYDRATE CONFIG FROM localStorage ──────────────────────────────────────────
+// localStorage is a UI-layer cache only. On boot we push all settings that live
+// there into the authoritative Electron config file so they survive config deletion
+// and are always in sync. hydrateSettings does a shallow merge — it never removes
+// keys the renderer doesn't know about.
+if (window.electronAPI?.hydrateSettings) {
+    const lsMap = {
+        // ctrlSettings
+        ctrlSetting_forceXboxOne:  localStorage.getItem('ns_ctrl_forceXboxOne')    === 'true',
+        ctrlSetting_enableDualShock: localStorage.getItem('ns_ctrl_enableDualShock') === 'true',
+        ctrlSetting_enableMotion:  localStorage.getItem('ns_ctrl_enableMotion')     === 'true',
+        ctrlSetting_defaultInputMode: localStorage.getItem('ns_ctrl_defaultInputMode') || 'gamepad',
+        ctrlSetting_hybridInput:   localStorage.getItem('ns_ctrl_hybridInput')      === 'true',
+        ctrlSetting_ctrlType:      localStorage.getItem('ns_ctrl_ctrlType')         || 'xbox360',
+        // quality / capture
+        captureMethod: localStorage.getItem('ns_captureMethod') || undefined,
+        quality_codec:     localStorage.getItem('ns_quality_codec')    || undefined,
+        quality_res:       localStorage.getItem('ns_quality_res')      || undefined,
+        quality_fps:       localStorage.getItem('ns_quality_fps')      || undefined,
+        quality_bitrate:   localStorage.getItem('ns_quality_bitrate')  || undefined,
+        quality_deg:       localStorage.getItem('ns_quality_deg')      || undefined,
+        volumeDesktop:     localStorage.getItem('ns_volume_desktop') != null ? Number(localStorage.getItem('ns_volume_desktop')) : undefined,
+        volumeMic:         localStorage.getItem('ns_volume_mic')     != null ? Number(localStorage.getItem('ns_volume_mic'))     : undefined,
+    };
+    // Strip out undefined entries so we don't overwrite real values with null
+    const hydratePatch = Object.fromEntries(Object.entries(lsMap).filter(([, v]) => v !== undefined && v !== null));
+    if (Object.keys(hydratePatch).length) window.electronAPI.hydrateSettings(hydratePatch).catch(() => {});
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 connectWS();
+
 
 // ── AUTOMATED HEADLESS BOOT (Arcade Worker) ───────────────────────────
 const urlParams = new URLSearchParams(window.location.search);

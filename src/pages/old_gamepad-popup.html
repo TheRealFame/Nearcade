@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nearsec Controller Visualizer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0d0f; --surface: #121518; --accent: #ff5d3d;
+      --text: #f0f3f5; --muted: #4a5157; --border: #22282d;
+      --green: #4ade80; --blue: #3b82f6;
+    }
+    body {
+      background: transparent; color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      margin: 0; padding: 14px;
+      display: flex; flex-direction: column; gap: 14px;
+      overflow-y: auto;
+    }
+    .widget-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 18px 22px;
+      position: relative; overflow: hidden;
+      transition: opacity 0.35s;
+    }
+    .widget-card.disconnected { opacity: 0.3; pointer-events: none; }
+    .header {
+      display: flex; justify-content: space-between;
+      align-items: center; margin-bottom: 12px;
+    }
+    .controller-id {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 700; color: var(--text);
+      max-width: 230px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .status-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--muted); display: inline-block; flex-shrink: 0;
+    }
+    .status-dot.active { background: var(--green); box-shadow: 0 0 9px var(--green); }
+    .port-badge {
+      font-size: 9px; background: #1a1e22; border: 1px solid var(--border);
+      border-radius: 4px; padding: 2px 6px; color: var(--muted); flex-shrink: 0;
+    }
+    .btn-recal {
+      background: none; border: 1px solid var(--muted); color: var(--muted);
+      border-radius: 6px; padding: 5px 10px; font-size: 10px;
+      cursor: pointer; font-family: 'Outfit', sans-serif;
+      transition: 0.2s; font-weight: 700;
+    }
+    .btn-recal:hover { border-color: var(--text); color: var(--text); }
+    .controller-svg {
+      width: 100%; height: auto;
+      filter: drop-shadow(0 8px 18px rgba(0,0,0,0.5));
+    }
+    .shell { fill: #1a1e22; stroke: var(--border); stroke-width: 2; }
+    .button-base { fill: #22282d; transition: fill 0.05s; }
+    .stick-well { fill: #0b0d0f; stroke: var(--border); stroke-width: 1; }
+    .active-input { fill: var(--accent) !important; filter: drop-shadow(0 0 7px var(--accent)); }
+    .info-tray {
+      margin-top: 10px; display: flex; flex-wrap: wrap;
+      justify-content: space-around; gap: 8px;
+      font-size: 10px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .stick-val { color: var(--text); font-weight: 700; min-width: 50px; display: inline-block; }
+    .calib-overlay {
+      position: absolute; inset: 0;
+      background: rgba(18,21,24,0.96);
+      backdrop-filter: blur(4px);
+      display: none; flex-direction: column;
+      justify-content: center; align-items: center;
+      z-index: 10; border-radius: 20px; gap: 8px;
+    }
+    .calib-overlay.active { display: flex; }
+    .calib-step {
+      font-size: 15px; font-weight: 700; color: var(--blue);
+      text-transform: uppercase; letter-spacing: 2px;
+      text-align: center; padding: 0 20px;
+    }
+    .calib-desc { font-size: 11px; color: var(--muted); }
+    #empty-state {
+      text-align: center; padding: 36px 20px;
+      color: var(--muted); font-size: 13px; display: none;
+    }
+    #empty-state.visible { display: block; }
+  </style>
+</head>
+<body>
+
+  <div id="empty-state" class="visible">
+    No controllers detected.<br>
+    <span style="font-size:11px; opacity:0.6;">Connect a gamepad and press any button.</span>
+  </div>
+
+  <script src="../scripts/i18n.js"></script>
+  <script>
+    const STORAGE_PREFIX = 'nearsec_map_';
+
+    // Per-controller state: index → { calibStep, calibCooldown, tempMap, mapCache }
+    const controllers = new Map();
+
+    function getSafeId(gp) {
+      return gp.id.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
+    }
+
+    function broadcastConfigExternally(hardwareId, configMap) {
+      try {
+        window.parent.postMessage({ type: 'NEARSEC_CONFIG_UPDATE', hardwareId, map: configMap }, '*');
+      } catch (e) {}
+    }
+
+    // ── Build widget DOM for one controller ───────────────────────────────────
+    function buildWidget(idx) {
+      const p = `c${idx}`; // prefix for element IDs
+      const card = document.createElement('div');
+      card.className = 'widget-card';
+      card.id = `card-${idx}`;
+      card.innerHTML = `
+        <div class="calib-overlay" id="${p}-calib">
+          <div class="calib-step" id="${p}-prompt">WAITING...</div>
+          <div class="calib-desc">Hold the requested input fully.</div>
+        </div>
+        <div class="header">
+          <div class="controller-id">
+            <span class="status-dot active" id="${p}-dot"></span>
+            <span class="port-badge">P${idx + 1}</span>
+            <span id="${p}-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Controller ${idx + 1}</span>
+          </div>
+          <button class="btn-recal" onclick="startCalibration(${idx})">RECALIBRATE</button>
+        </div>
+        <svg class="controller-svg" viewBox="0 0 440 300">
+          <path class="shell" d="M110,70 L330,70 C390,70 430,110 420,185 C410,240 360,260 330,250 L280,232 L160,232 L110,250 C80,260 30,240 20,185 C10,110 50,70 110,70 Z"/>
+          <rect id="${p}-b4" class="button-base" x="80" y="48" width="76" height="18" rx="5"/>
+          <rect id="${p}-b5" class="button-base" x="284" y="48" width="76" height="18" rx="5"/>
+          <path id="${p}-b6" class="button-base" d="M88,16 L148,16 L148,44 L88,44 Z"/>
+          <path id="${p}-b7" class="button-base" d="M292,16 L352,16 L352,44 L292,44 Z"/>
+          <g transform="translate(100,142)">
+            <circle id="${p}-b12" class="button-base" cx="0" cy="-23" r="13"/>
+            <circle id="${p}-b13" class="button-base" cx="0" cy="23" r="13"/>
+            <circle id="${p}-b14" class="button-base" cx="-23" cy="0" r="13"/>
+            <circle id="${p}-b15" class="button-base" cx="23" cy="0" r="13"/>
+          </g>
+          <g transform="translate(340,142)">
+            <circle id="${p}-b3" class="button-base" cx="0" cy="-32" r="16"/>
+            <circle id="${p}-b0" class="button-base" cx="0" cy="32" r="16"/>
+            <circle id="${p}-b2" class="button-base" cx="-32" cy="0" r="16"/>
+            <circle id="${p}-b1" class="button-base" cx="32" cy="0" r="16"/>
+          </g>
+          <rect id="${p}-b8"  class="button-base" x="178" y="120" width="28" height="11" rx="4"/>
+          <rect id="${p}-b9"  class="button-base" x="234" y="120" width="28" height="11" rx="4"/>
+          <circle id="${p}-b16" class="button-base" cx="220" cy="100" r="16"/>
+          <g transform="translate(175,195)">
+            <circle class="stick-well" cx="0" cy="0" r="32"/>
+            <circle id="${p}-sl" class="button-base" cx="0" cy="0" r="23" style="stroke:var(--border);stroke-width:2;"/>
+          </g>
+          <g transform="translate(265,195)">
+            <circle class="stick-well" cx="0" cy="0" r="32"/>
+            <circle id="${p}-sr" class="button-base" cx="0" cy="0" r="23" style="stroke:var(--border);stroke-width:2;"/>
+          </g>
+        </svg>
+        <div class="info-tray">
+          <div>L-STICK: <span id="${p}-vl"  class="stick-val">0.00, 0.00</span></div>
+          <div>L-TRIG:  <span id="${p}-vlt" class="stick-val">0.00</span></div>
+          <div>R-TRIG:  <span id="${p}-vrt" class="stick-val">0.00</span></div>
+          <div>R-STICK: <span id="${p}-vr"  class="stick-val">0.00, 0.00</span></div>
+        </div>`;
+      return card;
+    }
+
+    // ── Register a new controller ─────────────────────────────────────────────
+    function addController(gp) {
+      if (controllers.has(gp.index)) return;
+
+      const card = buildWidget(gp.index);
+      document.body.insertBefore(card, document.getElementById('empty-state'));
+
+      // Set readable name
+      const nameEl = document.getElementById(`c${gp.index}-name`);
+      if (nameEl) nameEl.textContent = (gp.id.split('(')[0] || 'Controller').trim();
+
+      const safeId = getSafeId(gp);
+      const savedMap = JSON.parse(localStorage.getItem(STORAGE_PREFIX + safeId) || 'null');
+
+      controllers.set(gp.index, {
+        calibStep: savedMap ? 0 : 1,
+        calibCooldown: false,
+        tempMap: { lt: null, rt: null, rsx: null, rsy: null },
+        mapCache: savedMap
+      });
+
+      if (savedMap) {
+        document.getElementById(`c${gp.index}-calib`)?.classList.remove('active');
+        broadcastConfigExternally(safeId, savedMap);
+      } else {
+        document.getElementById(`c${gp.index}-calib`)?.classList.add('active');
+        updatePrompt(gp.index);
+      }
+
+      updateEmptyState();
+    }
+
+    // ── Remove a controller (disconnect) ─────────────────────────────────────
+    function removeController(index) {
+      const card = document.getElementById(`card-${index}`);
+      if (card) {
+        card.classList.add('disconnected');
+        setTimeout(() => card.remove(), 400);
+      }
+      controllers.delete(index);
+      updateEmptyState();
+    }
+
+    function updateEmptyState() {
+      document.getElementById('empty-state')?.classList.toggle('visible', controllers.size === 0);
+    }
+
+    // ── Calibration ───────────────────────────────────────────────────────────
+    function startCalibration(index) {
+      const state = controllers.get(index);
+      if (!state) return;
+      state.calibStep = 1;
+      state.tempMap = { lt: null, rt: null, rsx: null, rsy: null };
+      document.getElementById(`c${index}-calib`)?.classList.add('active');
+      updatePrompt(index);
+    }
+
+    function updatePrompt(index) {
+      const el = document.getElementById(`c${index}-prompt`);
+      if (!el) return;
+      const steps = ['', '1. PULL LEFT TRIGGER', '2. PULL RIGHT TRIGGER', '3. PUSH RIGHT STICK RIGHT', '4. PUSH RIGHT STICK DOWN'];
+      el.textContent = steps[controllers.get(index)?.calibStep] || 'DONE';
+    }
+
+    function runCalibration(gp) {
+      const state = controllers.get(gp.index);
+      if (!state || state.calibStep === 0 || state.calibCooldown) return;
+
+      let maxVal = 0.5, detected = null;
+      gp.buttons.forEach((btn, i) => {
+        if (btn.value > maxVal) { maxVal = btn.value; detected = { type: 'btn', idx: i }; }
+      });
+      gp.axes.forEach((val, i) => {
+        if (i === 0 || i === 1) return;
+        if (Math.abs(val) > maxVal && val !== -1) { maxVal = Math.abs(val); detected = { type: 'axis', idx: i }; }
+      });
+
+      if (!detected) return;
+
+      if (state.calibStep === 1) state.tempMap.lt = detected;
+      else if (state.calibStep === 2) state.tempMap.rt = detected;
+      else if (state.calibStep === 3) state.tempMap.rsx = detected.idx;
+      else if (state.calibStep === 4) state.tempMap.rsy = detected.idx;
+
+      state.calibStep++;
+      state.calibCooldown = true;
+      setTimeout(() => { state.calibCooldown = false; }, 500);
+
+      if (state.calibStep > 4) {
+        state.calibStep = 0;
+        state.mapCache = state.tempMap;
+        const safeId = getSafeId(gp);
+        localStorage.setItem(STORAGE_PREFIX + safeId, JSON.stringify(state.mapCache));
+        document.getElementById(`c${gp.index}-calib`)?.classList.remove('active');
+        broadcastConfigExternally(safeId, state.mapCache);
+      } else {
+        updatePrompt(gp.index);
+      }
+    }
+
+    // ── Main render loop ──────────────────────────────────────────────────────
+    function update() {
+      const gps = navigator.getGamepads();
+
+      for (const gp of gps) {
+        if (gp && !controllers.has(gp.index)) addController(gp);
+      }
+      for (const [idx] of controllers) {
+        if (!gps[idx]) removeController(idx);
+      }
+
+      for (const gp of gps) {
+        if (!gp || !controllers.has(gp.index)) continue;
+        const state = controllers.get(gp.index);
+        const p = `c${gp.index}`;
+
+        if (state.calibStep > 0) { runCalibration(gp); continue; }
+        if (!state.mapCache) continue;
+        const m = state.mapCache;
+
+        // Buttons
+        gp.buttons.forEach((btn, i) => {
+          if (i === 6 || i === 7) return;
+          if (m.lt?.type === 'btn' && i === m.lt.idx) return;
+          if (m.rt?.type === 'btn' && i === m.rt.idx) return;
+          document.getElementById(`${p}-b${i}`)?.classList.toggle('active-input', !!(btn.pressed || btn.value > 0.05));
+        });
+
+        // Triggers
+        const lt = m.lt ? (m.lt.type === 'btn' ? (gp.buttons[m.lt.idx]?.value || 0) : ((gp.axes[m.lt.idx] ?? -1) + 1) / 2) : 0;
+        const rt = m.rt ? (m.rt.type === 'btn' ? (gp.buttons[m.rt.idx]?.value || 0) : ((gp.axes[m.rt.idx] ?? -1) + 1) / 2) : 0;
+        const ltv = lt < 0.05 ? 0 : lt, rtv = rt < 0.05 ? 0 : rt;
+
+        const b6 = document.getElementById(`${p}-b6`);
+        const b7 = document.getElementById(`${p}-b7`);
+        if (b6) { b6.classList.toggle('active-input', ltv > 0); b6.setAttribute('transform', ltv > 0 ? `translate(0,${ltv*14})` : 'translate(0,0)'); }
+        if (b7) { b7.classList.toggle('active-input', rtv > 0); b7.setAttribute('transform', rtv > 0 ? `translate(0,${rtv*14})` : 'translate(0,0)'); }
+
+        const vlt = document.getElementById(`${p}-vlt`); if (vlt) vlt.textContent = ltv.toFixed(2);
+        const vrt = document.getElementById(`${p}-vrt`); if (vrt) vrt.textContent = rtv.toFixed(2);
+
+        // Sticks
+        const lx = (gp.axes[0] || 0) * 11, ly = (gp.axes[1] || 0) * 11;
+        document.getElementById(`${p}-sl`)?.setAttribute('transform', `translate(${lx},${ly})`);
+
+        const rx = m.rsx != null ? (gp.axes[m.rsx] || 0) : 0;
+        const ry = m.rsy != null ? (gp.axes[m.rsy] || 0) : 0;
+        document.getElementById(`${p}-sr`)?.setAttribute('transform', `translate(${rx*11},${ry*11})`);
+
+        const vl = document.getElementById(`${p}-vl`); if (vl) vl.textContent = `${(gp.axes[0]||0).toFixed(2)}, ${(gp.axes[1]||0).toFixed(2)}`;
+        const vr = document.getElementById(`${p}-vr`); if (vr) vr.textContent = `${rx.toFixed(2)}, ${ry.toFixed(2)}`;
+      }
+
+      requestAnimationFrame(update);
+    }
+
+    window.addEventListener('gamepadconnected',    e => addController(e.gamepad));
+    window.addEventListener('gamepaddisconnected', e => removeController(e.gamepad.index));
+    update();
+  </script>
+</body>
+</html>

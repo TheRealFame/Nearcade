@@ -39,15 +39,6 @@
   "build": {
     "appId": "com.nearsectogether.app",
     "productName": "NearsecTogether",
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "runAfterFinish": true,
-      "include": "build/installer.nsh",
-      "deleteAppDataOnUninstall": true
-    },
     "publish": {
       "provider": "github",
       "releaseType": "release"
@@ -79,6 +70,15 @@
       "assets/**/*",
       "bin/**/*"
     ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": true
+    },
     "win": {
       "target": [
         "nsis",
@@ -88,16 +88,20 @@
       "requestedExecutionLevel": "requireAdministrator"
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg"
+      ],
       "icon": "assets/NearsecTogether.png"
     },
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "rpm",
+        "pacman"
       ],
       "icon": "assets/NearsecTogether.png",
-      "category": "Network"
+      "category": "Game"
     }
   }
 }

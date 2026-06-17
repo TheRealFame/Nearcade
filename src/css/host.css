@@ -777,20 +777,20 @@ gap: 4px;
 .provider-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: 8px;
+    margin-bottom: 8px;
 }
 
 .provider-card {
     background: rgba(255,255,255,0.03);
     border: 2px solid transparent;
     border-radius: 10px;
-    padding: 14px;
+    padding: 10px;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
 }
 
 .provider-card:hover { border-color: var(--accent); background: var(--accent-dim); }
@@ -801,36 +801,37 @@ gap: 4px;
 .prov-info  { flex: 1; min-width: 0; }
 
 .prov-name {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     color: var(--text);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     flex-wrap: wrap;
+    line-height: 1.3;
 }
 
 .prov-desc {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--muted);
-    margin-top: 3px;
-    line-height: 1.55;
+    line-height: 1.4;
+    margin: 2px 0;
 }
 
-.prov-pills { display: flex; gap: 5px; margin-top: 7px; flex-wrap: wrap; }
+.prov-pills { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 
-.pill-easy   { background: #1a3d2a; color: #4ade80; font-size:9px; padding:2px 8px; border-radius:8px; font-weight:600; }
-.pill-medium { background: #3a2e00; color: #fbbf24; font-size:9px; padding:2px 8px; border-radius:8px; font-weight:600; }
-.pill-hard   { background: #3a1a1a; color: #f87171; font-size:9px; padding:2px 8px; border-radius:8px; font-weight:600; }
-.pill-lat    { background: rgba(255,255,255,0.06); color: var(--muted); font-size:9px; padding:2px 8px; border-radius:8px; border:1px solid var(--border); }
-.pill-star   { background: var(--accent-dim); color: var(--accent2); font-size:9px; padding:2px 8px; border-radius:8px; border:1px solid rgba(139,92,246,0.4); font-weight:600; }
+.pill-easy   { background: #1a3d2a; color: #4ade80; font-size:8px; padding:1px 6px; border-radius:6px; font-weight:600; }
+.pill-medium { background: #3a2e00; color: #fbbf24; font-size:8px; padding:1px 6px; border-radius:6px; font-weight:600; }
+.pill-hard   { background: #3a1a1a; color: #f87171; font-size:8px; padding:1px 6px; border-radius:6px; font-weight:600; }
+.pill-lat    { background: rgba(255,255,255,0.06); color: var(--muted); font-size:8px; padding:1px 6px; border-radius:6px; border:1px solid var(--border); }
+.pill-star   { background: var(--accent-dim); color: var(--accent2); font-size:8px; padding:1px 6px; border-radius:6px; border:1px solid rgba(139,92,246,0.4); font-weight:600; }
 
 .prov-install {
-    margin-top: auto;
-    padding: 10px 12px;
-    background: rgba(0,0,0,0.5);
-    border-radius: 6px;
-    font-size: 9px;
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 4px;
+    font-size: 10px;
     color: #a3b3c2;
     font-family: var(--mono);
     line-height: 1.4;
@@ -1012,15 +1013,18 @@ flex-direction: column;
 }
 
 /* VPS input */
-#vpsHostInput {
+#vpsHostInput, #vpsUrlInput, #vpsKeyInput {
 width: 100%;
+box-sizing: border-box;
 background: rgba(0,0,0,0.5);
 border: 1px solid var(--border2);
 color: var(--text);
 font-size: 12px;
 padding: 8px;
 border-radius: 6px;
+font-family: inherit;
 }
+#vpsKeyInput { font-family: var(--mono); }
 
 /* ── INLINE HTML OVERRIDES ── */
 #trackInfoAlt {

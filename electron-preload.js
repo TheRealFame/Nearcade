@@ -12,9 +12,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   getSettings:                    () => ipcRenderer.invoke('get-settings'),
   saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),
+  // hydrateSettings: pushes localStorage-resident values into the config file
+  // without overwriting keys the renderer doesn't manage. Bridges the split
+  // between localStorage-only state and the persistent config file.
+  hydrateSettings:                (patch) => ipcRenderer.invoke('hydrate-settings', patch),
+  getConfigPath:                  () => ipcRenderer.invoke('get-config-path'),
   // VPS SFU config — dedicated handlers so the master key is handled explicitly
   getVpsConfig:   ()    => ipcRenderer.invoke('get-vps-config'),
   saveVpsConfig:  (cfg) => ipcRenderer.invoke('save-vps-config', cfg),
+  getControllers: ()    => ipcRenderer.invoke('get-controllers'),
   toggleAlwaysOnTop:              () => ipcRenderer.invoke('toggle-always-on-top'),
   onSettingsUpdated:              (cb) => ipcRenderer.on('settings-updated', (_, s) => cb(s)),
 
@@ -34,6 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize:                       () => ipcRenderer.send('window-minimize'),
   maximize:                       () => ipcRenderer.send('window-maximize'),
   close:                          () => ipcRenderer.send('window-close'),
+  closeApp:                       () => ipcRenderer.send('app-quit'),
   fullscreen:                     () => ipcRenderer.send('window-fullscreen'),
   discordSetActivity: (activity)  => ipcRenderer.send('discord-set-activity', activity),
   discordClear:                   () => ipcRenderer.send('discord-clear'),

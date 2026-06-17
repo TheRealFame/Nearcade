@@ -471,20 +471,9 @@
     "v8_enable_inspector": 1,
     "node_builtin_shareable_builtins": [],
     "ossfuzz": "false",
-    "nodedir": "/home/fame/.cache/node-gyp/22.22.1",
+    "nodedir": "/usr/include/nodejs",
     "python": "/usr/bin/python3",
-    "standalone_static_library": 1,
-    "global_prefix": "/usr/local",
-    "globalignorefile": "/etc/npmignore",
-    "init_module": "/home/fame/.npm-init.js",
-    "globalconfig": "/etc/npmrc",
-    "node_gyp": "/usr/share/nodejs/node-gyp/bin/node-gyp.js",
-    "cache": "/home/fame/.npm",
-    "prefix": "/usr/local",
-    "metrics_registry": "https://registry.npmjs.org/",
-    "local_prefix": "/home/fame/Documents/NearsecTogether",
-    "userconfig": "/home/fame/.npmrc",
-    "user_agent": "npm/9.2.0 node/v22.22.1 linux x64 workspaces/false"
+    "standalone_static_library": 1
   },
   "target_defaults": {
     "include_dirs": [],

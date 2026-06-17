@@ -68,3 +68,5 @@ If the Electron app is forcefully closed, Node.js might leave orphaned `cloudfla
 
 **Orphaned Virtual Devices**
 Similarly, if the Python sidecar is killed abruptly, `uinput` devices remain active in the `/dev/input/` directory forever. The Node.js `cleanup()` hook traps `SIGINT`, `SIGTERM`, and Electron `window-close` events. Before exiting, it sends a final `{ type: 'destroy_all' }` JSON payload to the Python `stdin`, forcing Python to un-register all controllers. It simultaneously issues a `pactl unload-module` command targeted specifically at the `loopbackModuleId` integer saved during startup, cleanly destroying the virtual audio cables and restoring the Linux audio graph to its default state.
+
+This project uses artificial intelligence large language models for code generation and structure planning.

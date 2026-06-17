@@ -1,0 +1,32 @@
+{
+  "Xbox 360 Controller (XInput STANDARD GAMEPAD)": {
+    "lt": { "type": "btn", "idx": 6 },
+    "rt": { "type": "btn", "idx": 7 },
+    "rsx": 2,
+    "rsy": 3
+  },
+  "Xbox Wireless Controller (STANDARD GAMEPAD)": {
+    "lt": { "type": "btn", "idx": 6 },
+    "rt": { "type": "btn", "idx": 7 },
+    "rsx": 2,
+    "rsy": 3
+  },
+  "DualSense Wireless Controller (STANDARD GAMEPAD)": {
+    "lt": { "type": "btn", "idx": 6 },
+    "rt": { "type": "btn", "idx": 7 },
+    "rsx": 2,
+    "rsy": 3
+  },
+  "Wireless Controller (STANDARD GAMEPAD)": {
+    "lt": { "type": "btn", "idx": 6 },
+    "rt": { "type": "btn", "idx": 7 },
+    "rsx": 2,
+    "rsy": 3
+  },
+  "2dc8-3106-8BitDo Ultimate Wireless / Pro 2 Wired Controller": {
+    "lt": { "type": "btn", "idx": 6 },
+    "rt": { "type": "btn", "idx": 7 },
+    "rsx": 2,
+    "rsy": 3
+  }
+}

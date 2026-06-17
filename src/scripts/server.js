@@ -209,6 +209,69 @@ function toUinput(msg) {
   inputDriver.send(msg);
 }
 
+// ── Gamepad Wire-Format Normalizer ───────────────────────────────────────────
+// viewer.js sends the raw Gamepad API format:
+//   axes:    [lx, ly, rx, ry, ...]  as int16 (-32767..+32767)
+//   buttons: [{pressed, value}...]  value is 0-255 int
+// InputOrchestrator._handleGamepad expects NAMED scalar fields:
+//   lx, ly, rx, ry  → int16 passed straight through to C++ buffer
+//   lt, rt          → float 0..1
+//   buttons         → 16-bit bitmask in JS viewer layout
+//
+// If msg already has named fields (Python path) it is returned as-is.
+function normalizeGamepadMsg(msg) {
+  // Already normalized — named axes present, nothing to do
+  if (msg.lx !== undefined || !Array.isArray(msg.axes)) return msg;
+
+  const axes = msg.axes || [];
+  const btns = msg.buttons || [];
+
+  // Axes arrive as int16 (-32767..+32767) — pass directly.
+  // _validateGamepadMsg → _clampAxis handles range clamping.
+  const lx = Number(axes[0]) || 0;
+  const ly = Number(axes[1]) || 0;
+  const rx = Number(axes[2]) || 0;
+  const ry = Number(axes[3]) || 0;
+
+  // Triggers: buttons[6]=LT, buttons[7]=RT (viewer encodes value 0-255)
+  const lt = (Number((btns[6] && btns[6].value) || 0)) / 255;
+  const rt = (Number((btns[7] && btns[7].value) || 0)) / 255;
+
+  //  W3C Gamepad API index → JS viewer bitmask (correct per W3C spec)
+  //  0=A 1=B 2=X 3=Y 4=LB 5=RB 6=LT(float) 7=RT(float)
+  //  8=Select 9=Start 10=L3 11=R3 12=D-Up 13=D-Down 14=D-Left 15=D-Right 16=Guide
+  const W3C_TO_JS = [
+    0x0001, // 0  A (South)
+    0x0002, // 1  B (East)
+    0x0004, // 2  X (West)
+    0x0008, // 3  Y (North)
+    0x0100, // 4  LB
+    0x0200, // 5  RB
+    0,      // 6  LT — handled as lt float above
+    0,      // 7  RT — handled as rt float above
+    0x2000, // 8  Select / Back
+    0x1000, // 9  Start
+    0x0400, // 10 L3
+    0x0800, // 11 R3
+    0x0010, // 12 D-Up
+    0x0020, // 13 D-Down
+    0x0040, // 14 D-Left
+    0x0080, // 15 D-Right
+    0x4000, // 16 Guide / Home
+  ];
+  let buttons = 0;
+  for (let i = 0; i < btns.length && i < W3C_TO_JS.length; i++) {
+    if (!W3C_TO_JS[i]) continue;
+    if (btns[i] && (btns[i].pressed || btns[i].value > 127)) buttons |= W3C_TO_JS[i];
+  }
+
+
+  return {
+    ...msg,
+    lx, ly, rx, ry, lt, rt, buttons,
+  };
+}
+
 const projectRoot = path.join(__dirname, '..', '..');
 
 // ── Safe App Data Pathing for Production ASAR ──
@@ -225,6 +288,38 @@ function getSafeDataDir() {
 
 const dataDir = getSafeDataDir();
 const envFile = path.join(dataDir, '.env');
+
+// ── Convenience symlink for source-code devs ──────────────────────────────────
+// Creates config/nearsectogether.config.json → ~/.config/NearsecTogether/…
+// so you can always find/edit the live config right inside the project tree.
+// Windows symlinks require elevated privilege — skip on win32.
+(function ensureConfigSymlink() {
+  if (process.platform === 'win32') return;
+  try {
+    // Walk up from src/scripts to find the project root (two levels up)
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    const configDir   = path.join(projectRoot, 'config');
+    const symlinkPath = path.join(configDir, 'nearsectogether.config.json');
+    const realTarget  = path.join(dataDir, 'nearsectogether.config.json');
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    try {
+      const existing = fs.lstatSync(symlinkPath);
+      // Remove stale symlinks or wrong files before re-creating
+      if (existing.isSymbolicLink() && fs.realpathSync(symlinkPath) !== realTarget) {
+        fs.unlinkSync(symlinkPath);
+      } else if (!existing.isSymbolicLink()) {
+        return; // A real file exists there — don't clobber it
+      } else {
+        return; // Already correct
+      }
+    } catch (_) { /* doesn't exist yet — fall through to create */ }
+    fs.symlinkSync(realTarget, symlinkPath);
+    console.log('[config] Symlink: config/nearsectogether.config.json → ' + realTarget);
+  } catch (e) {
+    // Non-fatal — just a convenience helper
+    console.warn('[config] Could not create config symlink:', e.message);
+  }
+})();
 
 if (!fs.existsSync(envFile)) {
   try {
@@ -345,10 +440,19 @@ function readEnv(key) {
   return null;
 }
 
+function ensureExecutable(binPath) {
+  if (!binPath) return;
+  // System package paths are already executable and root-owned — chmod would EPERM.
+  const sysPaths = ['/usr/bin/', '/usr/local/bin/', '/bin/', '/sbin/', '/usr/sbin/'];
+  if (sysPaths.some(p => binPath.startsWith(p))) return;
+  try { fs.chmodSync(binPath, 0o755); } catch (e) { console.warn('[chmod]', binPath, e.message); }
+}
+
 function startTunnelCloudflared(port) {
   return new Promise(resolve => {
     findBinaryPath('cloudflared').then(cloudflaredPath => {
       if (!cloudflaredPath) { resolve(null); return; }
+      ensureExecutable(cloudflaredPath);
 
       const cfToken = readEnv('CF_TOKEN');
       if (cfToken) {
@@ -456,6 +560,7 @@ function startTunnelPlayit(port) {
   return new Promise(resolve => {
     findBinaryPath('playit').then(playitPath => {
       if (!playitPath) { resolve(null); return; }
+      ensureExecutable(playitPath);
 
       console.log("  \x1b[33m~\x1b[0m Starting playit tunnel...");
       const proc = spawn(playitPath, [], { stdio: ["ignore", "pipe", "pipe"] });
@@ -546,6 +651,7 @@ function startTunnelZrok(port) {
     })();
 
     if (!zrokPath) { resolve(null); return; }
+    ensureExecutable(zrokPath);
 
     console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})...`);
     const args = ["share", "public", "http://localhost:" + port, "--backend-mode", "proxy", "--headless"];
@@ -712,10 +818,13 @@ async function main() {
   // ── Dynamic version.js — always reflects package.json ──────────────────
   app.get('/js/version.js', (req, res) => {
     res.type('application/javascript');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nconsole.log("[Nearsec] Version loaded:", window.NEARSEC_VERSION);`);
   });
 
-  app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts")));
+  app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
   app.use("/assets", express.static(path.join(__dirname, "..", "..", "assets")));
 
   const pagesDir = path.join(__dirname, "..", "..", "src/pages");
@@ -1030,7 +1139,14 @@ async function main() {
   }
 
   function broadcast(data) {
-    viewers.forEach(vws => { if (vws.readyState === 1) vws.send(data); });
+    let sentToVps = false;
+    viewers.forEach(vws => {
+      if (vws && vws.readyState === 1) vws.send(data);
+      else if (vws === null && !sentToVps && hostWS && hostWS.readyState === 1) {
+        hostWS.send(JSON.stringify({ type: 'vps-broadcast', payload: data }));
+        sentToVps = true;
+      }
+    });
   }
 
   function controllerViewerCount() {
@@ -1093,7 +1209,7 @@ async function main() {
 
       ws.on("message", raw => {
         try {
-          const msg = JSON.parse(raw);
+          let msg = JSON.parse(raw);
 
           // ── OS-LEVEL AUDIO FALLBACK COMMANDS ──
           if (msg.type === "start-audio-fallback") {
@@ -1126,7 +1242,11 @@ async function main() {
           // ── STANDARD SIGNALING ──
           if ((msg.type === "offer" || msg.type === "ice-host") && msg._viewerId) {
             const vws = viewers.get(msg._viewerId);
-            if (vws && vws.readyState === 1) vws.send(JSON.stringify(msg));
+            if (vws && vws.readyState === 1) {
+              vws.send(JSON.stringify(msg));
+            } else if (vws === null && hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify(msg));
+            }
             return;
           }
 
@@ -1137,14 +1257,18 @@ async function main() {
             const targetWs = viewers.get(realId);
             if (targetWs && targetWs.readyState === 1) {
               targetWs.send(JSON.stringify(msg));
+            } else if (targetWs === null && hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify(msg));
             }
             return;
           }
           // Broadcast: relay mute/unmute to every connected viewer
           if (msg.type === "host-voice-broadcast" && msg.action) {
             viewers.forEach((vws, id) => {
-              if (vws.readyState === 1) {
+              if (vws && vws.readyState === 1) {
                 vws.send(JSON.stringify({ type: "host-voice-cmd", action: msg.action, targetViewerId: id }));
+              } else if (vws === null && hostWS && hostWS.readyState === 1) {
+                hostWS.send(JSON.stringify({ type: "host-voice-cmd", action: msg.action, targetViewerId: id }));
               }
             });
             return;
@@ -1158,6 +1282,9 @@ async function main() {
               try { targetWs.send(JSON.stringify({ type: "pin-rejected", reason: "kicked" })); } catch {}
               targetWs.close(4003, "KICKED");
               console.log(`[host] Kicked viewer ${realId}`);
+            } else if (targetWs === null && hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify({ type: "pin-rejected", reason: "kicked", targetViewerId: realId }));
+              console.log(`[host] Kicked VPS viewer ${realId}`);
             }
             return;
           }
@@ -1165,8 +1292,8 @@ async function main() {
           if (msg.type === "set-pin") { pinEnabled = !!msg.enabled; return; }
 
           if (msg.type === "set-input") {
-            const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null };
-            inputPerms.set(msg.viewerId, { gp: !!msg.gp, kb: !!msg.kb, slot: cur.slot });
+            const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null, mode: 'gamepad' };
+            inputPerms.set(msg.viewerId, { ...cur, gp: !!msg.gp, kb: !!msg.kb });
             const realId = msg.viewerId.split('_')[0];
             const vws = viewers.get(realId);
             if (vws && vws.readyState === 1 && msg.viewerId.endsWith('_0')) {
@@ -1207,27 +1334,13 @@ async function main() {
             global.currentCtrlType = msg.ctrlType || 'xbox360';
             global.hybridInputActive = msg.hybridInput;
 
+            // Update the orchestrator's global default FIRST (no viewerId = set global default),
+            // then update each connected viewer's per-viewer entry.
+            toUinput({ type: 'set-ctrl-type', viewerId: null, ctrlType: global.currentCtrlType });
             viewers.forEach((_, vid) => {
               toUinput({ type: 'set-ctrl-type', viewerId: vid, ctrlType: global.currentCtrlType });
             });
 
-            // FIX: Correctly toggle BOTH ON and OFF states in memory for the viewers
-            if (msg.hybridInput) {
-              viewers.forEach((vws, vid) => {
-                const p0 = vid + '_0';
-                const cur = inputPerms.get(p0) || { gp:true, kb:false, slot:null };
-                inputPerms.set(p0, { ...cur, gp:true, kb:true });
-                if (vws.readyState === 1) vws.send(JSON.stringify({ type:'input-state', gp:true, kb:true, mode:'hybrid' }));
-              });
-            } else {
-              viewers.forEach((vws, vid) => {
-                const p0 = vid + '_0';
-                const cur = inputPerms.get(p0) || { gp:true, kb:false, slot:null };
-                // Default back to gamepad-only when hybrid is disabled
-                inputPerms.set(p0, { ...cur, gp:true, kb:false });
-                if (vws.readyState === 1) vws.send(JSON.stringify({ type:'input-state', gp:true, kb:false, mode:'gamepad' }));
-              });
-            }
 
             console.log("[host] ctrl-settings: forceXboxOne=%s enableDualShock=%s enableMotion=%s hybrid=%s ctrlType=%s",
                         !!msg.forceXboxOne, !!msg.enableDualShock, !!msg.enableMotion, !!msg.hybridInput, global.currentCtrlType);
@@ -1253,12 +1366,15 @@ async function main() {
               disabled:     { gp: false, kb: false }
             };
             const perms = modeMap[msg.mode] || { gp: true, kb: false };
-            const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null };
-            inputPerms.set(msg.viewerId, { ...cur, ...perms });
+            const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null, mode: 'gamepad' };
+            inputPerms.set(msg.viewerId, { ...cur, ...perms, mode: msg.mode });
+            
             const realId = msg.viewerId.split('_')[0];
             const vws = viewers.get(realId);
             if (vws && vws.readyState === 1) {
               vws.send(JSON.stringify({ type: "input-state", gp: perms.gp, kb: perms.kb, mode: msg.mode }));
+            } else if (vws === null && hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify({ type: "input-state", gp: perms.gp, kb: perms.kb, mode: msg.mode, targetViewerId: realId }));
             }
             toUinput({ type: 'set-input-mode', viewerId: msg.viewerId, mode: msg.mode });
             broadcastRoster();
@@ -1266,8 +1382,9 @@ async function main() {
           }
 
           if (msg.type === "toggle-slot-lock") {
-            const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null };
-            inputPerms.set(msg.viewerId, { ...cur, locked: !!msg.locked });
+            const realId = msg.viewerId.split('_')[0];
+            const cur = inputPerms.get(realId) || { gp: true, kb: false, slot: null };
+            inputPerms.set(realId, { ...cur, locked: !!msg.locked });
             broadcastRoster();
             return;
           }
@@ -1332,8 +1449,6 @@ async function main() {
             const id = String(msg.viewerId || '').slice(0, 64);
             if (!id) return;
             if (!viewers.has(id)) {
-              // Register with a null WS — the viewer is on the VPS, not local.
-              // All places that do vws.readyState checks already guard with (vws &&).
               viewers.set(id, null);
               viewerNames.set(id, String(msg.name || id).slice(0, 48));
               const cfg = loadConfig();
@@ -1343,10 +1458,16 @@ async function main() {
                 gp: defaultMode !== 'kbm',
                 kb: defaultMode !== 'gamepad',
                 slot: null,
+                mode: defaultMode,
               });
               toUinput({ type: 'set-ctrl-type', viewerId: padId, ctrlType: global.currentCtrlType || 'xbox360' });
               if (hostWS && hostWS.readyState === 1) {
-                hostWS.send(JSON.stringify({ type: 'viewer-joined', viewerId: id, name: viewerNames.get(id) }));
+                hostWS.send(JSON.stringify({
+                  type: 'viewer-joined',
+                  viewerId: id,
+                  name: viewerNames.get(id),
+                  viewerRegion: msg.viewerRegion || null,
+                }));
               }
               broadcastRoster();
               console.log('[VPS] Viewer joined:', id);
@@ -1374,15 +1495,36 @@ async function main() {
           // ── VPS viewer input ──────────────────────────────────────────────
           // Gamepad/KBM packets stamped with viewerId by host.js VPS bridge.
           // Route directly to the uinput driver — same path as local viewers.
-          if ((msg.type === 'gamepad' || msg.type === 'keyboard' || msg.type === 'kbm') && msg.viewerId) {
+          if ((msg.type === 'gamepad' || msg.type === 'keyboard' || msg.type === 'kbm' || msg.type === 'gpid') && msg.viewerId) {
+            if (msg.type === 'gpid') {
+              const id = String(msg.viewerId).split('_')[0];
+              const padIdx = msg.padIndex || 0;
+              const pads = viewerGamepads.get(id) || new Set();
+              
+              if (!pads.has(padIdx)) {
+                pads.add(padIdx);
+                viewerGamepads.set(id, pads);
+                msg.pad_id = id + '_' + padIdx;
+                if (!inputPerms.has(id)) inputPerms.set(id, { gp: true, kb: false, slot: null, mode: 'gamepad' });
+                
+                if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: id, id: msg.id }));
+                toUinput(msg);
+                broadcastRoster();
+              }
+              return;
+            }
+
             if (msg.type === 'keyboard') msg.type = 'kbm';
             const id = String(msg.viewerId).split('_')[0];
             const padId = msg.pad_id || (id + '_0');
             msg.pad_id   = padId;
             msg.viewer_id = id;
             const perms = inputPerms.get(padId) || { gp: true, kb: false };
-            if (msg.type === 'gamepad' && !perms.gp) return;
-            if (msg.type === 'kbm'     && !perms.kb) return;
+            if (msg.type === 'gamepad') {
+              if (!perms.gp) return;
+              msg = normalizeGamepadMsg(msg);
+            }
+            if (msg.type === 'kbm' && !perms.kb) return;
             inputDriver.send(msg);
             return;
           }
@@ -1508,7 +1650,12 @@ async function main() {
             console.log("[viewer]", id, "name resolved to:", joinName);
 
             if (hostWS && hostWS.readyState === 1) {
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: joinName }));
+              hostWS.send(JSON.stringify({
+                type: "viewer-joined",
+                viewerId: id,
+                name: joinName,
+                viewerRegion: msg.viewerRegion || null,
+              }));
               // Include the saved host name so the viewer can display "HOST SESSION — Name"
               const hCfg = loadConfig();
               ws.send(JSON.stringify({ type: "host-connected", hostName: hCfg.hostName || 'Host' }));
@@ -1695,7 +1842,7 @@ async function main() {
             }
 
             msg.pad_id = rosterId;
-            toUinput(msg);
+            toUinput(normalizeGamepadMsg(msg));
             return;
           }
         } catch { }
@@ -1756,7 +1903,8 @@ async function main() {
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: myId, id: msg.id }));
             return;
           }
-          if (msg.type === "gamepad") { toUinput(msg); return; }
+          if (msg.type === "gamepad") { toUinput(normalizeGamepadMsg(msg)); return; }
+
           if (msg.type === "keyboard") {
             if (!myId) return;
             const perms = inputPerms.get(myId) || { gp: true, kb: false };

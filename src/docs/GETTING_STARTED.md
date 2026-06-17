@@ -1,17 +1,27 @@
 # Getting Started with Nearsec Together
 
-Nearsec Together allows you to share your local games seamlessly with friends over the web using low-latency WebRTC technology.
+Nearsec Together lets you share local games with friends over the internet using WebRTC.
 
-## The Nearsec Arcade vs. Private Tunnels
-You have two ways to host a game:
-1. **Private Tunnel (Custom URLs):** By setting up a custom Cloudflare tunnel (e.g., `play.yourdomain.com`), you can send friends a permanent, unchanging link. This is best for private groups.
-2. **Nearsec Arcade:** A public matchmaking directory for discovering local co-op games. Sessions here are restricted to 80 minutes to ensure the lobby stays active and prevents "ghost links". You must use a verified tunneling provider like Cloudflared or zrok to host on the Arcade.
+## Hosting Options
+You have two ways to host a session.
+
+1. Private Tunnels: You can set up a custom tunnel through Cloudflare or Zrok to create a permanent link for your friends. This works best for private groups.
+2. Nearsec Arcade: The Arcade is a public directory for finding local co-op games. Sessions are restricted to 80 minutes to keep the lobby active. You must use a verified tunneling provider like Cloudflared or Zrok to list a session. You can view the public lobby at https://nearsec.cutefame.net/arcade and join active games.
 
 ## Launching a Session
-1. Ensure you have Node.js v18+ and Python 3.8+ installed.
-2. Open your terminal or command prompt and **navigate into the bin folder**:
-   ```bash
-   cd bin
-3. On Linux, the app will automatically request `sudo` access to load the `uinput` kernel module for controller support.
-4. Click "Host Session" to open the WebRTC capture dashboard.
-5. Provide the generated URL and Session PIN to your viewers.
+Follow these steps to start hosting.
+
+1. Install Node.js version 18 or newer and Python 3 on your machine.
+2. Most users will launch the compiled executable directly. The app manages permissions and tunnels automatically.
+3. If you use the source code, open your terminal and navigate to the bin folder to run the setup script.
+
+    ```bash
+    cd bin
+    sudo ./linux_setup.sh
+    ```
+
+4. The Linux application requests permission to load the uinput kernel module. This step is required to build native virtual controllers.
+5. Click the Host Session button to open the capture dashboard.
+6. Send the generated link and Session PIN to your viewers. The Rust router blocks all video and audio streams until the host application validates the PIN from the viewer.
+
+This project uses artificial intelligence large language models for code generation and structure planning.

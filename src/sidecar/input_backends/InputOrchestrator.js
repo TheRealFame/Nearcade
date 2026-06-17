@@ -91,6 +91,12 @@ let _pythonProc = null;
 let GAME_PROFILES = {};
 let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 
+// Global default profile key — updated whenever the host broadcasts ctrl-settings.
+// This ensures all newly allocated slots inherit the host's chosen controller type
+// rather than always falling back to xbox360.
+let _defaultProfileKey = 'xbox360';
+
+
 const KBM_BTN_MAP = {
     'A': 0x0001, 'B': 0x0002, 'X': 0x0004, 'Y': 0x0008,
     'UP': 0x0010, 'DOWN': 0x0020, 'LEFT': 0x0040, 'RIGHT': 0x0080,
@@ -108,35 +114,39 @@ const PROFILES = {
 
 // ── Initialization ─────────────────────────────────────────────────────────────
 const isWin = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
 
 function init(screenWidth, screenHeight) {
     _loadProfiles();
 
-    // On Windows the uinputBridge C++ addon is Linux-only (uinput kernel module).
+    // On Windows and macOS the uinputBridge C++ addon is Linux-only.
     // Skip it entirely and go straight to the Python sidecar.
-    if (!isWin) {
+    if (!isWin && !isMac) {
         // 1. Try Native C++ Fast Lane (Linux only)
         try {
-            const nodePath = path.join(__dirname, 'build', 'Release', 'uinputBridge.node');
-            _bridge = require(nodePath);
-            _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
-            console.log(`[input] Native uinputBridge loaded: ${nodePath}`);
-            return true;
+            // const nodePath = path.join(__dirname, 'build', 'Release', 'uinputBridge.node');
+            // _bridge = require(nodePath);
+            // _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
+            // console.log(`[input] Native uinputBridge loaded: ${nodePath}`);
+            // return true;
+            throw new Error("Forcing Python Fallback per user request");
         } catch (e) {
             console.warn(`[input] Native bridge failed to load (${e.message}). Falling back to Python.`);
             _bridge = null;
         }
-    } else {
+    } else if (isWin) {
         console.log('[input] Windows detected — skipping uinputBridge, using Python/ViGEmBus sidecar.');
+    } else {
+        console.log('[input] macOS detected — skipping uinputBridge, using Python/pynput sidecar.');
     }
 
     // 2. Python Sidecar — platform-aware script selection
-    const scriptName = isWin ? 'windows_vigem.py' : 'linux_uinput.py';
-    // input_driver.py auto-dispatches to the correct backend; use it as the entry point
-    const driverScript = path.join(__dirname, 'input_driver.py');
-    const backendScript = path.join(__dirname, 'input_backends', scriptName);
-
-    const pythonScript = fs.existsSync(driverScript) ? driverScript : backendScript;
+    let scriptName;
+    if (isWin)       scriptName = 'windows_vigem.py';
+    else if (isMac)  scriptName = 'mac_gamepad_bridge.py';
+    else             scriptName = 'linux_uinput.py';
+    // __dirname is already .../input_backends
+    const pythonScript = path.join(__dirname, scriptName);
     if (!fs.existsSync(pythonScript)) {
         console.error(`[input] FATAL: Python fallback not found at ${pythonScript}`);
         return false;
@@ -262,7 +272,9 @@ function _claimSlot(slotIndex, viewerId, profileKey) {
 
     if (!_bridge) return; // Python handles its own slots
 
-    const profile = PROFILES[profileKey] || PROFILES.xbox360;
+    // Resolve the best profile: per-viewer override → host global default → xbox360
+    const resolvedKey = profileKey || viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
+    const profile = PROFILES[resolvedKey] || PROFILES.xbox360;
     _alBuf[1] = slotIndex;
     _alBuf.writeUInt16LE(profile.vendor,  2);
     _alBuf.writeUInt16LE(profile.product, 4);
@@ -271,6 +283,7 @@ function _claimSlot(slotIndex, viewerId, profileKey) {
     Buffer.from(profile.name).copy(_alBuf, 8, 0, Math.min(31, profile.name.length));
 
     _bridge.submitInputPacket(_alBuf);
+    console.log(`[input] ALLOC slot ${slotIndex} for ${viewerId} as ${resolvedKey} (${profile.name})`);
 }
 
 function _freeSlot(viewerId) {
@@ -295,7 +308,7 @@ function _handleGamepad(msg) {
     const viewerId = msg.pad_id;
     if (!viewerId) return;
 
-    const profileKey = viewerCtrlType.get(viewerId) || 'xbox360';
+    const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
     if (slotIndex < 0) return;
 
@@ -304,14 +317,16 @@ function _handleGamepad(msg) {
     // Convert JS viewer bitmask to C++ W3C_BTN format and extract dpad as hx/hy
     const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(msg.buttons || 0);
 
-    // Write packet in the EXACT layout uinputBridge.cpp expects
+    // Write packet in the EXACT layout uinputBridge.cpp expects.
+    // axes arrive as int16 (-32767..+32767) from the normalizer — write directly.
+    // lt/rt arrive as 0..1 floats from the normalizer — scale to 0..255.
     _gpBuf[0] = 0x01;
-    _gpBuf.writeInt16LE(Math.round((msg.lx || 0) * 32767), 1);
-    _gpBuf.writeInt16LE(Math.round((msg.ly || 0) * 32767), 3);
-    _gpBuf.writeInt16LE(Math.round((msg.rx || 0) * 32767), 5);
-    _gpBuf.writeInt16LE(Math.round((msg.ry || 0) * 32767), 7);
-    _gpBuf[9]  = Math.round((msg.lt || 0) * 255);
-    _gpBuf[10] = Math.round((msg.rt || 0) * 255);
+    _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.lx || 0)), 1);
+    _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.ly || 0)), 3);
+    _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.rx || 0)), 5);
+    _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.ry || 0)), 7);
+    _gpBuf[9]  = Math.round(Math.max(0, Math.min(1, msg.lt || 0)) * 255);
+    _gpBuf[10] = Math.round(Math.max(0, Math.min(1, msg.rt || 0)) * 255);
     _gpBuf.writeUInt16LE(cppBtns, 11);
     _gpBuf.writeInt8(hx, 13);
     _gpBuf.writeInt8(hy, 14);
@@ -564,7 +579,7 @@ function _validateKbmMsg(msg) {
     } catch (_) { return null; }
 
     const event = String(msg.event || '').slice(0, 32);
-    if (!['keydown', 'keyup', 'mousemove'].includes(event)) return null;
+    if (!['keydown', 'keyup', 'mousemove', 'mousedown', 'mouseup'].includes(event)) return null;
 
     return {
         type:     msg.type,
@@ -572,6 +587,7 @@ function _validateKbmMsg(msg) {
         viewerId: String(msg.viewerId || '').slice(0, 64),
         event,
         key:      String(msg.key  || '').slice(0, 32),
+        button:   typeof msg.button === 'number' ? msg.button : undefined,
         dx:       _clampDelta(msg.dx),
         dy:       _clampDelta(msg.dy),
     };
@@ -591,6 +607,17 @@ function send(msg) {
     // Fallback passthrough to Python if Native module failed
     if (!_bridge && _pythonProc && _pythonProc.stdin.writable) {
         try { _pythonProc.stdin.write(JSON.stringify(validated) + '\n'); } catch (e) {}
+        
+        // Ensure the input visualizer still works when using Python sidecar
+        if (validated.type === 'gamepad') {
+            events.emit('input-packet', {
+                source: 'python_gamepad', viewerId: validated.viewer_id || validated.viewerId, slotIndex: 'PY',
+                buttons: validated.buttons || 0,
+                lt: validated.lt || 0, rt: validated.rt || 0,
+                lx: validated.lx || 0, ly: validated.ly || 0,
+                rx: validated.rx || 0, ry: validated.ry || 0,
+            });
+        }
         return;
     }
 
@@ -599,7 +626,9 @@ function send(msg) {
     } else if (validated.type === 'kbm' || validated.type === 'keyboard') {
         _handleKbm(validated);
     } else if (msg.type === 'set-ctrl-type') {
-        viewerCtrlType.set(msg.viewerId, msg.ctrlType);
+        // Update per-viewer map AND the global default so new connections inherit the type
+        if (msg.viewerId) viewerCtrlType.set(msg.viewerId, msg.ctrlType || 'xbox360');
+        _defaultProfileKey = msg.ctrlType || 'xbox360';
     } else if (msg.type === 'set-input-mode') {
         viewerModes.set(msg.viewerId, msg.mode);
     } else if (msg.type === 'disconnect_viewer') {
@@ -619,8 +648,8 @@ function destroy() {
     for (const vid of viewerSlots.keys()) {
         _freeSlot(vid);
     }
-    if (_bridge && _bridge.destroy) {
-        _bridge.destroy();
+    if (_bridge && _bridge.destroyDevice) {
+        _bridge.destroyDevice();
     }
     if (_pythonProc) {
         if (_pythonProc.stdin?.writable) {

@@ -38,6 +38,13 @@ jobs:
           node-version: '22.x'
           cache: npm
 
+      # ── NEW STEP: Install Linux build tools for RPM and Pacman ──
+      - name: Install Linux Build Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libarchive-tools fakeroot
+
       - name: Install Dependencies
         run: npm ci
 

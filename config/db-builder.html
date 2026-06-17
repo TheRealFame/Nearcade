@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Nearsec Controller DB Builder</title>
+    <style>
+        body { font-family: monospace; background: #0b0d0f; color: #f0f3f5; padding: 40px; }
+        .box { background: #121518; border: 1px solid #22282d; padding: 20px; border-radius: 8px; max-width: 600px; margin: 0 auto; }
+        h2 { color: #ff5d3d; margin-top: 0; }
+        #prompt { font-size: 1.2em; color: #4ade80; margin: 20px 0; font-weight: bold; }
+        pre { background: #000; padding: 15px; color: #3b82f6; overflow-x: auto; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>Nearsec Controller DB Builder</h2>
+    <p>Plug in a controller and press any button to begin.</p>
+
+    <div id="status">Waiting for controller...</div>
+    <div id="prompt"></div>
+
+    <h3>Generated Database Entry:</h3>
+    <pre id="output">// JSON will appear here...</pre>
+</div>
+
+<script>
+    const steps = [
+        { name: "A / Cross", key: "b0", type: "button" },
+        { name: "B / Circle", key: "b1", type: "button" },
+        { name: "X / Square", key: "b2", type: "button" },
+        { name: "Y / Triangle", key: "b3", type: "button" },
+        { name: "Right Stick X (Push Right)", key: "rsx", type: "axis" },
+        { name: "Right Stick Y (Push Down)", key: "rsy", type: "axis" }
+    ];
+
+    let currentStep = 0;
+    let mapping = {};
+    let gamepadId = "";
+    let activePadIndex = null;
+
+    window.addEventListener("gamepadconnected", (e) => {
+        if (activePadIndex !== null) return;
+        activePadIndex = e.gamepad.index;
+        gamepadId = e.gamepad.id;
+        document.getElementById("status").innerHTML = `Connected: <strong>${gamepadId}</strong><br>Mapping type: ${e.gamepad.mapping || "unknown"}`;
+        startCalibration();
+    });
+
+    function startCalibration() {
+        currentStep = 0;
+        mapping = {};
+        updatePrompt();
+        requestAnimationFrame(poll);
+    }
+
+    function updatePrompt() {
+        if (currentStep < steps.length) {
+            document.getElementById("prompt").innerText = `Press and release: ${steps[currentStep].name}`;
+        } else {
+            document.getElementById("prompt").innerText = "Calibration Complete!";
+            generateJSON();
+        }
+    }
+
+    let lastButtons = [];
+    let lastAxes = [];
+
+    function poll() {
+        if (currentStep >= steps.length) return;
+
+        const pad = navigator.getGamepads()[activePadIndex];
+        if (!pad) return;
+
+        const target = steps[currentStep];
+
+        if (target.type === "button") {
+            for (let i = 0; i < pad.buttons.length; i++) {
+                if (pad.buttons[i].pressed && !lastButtons[i]) {
+                    mapping[target.key] = i;
+                    currentStep++;
+                    updatePrompt();
+                    break;
+                }
+            }
+        } else if (target.type === "axis") {
+            for (let i = 0; i < pad.axes.length; i++) {
+                if (Math.abs(pad.axes[i]) > 0.8 && (!lastAxes[i] || Math.abs(lastAxes[i]) <= 0.8)) {
+                    mapping[target.key] = i;
+                    currentStep++;
+                    updatePrompt();
+                    break;
+                }
+            }
+        }
+
+        lastButtons = pad.buttons.map(b => b.pressed);
+        lastAxes = [...pad.axes];
+
+        requestAnimationFrame(poll);
+    }
+
+    function generateJSON() {
+        const jsonString = `"${gamepadId}": ${JSON.stringify(mapping)},`;
+        document.getElementById("output").innerText = jsonString;
+    }
+</script>
+</body>
+</html>

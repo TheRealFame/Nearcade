@@ -16,11 +16,24 @@ let isFFmpegCapture        = process.argv.includes('--ffmpeg');
 const gotTheLock          = isArcadeWorker ? true : app.requestSingleInstanceLock();
 
 
+// ── CONFIGURATION DIR UTILS ──
+function _getConfigDir() {
+  const home = require('os').homedir();
+  if (process.platform === 'win32')
+    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'NearsecTogether');
+  if (process.platform === 'darwin')
+    return path.join(home, 'Library', 'Application Support', 'NearsecTogether');
+  return path.join(home, '.config', 'NearsecTogether');
+}
+const CONFIG_DIR  = _getConfigDir();
+const CONFIG_FILE = path.join(CONFIG_DIR, 'nearsectogether.config.json');
+const BUNDLED_CONTROLLERS = path.join(__dirname, 'config', 'controllers.json');
+const USER_CONTROLLERS    = path.join(CONFIG_DIR, 'controllers.json');
+
 // ── AUTOMATIC CONFIGURATION OVERRIDES ──
 try {
-  const configPath = path.join(app.getPath('userData'), path.join('NearsecTogether', 'nearsectogether.config.json'));
-  if (fs.existsSync(configPath)) {
-    const rawConfig = fs.readFileSync(configPath, 'utf8');
+  if (fs.existsSync(CONFIG_FILE)) {
+    const rawConfig = fs.readFileSync(CONFIG_FILE, 'utf8');
     const parsedConfig = JSON.parse(rawConfig);
 
     // Config applies ONLY if CLI args aren't forcing a specific mode
@@ -123,12 +136,28 @@ app.commandLine.appendSwitch('force-high-performance-gpu');
 app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
-// ── FIX #12: Single centralized config ───────────────────────────────────────
-// All settings live here. Renderer pages MUST go through electronAPI.getSettings /
-// saveSettings — never use localStorage as the authoritative source for Electron
-// state. localStorage in the renderer is treated as a UI-layer cache only.
-const CONFIG_DIR  = path.join(app.getPath('userData'), 'NearsecTogether');
-const CONFIG_FILE = path.join(CONFIG_DIR, 'nearsectogether.config.json');
+// ── FIX: Unified config path ─────────────────────────────────────────────────
+// BEFORE this fix, electron-main used app.getPath('userData') which on Linux
+// resolves to ~/.config/NearsecTogether — so the nested join produced
+// ~/.config/NearsecTogether/NearsecTogether/ (a DIFFERENT directory than server.js).
+// server.js uses ~/.config/NearsecTogether/ directly.  Now both agree on one path.
+// Duplicate definitions removed.
+
+
+const DEFAULT_CONTROLLERS = {
+  'Xbox 360 Controller (XInput STANDARD GAMEPAD)': {
+    lt: { type: 'btn', idx: 6 }, rt: { type: 'btn', idx: 7 }, rsx: 2, rsy: 3
+  },
+  'Xbox Wireless Controller (STANDARD GAMEPAD)': {
+    lt: { type: 'btn', idx: 6 }, rt: { type: 'btn', idx: 7 }, rsx: 2, rsy: 3
+  },
+  'DualSense Wireless Controller (STANDARD GAMEPAD)': {
+    lt: { type: 'btn', idx: 6 }, rt: { type: 'btn', idx: 7 }, rsx: 2, rsy: 3
+  },
+  'Wireless Controller (STANDARD GAMEPAD)': {
+    lt: { type: 'btn', idx: 6 }, rt: { type: 'btn', idx: 7 }, rsx: 2, rsy: 3
+  },
+};
 const DEFAULTS = {
   // Window
   encoder: 'gpu', codec: 'h264', preset: 'fast',
@@ -161,8 +190,35 @@ function loadSettings() {
     if (fs.existsSync(CONFIG_FILE)) {
       return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')));
     }
+    // Config missing (first run or deleted) — write defaults to disk immediately
+    // so the file always exists after launch and settings persist correctly.
+    const seed = Object.assign({}, DEFAULTS);
+    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(seed, null, 2)); } catch (_) {}
+    return seed;
   } catch (_) {}
   return Object.assign({}, DEFAULTS);
+}
+
+function loadControllers() {
+  let bundled = {};
+  let user = {};
+  try {
+    if (fs.existsSync(BUNDLED_CONTROLLERS)) {
+      bundled = JSON.parse(fs.readFileSync(BUNDLED_CONTROLLERS, 'utf8'));
+    }
+  } catch (_) {}
+  try {
+    if (!fs.existsSync(USER_CONTROLLERS)) {
+      if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      const seed = Object.keys(bundled).length ? bundled : DEFAULT_CONTROLLERS;
+      fs.writeFileSync(USER_CONTROLLERS, JSON.stringify(seed, null, 2));
+      return seed;
+    }
+    user = JSON.parse(fs.readFileSync(USER_CONTROLLERS, 'utf8'));
+  } catch (_) {
+    user = {};
+  }
+  return Object.assign({}, DEFAULT_CONTROLLERS, bundled, user);
 }
 
 function saveSettings(s) {
@@ -383,12 +439,25 @@ async function createWindow() {
     saveSettings(settings);
     return safe;
   });
+  ipcMain.handle('get-controllers', () => loadControllers());
   ipcMain.handle('save-settings', (_, s) => {
     settings = Object.assign(settings, s);
     saveSettings(settings);
     if (win) win.webContents.send('settings-updated', settings);
     return settings;
   });
+  // hydrate-settings: merges a patch from the renderer into the config WITHOUT
+  // overwriting keys the renderer doesn't know about. Used to migrate
+  // localStorage-only values (ctrlSettings, quality_*, captureMethod, etc.)
+  // into the authoritative config file on first load.
+  ipcMain.handle('hydrate-settings', (_, patch) => {
+    if (!patch || typeof patch !== 'object') return settings;
+    settings = Object.assign(settings, patch);
+    saveSettings(settings);
+    return settings;
+  });
+  ipcMain.handle('get-config-path', () => CONFIG_FILE);
+
   ipcMain.handle('toggle-always-on-top', () => {
     settings.alwaysOnTop = !settings.alwaysOnTop;
     if (win) win.setAlwaysOnTop(settings.alwaysOnTop);
@@ -429,6 +498,7 @@ async function createWindow() {
     }
     else if (os.platform() === 'linux') {
       const scriptPath = path.join(__dirname, 'bin', 'linux_setup.sh');
+      try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
       const wrapperPath = path.join(os.tmpdir(), 'nearsec_setup_wrapper.sh');
       const statusFile = path.join(os.tmpdir(), 'nearsec_setup_status');
 
@@ -492,6 +562,7 @@ async function createWindow() {
   });
 
   ipcMain.on('window-close', () => { if (win && !win.isDestroyed()) win.close(); });
+  ipcMain.on('app-quit', () => { app.isQuiting = true; app.quit(); });
 }
 
 app.whenReady().then(() => {

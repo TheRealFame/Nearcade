@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 # NearsecTogether — Linux Setup Script
 # Installs udev rules for virtual controllers, loads uinput, copies the app
-# icon, and verifies audio/Python dependencies.
-#
-# Package installation is DISTRO-AGNOSTIC: we check for required tools and
-# print clear, per-distro instructions when anything is missing rather than
-# hard-coding apt-get calls that would fail on non-Debian systems.
+# icon, and verifies/installs audio/Python dependencies automatically.
 
-set -euo pipefail
+set -uo pipefail
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 if command -v tput >/dev/null 2>&1 && [ -t 1 ]; then
@@ -26,13 +22,13 @@ echo ""
 echo "${BOLD}NearsecTogether — Linux Setup${RESET}"
 echo "────────────────────────────────────────"
 
-# ── Require root for udev rules / modprobe ────────────────────────────────────
+# ── Require root ────────────────────────────────────
 if [[ "$EUID" -ne 0 ]]; then
   if sudo -n true 2>/dev/null; then
     echo "Using cached sudo credentials..."
     exec sudo "$0" "$@"
   else
-    echo "${YELLOW}This script needs root to write udev rules and load kernel modules.${RESET}"
+    echo "${YELLOW}This script needs root to write udev rules, install dependencies, and load kernel modules.${RESET}"
     echo "Re-run with: ${BOLD}sudo bash $0${RESET}"
     exit 1
   fi
@@ -46,95 +42,83 @@ else
   warn "Could not copy icon (non-fatal)"
 fi
 
-# ── Dependency preflight check ────────────────────────────────────────────────
-echo ""
-echo "${BOLD}Checking dependencies...${RESET}"
+# ── Dependency Auto-Installer ────────────────────────────────────────────────
+MISSING_SYSTEM=0
 
-MISSING_SYSTEM=()
-MISSING_PYTHON=()
-
-# Check: pipewire
-if command -v pipewire >/dev/null 2>&1; then
-  ok "pipewire          $(command -v pipewire)"
-else
-  fail "pipewire          NOT FOUND"
-  MISSING_SYSTEM+=("pipewire")
+if ! command -v pipewire >/dev/null 2>&1 || \
+   ! command -v pactl >/dev/null 2>&1 || \
+   ! command -v python3 >/dev/null 2>&1; then
+   MISSING_SYSTEM=1
 fi
 
-# Check: pactl  (pulseaudio-utils / pipewire-pulse)
-if command -v pactl >/dev/null 2>&1; then
-  ok "pactl             $(command -v pactl)"
-else
-  fail "pactl             NOT FOUND"
-  MISSING_SYSTEM+=("pulseaudio-utils / pipewire-pulse  (provides pactl)")
+if ! python3 -c "import pyaudio" 2>/dev/null; then
+   MISSING_SYSTEM=1
 fi
 
-# Check: python3
-if command -v python3 >/dev/null 2>&1; then
-  ok "python3           $(command -v python3)"
-else
-  warn "python3           NOT FOUND  (audio sidecar disabled)"
-  MISSING_SYSTEM+=("python3")
-fi
-
-# Check: pyaudio
-if python3 -c "import pyaudio" 2>/dev/null; then
-  ok "python3-pyaudio   available"
-else
-  warn "python3-pyaudio   NOT FOUND  (OS-level audio fallback disabled)"
-  MISSING_PYTHON+=("pyaudio")
-fi
-
-# ── Install Python packages via pip if python3 is available ──────────────────
-if command -v python3 >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then
+if [ $MISSING_SYSTEM -eq 1 ]; then
   echo ""
-  echo "${BOLD}Installing Python packages via pip...${RESET}"
-  pip3 install python-uinput pyaudio --break-system-packages --quiet \
-    && ok "python-uinput, pyaudio installed via pip" \
-    || warn "pip install had warnings (check output above)"
+  echo "${YELLOW}Missing system dependencies detected. Attempting auto-installation...${RESET}"
 
-  # Re-verify pyaudio
-  if python3 -c "import pyaudio" 2>/dev/null; then
-    ok "python3-pyaudio   now available"
+  if grep -qi "steamos" /etc/os-release 2>/dev/null; then
+    echo "${BOLD}SteamOS detected.${RESET} Temporarily disabling read-only filesystem..."
+    steamos-readonly disable || true
+    pacman -Sy --noconfirm --needed pipewire pipewire-pulse wireplumber python python-pip portaudio
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo "${BOLD}Debian/Ubuntu system detected.${RESET}"
+    apt-get update
+    apt-get install -y pipewire pipewire-pulse pulseaudio-utils python3 python3-pip portaudio19-dev python3-pyaudio
+  elif command -v rpm-ostree >/dev/null 2>&1; then
+    echo "${BOLD}Immutable Fedora-based OS (Bazzite/Silverblue) detected.${RESET}"
+    echo "Installing via rpm-ostree..."
+    rpm-ostree install -y pipewire pipewire-pulseaudio pulseaudio-utils python3 python3-pip portaudio-devel python3-pyaudio || true
+    echo "${YELLOW}Notice: Immutable systems require a system reboot for ostree packages to apply!${RESET}"
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "${BOLD}Fedora/RHEL system detected.${RESET}"
+    dnf install -y pipewire pipewire-pulseaudio pulseaudio-utils python3 python3-pip portaudio-devel python3-pyaudio
+  elif command -v pacman >/dev/null 2>&1; then
+    echo "${BOLD}Arch Linux system detected.${RESET}"
+    pacman -Sy --noconfirm --needed pipewire pipewire-pulse wireplumber python python-pip portaudio python-pyaudio
+  elif command -v zypper >/dev/null 2>&1; then
+    echo "${BOLD}openSUSE system detected.${RESET}"
+    zypper install -y pipewire pipewire-pulseaudio pulseaudio-utils python3 python3-pip portaudio-devel python3-PyAudio
+  elif command -v xbps-install >/dev/null 2>&1; then
+    echo "${BOLD}Void Linux system detected.${RESET}"
+    xbps-install -Sy pipewire wireplumber pipewire-pulse python3 python3-pip portaudio-devel python3-pyaudio
   else
-    warn "PyAudio still not importable — portaudio dev headers may be missing."
-    info "Install the portaudio development headers for your distro:"
-    info "  Debian/Ubuntu:  sudo apt install portaudio19-dev"
-    info "  Fedora:         sudo dnf install portaudio-devel"
-    info "  Arch:           sudo pacman -S portaudio"
-    info "  openSUSE:       sudo zypper install portaudio-devel"
-    info "Then re-run:  pip3 install pyaudio --break-system-packages"
+    echo "${RED}Could not detect package manager. You may need to install dependencies manually.${RESET}"
   fi
 fi
 
-# ── Print distro-agnostic installation instructions for missing system pkgs ───
-if [ ${#MISSING_SYSTEM[@]} -gt 0 ]; then
+# ── Dependency Verification ────────────────────────────────────────────────
+echo ""
+echo "${BOLD}Verifying dependencies...${RESET}"
+
+if command -v pipewire >/dev/null 2>&1; then ok "pipewire          $(command -v pipewire)"; else fail "pipewire          NOT FOUND"; fi
+if command -v pactl >/dev/null 2>&1; then ok "pactl             $(command -v pactl)"; else fail "pactl             NOT FOUND"; fi
+if command -v python3 >/dev/null 2>&1; then ok "python3           $(command -v python3)"; else fail "python3           NOT FOUND"; fi
+
+# ── Python Packages (pip) ──────────────────────────────────────────────────
+if command -v python3 >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then
   echo ""
-  echo "${RED}${BOLD}Missing system packages:${RESET}"
-  for pkg in "${MISSING_SYSTEM[@]}"; do
-    info "• $pkg"
-  done
-  echo ""
-  echo "${YELLOW}Install them using your distribution's package manager:${RESET}"
-  echo ""
-  info "${BOLD}Debian / Ubuntu / Pop!_OS / Mint:${RESET}"
-  info "  sudo apt install pipewire pipewire-pulse pulseaudio-utils python3 python3-pip portaudio19-dev"
-  echo ""
-  info "${BOLD}Fedora / RHEL / CentOS Stream:${RESET}"
-  info "  sudo dnf install pipewire pipewire-pulseaudio pulseaudio-utils python3 python3-pip portaudio-devel"
-  echo ""
-  info "${BOLD}Arch / Manjaro / EndeavourOS:${RESET}"
-  info "  sudo pacman -S pipewire pipewire-pulse wireplumber python python-pip portaudio"
-  echo ""
-  info "${BOLD}openSUSE Tumbleweed / Leap:${RESET}"
-  info "  sudo zypper install pipewire pipewire-pulseaudio pulseaudio-utils python3 python3-pip portaudio-devel"
-  echo ""
-  info "${BOLD}Void Linux:${RESET}"
-  info "  sudo xbps-install -S pipewire wireplumber pipewire-pulse python3 python3-pip portaudio-devel"
-  echo ""
-  info "${BOLD}NixOS:${RESET}"
-  info "  Add to configuration.nix: pipewire, pipewire.pulse, python3, python3Packages.pyaudio"
-  echo ""
+  echo "${BOLD}Verifying python-uinput module...${RESET}"
+  if ! python3 -c "import uinput" 2>/dev/null; then
+    if pip3 install python-uinput pyaudio --quiet 2>/dev/null; then
+      ok "python-uinput installed via standard pip"
+    else
+      warn "Standard pip install blocked. Attempting system-level pip install..."
+      pip3 install python-uinput pyaudio --break-system-packages --quiet \
+        && pkexec echo "python-uinput installed via --break-system-packages" \
+        || fail "Could not install python-uinput"
+    fi
+  else
+    ok "python-uinput is already installed."
+  fi
+
+  if python3 -c "import pyaudio" 2>/dev/null; then
+    ok "python3-pyaudio   available"
+  else
+    warn "PyAudio could not be imported! OS-level audio fallback disabled."
+  fi
 fi
 
 # ── uinput kernel module ──────────────────────────────────────────────────────
@@ -184,10 +168,5 @@ ok "udev rules written to $RULE_FILE and reloaded"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-if [ ${#MISSING_SYSTEM[@]} -eq 0 ]; then
-  echo "${GREEN}${BOLD}Setup complete.${RESET} Virtual controllers will now bypass Steam Input interference."
-else
-  echo "${YELLOW}${BOLD}Setup partially complete.${RESET}"
-  echo "Install the missing packages above, then re-run this script to verify."
-fi
+echo "${GREEN}${BOLD}Setup complete.${RESET} Virtual controllers will now bypass Steam Input interference."
 echo ""

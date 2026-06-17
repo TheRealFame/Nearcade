@@ -407,31 +407,63 @@ def _emit_gp(pad_id, msg):
     if not UINPUT_OK: return
     gp = devices.get(pad_id)
     if not gp: return
-    btns = msg.get("buttons", [])
-    axes = msg.get("axes", [])
-    for w3c, btn in W3C_MAP.items():
-        if len(btns) > w3c:
-            gp.emit(btn, 1 if btns[w3c]["pressed"] else 0, syn=False)
-    if len(axes) >= 2:
-        gp.emit(uinput.ABS_X, int(axes[0]), syn=False)
-        gp.emit(uinput.ABS_Y, int(axes[1]), syn=False)
-    if len(axes) >= 4:
-        gp.emit(uinput.ABS_RX, int(axes[2]), syn=False)
-        gp.emit(uinput.ABS_RY, int(axes[3]), syn=False)
-    if len(btns) > 6:
-        gp.emit(uinput.ABS_Z, int(btns[6].get("value", 0)), syn=False)
-    if len(btns) > 7:
-        gp.emit(uinput.ABS_RZ, int(btns[7].get("value", 0)), syn=False)
-    if len(btns) > 15:
-        hx = -1 if btns[14]["pressed"] else 1 if btns[15]["pressed"] else 0
-        hy = -1 if btns[12]["pressed"] else 1 if btns[13]["pressed"] else 0
+    
+    # Check if we are receiving the new flat schema from InputOrchestrator validation
+    if "lx" in msg or isinstance(msg.get("buttons"), int):
+        btns_mask = msg.get("buttons", 0)
+        lx = msg.get("lx", 0)
+        ly = msg.get("ly", 0)
+        rx = msg.get("rx", 0)
+        ry = msg.get("ry", 0)
+        lt = msg.get("lt", 0.0)
+        rt = msg.get("rt", 0.0)
+        
+        # W3C_MAP keys map bit positions (0-15) to linux button constants
+        for bit, btn in W3C_MAP.items():
+            is_pressed = (btns_mask & (1 << bit)) != 0
+            gp.emit(btn, 1 if is_pressed else 0, syn=False)
+            
+        gp.emit(uinput.ABS_X, lx, syn=False)
+        gp.emit(uinput.ABS_Y, ly, syn=False)
+        gp.emit(uinput.ABS_RX, rx, syn=False)
+        gp.emit(uinput.ABS_RY, ry, syn=False)
+        gp.emit(uinput.ABS_Z, int(lt * 255), syn=False)
+        gp.emit(uinput.ABS_RZ, int(rt * 255), syn=False)
+        
+        # D-pad (bits 12-15)
+        hx = -1 if (btns_mask & (1 << 14)) else 1 if (btns_mask & (1 << 15)) else 0
+        hy = -1 if (btns_mask & (1 << 12)) else 1 if (btns_mask & (1 << 13)) else 0
         gp.emit(uinput.ABS_HAT0X, hx, syn=False)
         gp.emit(uinput.ABS_HAT0Y, hy, syn=False)
+        
+    else:
+        # Legacy array schema fallback
+        btns = msg.get("buttons", [])
+        axes = msg.get("axes", [])
+        for w3c, btn in W3C_MAP.items():
+            if len(btns) > w3c:
+                gp.emit(btn, 1 if btns[w3c]["pressed"] else 0, syn=False)
+        if len(axes) >= 2:
+            gp.emit(uinput.ABS_X, int(axes[0]), syn=False)
+            gp.emit(uinput.ABS_Y, int(axes[1]), syn=False)
+        if len(axes) >= 4:
+            gp.emit(uinput.ABS_RX, int(axes[2]), syn=False)
+            gp.emit(uinput.ABS_RY, int(axes[3]), syn=False)
+        if len(btns) > 6:
+            gp.emit(uinput.ABS_Z, int(btns[6].get("value", 0) * 255), syn=False)
+        if len(btns) > 7:
+            gp.emit(uinput.ABS_RZ, int(btns[7].get("value", 0) * 255), syn=False)
+        if len(btns) > 15:
+            hx = -1 if btns[14]["pressed"] else 1 if btns[15]["pressed"] else 0
+            hy = -1 if btns[12]["pressed"] else 1 if btns[13]["pressed"] else 0
+            gp.emit(uinput.ABS_HAT0X, hx, syn=False)
+            gp.emit(uinput.ABS_HAT0Y, hy, syn=False)
+            
     gp.syn()
 
 def _ensure_gp(pad_id, vid):
     if not UINPUT_OK: return
-    wanted = viewer_ctrl_type.get(vid, 'xbox360')
+    wanted = viewer_ctrl_type.get(pad_id) or viewer_ctrl_type.get(vid) or viewer_ctrl_type.get("") or 'xbox360'
     if device_profiles.get(pad_id) != wanted:
         old = devices.pop(pad_id, None)
         if old:
@@ -611,7 +643,8 @@ def run():
                 _is_hybrid = bool(msg.get("enabled", False))
                 _auto_map_on = not _is_hybrid
                 for vid in list(viewer_modes.keys()):
-                    viewer_modes[vid] = 'hybrid' if _is_hybrid else 'gamepad'
+                    if viewer_modes[vid] not in ['kbm_emulated', 'kbm']:
+                        viewer_modes[vid] = 'hybrid' if _is_hybrid else 'gamepad'
                 _active_binds = None
                 print(f"[input] Hybrid mode {'ON' if _is_hybrid else 'OFF'} (Auto-map {'ON' if _auto_map_on else 'OFF'})", flush=True)
                 continue
@@ -626,7 +659,7 @@ def run():
                 continue
 
             if msg_type == "set-input-mode":
-                vid = str(msg.get("viewerId", ""))
+                vid = str(msg.get("viewerId", "")).split('_')[0]
                 viewer_modes[vid] = msg.get("mode", "gamepad")
                 continue
 
@@ -667,7 +700,8 @@ def run():
                 vid = pad_raw.split("_")[0]
 
             if msg_type in ["kbm", "keyboard"]:
-                pad_id = f"{vid}_0"
+                active_pads = [p for p in devices.keys() if p.startswith(vid + "_")]
+                pad_id = active_pads[0] if active_pads else f"{vid}_0"
             else:
                 pad_id = pad_raw if pad_raw else f"{vid}_0"
 

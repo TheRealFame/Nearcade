@@ -1,0 +1,41 @@
+publicnearsec.cutefame.net {
+    encode gzip
+
+    # WebSocket lanes — matched before any reverse_proxy or file_server rule
+    @localWs {
+        header Connection *Upgrade*
+        header Upgrade    websocket
+        path   /ws/*
+    }
+    reverse_proxy @localWs localhost:3000
+
+    @vpsWs {
+        header Connection *Upgrade*
+        header Upgrade    websocket
+        path   /vps
+    }
+    reverse_proxy @vpsWs localhost:3000
+
+    # API and dynamic routes served by the Node.js application server
+    reverse_proxy /api/*         localhost:3001
+    reverse_proxy /js/version.js localhost:3001
+
+    # Static file rewrites
+    root * /home/ubuntu/NearsecTogether
+
+    rewrite /               /src/pages/index.html
+    rewrite /viewer.html    /src/pages/viewer.html
+    rewrite /host.html      /src/pages/host.html
+    rewrite /dashboard.html /src/pages/dashboard.html
+    rewrite /gamepad-popup.html /src/pages/gamepad-popup.html
+    rewrite /standby.html   /src/pages/standby.html
+
+    rewrite /js/viewer.js       /src/scripts/viewer.js
+    rewrite /js/host.js         /src/scripts/host.js
+    rewrite /js/i18n.js         /src/scripts/i18n.js
+    rewrite /scripts/i18n.js    /src/scripts/i18n.js
+    rewrite /scripts/viewer.js  /src/scripts/viewer.js
+    rewrite /scripts/host.js    /src/scripts/host.js
+
+    file_server
+}
