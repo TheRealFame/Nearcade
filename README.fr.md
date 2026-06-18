@@ -56,11 +56,12 @@ sudo ./linux_setup.sh
 
 Nous conservons toutes les instructions de configuration technique, les listes de dépendances et les guides API dans un répertoire de documentation dédié. Cela permet de garder la page principale propre. Vous pouvez lire ces fichiers à partir de l'icône du livre du tableau de bord de l'hôte ou en cliquant sur les liens ci-dessous.
 
--   src/docs/GETTING_STARTED.md
--   PLATFORM_SETUP.md
--   src/docs/HOST_USAGE.md
--   src/docs/API_AND_SETUP.md
--   src/docs/ADVANCED_LOGIC.md
+-   [Guide de démarrage](src/docs/GETTING_STARTED.md)
+-   [Manuel d'utilisation de l'hôte](src/docs/HOST_USAGE.md)
+-   [API et guide de configuration](src/docs/API_AND_SETUP.md)
+-   [Configuration du serveur VPS](src/docs/VPS_SETUP.md)
+-   [Documentation de logique avancée](src/docs/ADVANCED_LOGIC.md)
+-   [Informations sur l'arcade Nearsec](src/docs/NEARSEC_ARCADE.md)
 
 ## Arcade de proximité
 

@@ -56,14 +56,15 @@ sudo ./linux_setup.sh
 
 Mantemos todas as instruções técnicas de configuração, listas de dependências e guias de API em um diretório de documentação dedicado. Isso mantém a página principal limpa. Você pode ler esses arquivos no ícone do livro Host Dashboard ou clicando nos links abaixo.
 
--   src/docs/GETTING_STARTED.md
--   PLATFORM_SETUP.md
--   src/docs/HOST_USAGE.md
--   src/docs/API_AND_SETUP.md
--   src/docs/ADVANCED_LOGIC.md
+-   [Guia de primeiros passos](src/docs/GETTING_STARTED.md)
+-   [Manual de uso do host](src/docs/HOST_USAGE.md)
+-   [API e guia de configuração](src/docs/API_AND_SETUP.md)
+-   [Configuração do servidor VPS](src/docs/VPS_SETUP.md)
+-   [Documentação lógica avançada](src/docs/ADVANCED_LOGIC.md)
+-   [Informações sobre o Arcade Nearsec](src/docs/NEARSEC_ARCADE.md)
 
 ## Arcada Nearsec
 
 A plataforma inclui um sistema opcional de lobby público. Os anfitriões podem listar suas sessões na grade do Arcade para permitir que jogadores globais descubram e participem de jogos cooperativos locais. Você pode ver o lobby público em<https://nearsec.cutefame.net/arcade>e participe de sessões ativas diretamente do seu navegador.
 
-Este projeto utiliza modelos de linguagem de inteligência artificial para geração de código e planejamento de estrutura.
+Este projeto usa modelos de linguagem de inteligência artificial para geração de código e planejamento de estrutura.

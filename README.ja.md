@@ -56,11 +56,12 @@ sudo ./linux_setup.sh
 
 すべての技術的なセットアップ手順、依存関係リスト、API ガイドは専用のドキュメント ディレクトリに保管されています。これにより、メイン ページがきれいに保たれます。これらのファイルは、ホスト ダッシュボードのブック アイコンから、または以下のリンクをクリックして読むことができます。
 
--   src/docs/GETTING_STARTED.md
--   PLATFORM_SETUP.md
--   src/docs/HOST_USAGE.md
--   src/docs/API_AND_SETUP.md
--   src/docs/ADVANCED_LOGIC.md
+-   [スタートガイド](src/docs/GETTING_STARTED.md)
+-   [ホスト使用マニュアル](src/docs/HOST_USAGE.md)
+-   [APIとセットアップガイド](src/docs/API_AND_SETUP.md)
+-   [VPSサーバーのセットアップ](src/docs/VPS_SETUP.md)
+-   [高度なロジックのドキュメント](src/docs/ADVANCED_LOGIC.md)
+-   [ニアセック アーケード情報](src/docs/NEARSEC_ARCADE.md)
 
 ## ニアセック アーケード
 
