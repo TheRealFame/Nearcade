@@ -124,12 +124,11 @@ function init(screenWidth, screenHeight) {
     if (!isWin && !isMac) {
         // 1. Try Native C++ Fast Lane (Linux only)
         try {
-            // const nodePath = path.join(__dirname, 'build', 'Release', 'uinputBridge.node');
-            // _bridge = require(nodePath);
-            // _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
-            // console.log(`[input] Native uinputBridge loaded: ${nodePath}`);
-            // return true;
-            throw new Error("Forcing Python Fallback per user request");
+            const nodePath = path.join(__dirname, 'build', 'Release', 'uinputBridge.node');
+            _bridge = require(nodePath);
+            _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
+            console.log(`[input] Native uinputBridge loaded: ${nodePath}`);
+            return true;
         } catch (e) {
             console.warn(`[input] Native bridge failed to load (${e.message}). Falling back to Python.`);
             _bridge = null;
@@ -444,10 +443,27 @@ function _handleKbm(msg) {
         'BTN_LEFT': 'RT', 'BTN_RIGHT': 'LT', 'BTN_MIDDLE': 'RB'
     };
 
-    // Use KBM_BINDINGS if it loaded successfully, otherwise use the defaults
-    const layout = (typeof KBM_BINDINGS !== 'undefined' && KBM_BINDINGS && KBM_BINDINGS.keys && Object.keys(KBM_BINDINGS.keys).length > 0)
-    ? KBM_BINDINGS
-    : { keys: defaultKeys, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
+    let flatKeys = { ...defaultKeys };
+    if (typeof KBM_BINDINGS !== 'undefined' && KBM_BINDINGS) {
+        if (KBM_BINDINGS.buttons) {
+            for (const [k, v] of Object.entries(KBM_BINDINGS.buttons)) {
+                flatKeys[k] = v.replace('BTN_', '');
+            }
+        }
+        if (KBM_BINDINGS.left_stick) {
+            for (const [k, v] of Object.entries(KBM_BINDINGS.left_stick)) {
+                if (v.axis === 'ABS_Y') flatKeys[k] = v.val < 0 ? 'LS_UP' : 'LS_DOWN';
+                if (v.axis === 'ABS_X') flatKeys[k] = v.val < 0 ? 'LS_LEFT' : 'LS_RIGHT';
+            }
+        }
+        if (KBM_BINDINGS.dpad) {
+            for (const [k, v] of Object.entries(KBM_BINDINGS.dpad)) {
+                if (v.axis === 'ABS_HAT0Y') flatKeys[k] = v.val < 0 ? 'UP' : 'DOWN';
+                if (v.axis === 'ABS_HAT0X') flatKeys[k] = v.val < 0 ? 'LEFT' : 'RIGHT';
+            }
+        }
+    }
+    const layout = { keys: flatKeys, mouse: { sensitivity: KBM_BINDINGS?.right_stick_multiplier ? KBM_BINDINGS.right_stick_multiplier / 1000 : 1.5, deadzone: 0.1 } };
 
     if (msg.event === 'keydown' || msg.event === 'keyup') {
         // Try the loaded layout first, fallback to the hardcoded default
@@ -570,6 +586,8 @@ function _validateGamepadMsg(msg) {
         ly:       _clampAxis(msg.ly),
         rx:       _clampAxis(msg.rx),
         ry:       _clampAxis(msg.ry),
+        axes:     Array.isArray(msg.axes) ? msg.axes.map(_clampAxis) : [],
+        btns:     Array.isArray(msg.btns) ? msg.btns.map(b => ({ pressed: !!b.pressed, value: Math.max(0, Math.min(255, Number(b.value) || 0)) })) : []
     };
 }
 

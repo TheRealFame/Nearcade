@@ -563,6 +563,11 @@
       if (docsBtn) {
         docsBtn.style.display = (name === 'arcade' || name === 'settings') ? 'none' : 'flex';
       }
+
+      const setupBtn = document.getElementById('floating-setup-btn');
+      if (setupBtn && !window.IS_CLIENT_ONLY) {
+        setupBtn.style.display = (name === 'connect') ? 'flex' : 'none';
+      }
     }
 
     let appConfig = {};

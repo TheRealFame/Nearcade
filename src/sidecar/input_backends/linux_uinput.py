@@ -418,10 +418,19 @@ def _emit_gp(pad_id, msg):
         lt = msg.get("lt", 0.0)
         rt = msg.get("rt", 0.0)
         
-        # W3C_MAP keys map bit positions (0-15) to linux button constants
-        for bit, btn in W3C_MAP.items():
-            is_pressed = (btns_mask & (1 << bit)) != 0
-            gp.emit(btn, 1 if is_pressed else 0, syn=False)
+        # Correct bitmask values matching W3C_TO_JS in server.js
+        JS_BITMASK = {
+            0: 0x0001, 1: 0x0002, 2: 0x0004, 3: 0x0008,   # A, B, X, Y
+            4: 0x0100, 5: 0x0200,                         # LB, RB
+            8: 0x2000, 9: 0x1000,                         # Select, Start
+            10: 0x0400, 11: 0x0800,                       # L3, R3
+            16: 0x4000                                    # Guide
+        }
+        for w3c_idx, btn in W3C_MAP.items():
+            mask = JS_BITMASK.get(w3c_idx)
+            if mask:
+                is_pressed = (btns_mask & mask) != 0
+                gp.emit(btn, 1 if is_pressed else 0, syn=False)
             
         gp.emit(uinput.ABS_X, lx, syn=False)
         gp.emit(uinput.ABS_Y, ly, syn=False)
@@ -430,9 +439,10 @@ def _emit_gp(pad_id, msg):
         gp.emit(uinput.ABS_Z, int(lt * 255), syn=False)
         gp.emit(uinput.ABS_RZ, int(rt * 255), syn=False)
         
-        # D-pad (bits 12-15)
-        hx = -1 if (btns_mask & (1 << 14)) else 1 if (btns_mask & (1 << 15)) else 0
-        hy = -1 if (btns_mask & (1 << 12)) else 1 if (btns_mask & (1 << 13)) else 0
+        # D-pad (bits 4-7 mapped from W3C 12-15)
+        # 0x0040 (D-Left), 0x0080 (D-Right), 0x0010 (D-Up), 0x0020 (D-Down)
+        hx = -1 if (btns_mask & 0x0040) else 1 if (btns_mask & 0x0080) else 0
+        hy = -1 if (btns_mask & 0x0010) else 1 if (btns_mask & 0x0020) else 0
         gp.emit(uinput.ABS_HAT0X, hx, syn=False)
         gp.emit(uinput.ABS_HAT0Y, hy, syn=False)
         
@@ -707,7 +717,7 @@ def run():
 
             mode = viewer_modes.get(vid, "hybrid" if _is_hybrid else "gamepad")
 
-            if msg_type in ["kbm", "keyboard"] and kbm_device and mode == "kbm":
+            if msg_type in ["kbm", "keyboard"] and kbm_device and mode in ["kbm", "hybrid", "kbm_emulated"]:
                 ev = msg.get("event")
                 if ev == "mousemove":
                     dx, dy = msg.get("dx", 0), msg.get("dy", 0)

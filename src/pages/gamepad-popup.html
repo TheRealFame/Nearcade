@@ -248,9 +248,17 @@
 
       const safeId = getSafeId(gp);
       let savedMap = normalizeStoredMap(lookupSmartMap(gp));
+
       if (!savedMap) {
-        // Also clear any stale localStorage entry that normalizeStoredMap rejected
-        localStorage.removeItem(STORAGE_PREFIX + safeId);
+        const idLower = gp.id.toLowerCase();
+        if (idLower.includes('xbox') || idLower.includes('playstation') || 
+            idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box')) {
+          // Standard controllers don't need calibration
+          savedMap = { lt: 6, rt: 7, rsx: 2, rsy: 3 };
+        } else {
+          // Clear any stale localStorage entry that normalizeStoredMap rejected
+          localStorage.removeItem(STORAGE_PREFIX + safeId);
+        }
       }
 
       gpStates.set(gp.index, {

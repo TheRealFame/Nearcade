@@ -723,11 +723,11 @@ function renderRoster(list) {
         </div>
         </div>
         <div class="rstat">${v.slot !== null ? '(Assigned)' : ''}</div>
-        <button class="rlock" onclick="toggleSlotLock('${v.id}')" title="Lock slot"
+        <button class="rlock" onclick="toggleSlotLock('${v.id}', ${!v.locked})" title="Lock slot"
         style="background:none;border:none;cursor:pointer;padding:0 4px;width:20px;height:20px;display:flex;align-items:center;">
         <img src="/assets/icons/${v.locked ? 'lock' : 'lock-open'}.svg" style="width:14px;height:14px;filter:invert(0.5);" />
         </button>
-        <button class="rkick" onclick="killGp('${v.id}')" title="Revoke input">×</button>
+        <button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>
         `;
         c.appendChild(r);
     });
@@ -873,17 +873,14 @@ function updateSlotsAfterDrop(container) {
     });
 }
 
-function killGp(id) {
-    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-input', viewerId: id, gp: false, kb: false }));
+function kickViewer(id) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'kick-viewer', viewerId: id }));
 }
 
-function toggleSlotLock(rosterId) {
+function toggleSlotLock(rosterId, newLockState) {
     if (ws && ws.readyState === 1) {
-        const lockBtn = event.target;
-        const lockImg = lockBtn.querySelector('img');
-        const isCurrentlyLocked = lockImg && lockImg.src.includes('lock.svg') && !lockImg.src.includes('lock-open');
-        ws.send(JSON.stringify({ type: 'toggle-slot-lock', viewerId: rosterId, locked: !isCurrentlyLocked }));
-        log(`Slot lock for ${rosterId} set to ${!isCurrentlyLocked ? 'LOCKED' : 'UNLOCKED'}`, 'ok');
+        ws.send(JSON.stringify({ type: 'toggle-slot-lock', viewerId: rosterId, locked: newLockState }));
+        log(`Slot lock for ${rosterId} set to ${newLockState ? 'LOCKED' : 'UNLOCKED'}`, 'ok');
     }
 }
 
@@ -1057,7 +1054,16 @@ async function sendOfferToViewer(viewerId) {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' }
+            { urls: 'stun:stun.cloudflare.com:3478' },
+            // Public OpenRelay TURN server to guarantee WebRTC connections over strict NATs/Tunnels
+            {
+                urls: [
+                    'turn:openrelay.metered.ca:80',
+                    'turn:openrelay.metered.ca:443'
+                ],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
         ],
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -2089,6 +2095,13 @@ function broadcastToViewers(data) {
         }
         return;
     }
+
+    // Tunnel fallback: Send WebCodecs stream over standard signaling WS to the local Node.js server
+    // This allows video to work perfectly over TCP-only tunnels like Zrok or Ngrok where WebRTC UDP fails.
+    if (ws && ws.readyState === 1) {
+        try { ws.send(data); } catch (_) {}
+    }
+
     _broadcastP2P(data);
 }
 

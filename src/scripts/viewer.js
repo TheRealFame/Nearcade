@@ -191,8 +191,31 @@ function acknowledgeControllerGuide() {
     closeControllerGuide();
 }
 function maybeShowControllerGuide() {
-    // Always show guide for viewers so they can configure inputs
-    setTimeout(() => openControllerGuide(), 700);
+    if (!_nsHostConnected) return;
+    if (sessionStorage.getItem(CONTROLLER_GUIDE_STORAGE_KEY)) return;
+
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let needsCalib = false;
+
+    for (const gp of pads) {
+        if (!gp) continue;
+        if (lookupCalibMap(gp)) continue; // We already have a map
+
+        const idLower = gp.id.toLowerCase();
+        // Standard brands that are natively mapped by the browser/smartDb don't need calibration
+        if (idLower.includes('xbox') || idLower.includes('playstation') || 
+            idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box')) {
+            continue;
+        }
+
+        needsCalib = true;
+        break;
+    }
+
+    if (needsCalib) {
+        sessionStorage.setItem(CONTROLLER_GUIDE_STORAGE_KEY, '1');
+        setTimeout(() => openControllerGuide(), 700);
+    }
 }
 // ── PEER CONNECTION ───────────────────────────────────────────────────────────
 async function createPC() {
@@ -203,7 +226,16 @@ async function createPC() {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' }
+            { urls: 'stun:stun.cloudflare.com:3478' },
+            // Public OpenRelay TURN server to guarantee WebRTC connections over strict NATs/Tunnels
+            {
+                urls: [
+                    'turn:openrelay.metered.ca:80',
+                    'turn:openrelay.metered.ca:443'
+                ],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
         ],
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
@@ -1004,6 +1036,7 @@ window.addEventListener('gamepadconnected', e => {
     document.getElementById('gpPrompt')?.classList.add('gone');
     let cleanName = e.gamepad.id.replace(/^[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-/, '').replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9 -]/g, '').trim() || 'Standard Controller';
     if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'gpid', padIndex: e.gamepad.index, id: e.gamepad.id, name: cleanName }));
+    maybeShowControllerGuide();
 });
 
 // ── STATUS / OVERLAY ──────────────────────────────────────────────────────────
@@ -1614,8 +1647,8 @@ function initWebCodecsViewer(config) {
     if (!wcCanvas) {
         wcCanvas = document.createElement('canvas');
         wcCanvas.id = 'webcodecs-canvas';
-        // BUG 2 FIX: Add CSS so the stream scales to fit the viewport instead of top-left clipping
-        wcCanvas.style.cssText = 'width: 100%; height: 100%; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10;';
+        // Add CSS so the stream scales to fit the viewport instead of overflowing
+        wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10; display: block; overflow: hidden;';
         document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
         wcCtx = wcCanvas.getContext('2d', { alpha: false, desynchronized: true });
     } else {
@@ -1624,8 +1657,17 @@ function initWebCodecsViewer(config) {
 
     if (window._wcResizeHandler) {
         window.removeEventListener('resize', window._wcResizeHandler);
-        window._wcResizeHandler = null;
     }
+    
+    // JS Containment rule to forcefully prevent 4K frame overflows
+    window._wcResizeHandler = () => {
+        if (wcCanvas) {
+            wcCanvas.style.maxWidth = window.innerWidth + 'px';
+            wcCanvas.style.maxHeight = window.innerHeight + 'px';
+        }
+    };
+    window.addEventListener('resize', window._wcResizeHandler);
+    window._wcResizeHandler();
 
     if (!wcCtx) {
         wcCtx = wcCanvas.getContext('2d', { alpha: false, desynchronized: true });

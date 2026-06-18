@@ -226,6 +226,17 @@ function normalizeGamepadMsg(msg) {
   const axes = msg.axes || [];
   const btns = msg.buttons || [];
 
+  // ── STRICT DATA VALIDATION REWRITE ──
+  // Actively drop malformed, empty, or maliciously large data chunks.
+  if (axes.length === 0 && btns.length === 0) {
+    console.warn(`[input_validator] REJECTED: Empty Gamepad API arrays. Axes: ${axes.length}, Buttons: ${btns.length}`);
+    return null;
+  }
+  if (axes.length > 20 || btns.length > 40) {
+    console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes.length}, Buttons: ${btns.length}`);
+    return null;
+  }
+
   // Axes arrive as int16 (-32767..+32767) — pass directly.
   // _validateGamepadMsg → _clampAxis handles range clamping.
   const lx = Number(axes[0]) || 0;
@@ -238,8 +249,6 @@ function normalizeGamepadMsg(msg) {
   const rt = (Number((btns[7] && btns[7].value) || 0)) / 255;
 
   //  W3C Gamepad API index → JS viewer bitmask (correct per W3C spec)
-  //  0=A 1=B 2=X 3=Y 4=LB 5=RB 6=LT(float) 7=RT(float)
-  //  8=Select 9=Start 10=L3 11=R3 12=D-Up 13=D-Down 14=D-Left 15=D-Right 16=Guide
   const W3C_TO_JS = [
     0x0001, // 0  A (South)
     0x0002, // 1  B (East)
@@ -265,9 +274,9 @@ function normalizeGamepadMsg(msg) {
     if (btns[i] && (btns[i].pressed || btns[i].value > 127)) buttons |= W3C_TO_JS[i];
   }
 
-
   return {
     ...msg,
+    axes, btns, // Preserving varying length arrays for python sidecar
     lx, ly, rx, ry, lt, rt, buttons,
   };
 }
@@ -476,6 +485,10 @@ function startTunnelCloudflared(port) {
       }
 
       console.log("  \x1b[33m~\x1b[0m Starting cloudflared tunnel...");
+      console.log("  \x1b[31m!\x1b[0m WARNING: Free Cloudflare tunnels (trycloudflare.com) are currently heavily restricted by Cloudflare.");
+      console.log("  \x1b[31m!\x1b[0m If your URL returns a 404 Not Found, Cloudflare has blocked the connection at their edge.");
+      console.log("  \x1b[31m!\x1b[0m If this happens, please use Zrok instead (\x1b[36mTUNNEL=zrok node server.js\x1b[0m).");
+
       // CRITICAL FIX: Force HTTP2 and strictly bind to 127.0.0.1 to avoid IPv6 mismatches and QUIC drops
       const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:" + port], { stdio: ["ignore", "pipe", "pipe"] });
       let done = false;
@@ -632,18 +645,14 @@ function startTunnelServeo(port) {
   });
 }
 
-function startTunnelZrok(port) {
+function startTunnelZrok(port, retries = 3) {
   return new Promise(async (resolve) => {
-    // Check PATH and Windows home-dir fallbacks
     const zrokPath = await findBinaryPath('zrok').then(p => p).catch(() => null)
     || await findBinaryPath('zrok2').then(p => p).catch(() => null)
     || (function() {
-      // Manual scan of known Linux/Windows locations
       const candidates = [
         '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
-        path.join(os.homedir(), 'bin/zrok'),
-        './zrok',
-        // Windows paths (already covered by findBinaryPath fallback, but belt-and-suspenders)
+        path.join(os.homedir(), 'bin/zrok'), './zrok',
         path.join(os.homedir(), 'zrok', 'zrok.exe'),
       ];
       for (const c of candidates) if (fs.existsSync(c)) return c;
@@ -653,7 +662,7 @@ function startTunnelZrok(port) {
     if (!zrokPath) { resolve(null); return; }
     ensureExecutable(zrokPath);
 
-    console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})...`);
+    console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})... (Retries left: ${retries})`);
     const args = ["share", "public", "http://localhost:" + port, "--backend-mode", "proxy", "--headless"];
     const proc = spawn(zrokPath, args, { stdio: ["ignore", "pipe", "pipe"] });
     let done = false;
@@ -669,9 +678,30 @@ function startTunnelZrok(port) {
       }
     };
     proc.stdout.on("data", check); proc.stderr.on("data", check);
-    proc.on("close", () => { if (!done) resolve(null); });
-    setTimeout(() => { if (!done) { done = true; proc.kill(); resolve(null); } }, 20000);
-  });
+    proc.on("close", c => { 
+        if (!done) { 
+            console.log("  \x1b[33m!\x1b[0m zrok share failed or closed (code " + c + ")"); 
+            if (retries > 0) {
+                console.log("  \x1b[33m~\x1b[0m Retrying Zrok tunnel in 3 seconds...");
+                setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+            } else {
+                resolve(null); 
+            }
+        } 
+    });
+    setTimeout(() => { 
+        if (!done) { 
+            done = true; proc.kill(); 
+            if (retries > 0) {
+                console.log("  \x1b[33m~\x1b[0m Zrok timeout. Retrying in 3 seconds...");
+                setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+            } else {
+                resolve(null); 
+                console.log("  \x1b[33m!\x1b[0m zrok share timeout."); 
+            }
+        } 
+    }, 20000);
+  }).catch(() => null);
 }
 
 async function startTunnel(port) {
@@ -1207,9 +1237,22 @@ async function main() {
 
       if (tunnelUrl) ws.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
 
-      ws.on("message", raw => {
+      ws.on("message", (raw, isBinary) => {
+        if (isBinary) {
+          // Tunnel WebCodecs binary frames from Host -> Node.js Server -> Viewers
+          viewers.forEach(vws => {
+            if (vws && vws.readyState === 1) vws.send(raw);
+          });
+          return;
+        }
+
         try {
           let msg = JSON.parse(raw);
+
+          if (msg.type === "webcodecs-config") {
+            broadcast(raw);
+            return;
+          }
 
           // ── OS-LEVEL AUDIO FALLBACK COMMANDS ──
           if (msg.type === "start-audio-fallback") {
@@ -1278,14 +1321,21 @@ async function main() {
           if (msg.type === "kick-viewer") {
             const realId = msg.viewerId.split('_')[0];
             const targetWs = viewers.get(realId);
+            
+            viewers.delete(realId);
+            viewerNames.delete(realId);
+            inputPerms.delete(realId);
+
             if (targetWs) {
               try { targetWs.send(JSON.stringify({ type: "pin-rejected", reason: "kicked" })); } catch {}
               targetWs.close(4003, "KICKED");
               console.log(`[host] Kicked viewer ${realId}`);
-            } else if (targetWs === null && hostWS && hostWS.readyState === 1) {
+            } else if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify({ type: "pin-rejected", reason: "kicked", targetViewerId: realId }));
               console.log(`[host] Kicked VPS viewer ${realId}`);
             }
+            
+            broadcastRoster();
             return;
           }
 
@@ -1842,7 +1892,8 @@ async function main() {
             }
 
             msg.pad_id = rosterId;
-            toUinput(normalizeGamepadMsg(msg));
+            const norm = normalizeGamepadMsg(msg);
+            if (norm) toUinput(norm);
             return;
           }
         } catch { }

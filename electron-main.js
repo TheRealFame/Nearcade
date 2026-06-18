@@ -118,10 +118,19 @@ if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 } else if (process.platform === 'linux') {
-  // Force native Wayland with decorations
-  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-  // Combine WebRTC PipeWire capture with VAAPI Hardware Encoding for AMD
-  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+  const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') || 
+                      (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
+  
+  if (isGamescope) {
+    // Force X11/XWayland under Gamescope to prevent Electron crashes with native Wayland
+    app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+  } else {
+    // Force native Wayland with decorations on other Linux DEs
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+  }
+  
   // Unlock zero-copy DMA-BUF memory passing
   app.commandLine.appendSwitch('enable-zero-copy');
 }
@@ -374,21 +383,31 @@ async function createWindow() {
   win.on('closed', () => { win = null; });
 
   // ── Tray ──
-  const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearsecTogether.png')).resize({ width: 22, height: 22 });
-  tray = new Tray(trayIcon);
-  tray.setToolTip('NearsecTogether');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Show Dashboard', click: () => { if (win) { win.show(); win.focus(); } else createWindow(); } },
-                                             { type: 'separator' },
-                                             { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } },
-  ]));
-  tray.on('click', () => { if (win) { win.isVisible() ? win.hide() : win.show(); } });
+  const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') || 
+                         (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
+
+  if (!isGamescopeEnv) {
+    const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearsecTogether.png')).resize({ width: 22, height: 22 });
+    tray = new Tray(trayIcon);
+    tray.setToolTip('NearsecTogether');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Show Dashboard', click: () => { if (win) { win.show(); win.focus(); } else createWindow(); } },
+      { type: 'separator' },
+      { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } },
+    ]));
+    tray.on('click', () => { if (win) { win.isVisible() ? win.hide() : win.show(); } });
+  }
 
   win.on('close', (e) => {
     if (!app.isQuiting) {
-      e.preventDefault();
-      win.hide();
-      if (tray.displayBalloon) tray.displayBalloon({ title: 'NearsecTogether', content: 'Running in background.' });
+      if (isGamescopeEnv) {
+        app.isQuiting = true;
+        app.quit();
+      } else {
+        e.preventDefault();
+        win.hide();
+        if (tray && tray.displayBalloon) tray.displayBalloon({ title: 'NearsecTogether', content: 'Running in background.' });
+      }
     }
   });
 
