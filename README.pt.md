@@ -1,6 +1,17 @@
-# Nearsec Juntos
+<p align="left">
+  <img src="assets/NearsecTogether.png" width="160" height="140">
+<h1>NearsecTogether</h1>
 
 [Inglês](README.md)\|[Espanhol](README.es.md)\|[Francês](README.fr.md)\|[Alemão](README.de.md)\|[Português](README.pt.md)\|[japonês](README.ja.md)
+
+## Capturas de tela – Painel, Página do Visualizador, Arcade
+
+<div align="center">
+  <img src="assets/screenshots/nearsec-client-home.png" alt="Nearsec Host" width="45%">
+  <img src="assets/screenshots/nearsec-host.png" alt="Nearsec Host" width="45%">
+  <img src="assets/screenshots/nearsec-viewer.png" alt="Nearsec Viewer" width="45%">
+  <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
+</div>
 
 ## Missão do Projeto
 
@@ -67,4 +78,4 @@ Mantemos todas as instruções técnicas de configuração, listas de dependênc
 
 A plataforma inclui um sistema opcional de lobby público. Os anfitriões podem listar suas sessões na grade do Arcade para permitir que jogadores globais descubram e participem de jogos cooperativos locais. Você pode ver o lobby público em<https://nearsec.cutefame.net/arcade>e participe de sessões ativas diretamente do seu navegador.
 
-Este projeto usa modelos de linguagem de inteligência artificial para geração de código e planejamento de estrutura.
+Este projeto utiliza modelos de linguagem de inteligência artificial para geração de código e planejamento de estrutura.

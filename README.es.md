@@ -1,6 +1,17 @@
-# Nearsec juntos
+<p align="left">
+  <img src="assets/NearsecTogether.png" width="160" height="140">
+<h1>NearsecTogether</h1>
 
 [Inglés](README.md)\|[Español](README.es.md)\|[Francés](README.fr.md)\|[Alemán](README.de.md)\|[portugués](README.pt.md)\|[japonés](README.ja.md)
+
+## Capturas de pantalla: Panel de control, Página del visor, Arcade
+
+<div align="center">
+  <img src="assets/screenshots/nearsec-client-home.png" alt="Nearsec Host" width="45%">
+  <img src="assets/screenshots/nearsec-host.png" alt="Nearsec Host" width="45%">
+  <img src="assets/screenshots/nearsec-viewer.png" alt="Nearsec Viewer" width="45%">
+  <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
+</div>
 
 ## Misión del proyecto
 
