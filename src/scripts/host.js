@@ -826,13 +826,18 @@ async function renderUrls(d) {
 
     const rows = [];
     
-    if (finalTunnelUrl) {
+    // Check if we are running in P2P mode!
+    if (window._isP2P && window._p2pCode) {
+        rows.push({ url: window._p2pCode, label: 'P2P ROOM CODE', color: 'var(--accent2)' });
+    } else if (finalTunnelUrl) {
         rows.push({ url: finalTunnelUrl, label: 'HTTPS tunnel (v3) ← share this', color: 'var(--accent)' });
     } else if (!isPortForward) {
         rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: '#444', noclick: true });
     }
 
-    rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+    if (!window._isP2P) {
+        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+    }
 
     if (!finalTunnelUrl && d.publicIP)
         rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
@@ -2898,18 +2903,9 @@ function startP2POnly() {
     crypto.getRandomValues(array);
     const code = array[0].toString(36).padStart(6, '0') + '-' + array[1].toString(36).padStart(6, '0');
     
-    // Set the URL card to the room code
-    const tunnelUrlDisplay = document.getElementById('tunnelUrlDisplay');
-    const tunnelStatusLabel = document.getElementById('tunnelStatusLabel');
-    if (tunnelUrlDisplay) {
-        tunnelUrlDisplay.textContent = code;
-        tunnelUrlDisplay.dataset.url = code;
-        tunnelUrlDisplay.style.color = 'var(--accent2)';
-    }
-    if (tunnelStatusLabel) {
-        tunnelStatusLabel.textContent = 'P2P ROOM CODE';
-        tunnelStatusLabel.style.color = 'var(--green)';
-    }
+    // Set the global P2P flags for renderUrls to consume
+    window._isP2P = true;
+    window._p2pCode = code;
 
     log(I18N.t('Starting P2P tunnel') + (remember ? ' (saved)' : '') + '...', 'ok');
     
