@@ -2924,6 +2924,16 @@ function startP2POnly() {
                 // Translate join to viewer-joined for host.js
                 msg.type = 'viewer-joined';
                 
+                // Emulate server initialization packets so the Viewer hides the PIN screen
+                window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, {
+                    type: 'your-id',
+                    viewerId: msg.viewerId || msg.viewer_id
+                });
+                window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, {
+                    type: 'host-connected',
+                    hostName: 'P2P Host'
+                });
+
                 // Emulate server sending host-stream-ready if streaming
                 if (currentStream) {
                     window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, {
