@@ -81,6 +81,12 @@
       text-align: center; padding: 0 20px;
     }
     .calib-desc { font-size: 11px; color: var(--muted); }
+    .calib-verified {
+      display: none; font-size: 10px; font-weight: 700; color: var(--green);
+      background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.35);
+      border-radius: 6px; padding: 4px 8px; margin-top: 6px;
+    }
+    .calib-verified.visible { display: inline-block; }
     #empty-state {
       text-align: center; padding: 36px 20px;
       color: var(--muted); font-size: 13px; display: none;
@@ -95,12 +101,70 @@
     <span style="font-size:11px; opacity:0.6;">Connect a gamepad and press any button.</span>
   </div>
 
-  <script src="js/i18n.js"></script>
+  <script src="/js/i18n.js"></script>
   <script>
     const STORAGE_PREFIX = 'nearsec_map_';
+    let smartDb = {};
+
+    window.addEventListener('message', e => {
+      if (e.data?.type === 'NEARSEC_SMART_DB' && e.data.db) smartDb = e.data.db;
+    });
+
+    function lookupSmartMap(gp) {
+      const safeId = getSafeId(gp);
+      const saved = localStorage.getItem(STORAGE_PREFIX + safeId);
+      if (saved) { try { return JSON.parse(saved); } catch (_) {} }
+      if (smartDb[gp.id]) return smartDb[gp.id];
+      if (smartDb[safeId]) return smartDb[safeId];
+      for (const [key, map] of Object.entries(smartDb)) {
+        const keyPrefix = key.split('(')[0].trim().toLowerCase();
+        const idPrefix  = gp.id.split('(')[0].trim().toLowerCase();
+        if (keyPrefix && idPrefix && (gp.id.includes(key) || key.includes(gp.id) || keyPrefix === idPrefix)) return map;
+      }
+      return null;
+    }
+
+    function applyVerifiedBadge(index) {
+      const badge = document.getElementById(`c${index}-verified`);
+      if (badge) badge.classList.add('visible');
+    }
 
     // Per-controller state: index → { calibStep, calibCooldown, tempMap, mapCache }
-    const controllers = new Map();
+    const gpStates = new Map();
+
+    // ── Normalize a stored calibration map ──
+    // Supports both old number formats (rsx: 2) and new object formats (rsx: {type: 'btn', idx: 3})
+    function normalizeStoredMap(m) {
+      if (!m || !m.lt || !m.rt || m.rsx == null) return null;
+      
+      let rsx = m.rsx;
+      let rsy = m.rsy;
+      
+      // Auto-derive rsy if missing (legacy support)
+      if (rsy == null) {
+          if (typeof rsx === 'number') rsy = rsx + 1;
+          else if (rsx && rsx.type) rsy = { type: rsx.type, idx: rsx.idx + 1 };
+      }
+      
+      return { lt: m.lt, rt: m.rt, rsx, rsy };
+    }
+
+    // Descriptive per-step prompts
+    function updatePrompt(index) {
+      const state = gpStates.get(index);
+      if (!state) return;
+      const promptEl = document.getElementById(`c${index}-prompt`);
+      if (!promptEl) return;
+      if (state.calibStep === 0) return; // Keep "DONE" visible for the timeout
+      const steps = [
+        '',
+        '1 of 4 — PULL LEFT TRIGGER',
+        '2 of 4 — PULL RIGHT TRIGGER',
+        '3 of 4 — PUSH RIGHT STICK RIGHT',
+        '4 of 4 — PUSH RIGHT STICK DOWN',
+      ];
+      promptEl.textContent = steps[state.calibStep] || '';
+    }
 
     function getSafeId(gp) {
       return gp.id.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
@@ -122,6 +186,7 @@
         <div class="calib-overlay" id="${p}-calib">
           <div class="calib-step" id="${p}-prompt">WAITING...</div>
           <div class="calib-desc">Hold the requested input fully.</div>
+          <div class="calib-verified" id="${p}-verified">Calibration Verified</div>
         </div>
         <div class="header">
           <div class="controller-id">
@@ -166,13 +231,23 @@
           <div>L-TRIG:  <span id="${p}-vlt" class="stick-val">0.00</span></div>
           <div>R-TRIG:  <span id="${p}-vrt" class="stick-val">0.00</span></div>
           <div>R-STICK: <span id="${p}-vr"  class="stick-val">0.00, 0.00</span></div>
+        </div>
+        <div style="margin-top:14px; padding: 0 10px; display:flex; align-items:center; gap:10px;">
+           <span style="font-size:10px; color:var(--muted); font-weight:700;">DEADZONE</span>
+           <input type="range" id="${p}-deadzone" min="0" max="0.5" step="0.01" value="0.05" style="flex:1; accent-color:var(--accent);" oninput="updateDeadzone(${idx}, this.value)">
+           <span id="${p}-dz-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:30px; text-align:right;">5%</span>
         </div>`;
       return card;
     }
 
+    function updateDeadzone(idx, val) {
+        document.getElementById(`c${idx}-dz-val`).textContent = Math.round(val * 100) + '%';
+        try { window.parent.postMessage({ type: 'NEARSEC_DEADZONE', index: idx, value: parseFloat(val) }, '*'); } catch (e) {}
+    }
+
     // ── Register a new controller ─────────────────────────────────────────────
     function addController(gp) {
-      if (controllers.has(gp.index)) return;
+      if (gpStates.has(gp.index)) return;
 
       const card = buildWidget(gp.index);
       document.body.insertBefore(card, document.getElementById('empty-state'));
@@ -182,9 +257,21 @@
       if (nameEl) nameEl.textContent = (gp.id.split('(')[0] || 'Controller').trim();
 
       const safeId = getSafeId(gp);
-      const savedMap = JSON.parse(localStorage.getItem(STORAGE_PREFIX + safeId) || 'null');
+      let savedMap = normalizeStoredMap(lookupSmartMap(gp));
 
-      controllers.set(gp.index, {
+      if (!savedMap) {
+        const idLower = gp.id.toLowerCase();
+        if (idLower.includes('xbox') || idLower.includes('playstation') || 
+            idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box')) {
+          // Standard controllers don't need calibration
+          savedMap = { lt: 6, rt: 7, rsx: 2, rsy: 3 };
+        } else {
+          // Clear any stale localStorage entry that normalizeStoredMap rejected
+          localStorage.removeItem(STORAGE_PREFIX + safeId);
+        }
+      }
+
+      gpStates.set(gp.index, {
         calibStep: savedMap ? 0 : 1,
         calibCooldown: false,
         tempMap: { lt: null, rt: null, rsx: null, rsy: null },
@@ -193,7 +280,13 @@
 
       if (savedMap) {
         document.getElementById(`c${gp.index}-calib`)?.classList.remove('active');
+        applyVerifiedBadge(gp.index);
         broadcastConfigExternally(safeId, savedMap);
+        window.parent.postMessage({
+          type: 'SAVE_CONTROLLER_CALIB',
+          hardwareId: safeId,
+          map: savedMap
+        }, '*');
       } else {
         document.getElementById(`c${gp.index}-calib`)?.classList.add('active');
         updatePrompt(gp.index);
@@ -202,6 +295,7 @@
       updateEmptyState();
     }
 
+
     // ── Remove a controller (disconnect) ─────────────────────────────────────
     function removeController(index) {
       const card = document.getElementById(`card-${index}`);
@@ -209,61 +303,81 @@
         card.classList.add('disconnected');
         setTimeout(() => card.remove(), 400);
       }
-      controllers.delete(index);
+      gpStates.delete(index);
       updateEmptyState();
     }
 
     function updateEmptyState() {
-      document.getElementById('empty-state')?.classList.toggle('visible', controllers.size === 0);
+      document.getElementById('empty-state')?.classList.toggle('visible', gpStates.size === 0);
     }
 
     // ── Calibration ───────────────────────────────────────────────────────────
     function startCalibration(index) {
-      const state = controllers.get(index);
+      const state = gpStates.get(index);
       if (!state) return;
       state.calibStep = 1;
       state.tempMap = { lt: null, rt: null, rsx: null, rsy: null };
+      // Clear any stale localStorage entry so we don't fall back to a bad old map
+      const gp = navigator.getGamepads()[index];
+      if (gp) localStorage.removeItem(STORAGE_PREFIX + getSafeId(gp));
       document.getElementById(`c${index}-calib`)?.classList.add('active');
       updatePrompt(index);
     }
 
-    function updatePrompt(index) {
-      const el = document.getElementById(`c${index}-prompt`);
-      if (!el) return;
-      const steps = ['', '1. PULL LEFT TRIGGER', '2. PULL RIGHT TRIGGER', '3. PUSH RIGHT STICK RIGHT', '4. PUSH RIGHT STICK DOWN'];
-      el.textContent = steps[controllers.get(index)?.calibStep] || 'DONE';
-    }
-
     function runCalibration(gp) {
-      const state = controllers.get(gp.index);
+      const state = gpStates.get(gp.index);
       if (!state || state.calibStep === 0 || state.calibCooldown) return;
 
-      let maxVal = 0.5, detected = null;
+      // Threshold 0.6: strong enough to ignore drift but forgiving for Stadia/DS triggers.
+      // Skip axes 0+1 (left stick) and ignore resting trigger axes that sit at -1.
+      let maxVal = 0.6, detected = null;
       gp.buttons.forEach((btn, i) => {
         if (btn.value > maxVal) { maxVal = btn.value; detected = { type: 'btn', idx: i }; }
       });
       gp.axes.forEach((val, i) => {
-        if (i === 0 || i === 1) return;
-        if (Math.abs(val) > maxVal && val !== -1) { maxVal = Math.abs(val); detected = { type: 'axis', idx: i }; }
+        if (i === 0 || i === 1) return;             // skip left stick
+        if (val === -1) return;                      // skip triggers at rest (-1 range)
+        if (Math.abs(val) > maxVal) { maxVal = Math.abs(val); detected = { type: 'axis', idx: i }; }
       });
 
       if (!detected) return;
 
       if (state.calibStep === 1) state.tempMap.lt = detected;
       else if (state.calibStep === 2) state.tempMap.rt = detected;
-      else if (state.calibStep === 3) state.tempMap.rsx = detected.idx;
-      else if (state.calibStep === 4) state.tempMap.rsy = detected.idx;
+      else if (state.calibStep === 3) state.tempMap.rsx = detected;
+      else if (state.calibStep === 4) state.tempMap.rsy = detected;
 
       state.calibStep++;
       state.calibCooldown = true;
-      setTimeout(() => { state.calibCooldown = false; }, 500);
+      setTimeout(() => { state.calibCooldown = false; }, 600);
 
+      // 4 steps complete (calibStep is now 5 after incrementing past step 4)
       if (state.calibStep > 4) {
         state.calibStep = 0;
         state.mapCache = state.tempMap;
         const safeId = getSafeId(gp);
+
         localStorage.setItem(STORAGE_PREFIX + safeId, JSON.stringify(state.mapCache));
+
+        window.parent.postMessage({
+            type: 'SAVE_CONTROLLER_CALIB',
+            hardwareId: safeId,
+            map: state.mapCache
+        }, '*');
+
         document.getElementById(`c${gp.index}-calib`)?.classList.remove('active');
+        
+        const promptEl = document.getElementById(`c${gp.index}-prompt`);
+        if (promptEl) {
+          promptEl.textContent = 'DONE!';
+          setTimeout(() => {
+            const currentState = gpStates.get(gp.index);
+            if (currentState && currentState.calibStep === 0) {
+              promptEl.textContent = '';
+            }
+          }, 2000);
+        }
+
         broadcastConfigExternally(safeId, state.mapCache);
       } else {
         updatePrompt(gp.index);
@@ -275,15 +389,15 @@
       const gps = navigator.getGamepads();
 
       for (const gp of gps) {
-        if (gp && !controllers.has(gp.index)) addController(gp);
+        if (gp && !gpStates.has(gp.index)) addController(gp);
       }
-      for (const [idx] of controllers) {
+      for (const [idx] of gpStates) {
         if (!gps[idx]) removeController(idx);
       }
 
       for (const gp of gps) {
-        if (!gp || !controllers.has(gp.index)) continue;
-        const state = controllers.get(gp.index);
+        if (!gp || !gpStates.has(gp.index)) continue;
+        const state = gpStates.get(gp.index);
         const p = `c${gp.index}`;
 
         if (state.calibStep > 0) { runCalibration(gp); continue; }
@@ -315,8 +429,17 @@
         const lx = (gp.axes[0] || 0) * 11, ly = (gp.axes[1] || 0) * 11;
         document.getElementById(`${p}-sl`)?.setAttribute('transform', `translate(${lx},${ly})`);
 
-        const rx = m.rsx != null ? (gp.axes[m.rsx] || 0) : 0;
-        const ry = m.rsy != null ? (gp.axes[m.rsy] || 0) : 0;
+        const getRs = (mp) => {
+            if (mp == null) return 0;
+            if (typeof mp === 'number') return gp.axes[mp] || 0;
+            if (mp.type === 'btn') {
+                const v = gp.buttons[mp.idx]?.value || 0;
+                return (v - 0.5) * 2;
+            }
+            return gp.axes[mp.idx] || 0;
+        };
+        const rx = getRs(m.rsx);
+        const ry = getRs(m.rsy);
         document.getElementById(`${p}-sr`)?.setAttribute('transform', `translate(${rx*11},${ry*11})`);
 
         const vl = document.getElementById(`${p}-vl`); if (vl) vl.textContent = `${(gp.axes[0]||0).toFixed(2)}, ${(gp.axes[1]||0).toFixed(2)}`;

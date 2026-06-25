@@ -258,13 +258,6 @@
     #virtual-cursor.clicking { transform: scale(0.6); background: #fff; }
     body.client-only .host-only { display: none !important; }
   /* Mobile UI Overrides & Notch Protection */
-    body {
-        padding-top: env(safe-area-inset-top);
-        padding-bottom: env(safe-area-inset-bottom);
-        padding-left: env(safe-area-inset-left);
-        padding-right: env(safe-area-inset-right);
-    }
-
     @media screen and (max-width: 900px) {
     .modal, .modal-content, #controllerGuideCard {
             width: 95vw !important;
@@ -707,7 +700,7 @@
           if (window.electronAPI) {
             window.electronAPI.joinSession(inputVal, { game: 'Direct Connect' }, pinVal);
           } else {
-            let navUrl = `/?client=1&compat=1&host=${encodeURIComponent(inputVal)}`;
+            let navUrl = `viewer.html?client=1&compat=1&host=${encodeURIComponent(inputVal)}`;
             if (pinVal) navUrl += `&pin=${encodeURIComponent(pinVal)}`;
             window.location.href = navUrl;
           }
@@ -721,7 +714,7 @@
         if (window.electronAPI) {
           window.electronAPI.joinSession(`p2p://${inputVal}`, { game: 'P2P Session' }, pinVal);
         } else {
-          let navUrl = `/?client=1&compat=1&host=${encodeURIComponent('p2p://' + inputVal)}`;
+          let navUrl = `viewer.html?client=1&compat=1&host=${encodeURIComponent('p2p://' + inputVal)}`;
           if (pinVal) navUrl += `&pin=${encodeURIComponent(pinVal)}`;
           window.location.href = navUrl;
         }
@@ -765,9 +758,10 @@
 
     async function checkFirstRun() {
       // NEW: Client-only flag strips the driver button entirely
-      if (window.IS_CLIENT_ONLY) {
+      if (window.IS_CLIENT_ONLY || window.Capacitor) {
           const btn = document.getElementById('floating-setup-btn');
           if (btn) btn.style.display = 'none';
+          document.body.classList.add('client-only'); // Also hide other host UI
           return;
       }
 
