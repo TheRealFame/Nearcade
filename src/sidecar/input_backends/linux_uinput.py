@@ -69,6 +69,8 @@ PROFILES = {
     'ds4':         (0x054C, 0x09CC, 0x0100, 'Wireless Controller'),
     'ps4':         (0x054C, 0x09CC, 0x0100, 'Wireless Controller'),
     'playstation': (0x054C, 0x09CC, 0x0100, 'Wireless Controller'),
+    'dualshock4':  (0x054C, 0x09CC, 0x0100, 'Wireless Controller'),
+    'dualsense':   (0x054C, 0x0CE6, 0x0100, 'Wireless Controller'),
     'switchpro':   (0x057E, 0x2009, 0x0001, 'Pro Controller'),
     'switch':      (0x057E, 0x2009, 0x0001, 'Pro Controller'),
     'nintendo':    (0x057E, 0x2009, 0x0001, 'Pro Controller'),
@@ -383,8 +385,10 @@ def make_gamepad(profile_key: str = 'xbox360'):
         return None
     v, p, ver, real_name = PROFILES.get(profile_key, PROFILES['xbox360'])
 
-    # Force-feedback removed to prevent Proton games from crashing/hanging when uploading effects
+    # Include FF_RUMBLE so games/Steam know this controller can vibrate.
     extra_ff = []
+    if hasattr(uinput, 'FF_RUMBLE'):
+        extra_ff = [uinput.FF_RUMBLE]
 
     # bustype=3 tells Linux/Steam this is a physical USB device (BUS_USB).
     return uinput.Device(BTNS + AXES + extra_ff, name=real_name, vendor=v, product=p, version=ver, bustype=3)

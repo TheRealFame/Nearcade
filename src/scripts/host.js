@@ -574,7 +574,11 @@ async function runBenchmark(mode) {
     testVideo.playsInline = true;
     testVideo.style.display = 'none';
     document.body.appendChild(testVideo);
-    await testVideo.play().catch(() => {});
+    await new Promise(resolve => {
+        testVideo.onplaying = resolve;
+        testVideo.onerror = resolve;
+        testVideo.play().catch(resolve);
+    });
 
     const results = [];
 
@@ -598,6 +602,7 @@ async function runBenchmark(mode) {
             const stream = testVideo.captureStream ? testVideo.captureStream(30) : testVideo.mozCaptureStream?.(30);
             if (!stream) throw new Error('captureStream not supported');
             const [track] = stream.getVideoTracks();
+            if (!track) throw new Error('Video track not available yet');
             pc1.addTrack(track, stream);
 
             // Prefer the specific codec on pc1's sender
@@ -2875,6 +2880,11 @@ function confirmTunnel() {
     let _autoCloseTimer = setTimeout(() => { closeTunnelModal(); }, 5000);
 
     log(I18N.t('Starting') + ' ' + provider + ' tunnel' + (remember ? ' (saved)' : '') + '...', 'ok');
+    
+    // Clear any active P2P flags so renderUrls displays the HTTPS link again
+    window._isP2P = false;
+    window._p2pCode = null;
+
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2908,7 +2918,10 @@ function startP2POnly() {
     window._p2pCode = code;
 
     // Immediately trigger a UI refresh so the Room Code is displayed
-    fetch('/api/info').then(r => r.json()).then(d => renderUrls(d)).catch(() => {});
+    fetch('/api/info').then(r => r.json()).then(d => renderUrls(d)).catch(() => {
+        // Fallback if local Express server is unreachable
+        renderUrls({ lanIP: '127.0.0.1', port: '4266' });
+    });
 
     log(I18N.t('Starting P2P tunnel') + (remember ? ' (saved)' : '') + '...', 'ok');
     
