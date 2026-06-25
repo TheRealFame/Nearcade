@@ -127,11 +127,7 @@
           <span>Click Start to begin sharing</span>
         </div>
 
-        <div class="roster-overlay" id="rosterOverlay">
-          <div class="roster-title">Connected Controllers</div>
-          <div id="roster"></div>
-          <div class="empty-note" id="rosterEmpty">Waiting for viewers...</div>
-        </div>
+
       </section>
 
       <section class="bottom-dock glass">
@@ -196,6 +192,11 @@
                 </svg>
               </button>
               <button class="pin-toggle-btn on" id="pinToggle" onclick="togglePin()">ON</button>
+            </div>
+            <div id="sysinfoWidget" style="font-size:10px; color:var(--muted2); display:flex; justify-content:space-between; margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05); font-family:var(--mono);">
+              <span id="sysCpu" title="CPU Load">CPU: —</span>
+              <span id="sysRam" title="Active Memory">RAM: —</span>
+              <span id="sysNet" title="Network Throughput">NET: —</span>
             </div>
           </div>
         </div>
@@ -484,6 +485,7 @@
                 tunnel --no-autoupdate --url http://localhost:3000</span>
             </div>
           </label>
+
           <label class="provider-card">
             <input type="radio" name="provider" value="zrok">
             <div style="display:flex;gap:12px;align-items:center;">
@@ -608,6 +610,7 @@
       <div class="modal-footer">
         <div class="btn-row">
           <button class="btn-confirm" onclick="confirmTunnel()">Connect</button>
+          <button class="btn-confirm" style="background:var(--accent-dim);color:var(--accent2);border:1px solid var(--accent);" onclick="startP2POnly()">P2P Only</button>
           <button class="btn-skip" onclick="closeTunnelModal()">Skip for now</button>
         </div>
         <div class="remember-row" style="margin:0;padding-top:4px;border:none;">
@@ -648,6 +651,8 @@
 
   <script src="/js/version.js"></script>
   <script src="/js/i18n.js"></script>
+  <script type="module" src="/js/p2p-signaler.js"></script>
+  <script src="/js/host.js"></script>
 
   <script>
     function copyText(id) {
@@ -803,6 +808,7 @@
             <select id="pipelineSelect" class="form-select" onchange="saveCaptureMethod(this.value)">
               <option value="native" selected>WebRTC (Stable)</option>
               <option value="webcodecs">WebCodecs Experimental (Latency Focused)</option>
+              <option id="optWebTransport" value="webtransport" style="display:none;" disabled>WebTransport Experimental (VPS Only)</option>
             </select>
           </div>
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
@@ -816,6 +822,27 @@
               <option value="VP9">VP9 (Software)</option>
               <option value="AV1">AV1 (Experimental)</option>
             </select>
+          </div>
+          <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:8px;">
+            <div style="display:flex; gap:8px;">
+              <button id="codecBenchBtnSpeed" onclick="runBenchmark('speed')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:10px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer; font-family:inherit; transition:all 0.2s;" onmouseover="if(!this.disabled){this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';}" onmouseleave="if(!this.disabled){this.style.borderColor='var(--border)';this.style.background='var(--surface)';}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--green);"><polyline points="13 2 13 9 22 9 11 22 11 15 2 15 13 2"></polyline></svg>
+                Speed Test
+              </button>
+              <button id="codecBenchBtnQuality" onclick="runBenchmark('quality')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:10px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer; font-family:inherit; transition:all 0.2s;" onmouseover="if(!this.disabled){this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';}" onmouseleave="if(!this.disabled){this.style.borderColor='var(--border)';this.style.background='var(--surface)';}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--warn);"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
+                Quality Test
+              </button>
+            </div>
+            <div id="codecBenchStatus" style="display:none;font-size:10px;color:var(--muted);line-height:1.6;">
+              <div id="codecBenchLog" style="max-height:80px;overflow-y:auto;"></div>
+              <div style="margin-top:4px;display:flex;gap:6px;align-items:center;">
+                <div id="codecBenchBar" style="flex:1;height:4px;background:var(--border);border-radius:2px;">
+                  <div id="codecBenchFill" style="height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width 0.4s;"></div>
+                </div>
+                <span id="codecBenchPct" style="min-width:28px;text-align:right;">0%</span>
+              </div>
+            </div>
           </div>
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
             <div class="ctrl-row-text">
@@ -1077,6 +1104,14 @@
             Connected viewers, their assigned input profile, and input permission controls.
           </div>
           <div id="viewerPanelList" style="display:flex;flex-direction:column;gap:6px;min-height:60px;"></div>
+          
+          <div style="margin-top:20px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
+            <div style="font-size:10px;color:var(--muted2);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px;">
+              <img src="/assets/icons/controller.svg" style="width:14px;height:14px;opacity:0.7;"> Controller Roster (Drag to swap)
+            </div>
+            <div id="roster" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:48px;"></div>
+            <div class="empty-note" id="rosterEmpty" style="margin-top:0;">Waiting for viewers...</div>
+          </div>
         </div>
 
       </div><!-- end scroll area -->
@@ -1090,6 +1125,31 @@
   <div id="feStrip" onclick="this.classList.remove('visible')"></div>
   <div id="clipboardToast"></div>
   <script src="/js/host.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const radios = document.querySelectorAll('input[name="provider"]');
+      const wtOpt = document.getElementById('optWebTransport');
+      const pSelect = document.getElementById('pipelineSelect');
+
+      function updateWt() {
+        const selected = document.querySelector('input[name="provider"]:checked');
+        if (selected && selected.value === 'vps-sfu') {
+          wtOpt.style.display = 'block';
+          wtOpt.disabled = false;
+        } else {
+          wtOpt.style.display = 'none';
+          wtOpt.disabled = true;
+          if (pSelect.value === 'webtransport') {
+            pSelect.value = 'native';
+            if (typeof saveCaptureMethod === 'function') saveCaptureMethod('native');
+          }
+        }
+      }
+
+      radios.forEach(r => r.addEventListener('change', updateWt));
+      updateWt(); // Check on load
+    });
+  </script>
 </body>
 
 </html>

@@ -20,3 +20,4 @@ dist/
 
 # Native addon build artifacts
 src/sidecar/input_backends/build/
+vps/target/

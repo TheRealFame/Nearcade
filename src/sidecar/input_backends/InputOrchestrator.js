@@ -21,7 +21,7 @@ const events = new EventEmitter();
 //   [14]    = hy  (int8, dpad Y: -1/0/1)
 //   [15]    = slot (uint8)
 const _gpBuf = Buffer.alloc(16);
-const _alBuf = Buffer.alloc(40);
+const _alBuf = Buffer.alloc(104);
 const _flBuf = Buffer.alloc(2);
 const _frBuf = Buffer.alloc(2);
 
@@ -75,16 +75,16 @@ function _jsBtnsToCpp(jsBtns) {
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
-const viewerSlots    = new Map();
-const slotViewers    = new Map();
+const viewerSlots = new Map();
+const slotViewers = new Map();
 const viewerCtrlType = new Map();
-const viewerModes    = new Map();
+const viewerModes = new Map();
 
 // KBM Emulation State
-const kbmStates      = new Map();
+const kbmStates = new Map();
 
 // Tracks millisecond activity for Auto-Eviction
-const slotLastUsed   = new Map();
+const slotLastUsed = new Map();
 
 let _bridge = null;
 let _pythonProc = null;
@@ -106,11 +106,17 @@ const KBM_BTN_MAP = {
 };
 
 const PROFILES = {
-    xbox360:   { vendor: 0x045E, product: 0x028E, version: 0x0114, name: "Microsoft X-Box 360 pad" },
-    xboxone:   { vendor: 0x045E, product: 0x02EA, version: 0x0301, name: "Microsoft X-Box One S pad" },
-    ds4:       { vendor: 0x054C, product: 0x05C4, version: 0x8111, name: "Sony Computer Entertainment Wireless Controller" },
-    dualsense: { vendor: 0x054C, product: 0x0CE6, version: 0x8111, name: "Sony Interactive Entertainment Wireless Controller" },
-    switchpro: { vendor: 0x0500, product: 0x2009, version: 0x8111, name: "Nintendo Switch Pro Controller" }
+    xbox360: { vendor: 0x045E, product: 0x028E, version: 0x0110, name: 'Xbox 360 Controller' },
+    xbox: { vendor: 0x045E, product: 0x028E, version: 0x0110, name: 'Xbox 360 Controller' },
+    xboxone: { vendor: 0x045E, product: 0x02EA, version: 0x0101, name: 'Xbox One Controller' },
+    ds4: { vendor: 0x054C, product: 0x09CC, version: 0x0100, name: 'Wireless Controller' },
+    ps4: { vendor: 0x054C, product: 0x09CC, version: 0x0100, name: 'Wireless Controller' },
+    playstation: { vendor: 0x054C, product: 0x09CC, version: 0x0100, name: 'Wireless Controller' },
+    dualshock4: { vendor: 0x054C, product: 0x09CC, version: 0x0100, name: 'Wireless Controller' },
+    dualsense: { vendor: 0x054C, product: 0x0CE6, version: 0x0100, name: 'Wireless Controller' },
+    switchpro: { vendor: 0x057E, product: 0x2009, version: 0x0001, name: 'Pro Controller' },
+    switch: { vendor: 0x057E, product: 0x2009, version: 0x0001, name: 'Pro Controller' },
+    nintendo: { vendor: 0x057E, product: 0x2009, version: 0x0001, name: 'Pro Controller' }
 };
 
 // ── Initialization ─────────────────────────────────────────────────────────────
@@ -142,9 +148,9 @@ function init(screenWidth, screenHeight) {
 
     // 2. Python Sidecar — platform-aware script selection
     let scriptName;
-    if (isWin)       scriptName = 'windows_vigem.py';
-    else if (isMac)  scriptName = 'mac_gamepad_bridge.py';
-    else             scriptName = 'linux_uinput.py';
+    if (isWin) scriptName = 'windows_vigem.py';
+    else if (isMac) scriptName = 'mac_gamepad_bridge.py';
+    else scriptName = 'linux_uinput.py';
     // __dirname is already .../input_backends
     const pythonScript = path.join(__dirname, scriptName);
     if (!fs.existsSync(pythonScript)) {
@@ -177,6 +183,15 @@ function init(screenWidth, screenHeight) {
                     events.emit('input-ready', { message: msg.message });
                 } else if (msg.type === 'log') {
                     console.log('[input][python]', msg.message);
+                } else if (msg.type === 'rumble') {
+                    // Python sidecar detected an EV_FF event on the uinput device.
+                    // Forward it through events so server.js can route it to the viewer.
+                    events.emit('rumble', {
+                        viewerId: msg.viewerId || '',
+                        strong:   msg.strong   || 0,
+                        weak:     msg.weak     || 0,
+                        duration: msg.duration || 200,
+                    });
                 }
             } catch (_) {
                 // Plain string log — pass through
@@ -276,11 +291,12 @@ function _claimSlot(slotIndex, viewerId, profileKey) {
     const resolvedKey = profileKey || viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const profile = PROFILES[resolvedKey] || PROFILES.xbox360;
     _alBuf[1] = slotIndex;
-    _alBuf.writeUInt16LE(profile.vendor,  2);
+    _alBuf.writeUInt16LE(profile.vendor, 2);
     _alBuf.writeUInt16LE(profile.product, 4);
     _alBuf.writeUInt16LE(profile.version, 6);
-    _alBuf.fill(0, 8, 8 + 32);
+    _alBuf.fill(0, 8, 104);
     Buffer.from(profile.name).copy(_alBuf, 8, 0, Math.min(31, profile.name.length));
+    Buffer.from(viewerId).copy(_alBuf, 40, 0, Math.min(63, viewerId.length));
 
     _bridge.submitInputPacket(_alBuf);
     console.log(`[input] ALLOC slot ${slotIndex} for ${viewerId} as ${resolvedKey} (${profile.name})`);
@@ -310,6 +326,7 @@ function _handleGamepad(msg) {
 
     const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
+    console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex}`);
     if (slotIndex < 0) return;
 
     if (!_bridge) return;
@@ -325,7 +342,7 @@ function _handleGamepad(msg) {
     _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.ly || 0)), 3);
     _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.rx || 0)), 5);
     _gpBuf.writeInt16LE(Math.max(-32767, Math.min(32767, msg.ry || 0)), 7);
-    _gpBuf[9]  = Math.round(Math.max(0, Math.min(1, msg.lt || 0)) * 255);
+    _gpBuf[9] = Math.round(Math.max(0, Math.min(1, msg.lt || 0)) * 255);
     _gpBuf[10] = Math.round(Math.max(0, Math.min(1, msg.rt || 0)) * 255);
     _gpBuf.writeUInt16LE(cppBtns, 11);
     _gpBuf.writeInt8(hx, 13);
@@ -411,7 +428,7 @@ function _emitKbmBinding(padId, key, isDown, binds) {
     _gpBuf.writeInt16LE(state.ly || 0, 3);
     _gpBuf.writeInt16LE(state.rx || 0, 5);
     _gpBuf.writeInt16LE(state.ry || 0, 7);
-    _gpBuf[9]  = Math.round((state.lt || 0) * 255);
+    _gpBuf[9] = Math.round((state.lt || 0) * 255);
     _gpBuf[10] = Math.round((state.rt || 0) * 255);
     _gpBuf.writeUInt16LE(cppBtns, 11);
     _gpBuf.writeInt8(kbmHx, 13);
@@ -472,13 +489,20 @@ function _handleKbm(msg) {
     if (msg.event === 'keydown' || msg.event === 'keyup') {
         // Try the loaded layout first, fallback to the hardcoded default
         const action = layout.keys[msg.key] || defaultKeys[msg.key];
-        
+
         if (!action) {
             console.log(`[DEBUG KBM] _handleKbm dropped because ${msg.key} has no mapping action!`);
             return;
         }
 
         const isDown = (msg.event === 'keydown');
+
+        // FIX: Ignore OS key-repeats. If it's already held down,
+        // do not force a release or spam the bridge. Just let the game read the continuous hold.
+        if (state.keys[action] === isDown) {
+            return;
+        }
+
         state.keys[action] = isDown;
 
         if (KBM_BTN_MAP[action]) {
@@ -489,16 +513,18 @@ function _handleKbm(msg) {
         } else if (action === 'RT') {
             state.rt = isDown ? 1.0 : 0.0;
         } else if (action.startsWith('LS_')) {
+            // Revert back to -1.0 to 1.0 float range, because _sendKbmStateToBuffer multiplies by 32767
             state.lx = (state.keys['LS_RIGHT'] ? 1.0 : 0) - (state.keys['LS_LEFT'] ? 1.0 : 0);
             state.ly = (state.keys['LS_DOWN'] ? 1.0 : 0) - (state.keys['LS_UP'] ? 1.0 : 0);
         }
     }
     else if (msg.event === 'mousemove') {
-        const sens = layout.mouse?.sensitivity || 1.5;
-        const deadzone = layout.mouse?.deadzone || 0.1;
+        const mult = KBM_BINDINGS?.right_stick_multiplier || 1500;
+        const deadzone = 0.1; // 10% deadzone
 
-        let dx = (msg.dx / 100.0) * sens;
-        let dy = (msg.dy / 100.0) * sens;
+        // Python matched formula: (dx * mult) / 32767.0 to fit into the -1.0 to 1.0 float range expected by _sendKbmStateToBuffer
+        let dx = (msg.dx * mult) / 32767.0;
+        let dy = (msg.dy * mult) / 32767.0;
 
         dx = Math.max(-1.0, Math.min(1.0, dx));
         dy = Math.max(-1.0, Math.min(1.0, dy));
@@ -514,7 +540,7 @@ function _handleKbm(msg) {
             state.rx = 0;
             state.ry = 0;
             if (typeof _sendKbmStateToBuffer === 'function') _sendKbmStateToBuffer(slotIndex, state);
-        }, 50);
+        }, 32); // 32ms matches the old Python timeout
     }
 
     if (typeof _sendKbmStateToBuffer === 'function') {
@@ -536,7 +562,7 @@ function _sendKbmStateToBuffer(slotIndex, state) {
     _gpBuf.writeInt16LE(Math.round((state.ly || 0) * 32767), 3);
     _gpBuf.writeInt16LE(Math.round((state.rx || 0) * 32767), 5);
     _gpBuf.writeInt16LE(Math.round((state.ry || 0) * 32767), 7);
-    _gpBuf[9]  = Math.round((state.lt || 0) * 255);
+    _gpBuf[9] = Math.round((state.lt || 0) * 255);
     _gpBuf[10] = Math.round((state.rt || 0) * 255);
     _gpBuf.writeUInt16LE(cppBtns, 11);
     _gpBuf.writeInt8(hx, 13);
@@ -568,9 +594,9 @@ function _clampTrigger(val) {
     return Math.max(0, Math.min(1, Number(val) || 0));
 }
 function _clampButtons(val) {
-    // 16-bit bitmask
+    // 16-bit bitmask. Strip 0x4000 (GUIDE/HOME button) so viewers cannot open system menus.
     const n = Number(val) || 0;
-    return (n & 0xFFFF) >>> 0;
+    return (n & 0xBFFF) >>> 0;
 }
 function _clampDelta(val) {
     // Mouse delta: sane screen range
@@ -584,19 +610,19 @@ function _validateGamepadMsg(msg) {
     } catch (_) { return null; }
 
     return {
-        type:     'gamepad',
-        pad_id:   String(msg.pad_id   || msg.viewerId || '').slice(0, 64),
-        viewer_id:String(msg.viewer_id|| msg.viewerId || '').slice(0, 64),
+        type: 'gamepad',
+        pad_id: String(msg.pad_id || msg.viewerId || '').slice(0, 64),
+        viewer_id: String(msg.viewer_id || msg.viewerId || '').slice(0, 64),
         viewerId: String(msg.viewerId || '').slice(0, 64),
-        buttons:  _clampButtons(msg.buttons),
-        lt:       _clampTrigger(msg.lt),
-        rt:       _clampTrigger(msg.rt),
-        lx:       _clampAxis(msg.lx),
-        ly:       _clampAxis(msg.ly),
-        rx:       _clampAxis(msg.rx),
-        ry:       _clampAxis(msg.ry),
-        axes:     Array.isArray(msg.axes) ? msg.axes.map(_clampAxis) : [],
-        btns:     Array.isArray(msg.btns) ? msg.btns.map(b => ({ pressed: !!b.pressed, value: Math.max(0, Math.min(255, Number(b.value) || 0)) })) : []
+        buttons: _clampButtons(msg.buttons),
+        lt: _clampTrigger(msg.lt),
+        rt: _clampTrigger(msg.rt),
+        lx: _clampAxis(msg.lx),
+        ly: _clampAxis(msg.ly),
+        rx: _clampAxis(msg.rx),
+        ry: _clampAxis(msg.ry),
+        axes: Array.isArray(msg.axes) ? msg.axes.map(_clampAxis) : [],
+        btns: Array.isArray(msg.btns) ? msg.btns.map(b => ({ pressed: !!b.pressed, value: Math.max(0, Math.min(255, Number(b.value) || 0)) })) : []
     };
 }
 
@@ -609,14 +635,14 @@ function _validateKbmMsg(msg) {
     if (!['keydown', 'keyup', 'mousemove', 'mousedown', 'mouseup'].includes(event)) return null;
 
     return {
-        type:     msg.type,
-        pad_id:   String(msg.pad_id   || msg.viewerId || '').slice(0, 64),
+        type: msg.type,
+        pad_id: String(msg.pad_id || msg.viewerId || '').slice(0, 64),
         viewerId: String(msg.viewerId || '').slice(0, 64),
         event,
-        key:      String(msg.key  || '').slice(0, 32),
-        button:   typeof msg.button === 'number' ? msg.button : undefined,
-        dx:       _clampDelta(msg.dx),
-        dy:       _clampDelta(msg.dy),
+        key: String(msg.key || '').slice(0, 32),
+        button: typeof msg.button === 'number' ? msg.button : undefined,
+        dx: _clampDelta(msg.dx),
+        dy: _clampDelta(msg.dy),
     };
 }
 
@@ -625,7 +651,12 @@ function send(msg) {
     let validated = msg;
     if (msg.type === 'gamepad') {
         validated = _validateGamepadMsg(msg);
-        if (!validated) return; // drop
+        if (!validated) {
+            console.warn(`[DEBUG GP] DROPPED by validator — pad_id="${msg.pad_id}" lx=${msg.lx} btns=${msg.buttons}`);
+            return; // drop
+        }
+        // Diagnostics: print bridge/python state so we know which path runs
+        console.log(`[DEBUG GP] pad_id="${validated.pad_id}" bridge=${!!_bridge} python=${!!_pythonProc} hybrid=${_hybridInputEnabled}`);
     } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
         validated = _validateKbmMsg(msg);
         if (!validated) return; // drop
@@ -633,8 +664,8 @@ function send(msg) {
 
     // Fallback passthrough to Python if Native module failed, OR if Hybrid Mode is explicitly enabled
     if ((!_bridge || _hybridInputEnabled) && _pythonProc && _pythonProc.stdin.writable) {
-        try { _pythonProc.stdin.write(JSON.stringify(validated) + '\n'); } catch (e) {}
-        
+        try { _pythonProc.stdin.write(JSON.stringify(validated) + '\n'); } catch (e) { }
+
         // Ensure the input visualizer still works when using Python sidecar
         if (validated.type === 'gamepad') {
             events.emit('input-packet', {
@@ -692,4 +723,8 @@ function destroy() {
     console.log("[input] Orchestrator destroyed.");
 }
 
-module.exports = { init, send, destroy, events };
+function getViewerForSlot(slot) {
+    return slotViewers.get(Number(slot)) || null;
+}
+
+module.exports = { init, send, destroy, events, getViewerForSlot, get _bridge() { return _bridge; } };

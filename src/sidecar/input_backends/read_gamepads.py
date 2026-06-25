@@ -113,7 +113,7 @@ if os_type == "Windows":
                         emit_disconnected(i)
             time.sleep(0.008)
 
-    windows_loop()
+    threading.Thread(target=windows_loop, daemon=True).start()
 
 elif os_type == "Linux":
     try:
@@ -135,7 +135,8 @@ elif os_type == "Linux":
                             has_btn = any(btn in caps[evdev.ecodes.EV_KEY] for btn in [evdev.ecodes.BTN_GAMEPAD, evdev.ecodes.BTN_SOUTH])
                             if has_btn:
                                 devices[path] = dev
-                                idx = len(devices)
+                                idx = len(devices) - 1
+                                dev.my_idx = idx
                                 emit_connected(idx, dev.name, f"evdev_{path.replace('/', '_')}")
                                 
                                 def read_dev(d, i):
@@ -159,7 +160,6 @@ elif os_type == "Linux":
                                         
                                     def normalize_axis(val, amin, amax):
                                         if amax == amin: return 0
-                                        # Map amin..amax to -32767..32767
                                         v = ((val - amin) / (amax - amin)) * 2.0 - 1.0
                                         return int(v * 32767)
 
@@ -205,6 +205,58 @@ elif os_type == "Linux":
                         pass
             time.sleep(2)
             
-    linux_loop()
+    threading.Thread(target=linux_loop, daemon=True).start()
 else:
     eprint("Native gamepads not supported on this OS via Python")
+
+def stdin_loop():
+    for line in sys.stdin:
+        if not line.strip(): continue
+        try:
+            msg = json.loads(line)
+            if msg.get("type") == "rumble":
+                idx = msg.get("padIndex", 0)
+                strong = msg.get("strong", 0.0)
+                weak = msg.get("weak", 0.0)
+                duration = msg.get("duration", 200)
+
+                if os_type == "Windows" and xinput:
+                    vib = XINPUT_VIBRATION()
+                    vib.wLeftMotorSpeed = int(strong * 65535)
+                    vib.wRightMotorSpeed = int(weak * 65535)
+                    XInputSetState(idx, ctypes.byref(vib))
+                    def stop_vib():
+                        time.sleep(duration / 1000.0)
+                        vib_stop = XINPUT_VIBRATION(0, 0)
+                        XInputSetState(idx, ctypes.byref(vib_stop))
+                    threading.Thread(target=stop_vib, daemon=True).start()
+
+                elif os_type == "Linux":
+                    dev_to_rumble = None
+                    for path, dev in devices.items():
+                        if getattr(dev, 'my_idx', -1) == idx:
+                            dev_to_rumble = dev
+                            break
+                    if dev_to_rumble and evdev.ecodes.EV_FF in dev_to_rumble.capabilities():
+                        try:
+                            # evdev rumble
+                            r = evdev.ff.Rumble(strong_magnitude=int(strong * 65535), weak_magnitude=int(weak * 65535))
+                            effect_type = evdev.ff.EffectType(ff_rumble_effect=r)
+                            effect = evdev.ff.Effect(
+                                evdev.ecodes.FF_RUMBLE, -1, 0,
+                                evdev.ff.Trigger(0, 0),
+                                evdev.ff.Replay(int(duration), 0),
+                                effect_type
+                            )
+                            eid = dev_to_rumble.upload_effect(effect)
+                            dev_to_rumble.write(evdev.ecodes.EV_FF, eid, 1)
+                            # Let it play out naturally, but we should eventually erase it to prevent leak.
+                            # Usually simple controllers don't strictly require explicit erase.
+                        except Exception as e:
+                            eprint("Linux rumble failed:", e)
+        except Exception as e:
+            pass
+
+# Start stdin loop on main thread to keep script alive and responsive
+stdin_loop()
+

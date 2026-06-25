@@ -189,7 +189,7 @@
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--muted2);
-      margin-bottom: -8px;
+      margin-bottom: 4px;
     }
 
     .pin-input {
@@ -595,6 +595,9 @@
 
     #nsBarInner {
       width: 220px;
+      max-height: 100vh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       background: rgba(9, 10, 16, 0.9);
       backdrop-filter: blur(20px);
       border: 1px solid var(--border2);
@@ -604,6 +607,15 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+    }
+    
+    @media (max-width: 768px) {
+      #nsBarInner {
+        width: 190px;
+        padding: 8px;
+        gap: 4px;
+        border-radius: 12px 0 0 12px;
+      }
     }
 
     .ns-bar-section {
@@ -637,6 +649,13 @@
       transition: all 0.15s;
       text-align: left;
       width: 100%;
+    }
+    
+    @media (max-width: 768px) {
+      .ns-bar-btn {
+        font-size: 11px;
+        padding: 7px 10px;
+      }
     }
 
     .ns-bar-btn:hover {
@@ -1167,26 +1186,22 @@
 
     #touchUI .y {
       top: 0;
-      left: 50%;
-      transform: translateX(-50%);
+      left: calc(50% - min(7vw, 39px));
     }
 
     #touchUI .x {
       left: 0;
-      top: 50%;
-      transform: translateY(-50%);
+      top: calc(50% - min(7vw, 39px));
     }
 
     #touchUI .b {
       right: 0;
-      top: 50%;
-      transform: translateY(-50%);
+      top: calc(50% - min(7vw, 39px));
     }
 
     #touchUI .a {
       bottom: 0;
-      left: 50%;
-      transform: translateX(-50%);
+      left: calc(50% - min(7vw, 39px));
     }
 
     #touchUI .dpad {
@@ -1218,22 +1233,22 @@
 
     #touchUI .top-buttons {
       position: absolute;
-      top: 2vh;
+      top: 3vh;
       width: 100%;
       display: flex;
       justify-content: space-between;
-      padding: 0 4vw;
+      padding: 0 6vw;
     }
 
     #touchUI .trigger-group {
       display: flex;
-      gap: 10px;
+      gap: 20px;
     }
 
     #touchUI .trigger {
-      width: min(18vw, 130px);
-      height: min(7vh, 48px);
-      border-radius: 12px;
+      width: min(22vw, 140px);
+      height: min(9vh, 56px);
+      border-radius: 16px;
       background: rgba(255, 255, 255, 0.06);
       border: 2px solid rgba(255, 255, 255, 0.1);
       color: rgba(255, 255, 255, 0.7);
@@ -1246,6 +1261,7 @@
 
     #touchUI .trigger:active {
       background: rgba(139, 92, 246, 0.2);
+      transform: scale(0.95);
     }
 
     #touchUI .center-ui {
@@ -1532,8 +1548,8 @@
 
       <div id="pinWrap">
         <div class="pin-field-label" style="margin-top:4px;">PIN Code</div>
-        <input id="pinInput" type="number" placeholder="0000" maxlength="4" class="pin-input"
-          oninput="if(this.value.length>4)this.value=this.value.slice(0,4)"
+        <input id="pinInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0000" maxlength="4" class="pin-input"
+          oninput="this.value=this.value.replace(/[^0-9]/g, '').slice(0,4)"
           onkeydown="if(event.key==='Enter')submitPin()">
       </div>
 
@@ -1551,7 +1567,7 @@
 
   <!-- ════ VIDEO ════ -->
   <div id="video-container">
-    <video id="video" autoplay playsinline muted disableRemotePlayback></video>
+    <video id="video" autoplay playsinline muted disableRemotePlayback disablePictureInPicture></video>
     <canvas id="frameCanvas"></canvas>
     <canvas id="webcodecs-canvas"></canvas>
   </div>
@@ -1661,6 +1677,9 @@
         <button class="ns-bar-btn" data-bw="high" onclick="setBandwidthProfile('high')"
           style="flex:1;justify-content:center;font-size:10px;padding:7px 4px;">High</button>
       </div>
+      <button class="ns-bar-btn" onclick="toggleNetStats()" style="margin-top: 4px; justify-content: center; font-size: 10px;">
+        Toggle Net Stats
+      </button>
       <button class="ns-bar-btn" onclick="if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }))" style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Force Reload Stream
       </button>
@@ -1806,14 +1825,35 @@
         <div id="controllerGuideTitle">Controller Guide</div>
         <button id="controllerGuideClose" onclick="closeControllerGuide()">Close</button>
       </div>
-      <iframe id="controllerGuideFrame" src="/gamepad-popup.html" scrolling="no"></iframe>
+      <iframe id="controllerGuideFrame" src="/gamepad-popup.html"></iframe>
       <button id="controllerGuideConfirm" onclick="acknowledgeControllerGuide()">Got it</button>
     </div>
+  </div>
+
+  <!-- ════ NET STATS OVERLAY ════ -->
+  <style>
+    #netStatsOverlay {
+      position: fixed; top: 70px; right: 16px;
+      background: rgba(9,10,16,0.85); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 14px; z-index: 200; pointer-events: none;
+      font-family: var(--mono); font-size: 10px; color: var(--text);
+      display: flex; flex-direction: column; gap: 4px; width: 140px;
+    }
+    #netStatsOverlay.gone { display: none !important; }
+  </style>
+  <div id="netStatsOverlay" class="gone">
+    <div style="font-weight:700; margin-bottom:4px; font-size:11px; color:var(--accent); font-family:var(--sans);">NET STATS</div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Ping:</span> <span id="nsPing">-- ms</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bitrate:</span> <span id="nsBitrate">-- kbps</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span id="nsLoss">-- %</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span id="nsJitter">-- ms</span></div>
   </div>
 
   <!-- ════ SCRIPTS ════ -->
   <script src="/js/i18n.js"></script>
   <script src="/js/version.js"></script>
+  <script type="module" src="/js/p2p-signaler.js"></script>
   <script src="/js/viewer.js?v=8"></script>
 
   <!-- Post-load patches — run after viewer.js is fully parsed -->
@@ -1975,15 +2015,45 @@
       }
     });
 
+    let _nsBarTimeout = null;
+    function resetNsBarTimeout() {
+      clearTimeout(_nsBarTimeout);
+      if (nsBar && nsBar.classList.contains('open')) {
+        _nsBarTimeout = setTimeout(() => {
+          nsBar.classList.remove('open');
+        }, 4000);
+      }
+    }
+
+    if (nsBar) {
+      nsBar.addEventListener('touchstart', resetNsBarTimeout, { passive: true });
+      nsBar.addEventListener('scroll', resetNsBarTimeout, { passive: true });
+    }
+
     // ── Touch swipe-from-right to open nsBar ──
     let _touchStartX = 0;
     document.addEventListener('touchstart', e => {
       _touchStartX = e.touches[0].clientX;
+      
+      // Close nsBar if tap is outside it on mobile
+      if (nsBar && nsBar.classList.contains('open') && !nsBar.contains(e.target)) {
+        nsBar.classList.remove('open');
+        clearTimeout(_nsBarTimeout);
+      }
     }, { passive: true });
     document.addEventListener('touchend', e => {
       const dx = e.changedTouches[0].clientX - _touchStartX;
+      
+      // Swipe left from right edge to open
       if (_touchStartX > window.innerWidth - 44 && dx < -20) {
         nsBar.classList.add('open');
+        resetNsBarTimeout();
+      }
+      
+      // Swipe right to forcefully close
+      if (nsBar && nsBar.classList.contains('open') && dx > 40) {
+        nsBar.classList.remove('open');
+        clearTimeout(_nsBarTimeout);
       }
     }, { passive: true });
   </script>

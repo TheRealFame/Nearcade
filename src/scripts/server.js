@@ -2,15 +2,21 @@ const express = require("express");
 const http = require("http");
 const https = require("https");
 const WebSocket = require("ws");
+const crypto = require('crypto');
+require('dotenv').config();
+const si = require('systeminformation');
+
+// Helper to anonymize IPs so we never store them
+function hashIp(ip) { return crypto.createHash('sha256').update(ip).digest('hex'); }
 const os = require("os");
 const net = require("net");
 const fs = require("fs");
 const path = require('path');
 const sidecarPath = __dirname.includes('app.asar')
-? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'sidecar', 'input_driver.py')
-: path.join(__dirname, "..", "sidecar", "input_driver.py");
+  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'sidecar', 'input_driver.py')
+  : path.join(__dirname, "..", "sidecar", "input_driver.py");
 const { exec, spawn } = require("child_process");
-const open = (...args) => import('open').then(({default: open}) => open(...args));
+const open = (...args) => import('open').then(({ default: open }) => open(...args));
 const which = require("which");
 const killPort = require("kill-port");
 const captureManager = require('../sidecar/CaptureManager.js');
@@ -25,7 +31,7 @@ const viewers = new Map();
 const viewerNames = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
-const crypto = require("crypto");
+
 const { Worker } = require('worker_threads');
 
 const PusherRaw = require('pusher-js');
@@ -63,17 +69,17 @@ function spawnAudioWorker() {
 
   _audioWorker.on('message', (msg) => {
     switch (msg.type) {
-      case 'log':        console.log(msg.message);   break;
-      case 'error':      console.error(msg.message); break;
+      case 'log': console.log(msg.message); break;
+      case 'error': console.error(msg.message); break;
       case 'module-ids': Object.assign(_vAudioModules, msg.ids); break;
-      case 'ready':      console.log('[VirtualAudio] Worker ready.'); break;
-      case 'destroyed':  console.log('[VirtualAudio] Worker teardown complete.'); break;
+      case 'ready': console.log('[VirtualAudio] Worker ready.'); break;
+      case 'destroyed': console.log('[VirtualAudio] Worker teardown complete.'); break;
       case 'backend-selected': console.log(`[VirtualAudio] Using ${msg.backend} backend.`); break;
     }
   });
 
-  _audioWorker.on('error',  (e)    => console.error('[audio_worker] Runtime error:', e.message));
-  _audioWorker.on('exit',   (code) => {
+  _audioWorker.on('error', (e) => console.error('[audio_worker] Runtime error:', e.message));
+  _audioWorker.on('exit', (code) => {
     if (code !== 0) console.warn(`[audio_worker] Exited with code ${code}`);
     _audioWorker = null;
   });
@@ -150,7 +156,7 @@ if (typeof PusherRaw === 'function') {
 } else {
   console.error("PUSHER DIAGNOSTIC:", PusherRaw);
   Pusher = class DummyPusher {
-    subscribe() { return { trigger: () => {} }; }
+    subscribe() { return { trigger: () => { } }; }
   };
 }
 
@@ -173,7 +179,7 @@ function spawnArcadeHeartbeatWorker() {
 
   _arcadeWorker.on('message', (msg) => {
     switch (msg.type) {
-      case 'log':   console.log(msg.message);   break;
+      case 'log': console.log(msg.message); break;
       case 'error': console.error(msg.message); break;
 
       // Worker asks main thread to fire the Pusher trigger
@@ -190,8 +196,8 @@ function spawnArcadeHeartbeatWorker() {
     }
   });
 
-  _arcadeWorker.on('error',  (e)    => console.error('[arcade_heartbeat] Runtime error:', e.message));
-  _arcadeWorker.on('exit',   (code) => {
+  _arcadeWorker.on('error', (e) => console.error('[arcade_heartbeat] Runtime error:', e.message));
+  _arcadeWorker.on('exit', (code) => {
     if (code !== 0) console.warn(`[arcade_heartbeat] Exited with code ${code}`);
     _arcadeWorker = null;
   });
@@ -228,11 +234,9 @@ function normalizeGamepadMsg(msg) {
   const btns = msg.buttons || [];
 
   // ── STRICT DATA VALIDATION REWRITE ──
-  // Actively drop malformed, empty, or maliciously large data chunks.
-  if (axes.length === 0 && btns.length === 0) {
-    console.warn(`[input_validator] REJECTED: Empty Gamepad API arrays. Axes: ${axes.length}, Buttons: ${btns.length}`);
-    return null;
-  }
+  // Actively drop malformed or maliciously large data chunks.
+  // NOTE: We do NOT reject empty arrays — an all-zero/rest state is
+  // still valid and MUST be processed so that _claimSlot runs for new viewers.
   if (axes.length > 20 || btns.length > 40) {
     console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes.length}, Buttons: ${btns.length}`);
     return null;
@@ -308,9 +312,9 @@ const envFile = path.join(dataDir, '.env');
   try {
     // Walk up from src/scripts to find the project root (two levels up)
     const projectRoot = path.resolve(__dirname, '..', '..');
-    const configDir   = path.join(projectRoot, 'config');
+    const configDir = path.join(projectRoot, 'config');
     const symlinkPath = path.join(configDir, 'nearsectogether.config.json');
-    const realTarget  = path.join(dataDir, 'nearsectogether.config.json');
+    const realTarget = path.join(dataDir, 'nearsectogether.config.json');
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     try {
       const existing = fs.lstatSync(symlinkPath);
@@ -350,7 +354,7 @@ function getLanIP() {
   for (const iface of Object.values(os.networkInterfaces()))
     for (const n of iface)
       if (n.family === "IPv4" && !n.internal) return n.address;
-      return "127.0.0.1";
+  return "127.0.0.1";
 }
 function shouldRequirePin(ip, hasTunnelHeader = false) {
   // REQ 5: Arcade Mode PIN Stripping
@@ -369,7 +373,7 @@ function getTailscaleIP() {
   for (const iface of Object.values(os.networkInterfaces()))
     for (const n of iface)
       if (n.family === "IPv4" && n.address.startsWith("100.")) return n.address;
-      return null;
+  return null;
 }
 function findFreePort(start) {
   return new Promise(resolve => {
@@ -446,7 +450,7 @@ function readEnv(key) {
         }
       }
     }
-  } catch (e) {}
+  } catch (e) { }
   return null;
 }
 
@@ -505,8 +509,8 @@ function startTunnelCloudflared(port) {
       };
       proc.stderr.on("data", check);
 
-      proc.on("error", () => { if (!done) { done=true; resolve(null); } });
-      proc.on("close", () => { if (!done) { done=true; resolve(null); } });
+      proc.on("error", () => { if (!done) { done = true; resolve(null); } });
+      proc.on("close", () => { if (!done) { done = true; resolve(null); } });
     });
   });
 }
@@ -545,8 +549,8 @@ function startTunnelVps(port, vpsHost) {
 
         const customEnvUrl = readEnv('CUSTOM_URL');
         let url = (customEnvUrl && customEnvUrl.trim() !== '')
-        ? customEnvUrl.trim().replace(/\/$/, "")
-        : `http://${vpsHost.split('@').pop().trim()}:${port}`;
+          ? customEnvUrl.trim().replace(/\/$/, "")
+          : `http://${vpsHost.split('@').pop().trim()}:${port}`;
 
         // CRITICAL FIX: Append /?v3 for Discord Integration
         url += '/?v3';
@@ -563,8 +567,8 @@ function startTunnelVps(port, vpsHost) {
           }
         });
 
-        proc.on("error", () => { if (!done) { done=true; resolve(null); } });
-        proc.on("close", () => { if (!done) { done=true; resolve(null); } });
+        proc.on("error", () => { if (!done) { done = true; resolve(null); } });
+        proc.on("close", () => { if (!done) { done = true; resolve(null); } });
       });
     });
   });
@@ -584,7 +588,7 @@ function startTunnelPlayit(port) {
         const claim = str.match(/https:\/\/playit\.gg\/claim\/[a-z0-9\-]+/i);
         if (claim) { console.log("  \x1b[33m!\x1b[0m playit first-run — visit: \x1b[1m" + claim[0] + "\x1b[0m"); openBrowser(claim[0]); }
         const url = str.match(/https?:\/\/[a-z0-9\-]+\.at\.playit\.gg(?::\d+)?/i)
-        || str.match(/https?:\/\/[a-z0-9\-]+\.playit\.gg(?::\d+)?/i);
+          || str.match(/https?:\/\/[a-z0-9\-]+\.playit\.gg(?::\d+)?/i);
         if (url && !done) { done = true; resolve({ url: url[0], proc }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url[0] + "\x1b[0m"); }
       };
       proc.stdout.on("data", check); proc.stderr.on("data", check);
@@ -649,16 +653,16 @@ function startTunnelServeo(port) {
 function startTunnelZrok(port, retries = 3) {
   return new Promise(async (resolve) => {
     const zrokPath = await findBinaryPath('zrok').then(p => p).catch(() => null)
-    || await findBinaryPath('zrok2').then(p => p).catch(() => null)
-    || (function() {
-      const candidates = [
-        '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
-        path.join(os.homedir(), 'bin/zrok'), './zrok',
-        path.join(os.homedir(), 'zrok', 'zrok.exe'),
-      ];
-      for (const c of candidates) if (fs.existsSync(c)) return c;
-      return null;
-    })();
+      || await findBinaryPath('zrok2').then(p => p).catch(() => null)
+      || (function () {
+        const candidates = [
+          '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
+          path.join(os.homedir(), 'bin/zrok'), './zrok',
+          path.join(os.homedir(), 'zrok', 'zrok.exe'),
+        ];
+        for (const c of candidates) if (fs.existsSync(c)) return c;
+        return null;
+      })();
 
     if (!zrokPath) { resolve({ error: 'NOT_FOUND', provider: 'zrok' }); return; }
     ensureExecutable(zrokPath);
@@ -679,28 +683,28 @@ function startTunnelZrok(port, retries = 3) {
       }
     };
     proc.stdout.on("data", check); proc.stderr.on("data", check);
-    proc.on("close", c => { 
-        if (!done) { 
-            console.log("  \x1b[33m!\x1b[0m zrok share failed or closed (code " + c + ")"); 
-            if (retries > 0) {
-                console.log("  \x1b[33m~\x1b[0m Retrying Zrok tunnel in 3 seconds...");
-                setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
-            } else {
-                resolve(null); 
-            }
-        } 
+    proc.on("close", c => {
+      if (!done) {
+        console.log("  \x1b[33m!\x1b[0m zrok share failed or closed (code " + c + ")");
+        if (retries > 0) {
+          console.log("  \x1b[33m~\x1b[0m Retrying Zrok tunnel in 3 seconds...");
+          setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+        } else {
+          resolve(null);
+        }
+      }
     });
-    setTimeout(() => { 
-        if (!done) { 
-            done = true; proc.kill(); 
-            if (retries > 0) {
-                console.log("  \x1b[33m~\x1b[0m Zrok timeout. Retrying in 3 seconds...");
-                setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
-            } else {
-                resolve(null); 
-                console.log("  \x1b[33m!\x1b[0m zrok share timeout."); 
-            }
-        } 
+    setTimeout(() => {
+      if (!done) {
+        done = true; proc.kill();
+        if (retries > 0) {
+          console.log("  \x1b[33m~\x1b[0m Zrok timeout. Retrying in 3 seconds...");
+          setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+        } else {
+          resolve(null);
+          console.log("  \x1b[33m!\x1b[0m zrok share timeout.");
+        }
+      }
     }, 20000);
   }).catch(() => null);
 }
@@ -723,7 +727,7 @@ async function startTunnel(port) {
   console.log("  \x1b[33m~\x1b[0m Trying localhost.run and serveo in parallel...");
   const ssh = await Promise.any([
     startTunnelLocalhostRun(port),
-                                startTunnelServeo(port)
+    startTunnelServeo(port)
   ].map(p => p.then(r => r || Promise.reject()))).catch(() => null);
   if (ssh) return ssh;
   console.log("  \x1b[33m!\x1b[0m All tunnels failed. Options:");
@@ -735,27 +739,27 @@ async function startTunnel(port) {
 
 function sanitize(str) {
   return String(str).replace(/[<>&"']/g, c =>
-  ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c])).slice(0, 300);
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c])).slice(0, 300);
 }
 function makePin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
 // ── Arcade session registry ───────────────────────────────────────────────────
 const arcadeSessions = new Map();
-const arcadeClients  = new Set();
-let   arcadeHostId   = 0;
+const arcadeClients = new Set();
+let arcadeHostId = 0;
 
 const ARCADE_ALLOWED_DOMAINS = [
   'trycloudflare.com',
-'zrok.io',
-'localhost.run',
-'serveo.net',
+  'zrok.io',
+  'localhost.run',
+  'serveo.net',
 ];
 function isAllowedArcadeUrl(rawUrl) {
   try {
     const u = new URL(rawUrl);
     if (u.protocol !== 'https:') return false;
     return ARCADE_ALLOWED_DOMAINS.some(d =>
-    u.hostname === d || u.hostname.endsWith('.' + d)
+      u.hostname === d || u.hostname.endsWith('.' + d)
     );
   } catch { return false; }
 }
@@ -796,7 +800,7 @@ async function main() {
     console.log("  GAMEPAD:  Requires ViGEmBus driver");
     console.log("            https://github.com/nefarius/ViGEmBus/releases");
     console.log("  INPUT:    KBM (keyboard/mouse) working");
-    console.log("  AUDIO:    Using Windows Media Player (via PowerShell)");
+    console.log("  AUDIO:    No loopback capture available natively");
     console.log("  NOTES:    Process priority may be limited without admin");
     console.log("============================================================");
   } else if (process.platform === 'darwin') {
@@ -827,11 +831,11 @@ async function main() {
   console.log("  Host page : http://localhost:" + PORT + "/host");
   console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
   if (PUBLIC_IP) console.log("  Public IP : http://" + PUBLIC_IP + ":" + PORT + "/ (needs port forward)");
-    console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
+  console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
 
   const app = express();
   const server = http.createServer(app);
-  const wss = new WebSocket.Server({ server });
+  const wss = new WebSocket.Server({ server, perMessageDeflate: false });
 
   app.use((req, res, next) => {
     res.setHeader("Permissions-Policy", "gamepad=*, display-capture=(self)");
@@ -843,7 +847,7 @@ async function main() {
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
       return pkg.version || '1.0.0';
-    } catch(e) { return '1.0.0'; }
+    } catch (e) { return '1.0.0'; }
   })();
   app.use('/docs', express.static(path.join(__dirname, '..', 'docs')));
 
@@ -867,7 +871,7 @@ async function main() {
   app.get("/", (req, res) => {
     const indexPath = path.join(pagesDir, "index.html");
     let html;
-    try { html = fs.readFileSync(indexPath, "utf8"); } catch(_) { return res.sendFile(indexPath); }
+    try { html = fs.readFileSync(indexPath, "utf8"); } catch (_) { return res.sendFile(indexPath); }
     const sess = arcadeSessions.size > 0 ? [...arcadeSessions.values()][0] : null;
 
     // Grab the host name from the URL query, fallback to "A player"
@@ -875,13 +879,13 @@ async function main() {
 
     // Inject the host name dynamically into the Discord tags
     const ogTitle = sess ? sess.game : `${hostName} is looking to play!`;
-    const ogDesc  = sess ? `Join the live ${sess.game} session on Nearsec.` : `${hostName} is hosting a peer-to-peer gaming session on Nearsec.`;
+    const ogDesc = sess ? `Join the live ${sess.game} session on Nearsec.` : `${hostName} is hosting a peer-to-peer gaming session on Nearsec.`;
     const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearsec.cutefame.net/assets/NearsecTogether.png";
 
     html = html
-    .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)
-    .replace(/(<meta property="og:description"\s+content=")[^"]*"/, `$1${ogDesc}"`)
-    .replace(/(<meta property="og:image"\s+content=")[^"]*"/, `$1${ogImage}"`);
+      .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)
+      .replace(/(<meta property="og:description"\s+content=")[^"]*"/, `$1${ogDesc}"`)
+      .replace(/(<meta property="og:image"\s+content=")[^"]*"/, `$1${ogImage}"`);
     res.type("html").send(html);
   });
   app.get("/host", (req, res) => res.sendFile(path.join(pagesDir, "host.html")));
@@ -916,15 +920,46 @@ async function main() {
     res.json({ hasPassword: !!sessionPassword });
   });
 
+  app.get("/api/sysinfo", async (req, res) => {
+    try {
+      const [cpu, mem, net] = await Promise.all([
+        si.currentLoad(),
+        si.mem(),
+        si.networkStats()
+      ]);
+      const activeNet = net.find(n => n.tx_sec > 0 || n.rx_sec > 0) || net[0];
+      res.json({
+        cpu: cpu.currentLoad.toFixed(1) + '%',
+        ram: (mem.active / 1024 / 1024 / 1024).toFixed(1) + 'GB / ' + (mem.total / 1024 / 1024 / 1024).toFixed(1) + 'GB',
+        netTx: activeNet ? (activeNet.tx_sec / 1024).toFixed(1) + ' KB/s' : '0 KB/s',
+        netRx: activeNet ? (activeNet.rx_sec / 1024).toFixed(1) + ' KB/s' : '0 KB/s',
+        latency: 'Local'
+      });
+    } catch (e) {
+      res.json({ error: true });
+    }
+  });
+
+  app.get("/api/turn", (req, res) => {
+    res.json({
+      urls: [
+        process.env.METERED_TURN_URL || 'turn:openrelay.metered.ca:80',
+        process.env.METERED_TURN_URL_SECURE || 'turn:openrelay.metered.ca:443'
+      ],
+      username: process.env.METERED_TURN_USERNAME || 'openrelayproject',
+      credential: process.env.METERED_TURN_CREDENTIAL || 'openrelayproject'
+    });
+  });
+
   app.get("/api/status", (req, res) => {
     res.json({
       online: !!hostWS,
       streaming: hostStreaming,
       viewers: viewers.size,
       controllers: controllerViewerCount(),
-             tunnel: tunnelUrl,
-             version: APP_VERSION,
-             uptime: process.uptime()
+      tunnel: tunnelUrl,
+      version: APP_VERSION,
+      uptime: process.uptime()
     });
   });
 
@@ -974,13 +1009,13 @@ async function main() {
     res.json([...arcadeSessions.values()]);
   });
   app.post("/api/open-terminal", express.json(), (req, res) => {
-    if (process.platform !== "linux") return res.status(400).json({ ok:false, reason:"Linux only" });
+    if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
     const { cmd, name } = req.body || {};
-    if (!cmd) return res.status(400).json({ ok:false });
-    const title = (name||"Auto-Host").replace(/"/g,"'");
-    const terms = [`gnome-terminal --title="${title}" -- bash -c "${cmd}; exec bash"`,`xterm -title "${title}" -e bash -c "${cmd}; exec bash"`,`konsole --title "${title}" -e bash -c "${cmd}; exec bash"`];
+    if (!cmd) return res.status(400).json({ ok: false });
+    const title = (name || "Auto-Host").replace(/"/g, "'");
+    const terms = [`gnome-terminal --title="${title}" -- bash -c "${cmd}; exec bash"`, `xterm -title "${title}" -e bash -c "${cmd}; exec bash"`, `konsole --title "${title}" -e bash -c "${cmd}; exec bash"`];
     const { exec: _exec } = require("child_process");
-    let i=0; (function t(){ if(i>=terms.length) return res.json({ok:false,reason:"no terminal found"}); _exec(terms[i++], err=>{ if(err) t(); else res.json({ok:true}); }); })();
+    let i = 0; (function t() { if (i >= terms.length) return res.json({ ok: false, reason: "no terminal found" }); _exec(terms[i++], err => { if (err) t(); else res.json({ ok: true }); }); })();
   });
 
   let activeGameProc = null;
@@ -1025,8 +1060,8 @@ async function main() {
 
   app.post("/api/restart-game", express.json(), (req, res) => {
     if (activeGameProc) {
-      try { process.kill(-activeGameProc.pid); } catch(e){}
-      try { activeGameProc.kill(); } catch(e){}
+      try { process.kill(-activeGameProc.pid); } catch (e) { }
+      try { activeGameProc.kill(); } catch (e) { }
       activeGameProc = null;
     }
 
@@ -1071,7 +1106,7 @@ async function main() {
 
     if (activeTunnelProc) {
       console.log("  \x1b[33m~\x1b[0m Stopping existing tunnel process before switching...");
-      try { activeTunnelProc.kill(); } catch(e){}
+      try { activeTunnelProc.kill(); } catch (e) { }
       activeTunnelProc = null;
     }
     tunnelUrl = null;
@@ -1083,8 +1118,8 @@ async function main() {
 
     // CRITICAL FIX: Use readEnv to catch the host if the GUI fails to pass it!
     const resolvedVpsHost = (req.body && req.body.vpsHost)
-    ? req.body.vpsHost.trim()
-    : (readEnv('VPS_HOST') || '').trim();
+      ? req.body.vpsHost.trim()
+      : (readEnv('VPS_HOST') || '').trim();
 
     const fn = {
       zrok: startTunnelZrok,
@@ -1093,7 +1128,7 @@ async function main() {
       localhostrun: startTunnelLocalhostRun,
       serveo: startTunnelServeo,
       vps: (p) => startTunnelVps(p, resolvedVpsHost),
-           portforward: async () => null
+      portforward: async () => null
     }[provider] || startTunnel;
 
     if (provider === 'vps' && resolvedVpsHost) {
@@ -1140,6 +1175,82 @@ async function main() {
     }
   });
 
+  // ── C++ rumble callback — registered immediately after init so it fires
+  // whether or not the Python sidecar is also running.
+  // input-ready is a Python-only event so the old placement meant the callback
+  // was never registered when the C++ bridge loaded successfully.
+  if (inputDriver._bridge && inputDriver._bridge.setRumbleCallback) {
+    inputDriver._bridge.setRumbleCallback((data) => {
+      // getViewerForSlot returns the padId (e.g. "uuid_0"); strip the _N suffix
+      // to get the bare viewer UUID that keys the viewers map.
+      const padId = inputDriver.getViewerForSlot ? inputDriver.getViewerForSlot(data.slot) : null;
+      const realId = padId ? padId.replace(/_\d+$/, '') : null;
+      console.log(`[Rumble] C++ callback fired — slot=${data.slot} padId=${padId} viewer=${realId || 'unknown'} strong=${data.strong.toFixed(3)} weak=${data.weak.toFixed(3)}`);
+      const rumbleMsg = JSON.stringify({
+        type: 'rumble',
+        strong: data.strong,
+        weak: data.weak,
+        duration: data.duration || 200,
+      });
+      if (realId) {
+        const vws = viewers.get(realId);
+        if (vws && vws.readyState === 1) {
+          // Direct local WebSocket viewer
+          vws.send(rumbleMsg);
+          console.log(`[Rumble] Sent directly to viewer ${realId}`);
+        } else if (vws === null) {
+          // VPS viewer — no direct WS. Bounce via hostWS so host.js
+          // can dispatch it over _vpsWs to the Rust router.
+          if (hostWS && hostWS.readyState === 1) {
+            hostWS.send(JSON.stringify({
+              type: 'rumble',
+              targetViewerId: realId,
+              strong: data.strong,
+              weak: data.weak,
+              duration: data.duration || 200,
+            }));
+            console.log(`[Rumble] Bounced via hostWS to VPS viewer ${realId}`);
+          } else {
+            console.warn(`[Rumble] hostWS not open, cannot reach VPS viewer ${realId}`);
+          }
+        } else {
+          console.warn(`[Rumble] Viewer ${realId} WebSocket not open (state: ${vws?.readyState})`);
+        }
+      } else {
+        // Slot not yet resolved — broadcast to all viewers best-effort
+        console.warn(`[Rumble] No viewer for slot ${data.slot} — broadcasting best-effort`);
+        viewers.forEach((vws, vid) => {
+          if (vws && vws.readyState === 1) try { vws.send(rumbleMsg); } catch (_) { }
+          else if (vws === null && hostWS && hostWS.readyState === 1) {
+            hostWS.send(JSON.stringify({ type: 'rumble', targetViewerId: vid, strong: data.strong, weak: data.weak, duration: data.duration || 200 }));
+          }
+        });
+      }
+    });
+    console.log('[InputOrchestrator] C++ rumble callback registered.');
+  }
+
+  // ── Python sidecar rumble forwarding ─────────────────────────────────────────
+  // When the Python backend detects an EV_FF/FF_RUMBLE event it emits 'rumble'
+  // on the events bus. Route that to the specific viewer's WebSocket.
+  inputDriver.events.on('rumble', (data) => {
+    const rumbleMsg = JSON.stringify({
+      type: 'rumble',
+      strong: data.strong || 0,
+      weak: data.weak || 0,
+      duration: data.duration || 200,
+    });
+    if (data.viewerId) {
+      const vws = viewers.get(data.viewerId);
+      if (vws && vws.readyState === 1) vws.send(rumbleMsg);
+    } else {
+      // viewerId unknown — broadcast to all connected viewers (best-effort)
+      viewers.forEach((vws) => {
+        if (vws.readyState === 1) try { vws.send(rumbleMsg); } catch (_) { }
+      });
+    }
+  });
+
   let hostStreaming = false;
   const audioViewers = new Set();
   const viewerGamepads = new Map();
@@ -1147,12 +1258,12 @@ async function main() {
   const hwIdToViewer = new Map();
 
   const JOIN_SOUND = __dirname.includes('app.asar')
-  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'joinsound.wav')
-  : path.join(__dirname, '../../assets/joinsound.wav');
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'joinsound.wav')
+    : path.join(__dirname, '../../assets/joinsound.wav');
 
   const LEAVE_SOUND = __dirname.includes('app.asar')
-  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'leavesound.wav')
-  : path.join(__dirname, '../../assets/leavesound.wav');
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'leavesound.wav')
+    : path.join(__dirname, '../../assets/leavesound.wav');
 
   const { playSound: playSoundUtil } = require('./audio-util');
 
@@ -1190,7 +1301,7 @@ async function main() {
 
   function broadcastRoster() {
     const roster = [];
-    roster.push({ id:'host_0', name:'Host', gp:false, kb:false, slot:0, locked:true, inputMode:'host' });
+    roster.push({ id: 'host_0', name: 'Host', gp: false, kb: false, slot: 0, locked: true, inputMode: 'host' });
     let autoSlot = 1;
     viewers.forEach((vws, id) => {
       const pads = viewerGamepads.get(id) || new Set([0]);
@@ -1328,20 +1439,20 @@ async function main() {
           if (msg.type === "kick-viewer") {
             const realId = msg.viewerId.split('_')[0];
             const targetWs = viewers.get(realId);
-            
+
             viewers.delete(realId);
             viewerNames.delete(realId);
             inputPerms.delete(realId);
 
             if (targetWs) {
-              try { targetWs.send(JSON.stringify({ type: "pin-rejected", reason: "kicked" })); } catch {}
+              try { targetWs.send(JSON.stringify({ type: "pin-rejected", reason: "kicked" })); } catch { }
               targetWs.close(4003, "KICKED");
               console.log(`[host] Kicked viewer ${realId}`);
             } else if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify({ type: "pin-rejected", reason: "kicked", targetViewerId: realId }));
               console.log(`[host] Kicked VPS viewer ${realId}`);
             }
-            
+
             broadcastRoster();
             return;
           }
@@ -1382,9 +1493,9 @@ async function main() {
           }
 
           if (msg.type === "ctrl-settings") {
-            toUinput({ type: 'set_force_xboxone',    value: !!msg.forceXboxOne });
+            toUinput({ type: 'set_force_xboxone', value: !!msg.forceXboxOne });
             toUinput({ type: 'set_enable_dualshock', value: !!msg.enableDualShock });
-            toUinput({ type: 'set_enable_motion',    value: !!msg.enableMotion });
+            toUinput({ type: 'set_enable_motion', value: !!msg.enableMotion });
             toUinput({ type: 'ctrl-settings-hybrid', enabled: !!msg.hybridInput });
 
             // Save global states
@@ -1404,7 +1515,7 @@ async function main() {
             broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion }));
 
             console.log("[host] ctrl-settings: forceXboxOne=%s enableDualShock=%s enableMotion=%s hybrid=%s ctrlType=%s touchLayout=%s",
-                        !!msg.forceXboxOne, !!msg.enableDualShock, !!msg.enableMotion, !!msg.hybridInput, global.currentCtrlType, global.touchLayout);
+              !!msg.forceXboxOne, !!msg.enableDualShock, !!msg.enableMotion, !!msg.hybridInput, global.currentCtrlType, global.touchLayout);
             return;
           }
 
@@ -1421,15 +1532,15 @@ async function main() {
           }
           if (msg.type === "set-input-mode") {
             const modeMap = {
-              gamepad:      { gp: true,  kb: false },
-              kbm:          { gp: false, kb: true  },
-              kbm_emulated: { gp: true,  kb: true  },
-              disabled:     { gp: false, kb: false }
+              gamepad: { gp: true, kb: false },
+              kbm: { gp: false, kb: true },
+              kbm_emulated: { gp: true, kb: true },
+              disabled: { gp: false, kb: false }
             };
             const perms = modeMap[msg.mode] || { gp: true, kb: false };
             const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null, mode: 'gamepad' };
             inputPerms.set(msg.viewerId, { ...cur, ...perms, mode: msg.mode });
-            
+
             const realId = msg.viewerId.split('_')[0];
             const vws = viewers.get(realId);
             if (vws && vws.readyState === 1) {
@@ -1471,9 +1582,9 @@ async function main() {
               region: `${sessionName}'s Arcade`, // FIXED: Uses actual name for Rich Presence
               hasPin: !!msg.config?.requirePin,
               maxPlayers: parseInt(msg.config?.maxPlayers || 4),
-            url: arcadeUrl,
-            startedAt: Date.now(),
-            isStreaming: true,
+              url: arcadeUrl,
+              startedAt: Date.now(),
+              isStreaming: true,
             };
             arcadeSessions.set(sessionId, session);
             console.log("[arcade] Session registered:", session.game, arcadeUrl);
@@ -1543,7 +1654,7 @@ async function main() {
             viewers.delete(id);
             viewerNames.delete(id);
             const padId = id + '_0';
-            toUinput({ type: 'flush_neutral',     viewer_id: padId });
+            toUinput({ type: 'flush_neutral', viewer_id: padId });
             toUinput({ type: 'disconnect_viewer', viewer_id: padId });
             inputPerms.delete(padId);
             if (hostWS && hostWS.readyState === 1) {
@@ -1557,18 +1668,28 @@ async function main() {
           // ── VPS viewer input ──────────────────────────────────────────────
           // Gamepad/KBM packets stamped with viewerId by host.js VPS bridge.
           // Route directly to the uinput driver — same path as local viewers.
+          // IMPORTANT: viewerId here is the full Rust UUID (e.g. "f4a38b29-9dee-...")
+          // inputPerms is keyed by "UUID_padIndex" — do NOT split on '_' or you lose the UUID.
           if ((msg.type === 'gamepad' || msg.type === 'keyboard' || msg.type === 'kbm' || msg.type === 'gpid') && msg.viewerId) {
+
+            if (msg.type === 'gamepad') {
+              // Add simple debug logging to see if VPS inputs even reach this point
+              console.log(`[DEBUG VPS-GP] Arrived: viewerId=${msg.viewerId} pad_id=${msg.pad_id}`);
+            }
+
+            // Use the full UUID as canonical viewer id
+            const id = String(msg.viewerId);
+            const padIdx = (msg.type === 'gpid' ? (msg.padIndex || 0) : (msg.padIndex || 0));
+            const padId = id + '_' + padIdx;
+
             if (msg.type === 'gpid') {
-              const id = String(msg.viewerId).split('_')[0];
-              const padIdx = msg.padIndex || 0;
               const pads = viewerGamepads.get(id) || new Set();
-              
               if (!pads.has(padIdx)) {
                 pads.add(padIdx);
                 viewerGamepads.set(id, pads);
-                msg.pad_id = id + '_' + padIdx;
-                if (!inputPerms.has(id)) inputPerms.set(id, { gp: true, kb: false, slot: null, mode: 'gamepad' });
-                
+                msg.pad_id = padId;
+                msg.viewer_id = id;
+                if (!inputPerms.has(padId)) inputPerms.set(padId, { gp: true, kb: false, slot: null, mode: 'gamepad' });
                 if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: id, id: msg.id }));
                 toUinput(msg);
                 broadcastRoster();
@@ -1577,23 +1698,34 @@ async function main() {
             }
 
             if (msg.type === 'keyboard') msg.type = 'kbm';
-            const id = String(msg.viewerId).split('_')[0];
-            const padId = msg.pad_id || (id + '_0');
-            msg.pad_id   = padId;
+
+            // Always stamp with server-canonical padId so it matches inputPerms
+            msg.pad_id = padId;
             msg.viewer_id = id;
-            const perms = inputPerms.get(id) || inputPerms.get(padId) || { gp: true, kb: false };
-            
+            msg.viewerId = id;
+
+            const perms = inputPerms.get(padId) || inputPerms.get(id + '_0') || { gp: true, kb: false };
+
             if (msg.type === 'kbm') {
               console.log(`[DEBUG KBM] (/ws/host) padId: ${padId}, perms: ${JSON.stringify(perms)}, Event: ${msg.event} ${msg.key}`);
             }
 
             if (msg.type === 'gamepad') {
-              if (!perms.gp) return;
-              msg = normalizeGamepadMsg(msg);
+              if (!perms.gp) {
+                console.log(`[DEBUG VPS-GP] DROPPED: perms.gp is false for padId=${padId}. perms=`, perms);
+                return;
+              }
+              const norm = normalizeGamepadMsg(msg);
+              if (!norm) {
+                console.log(`[DEBUG VPS-GP] DROPPED: normalizeGamepadMsg returned null`);
+                return; // validator rejected it
+              }
+              inputDriver.send(norm);
+              return;
             }
             if (msg.type === 'kbm' && !perms.kb) {
-                console.log(`[DEBUG KBM] Dropped in /ws/host due to perms.kb=false`);
-                return;
+              console.log(`[DEBUG KBM] Dropped in /ws/host due to perms.kb=false`);
+              return;
             }
             if (msg.type === 'kbm') console.log(`[DEBUG KBM] Sending to InputOrchestrator!`);
             inputDriver.send(msg);
@@ -1625,30 +1757,31 @@ async function main() {
       const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
       const hasTunnelHeader = !!req.headers['x-forwarded-for'] || !!req.headers['cf-connecting-ip'];
       const requirePin = shouldRequirePin(clientIp, hasTunnelHeader);
+      const anonHash = hashIp(clientIp);
 
       if (pinEnabled && requirePin) {
-        const attempt = pinAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
+        const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
         if (Date.now() < attempt.lockedUntil) {
           try { ws.send(JSON.stringify({ type: "pin-rejected", reason: "rate-limited" })); } catch { }
           ws.close(4001, "PIN_RATE_LIMITED");
-          console.log(`[viewer] rejected — IP ${clientIp} is rate-limited`);
+          console.log(`[viewer] rejected — an anonymous user is rate-limited`);
           return;
         }
         if (pin !== PIN) {
           attempt.count++;
           if (attempt.count >= 6) {
             attempt.lockedUntil = Date.now() + 2 * 60 * 1000;
-            console.log(`[viewer] IP ${clientIp} locked out for 2 minutes (PIN brute-force)`);
+            console.log(`[viewer] anonymous user locked out for 2 minutes (PIN brute-force)`);
           }
-          pinAttempts.set(clientIp, attempt);
+          pinAttempts.set(anonHash, attempt);
           try { ws.send(JSON.stringify({ type: "pin-rejected" })); } catch { }
           ws.close(4002, "PIN_REJECTED");
           console.log("[viewer] rejected — wrong PIN");
           return;
         }
-        pinAttempts.delete(clientIp);
+        pinAttempts.delete(anonHash);
       } else {
-        console.log(`[viewer] IP ${clientIp} (requirePin=${requirePin}) bypassing PIN check`);
+        console.log(`[viewer] anonymous user (requirePin=${requirePin}) bypassing PIN check`);
       }
 
       // ── Session password check ────────────────────────────────────────────
@@ -1674,8 +1807,8 @@ async function main() {
         if (sess && sess.maxPlayers && viewers.size >= sess.maxPlayers) {
           console.log(`[viewer] ${id} rejected — arcade session full (${viewers.size}/${sess.maxPlayers})`);
           ws.send(JSON.stringify({
-            type:   'session-full',
-            max:    sess.maxPlayers,
+            type: 'session-full',
+            max: sess.maxPlayers,
             reason: `This session is full (${sess.maxPlayers} players max).`,
           }));
           ws.close();
@@ -1874,7 +2007,7 @@ async function main() {
             const _ppsNow = Date.now();
             if (!ws._ppsWindow || _ppsNow - ws._ppsWindow >= 1000) {
               ws._ppsWindow = _ppsNow;
-              ws._ppsCount  = 1;
+              ws._ppsCount = 1;
             } else {
               ws._ppsCount = (ws._ppsCount || 0) + 1;
               if (ws._ppsCount > 300) {
@@ -1907,22 +2040,22 @@ async function main() {
             }
 
             const perms = inputPerms.get(id) || inputPerms.get(rosterId) || { gp: true, kb: false };
-            
+
             if (msg.type === 'kbm') {
-                console.log(`[DEBUG KBM] (app.ws) id: ${id}, rosterId: ${rosterId}, perms: ${JSON.stringify(perms)}, Event: ${msg.event} ${msg.key}`);
+              console.log(`[DEBUG KBM] (app.ws) id: ${id}, rosterId: ${rosterId}, perms: ${JSON.stringify(perms)}, Event: ${msg.event} ${msg.key}`);
             }
-            
+
             if (msg.type === "gamepad" && !perms.gp) return;
             if (msg.type === "kbm" && !perms.kb) {
-                console.log(`[DEBUG KBM] Dropped in app.ws due to perms.kb=false`);
-                return;
+              console.log(`[DEBUG KBM] Dropped in app.ws due to perms.kb=false`);
+              return;
             }
 
             // If viewer's primary slot is kbm_emulated, suppress any extra gamepad devices
             // (e.g. touch padIndex:99) to prevent a second virtual gamepad appearing in the OS.
             if (msg.type === "gamepad" && padIdx !== 0) {
               const primaryPerms = inputPerms.get(id + '_0') || {};
-              const primaryMode  = primaryPerms.gp && primaryPerms.kb ? 'kbm_emulated' : 'gamepad';
+              const primaryMode = primaryPerms.gp && primaryPerms.kb ? 'kbm_emulated' : 'gamepad';
               if (primaryMode === 'kbm_emulated') return;
             }
 
@@ -1994,13 +2127,13 @@ async function main() {
           if (msg.type === "keyboard" || msg.type === "kbm") {
             console.log(`[DEBUG KBM] (/ws/input) received keyboard event:`, msg.event, msg.key);
             if (!myId) {
-                console.log(`[DEBUG KBM] Dropped in /ws/input: myId is null`);
-                return;
+              console.log(`[DEBUG KBM] Dropped in /ws/input: myId is null`);
+              return;
             }
             const perms = inputPerms.get(myId) || { gp: true, kb: false };
             if (!perms.kb) {
-                console.log(`[DEBUG KBM] Dropped in /ws/input: perms.kb=false for id ${myId}`);
-                return;
+              console.log(`[DEBUG KBM] Dropped in /ws/input: perms.kb=false for id ${myId}`);
+              return;
             }
             console.log(`[DEBUG KBM] Sending to InputOrchestrator from /ws/input!`);
             toUinput(msg);
@@ -2025,7 +2158,7 @@ async function main() {
     console.log("Listening on port " + PORT);
     if (!process.env.ELECTRON_MODE) openBrowser("http://localhost:" + PORT + "/host");
 
-      const cfg = loadConfig();
+    const cfg = loadConfig();
 
     if (process.env.USE_VPS === 'true' && process.env.VPS_HOST) {
       console.log("  ~ Tunnel: VPS (from .env)");
@@ -2086,18 +2219,18 @@ function cleanup(isElectron = false) {
     try {
       _audioWorker.postMessage({ type: 'destroy' });
       // Give it 800ms to run pactl teardown asynchronously, then force-terminate
-      setTimeout(() => { try { _audioWorker && _audioWorker.terminate(); } catch (_) {} }, 800);
-    } catch (_) {}
+      setTimeout(() => { try { _audioWorker && _audioWorker.terminate(); } catch (_) { } }, 800);
+    } catch (_) { }
   }
 
   // Arcade heartbeat worker: clean shutdown
   if (_arcadeWorker) {
-    try { _arcadeWorker.postMessage({ type: 'stop' }); } catch (_) {}
-    setTimeout(() => { try { _arcadeWorker && _arcadeWorker.terminate(); } catch (_) {} }, 500);
+    try { _arcadeWorker.postMessage({ type: 'stop' }); } catch (_) { }
+    setTimeout(() => { try { _arcadeWorker && _arcadeWorker.terminate(); } catch (_) { } }, 500);
   }
 
-  if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) {} }
-  if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) {} }
+  if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
+  if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
 
   // Cleanly destroy the input driver (whether it's using C++ or Python)
   try {
@@ -2106,7 +2239,7 @@ function cleanup(isElectron = false) {
     console.error("[Server] Input driver cleanup error:", e);
   }
 
-  if (audioProc) { try { audioProc.kill(); } catch (_) {} }
+  if (audioProc) { try { audioProc.kill(); } catch (_) { } }
 
   if (process.platform === 'linux') {
     const { execSync } = require('child_process');
@@ -2116,30 +2249,30 @@ function cleanup(isElectron = false) {
     for (const key of unloadOrder) {
       const id = _vAudioModules[key];
       if (id) {
-        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) {}
+        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
         console.log(`[VirtualAudio] Cleaned up ${key} module ${id}`);
       }
     }
 
     // Belt and braces PulseAudio cleanup
-    try { execSync("pactl list short modules | awk '/NearsecAppAudio|NearsecAppMic|NearsecVirtualCapture|NearsecVirtual/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) {}
+    try { execSync("pactl list short modules | awk '/NearsecAppAudio|NearsecAppMic|NearsecVirtualCapture|NearsecVirtual/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) { }
 
     // PipeWire node cleanup — destroy any pw-loopback nodes created by the worker
     try {
       execSync("pw-cli list-objects | grep -A2 'Nearsec' | grep 'id ' | awk '{print $2}' | tr -d ',' | xargs -r -I{} pw-cli destroy {}", { stdio: 'ignore', timeout: 2000 });
-    } catch (_) {}
+    } catch (_) { }
     // Belt-and-braces: kill any dangling pw-loopback processes we spawned
-    try { execSync("pkill -f 'pw-loopback.*Nearsec'", { stdio: 'ignore' }); } catch (_) {}
+    try { execSync("pkill -f 'pw-loopback.*Nearsec'", { stdio: 'ignore' }); } catch (_) { }
   }
 
   if (!isElectron) {
-    killPort(activePort).catch(() => {}).finally(() => process.exit(0));
+    killPort(activePort).catch(() => { }).finally(() => process.exit(0));
   } else {
-    killPort(activePort).catch(() => {});
+    killPort(activePort).catch(() => { });
   }
 }
 
-process.on('SIGINT',  () => cleanup(false));
+process.on('SIGINT', () => cleanup(false));
 process.on('SIGTERM', () => cleanup(false));
 
 process.on('uncaughtException', (err) => {

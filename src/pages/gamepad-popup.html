@@ -101,7 +101,7 @@
     <span style="font-size:11px; opacity:0.6;">Connect a gamepad and press any button.</span>
   </div>
 
-  <script src="../scripts/i18n.js"></script>
+  <script src="/js/i18n.js"></script>
   <script>
     const STORAGE_PREFIX = 'nearsec_map_';
     let smartDb = {};
@@ -231,8 +231,18 @@
           <div>L-TRIG:  <span id="${p}-vlt" class="stick-val">0.00</span></div>
           <div>R-TRIG:  <span id="${p}-vrt" class="stick-val">0.00</span></div>
           <div>R-STICK: <span id="${p}-vr"  class="stick-val">0.00, 0.00</span></div>
+        </div>
+        <div style="margin-top:14px; padding: 0 10px; display:flex; align-items:center; gap:10px;">
+           <span style="font-size:10px; color:var(--muted); font-weight:700;">DEADZONE</span>
+           <input type="range" id="${p}-deadzone" min="0" max="0.5" step="0.01" value="0.05" style="flex:1; accent-color:var(--accent);" oninput="updateDeadzone(${idx}, this.value)">
+           <span id="${p}-dz-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:30px; text-align:right;">5%</span>
         </div>`;
       return card;
+    }
+
+    function updateDeadzone(idx, val) {
+        document.getElementById(`c${idx}-dz-val`).textContent = Math.round(val * 100) + '%';
+        try { window.parent.postMessage({ type: 'NEARSEC_DEADZONE', index: idx, value: parseFloat(val) }, '*'); } catch (e) {}
     }
 
     // ── Register a new controller ─────────────────────────────────────────────

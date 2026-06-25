@@ -79,6 +79,21 @@ let viewerRegion = '';
 let smartDb = {};
 window.smartDb = smartDb;
 
+let _turnCredentials = null;
+let _turnFetchPromise = (async () => {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const hostParam = urlParams.get('host') ? `?host=${urlParams.get('host')}` : '';
+        const scheme = location.protocol === 'file:' ? 'http://localhost:3000' : '';
+        const res = await fetch(`${scheme}/api/turn${hostParam}`);
+        if (res.ok) _turnCredentials = await res.json();
+    } catch (e) { console.warn('Failed to fetch TURN credentials:', e); }
+})();
+
+// ── EARLY PIN / CONNECT STATE (must be declared before async standby handler) ──
+let pinRequired = true;
+let _autoJoinedVps = false;
+
 // ── EARLY STANDBY CONNECTION ────────────────────────────────────────────────
 // Always attempt to connect to the VPS standby lane. If we are on a standard
 // peer-to-peer local server, this route doesn't exist and will silently fail (404),
@@ -110,6 +125,12 @@ standbyWs.onmessage = (e) => {
         pinRequired = msg.pinRequired;
         const pw = document.getElementById('pinWrap');
         if (pw) pw.style.display = pinRequired ? 'flex' : 'none';
+        // If host has disabled PIN, skip the screen entirely and auto-join
+        if (!pinRequired && !_autoJoinedVps && !ws) {
+            _autoJoinedVps = true;
+            document.getElementById('pinScreen')?.classList.add('gone');
+            submitPin();
+        }
     }
 };
 standbyWs.onerror = () => { };
@@ -137,7 +158,7 @@ function recoverWebCodecsDecoder() {
 }
 let sysAudioCtx = null;
 let nextAudioTime = 0;
-let stopReconnect = false;
+// Note: stopReconnect and vpsConnected are declared below near connect()
 let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
 document.getElementById('nameInput').value = myName;
 if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
@@ -228,25 +249,31 @@ async function createPC() {
     if (pc) { try { pc.close(); } catch (e) { } }
     console.log('[WebRTC] Initializing new PeerConnection...');
 
+    if (!_turnCredentials && _turnFetchPromise) {
+        await _turnFetchPromise;
+    }
+
+    const stunPool = [
+        'stun:stun.l.google.com:19302',
+        'stun:stun1.l.google.com:19302',
+        'stun:stun2.l.google.com:19302',
+        'stun:stun3.l.google.com:19302',
+        'stun:stun4.l.google.com:19302',
+        'stun:stun.cloudflare.com:3478',
+        'stun:stun.twilio.com:3478',
+        'stun:global.stun.twilio.com:3478',
+        'stun:stun.miwifi.com:3478'
+    ];
+
+    // Pick 2 random STUN servers to avoid the "Using five or more STUN/TURN servers slows down discovery" warning
+    // and naturally rotate STUN/TURN across retries for users with VPNs.
+    const shuffledStun = stunPool.sort(() => 0.5 - Math.random()).slice(0, 2).map(url => ({ urls: url }));
+    
+    const iceServers = [...shuffledStun];
+    if (_turnCredentials) iceServers.push(_turnCredentials);
+
     pc = new RTCPeerConnection({
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' },
-            { urls: 'stun:stun.stunprotocol.org:3478' },
-            // Public OpenRelay TURN server to guarantee WebRTC connections over strict NATs/Tunnels
-            {
-                urls: [
-                    'turn:openrelay.metered.ca:80',
-                    'turn:openrelay.metered.ca:443'
-                ],
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            }
-        ],
+        iceServers: iceServers,
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
         sdpSemantics: 'unified-plan'
@@ -269,6 +296,7 @@ async function createPC() {
 
     pc.ontrack = (e) => {
         console.log(`[WebRTC] Received Track: ${e.track.kind}`);
+        if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
         if (e.track.kind === 'video') {
             if (USE_WEBCODECS) {
                 // WebCodecs mode: DataChannel is the real renderer.
@@ -302,6 +330,8 @@ async function createPC() {
                     if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
                         _swapOverlayEl.style.display = 'none';
                     }
+                    const overlay = document.getElementById('overlay');
+                    if (overlay) overlay.style.backgroundColor = '';
                 };
                 console.log('[WebRTC] Video stream attached to #video');
             }
@@ -329,6 +359,17 @@ async function createPC() {
         // --- WEBCODECS VIDEO PIPELINE ---
         if (channel.label === 'webcodecs') {
             console.log('[WebRTC] DataChannel opened for WebCodecs payload: webcodecs');
+
+            const askForSync = () => {
+                console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
+                requestKeyframeFromHost();
+            };
+
+            if (channel.readyState === 'open') {
+                askForSync();
+            } else {
+                channel.onopen = askForSync;
+            }
 
             channel.onmessage = async (e) => {
                 // 1. Process String Configuration Messages
@@ -729,6 +770,9 @@ function startFrameProcessor(track) {
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             document.getElementById('kbmHint').style.display = 'inline';
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.style.backgroundColor = '';
+            if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) _swapOverlayEl.style.display = 'none';
         };
         return;
     }
@@ -762,6 +806,9 @@ function startFrameProcessor(track) {
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             document.getElementById('kbmHint').style.display = 'inline';
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.style.backgroundColor = '';
+            if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) _swapOverlayEl.style.display = 'none';
         }
     })();
     track.addEventListener('ended', () => {
@@ -796,6 +843,16 @@ const mouseMap = { 0: 'BTN_LEFT', 1: 'BTN_MIDDLE', 2: 'BTN_RIGHT' };
 // Tries WebRTC DataChannel first (zero-latency), falls back to inputWs, then ws.
 function sendInputData(data) {
     const str = typeof data === 'string' ? data : JSON.stringify(data);
+    
+    // 1. WebTransport Unreliable Datagrams (VPS Fast Lane)
+    if (window.wtInputWriter) {
+        try {
+            window.wtInputWriter.write(new TextEncoder().encode(str));
+            return;
+        } catch (_) { }
+    }
+
+    // 2. WebRTC DataChannel (P2P Fast Lane)
     if (window._fastLaneChannel && window._fastLaneChannel.readyState === 'open') {
         try { window._fastLaneChannel.send(str); return; } catch (_) { }
     }
@@ -886,8 +943,24 @@ window.addEventListener('deviceorientation', (e) => {
 });
 
 document.querySelectorAll('[data-btn]').forEach(el => {
-    el.addEventListener('touchstart', e => { e.preventDefault(); touchState.buttons[el.dataset.btn].pressed = true; touchState.buttons[el.dataset.btn].value = 1; el.style.transform = 'scale(0.9)'; }, { passive: false });
-    el.addEventListener('touchend', e => { e.preventDefault(); touchState.buttons[el.dataset.btn].pressed = false; touchState.buttons[el.dataset.btn].value = 0; el.style.transform = 'scale(1)'; }, { passive: false });
+    el.addEventListener('touchstart', e => { 
+        e.preventDefault(); 
+        touchState.buttons[el.dataset.btn].pressed = true; 
+        touchState.buttons[el.dataset.btn].value = 1; 
+        el.style.transform = 'scale(0.92)';
+        el.style.backgroundColor = 'rgba(139, 92, 246, 0.4)';
+    }, { passive: false });
+    
+    const release = e => {
+        e.preventDefault();
+        touchState.buttons[el.dataset.btn].pressed = false;
+        touchState.buttons[el.dataset.btn].value = 0;
+        el.style.transform = '';
+        el.style.backgroundColor = '';
+    };
+    
+    el.addEventListener('touchend', release, { passive: false });
+    el.addEventListener('touchcancel', release, { passive: false });
 });
 
 const jBase = document.getElementById('jBase');
@@ -926,10 +999,7 @@ if (jBaseRight) {
     jBaseRight.addEventListener('touchend', e => { e.preventDefault(); jStickRight.style.transform = 'translate(0px,0px)'; touchState.axes[2] = 0; touchState.axes[3] = 0; }, { passive: false });
 }
 
-document.querySelectorAll('.dpad-btn').forEach(el => {
-    el.addEventListener('touchstart', e => { e.preventDefault(); touchState.buttons[el.dataset.btn].pressed = true; touchState.buttons[el.dataset.btn].value = 1; el.style.background = 'rgba(139, 92, 246, 0.4)'; }, { passive: false });
-    el.addEventListener('touchend', e => { e.preventDefault(); touchState.buttons[el.dataset.btn].pressed = false; touchState.buttons[el.dataset.btn].value = 0; el.style.background = ''; }, { passive: false });
-});
+// Removed redundant dpad-btn listener block since it's handled by data-btn above
 
 // ── HID GYRO ──────────────────────────────────────────────────────────────────
 let hidDevice = null, hostMotionEnabled = false, hidGyroX = 0, hidGyroY = 0;
@@ -978,6 +1048,9 @@ window.addEventListener('message', e => {
     if (e.data?.type === 'NEARSEC_SMART_DB' && e.data.db) {
         smartDb = e.data.db;
         window.smartDb = smartDb;
+    }
+    if (e.data?.type === 'NEARSEC_DEADZONE') {
+        gpDeadzones[e.data.index] = e.data.value;
     }
 });
 
@@ -1029,7 +1102,9 @@ function applyCalibration(gp, state) {
 }
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
-let gpPolling = false, lastGpStr = {}, lastGpSend = {};
+let gpPolling = false, lastGpSend = {};
+let gpCache = {}, gpStateObj = {};
+let gpDeadzones = {};
 let sentGpid = new Set();
 
 function activateGamepad() {
@@ -1037,6 +1112,7 @@ function activateGamepad() {
     gpPolling = true;
     const pmt = document.getElementById('gpPrompt');
     if (pmt) { pmt.classList.add('active'); pmt.textContent = 'Grab A Gamepad!'; }
+    // 4ms interval (250 Hz) for maximum competitive fighting game precision
     setInterval(pollGamepad, 4);
 }
 
@@ -1070,44 +1146,91 @@ function pollGamepad() {
     if (!gpPolling) return;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const now = Date.now();
+    
+    // 1. Find the best device (Standard Gamepad > Any Gamepad > Touch)
+    let bestGp = null;
+    let isTouch = false;
     for (const gp of pads) {
-        if (!gp) continue;
-        if (!sentGpid.has(gp.index) && ws?.readyState === 1) {
-            let cleanName = gp.id.replace(/^[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-/, '').replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9 -]/g, '').trim() || 'Standard Controller';
-            ws.send(JSON.stringify({ type: 'gpid', padIndex: gp.index, id: gp.id, name: cleanName }));
-            sentGpid.add(gp.index);
+        if (!gp || !gp.connected) continue;
+        if (gp.mapping === 'standard') { bestGp = gp; break; }
+        if (!bestGp) bestGp = gp;
+    }
+    if (!bestGp && touchMode) isTouch = true;
+    
+    if (!bestGp && !isTouch) return; // No inputs available
+
+    const vIndex = 0; // Force ALL inputs from this viewer to slot 0
+
+    // 2. Announce GPID if changed
+    let activeId = isTouch ? 'virtual-touch' : bestGp.id;
+    let activeName = isTouch ? 'Mobile Touch Controls' : (bestGp.id.replace(/^[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-/, '').replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9 -]/g, '').trim() || 'Standard Controller');
+    
+    if (gpStateObj.lastActiveId !== activeId) {
+        gpStateObj.lastActiveId = activeId;
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'gpid', padIndex: vIndex, id: activeId, name: activeName }));
+    }
+
+    let cache = gpCache[vIndex];
+    let state = gpStateObj[vIndex];
+    if (!cache) {
+        cache = { axes: new Int32Array(4), btns: new Int32Array(16) };
+        gpCache[vIndex] = cache;
+        state = { type: 'gamepad', viewerId: myId, pad_id: myId + '_' + vIndex, padIndex: vIndex, axes: [0,0,0,0], buttons: Array.from({length: 16}, () => ({pressed: false, value: 0})) };
+        gpStateObj[vIndex] = state;
+    }
+    state.viewerId = myId;
+    state.pad_id = myId + '_' + vIndex;
+
+    let changed = false;
+
+    if (!isTouch && bestGp) {
+        let dz = gpDeadzones[bestGp.index] !== undefined ? gpDeadzones[bestGp.index] : 0.05;
+        for (let i = 0; i < 4; i++) {
+            let val = bestGp.axes[i] || 0;
+            if (Math.abs(val) < dz) val = 0;
+            else val = Math.sign(val) * ((Math.abs(val) - dz) / (1 - dz));
+            
+            let finalVal = Math.round(val * 32767);
+            // Micro-jitter filter: ignore axis changes smaller than 32/32767 (~0.09%)
+            // This is sub-pixel level, preserving exact angles for Smash Bros while stopping resting tremor spam.
+            if (Math.abs(cache.axes[i] - finalVal) > 32) {
+                changed = true;
+                cache.axes[i] = finalVal;
+            }
+            state.axes[i] = cache.axes[i];
         }
-        const forceHb = now - (lastGpSend[gp.index] || 0) > 100;
-        const state = {
-            type: 'gamepad',
-            viewerId: myId,
-            pad_id: myId + '_' + gp.index,
-            padIndex: gp.index,
-            axes: Array.from(gp.axes).map(v => Math.round(v * 32767)),
-            buttons: gp.buttons.map(b => ({ pressed: b.pressed, value: Math.round(b.value * 255) }))
-        };
-        applyCalibration(gp, state);
-        if (hidDevice && hostMotionEnabled) {
-            state.axes[2] = Math.max(-32767, Math.min(32767, state.axes[2] + Math.round(hidGyroX * 32767)));
-            state.axes[3] = Math.max(-32767, Math.min(32767, state.axes[3] + Math.round(hidGyroY * 32767)));
+        for (let i = 0; i < 16; i++) {
+            const b = bestGp.buttons[i];
+            const v = Math.round((b?.value || 0) * 255);
+            state.buttons[i].value = v;
+            state.buttons[i].pressed = b?.pressed || false;
+            if (cache.btns[i] !== v) { changed = true; cache.btns[i] = v; }
         }
-        const str = JSON.stringify(state);
-        if (str !== lastGpStr[gp.index] || forceHb) {
-            lastGpStr[gp.index] = str;
-            lastGpSend[gp.index] = now;
-            sendInputData(str);
+        applyCalibration(bestGp, state);
+    } else if (isTouch) {
+        for (let i = 0; i < 4; i++) {
+            state.axes[i] = Math.round((touchState.axes[i] || 0) * 32767);
+            if (cache.axes[i] !== state.axes[i]) { changed = true; cache.axes[i] = state.axes[i]; }
+        }
+        for (let i = 0; i < 16; i++) {
+            const b = touchState.buttons[i];
+            const v = Math.round((b?.value || 0) * 255);
+            state.buttons[i].value = v;
+            state.buttons[i].pressed = b?.pressed || false;
+            if (cache.btns[i] !== v) { changed = true; cache.btns[i] = v; }
         }
     }
-    if (touchMode) {
-        const vIndex = 99;
-        if (!sentGpid.has(vIndex) && ws?.readyState === 1) {
-            ws.send(JSON.stringify({ type: 'gpid', padIndex: vIndex, id: 'virtual-touch', name: 'Mobile Touch Controls' }));
-            sentGpid.add(vIndex);
-        }
-        const state = { type: 'gamepad', padIndex: vIndex, axes: touchState.axes.map(v => Math.round(v * 32767)), buttons: touchState.buttons.map(b => ({ pressed: b.pressed, value: Math.round(b.value * 255) })) };
-        const str = JSON.stringify(state);
-        const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
-        if (str !== lastGpStr[vIndex] || forceHb) { lastGpStr[vIndex] = str; lastGpSend[vIndex] = now; sendInputData(str); }
+
+    if (hidDevice && hostMotionEnabled) {
+        state.axes[2] = Math.max(-32767, Math.min(32767, state.axes[2] + Math.round(hidGyroX * 32767)));
+        state.axes[3] = Math.max(-32767, Math.min(32767, state.axes[3] + Math.round(hidGyroY * 32767)));
+        changed = true; // Gyro is continuously sending
+    }
+
+    const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
+    if (changed || forceHb) {
+        lastGpSend[vIndex] = now;
+        sendInputData(JSON.stringify(state));
     }
 }
 
@@ -1115,8 +1238,6 @@ function pollGamepad() {
 window.addEventListener('gamepadconnected', e => {
     if (!gpPolling) activateGamepad();
     document.getElementById('gpPrompt')?.classList.add('gone');
-    let cleanName = e.gamepad.id.replace(/^[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-/, '').replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9 -]/g, '').trim() || 'Standard Controller';
-    if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'gpid', padIndex: e.gamepad.index, id: e.gamepad.id, name: cleanName }));
     maybeShowControllerGuide();
 });
 
@@ -1194,8 +1315,51 @@ function connectInputWS() {
 }
 
 // ── WEBSOCKET ─────────────────────────────────────────────────────────────────
+// State vars (vpsConnected, stopReconnect, _autoJoinedVps, pinRequired) declared early at top of file.
+let vpsConnected = false;
+let stopReconnect = false;
 async function connect() {
     const urlParams = new URLSearchParams(window.location.search);
+    const hostParam = urlParams.get('host');
+    
+    // Check if we are connecting to a P2P room
+    if (hostParam && hostParam.startsWith('p2p://')) {
+        const roomCode = hostParam.replace('p2p://', '');
+        console.log('[P2P] Initializing serverless connection to room:', roomCode);
+        
+        // Emulate WebSocket interface for P2PManager
+        ws = {
+            readyState: 1,
+            send: (data) => {
+                const msgStr = typeof data === 'string' ? data : new TextDecoder().decode(data);
+                let msg;
+                try { msg = JSON.parse(msgStr); } catch { return; }
+                
+                // Route join, candidate, answer, etc via Trystero
+                if (window.P2PManager) {
+                    window.P2PManager.sendToHost(msg);
+                }
+            },
+            close: () => {
+                console.log('[P2P] Disconnecting from room');
+            }
+        };
+
+        if (window.P2PManager) {
+            window.P2PManager.initViewer(roomCode, (msg) => {
+                if (typeof ws.onmessage === 'function') {
+                    ws.onmessage({ data: JSON.stringify(msg) });
+                }
+            });
+            // Simulate the ws.onopen event slightly later to allow setup
+            setTimeout(() => {
+                if (typeof ws.onopen === 'function') ws.onopen();
+            }, 100);
+        }
+        stopReconnect = false;
+        return;
+    }
+
     // Always use /vps for the public domain or if v3 is forced
     const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
     let wsUrl = useVps
@@ -1206,6 +1370,25 @@ async function connect() {
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     stopReconnect = false;
+
+    // ── EXPERIMENTAL WEBTRANSPORT CLIENT ──────────────────────────────────────
+    const wtRequested = urlParams.get('wt') === '1' || urlParams.get('pipeline') === 'webtransport';
+    if (useVps && wtRequested && 'WebTransport' in window) {
+        try {
+            const wtUrl = `https://${host}:4433/wt`;
+            const wt = new WebTransport(wtUrl);
+            wt.ready.then(() => {
+                console.log('[WebTransport] Connected to UDP datagram router.');
+                window.wtInputWriter = wt.datagrams.writable.getWriter();
+            }).catch(e => console.warn('[WebTransport] Handshake failed, falling back to WS:', e));
+            wt.closed.then(() => { 
+                window.wtInputWriter = null; 
+                console.log('[WebTransport] Session closed.'); 
+            }).catch(()=>{});
+        } catch (e) {
+            console.warn('[WebTransport] Setup error:', e);
+        }
+    }
 
     ws.onopen = () => {
         ws.send(JSON.stringify({
@@ -1381,6 +1564,21 @@ async function connect() {
             }
             return;
         }
+        if (msg.type === 'auth-ok') {
+            vpsConnected = true;
+            if (msg.viewer_id) {
+                myId = msg.viewer_id;
+                sessionStorage.setItem('ns_viewer_id', myId);
+            }
+            if (msg.pin_required === false && !_autoJoinedVps) {
+                _autoJoinedVps = true;
+                pinRequired = false;
+                document.getElementById('pinScreen')?.classList.add('gone');
+                document.getElementById('pinWrap').style.display = 'none';
+                // If we get auth-ok, we are already connected; DO NOT call submitPin() again!
+            }
+            return;
+        }
         if (msg.type === 'your-id') {
             document.getElementById('pinScreen').classList.add('gone');
             myId = msg.viewerId;
@@ -1405,54 +1603,63 @@ async function connect() {
         // ── RUMBLE ────────────────────────────────────────────────────────────
         if (msg.type === 'rumble') {
             if (!clientRumbleEnabled) return;
-            // Find the first gamepad that has a vibrationActuator
+
+            const duration = msg.duration || 200;
+            const strong   = msg.strong   ?? 0.5;
+            const weak     = msg.weak     ?? 0.25;
+
+            // 1. Try physical gamepad's vibrationActuator first
+            let physicalHandled = false;
             const pads = navigator.getGamepads ? navigator.getGamepads() : [];
             for (const gp of pads) {
                 if (!gp || !gp.vibrationActuator) continue;
                 try {
                     gp.vibrationActuator.playEffect('dual-rumble', {
                         startDelay: 0,
-                        duration: msg.duration || 200,
-                        weakMagnitude: msg.weak ?? 0.25,
-                        strongMagnitude: msg.strong ?? 0.5,
+                        duration,
+                        weakMagnitude: weak,
+                        strongMagnitude: strong,
                     });
+                    physicalHandled = true;
                 } catch (e) {
                     console.warn('[Rumble] playEffect failed:', e.message);
                 }
                 break; // Only vibrate the first connected pad
             }
+
+            // 2. Mobile fallback / Browser Gamepad API fallback
+            if (!physicalHandled && navigator.vibrate && (strong > 0 || weak > 0)) {
+                if (strong >= 0.4) {
+                    navigator.vibrate(Math.min(duration, 500));
+                } else {
+                    navigator.vibrate(30);
+                }
+            }
+
+            // 3. Desktop App Native Bypass (bypasses browser whitelists)
+            if (window.electronAPI && window.electronAPI.sendNativeRumble) {
+                // Send to native Python backend to buzz the controller directly via evdev/XInput
+                window.electronAPI.sendNativeRumble(0, strong, weak, duration);
+            }
+
             return;
         }
         if (msg.type === 'host-disconnected' || msg.type === 'host-stream-stopped') {
             _nsHostConnected = false;
+            
+            // Capture the exact moment the stream stopped so it doesn't go to black
             _freezeFrameForSwap();
-            if (_swapOverlayEl) {
-                const ctx2d = _swapOverlayEl.getContext('2d');
-                const cx = _swapOverlayEl.width / 2, cy = _swapOverlayEl.height / 2;
-                ctx2d.fillStyle = 'rgba(0,0,0,0.55)';
-                ctx2d.fillRect(0, 0, _swapOverlayEl.width, _swapOverlayEl.height);
-                ctx2d.font = `bold ${Math.round(_swapOverlayEl.height * 0.04)}px sans-serif`;
-                ctx2d.fillStyle = 'rgba(255,255,255,0.85)';
-                ctx2d.textAlign = 'center';
-                ctx2d.textBaseline = 'middle';
-                ctx2d.fillText('Host stopped streaming', cx, cy);
-            }
-            showOverlay(false);
-            setStatus('Host stopped streaming');
-            if (pc) { pc.close(); pc = null; }
-            video.srcObject = null;
 
-            // Transition back to standby screen if host disconnects
-            let sf = document.getElementById('_nsStandbyFrame');
-            if (!sf) {
-                sf = document.createElement('iframe');
-                sf.id = '_nsStandbyFrame';
-                sf.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:none;z-index:9000;background:#080808;';
-                sf.src = '/standby.html';
-                document.body.appendChild(sf);
-            } else {
-                sf.style.display = 'block';
-            }
+            // Make the native HTML overlay semi-transparent so the frozen game is visible
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.75)';
+            
+            showOverlay(true);
+            setStatus('Host stopped streaming');
+            document.getElementById('spinner').style.display = 'block';
+
+            if (pc) { pc.close(); pc = null; }
+            if (video) video.srcObject = null;
             return;
         }
 
@@ -1576,11 +1783,22 @@ async function connect() {
     };
 }
 
-let pinRequired = true;
-safeApiJson('/api/pin-required', { required: true }).then(d => {
-    pinRequired = d.required !== false;
-    if (!pinRequired) document.getElementById('pinWrap').style.display = 'none';
-});
+// pinRequired is declared early at the top of the file.
+// For local (non-VPS) servers, check the HTTP API on load.
+(function checkLocalPinRequirement() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    if (!useVps) {
+        safeApiJson('/api/pin-required', { required: true }).then(d => {
+            pinRequired = d.required !== false;
+            if (!pinRequired) {
+                const wrap = document.getElementById('pinWrap');
+                if (wrap) wrap.style.display = 'none';
+            }
+        });
+    }
+    // VPS pin state is handled by the early standby WebSocket at the top of this file.
+})();
 
 function submitPin() {
     const nameVal = document.getElementById('nameInput').value.trim();
@@ -1851,6 +2069,8 @@ function initWebCodecsViewer(config) {
                 if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
                     _swapOverlayEl.style.display = 'none';
                 }
+                const overlay = document.getElementById('overlay');
+                if (overlay) overlay.style.backgroundColor = '';
             }
         },
         error: (e) => {
@@ -1922,3 +2142,50 @@ window.addEventListener('message', (e) => {
         }
     }
 });
+
+let netStatsInterval = null;
+window.toggleNetStats = function() {
+    const el = document.getElementById('netStatsOverlay');
+    if (!el) return;
+    if (el.classList.contains('gone')) {
+        el.classList.remove('gone');
+        window.startNetStats();
+    } else {
+        el.classList.add('gone');
+        clearInterval(netStatsInterval);
+    }
+};
+
+window.startNetStats = function() {
+    clearInterval(netStatsInterval);
+    let lastBytes = 0;
+    let lastTime = 0;
+    netStatsInterval = setInterval(async () => {
+        if (!pc) return;
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+            if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                if (lastTime && report.bytesReceived > lastBytes) {
+                    const kbps = ((report.bytesReceived - lastBytes) * 8 / (report.timestamp - lastTime)).toFixed(0);
+                    const el = document.getElementById('nsBitrate');
+                    if(el) el.textContent = kbps + ' kbps';
+                }
+                lastBytes = report.bytesReceived;
+                lastTime = report.timestamp;
+                if (report.packetsLost != null && report.packetsReceived != null) {
+                    const total = report.packetsLost + report.packetsReceived;
+                    const el = document.getElementById('nsLoss');
+                    if(el) el.textContent = total > 0 ? ((report.packetsLost / total) * 100).toFixed(1) + ' %' : '0 %';
+                }
+                if (report.jitter != null) {
+                    const el = document.getElementById('nsJitter');
+                    if(el) el.textContent = (report.jitter * 1000).toFixed(0) + ' ms';
+                }
+            }
+            if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime != null) {
+                const el = document.getElementById('nsPing');
+                if(el) el.textContent = (report.currentRoundTripTime * 1000).toFixed(0) + ' ms';
+            }
+        });
+    }, 1000);
+};

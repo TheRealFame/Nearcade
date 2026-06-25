@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Session & Navigation ──
   installDrivers: () => ipcRenderer.send('install-drivers'),
   backToDashboard: () => ipcRenderer.send('back-to-dashboard-from-host'),
-  joinSession: (url, meta)        => ipcRenderer.invoke('join-session', { url, meta }),
+  joinSession: (url, meta, pin)   => ipcRenderer.invoke('join-session', { url, meta, pin }),
   pingSession: (url)              => ipcRenderer.invoke('ping-session', url),
   getServerInfo: ()               => ipcRenderer.invoke('get-server-info'),
   // FIX #7: openHost now accepts an optional version string ('new' | 'old')
@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   startNativeGamepadCapture: () => ipcRenderer.send('start-native-gamepad'),
   onNativeGamepadEvent: (cb) => ipcRenderer.on('native-gamepad-event', (_e, msg) => cb(msg)),
+  sendNativeRumble: (padIndex, strong, weak, duration) => ipcRenderer.send('native-gamepad-rumble', { padIndex, strong, weak, duration }),
 
   isElectron: true,
 });

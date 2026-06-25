@@ -63,6 +63,11 @@ NODE_PID=$!
 echo "      Node.js server started (PID $NODE_PID, port 3001)"
 echo "      Log: $VPS_DIR/node.log"
 
+# Load .env if it exists so MASTER_KEY is available
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_ROOT/.env" | xargs)
+fi
+
 # Rust SFU router on port 3000
 PORT=3000 "$RUST_BIN" \
     > "$VPS_DIR/router.log" 2>&1 &

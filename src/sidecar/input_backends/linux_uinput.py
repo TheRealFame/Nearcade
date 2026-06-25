@@ -383,11 +383,8 @@ def make_gamepad(profile_key: str = 'xbox360'):
         return None
     v, p, ver, real_name = PROFILES.get(profile_key, PROFILES['xbox360'])
 
-    # Include FF_RUMBLE so games know this controller can vibrate.
-    # python-uinput exposes it as uinput.FF_RUMBLE when available.
+    # Force-feedback removed to prevent Proton games from crashing/hanging when uploading effects
     extra_ff = []
-    if hasattr(uinput, 'FF_RUMBLE'):
-        extra_ff = [uinput.FF_RUMBLE]
 
     # bustype=3 tells Linux/Steam this is a physical USB device (BUS_USB).
     return uinput.Device(BTNS + AXES + extra_ff, name=real_name, vendor=v, product=p, version=ver, bustype=3)

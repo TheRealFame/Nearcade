@@ -39,10 +39,28 @@
 
     html, body {
       width: 100%; height: 100%;
-      background: var(--bg); color: var(--text);
+      background: var(--bg);
+      color: var(--text);
       font-family: 'IBM Plex Mono', monospace;
       overflow: hidden;
-      display: flex; flex-direction: column;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #ns-splash-screen {
+      position: fixed; inset: 0; z-index: 999999;
+      background: #080808; display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.5s ease, visibility 0.5s;
+    }
+    #ns-splash-screen img {
+      width: 120px; filter: drop-shadow(0 0 25px rgba(192, 132, 252, 0.6));
+      animation: splashPop 2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    }
+    @keyframes splashPop {
+      0% { opacity: 0; transform: scale(0.8) translateY(-20px); filter: drop-shadow(0 0 0 rgba(192, 132, 252, 0)); }
+      20% { opacity: 1; transform: scale(1.05) translateY(0); filter: drop-shadow(0 0 35px rgba(192, 132, 252, 0.8)); }
+      80% { opacity: 1; transform: scale(1) translateY(0); filter: drop-shadow(0 0 25px rgba(192, 132, 252, 0.6)); }
+      100% { opacity: 0; transform: scale(0.9) translateY(20px); filter: drop-shadow(0 0 0 rgba(192, 132, 252, 0)); }
     }
 
     /* Disable highlighting on the app UI */
@@ -262,6 +280,9 @@
   </style>
 </head>
 <body>
+  <div id="ns-splash-screen">
+    <img src="../../assets/NearsecTogether.png" alt="Nearsec Logo">
+  </div>
 <div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex;">
     <button onclick="openDocs()" title="Documentation & Help" style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer;">
       <img src="../../assets/icons/book.svg" style="width: 20px; filter: invert(1);" />
@@ -378,17 +399,22 @@
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
               </svg>
-              Direct Link
+              Direct Link or Room Code
             </h2>
-            <div class="input-row">
+            <div class="input-row" style="margin-bottom: 12px;">
               <div class="input-wrapper">
-                <input type="text" id="directLinkInput" placeholder="https://..." onkeydown="if(event.key==='Enter')joinDirectLink()">
+                <input type="text" id="directLinkInput" placeholder="URL (https://) or Room Code" onkeydown="if(event.key==='Enter')joinDirectLink()">
                 <button class="btn-paste" onclick="pasteFromClipboard()" title="Paste from Clipboard">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                   </svg>
                 </button>
+              </div>
+            </div>
+            <div class="input-row">
+              <div class="input-wrapper">
+                <input type="text" id="pinInput" placeholder="PIN Code (if required)" onkeydown="if(event.key==='Enter')joinDirectLink()">
               </div>
               <button class="btn-connect" onclick="joinDirectLink()">Join</button>
             </div>
@@ -442,6 +468,19 @@
 
           <div class="settings-section" id="activeAutoHostsList">
             <h2>Saved Configurations</h2>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-serverlist">
+        <div class="settings-container">
+          <h1>Public Servers</h1>
+          <p class="sub">Browse and join active public P2P and Tunneled matches.</p>
+          <div class="settings-section">
+            <div id="serverListContainer" style="display:flex;flex-direction:column;gap:12px;">
+              <!-- Servers would populate here -->
+              <div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">No servers currently available.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -542,7 +581,7 @@
     </div>
 </div>
 
-  <script src="../scripts/i18n.js"></script>
+  <script src="/js/i18n.js"></script>
   <script>
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 
@@ -647,24 +686,33 @@
     }
 
     async function joinDirectLink() {
-      const url = document.getElementById('directLinkInput').value.trim();
+      const inputVal = document.getElementById('directLinkInput').value.trim();
+      const pinVal = document.getElementById('pinInput').value.trim();
       const errEl = document.getElementById('directLinkErr');
-      if (!url) { errEl.textContent = 'Please enter a valid URL.'; return; }
+      if (!inputVal) { errEl.textContent = 'Please enter a valid URL or Room Code.'; return; }
 
-      errEl.style.color = 'var(--muted)';
-      errEl.textContent = 'Verifying tunnel...';
+      // Check if it's a URL
+      const isUrl = inputVal.startsWith('http://') || inputVal.startsWith('https://');
 
-      try {
-        const controller = new AbortController();
-        const tid = setTimeout(() => controller.abort(), 5000);
-        const pingUrl = url.replace(/\/$/, '') + '/api/info';
-        await fetch(pingUrl, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
-        clearTimeout(tid);
+      if (isUrl) {
+        errEl.style.color = 'var(--muted)';
+        errEl.textContent = 'Verifying tunnel...';
+        try {
+          const controller = new AbortController();
+          const tid = setTimeout(() => controller.abort(), 5000);
+          const pingUrl = inputVal.replace(/\/$/, '') + '/api/info';
+          await fetch(pingUrl, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
+          clearTimeout(tid);
+          errEl.textContent = '';
+          if (window.electronAPI) window.electronAPI.joinSession(inputVal, { game: 'Direct Connect' }, pinVal);
+        } catch {
+          errEl.style.color = 'var(--danger)';
+          errEl.textContent = '⚠ Session unreachable. Make sure the host is online.';
+        }
+      } else {
+        // It's a Room Code
         errEl.textContent = '';
-        if (window.electronAPI) window.electronAPI.joinSession(url, { game: 'Direct Connect' });
-      } catch {
-        errEl.style.color = 'var(--danger)';
-        errEl.textContent = '⚠ Session unreachable. Make sure the host is online.';
+        if (window.electronAPI) window.electronAPI.joinSession(`p2p://${inputVal}`, { game: 'P2P Session' }, pinVal);
       }
     }
 
@@ -1095,6 +1143,20 @@
           `<span style="color:var(--muted);font-size:11px;">Error: ${e.message}</span></span>`;
       }
     }
+
+    // Handle Fancy Splash Screen
+    document.addEventListener('DOMContentLoaded', () => {
+      const splash = document.getElementById('ns-splash-screen');
+      if (sessionStorage.getItem('splashPlayed') === 'true') {
+        splash.style.display = 'none';
+      } else {
+        sessionStorage.setItem('splashPlayed', 'true');
+        setTimeout(() => {
+          splash.style.opacity = '0';
+          setTimeout(() => splash.style.display = 'none', 500);
+        }, 1800); // Wait for the 2s CSS animation to mostly finish
+      }
+    });
   </script>
   </body>
 </html>

@@ -68,6 +68,13 @@ let _viewerRegions = {};
 let _pendingVpsViewers = new Map();
 let hostRegion     = '';
 let _tunnelBusy    = false;
+let _turnCredentials = null;
+
+// Fetch secure TURN credentials from local server on boot
+let _turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
+    if (!c.error && c.urls) _turnCredentials = c;
+    return c;
+}).catch(() => null);
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function loadAppConfig() {
@@ -494,6 +501,230 @@ function preferVideoCodec(pc) {
     return used;
 }
 
+// ── CODEC AUTO-BENCHMARK ──────────────────────────────────────────────────────
+// Tests each WebRTC codec the browser supports by:
+// 1. Creating a loopback RTCPeerConnection pair
+// 2. Streaming test_video.mp4 via a <video> element
+// 3. Measuring received bitrate over 8 seconds per codec
+// 4. Picking the winner and saving it to localStorage
+async function runBenchmark(mode) {
+    const btnSpeed = document.getElementById('codecBenchBtnSpeed');
+    const btnQuality = document.getElementById('codecBenchBtnQuality');
+    const activeBtn = mode === 'speed' ? btnSpeed : btnQuality;
+    const inactiveBtn = mode === 'speed' ? btnQuality : btnSpeed;
+    const statusEl = document.getElementById('codecBenchStatus');
+    const logEl = document.getElementById('codecBenchLog');
+    const fillEl = document.getElementById('codecBenchFill');
+    const pctEl  = document.getElementById('codecBenchPct');
+
+    if (btnSpeed.dataset.running || btnQuality.dataset.running) return;
+    activeBtn.dataset.running = '1';
+    btnSpeed.disabled = true;
+    btnQuality.disabled = true;
+    
+    const originalText = activeBtn.textContent;
+    activeBtn.textContent = 'Running benchmark...';
+    statusEl.style.display = 'block';
+    logEl.innerHTML = '';
+    fillEl.style.width = '0%';
+    pctEl.textContent = '0%';
+
+    function benchLog(msg, color) {
+        const d = document.createElement('div');
+        d.textContent = msg;
+        if (color) d.style.color = color;
+        logEl.appendChild(d);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Get all codecs the browser actually supports via WebRTC
+    const caps = RTCRtpSender.getCapabilities?.('video');
+    if (!caps) { 
+        benchLog('Browser does not support getCapabilities', 'var(--error)'); 
+        btnSpeed.disabled = false; btnQuality.disabled = false;
+        delete activeBtn.dataset.running; activeBtn.textContent = originalText; 
+        return; 
+    }
+
+    // Map codec mime types to the codecSelect option values
+    const CODEC_MAP = {
+        'video/h264': 'H264',
+        'video/hevc': 'H265',
+        'video/vp8':  'VP8',
+        'video/vp9':  'VP9',
+        'video/av1':  'AV1',
+    };
+
+    // Deduplicate by family
+    const seen = new Set();
+    const toTest = [];
+    for (const c of caps.codecs) {
+        const key = c.mimeType.toLowerCase();
+        const mapped = CODEC_MAP[key];
+        if (mapped && !seen.has(mapped)) { seen.add(mapped); toTest.push({ mime: key, name: mapped, codec: c }); }
+    }
+
+    benchLog(`Testing ${toTest.length} codec(s) — 8s each…`);
+
+    // Set up test video element (uses test_video.mp4 as the source signal)
+    const testVideo = document.createElement('video');
+    testVideo.src = '/assets/test_video.mp4';
+    testVideo.loop = true;
+    testVideo.muted = true;
+    testVideo.playsInline = true;
+    testVideo.style.display = 'none';
+    document.body.appendChild(testVideo);
+    await testVideo.play().catch(() => {});
+
+    const results = [];
+
+    for (let i = 0; i < toTest.length; i++) {
+        const { mime, name } = toTest[i];
+        const pct = Math.round((i / toTest.length) * 100);
+        fillEl.style.width = pct + '%';
+        pctEl.textContent = pct + '%';
+
+        benchLog(`Testing ${name}...`);
+        let bitrate = 0;
+
+        try {
+            // Create a loopback PC pair
+            const pc1 = new RTCPeerConnection();
+            const pc2 = new RTCPeerConnection();
+            pc1.onicecandidate = e => e.candidate && pc2.addIceCandidate(e.candidate).catch(() => {});
+            pc2.onicecandidate = e => e.candidate && pc1.addIceCandidate(e.candidate).catch(() => {});
+
+            // Add video track from the test video
+            const stream = testVideo.captureStream ? testVideo.captureStream(30) : testVideo.mozCaptureStream?.(30);
+            if (!stream) throw new Error('captureStream not supported');
+            const [track] = stream.getVideoTracks();
+            pc1.addTrack(track, stream);
+
+            // Prefer the specific codec on pc1's sender
+            const allCodecs = caps.codecs;
+            const preferred = allCodecs.filter(c => c.mimeType.toLowerCase() === mime);
+            const rest = allCodecs.filter(c => c.mimeType.toLowerCase() !== mime);
+            if (preferred.length === 0) { benchLog(`  - ${name}: not in capabilities — skip`); pc1.close(); pc2.close(); continue; }
+            pc1.getTransceivers().forEach(t => {
+                if (t.sender?.track?.kind === 'video') {
+                    try { t.setCodecPreferences([...preferred, ...rest]); } catch (_) {}
+                }
+            });
+
+            const offer = await pc1.createOffer();
+            await pc1.setLocalDescription(offer);
+            await pc2.setRemoteDescription(offer);
+            const answer = await pc2.createAnswer();
+            await pc2.setLocalDescription(answer);
+            await pc1.setRemoteDescription(answer);
+
+            // Wait for connection
+            await new Promise((res, rej) => {
+                const t = setTimeout(() => rej(new Error('ICE timeout')), 5000);
+                pc2.onconnectionstatechange = () => {
+                    if (pc2.connectionState === 'connected') { clearTimeout(t); res(); }
+                    if (pc2.connectionState === 'failed') { clearTimeout(t); rej(new Error('ICE failed')); }
+                };
+            });
+
+            // Wait for the codec to actually be negotiated and used
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Check what codec actually got selected (not just requested)
+            let actualCodec = null;
+            try {
+                const stats = await pc2.getStats();
+                stats.forEach(r => {
+                    if (r.type === 'inbound-rtp' && r.kind === 'video' && r.codecId) {
+                        const codecStat = stats.get(r.codecId);
+                        if (codecStat) actualCodec = codecStat.mimeType;
+                    }
+                });
+            } catch (_) {}
+
+            if (actualCodec && !actualCodec.toLowerCase().includes(mime.split('/')[1])) {
+                benchLog(`  - ${name}: browser used ${actualCodec} instead — skip`);
+                pc1.close(); pc2.close(); continue;
+            }
+
+            // Measure bitrate over 8 seconds
+            let lastBytes = 0, lastTime = 0;
+            const samples = [];
+            for (let s = 0; s < 8; s++) {
+                await new Promise(r => setTimeout(r, 1000));
+                try {
+                    const stats = await pc2.getStats();
+                    stats.forEach(r => {
+                        if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                            if (lastTime > 0) {
+                                const kbps = ((r.bytesReceived - lastBytes) * 8) / (r.timestamp - lastTime);
+                                if (kbps > 0) samples.push(kbps);
+                            }
+                            lastBytes = r.bytesReceived;
+                            lastTime = r.timestamp;
+                        }
+                    });
+                } catch (_) {}
+            }
+
+            bitrate = samples.length ? Math.round(samples.reduce((a, b) => a + b, 0) / samples.length) : 0;
+            pc1.close(); pc2.close();
+        } catch (err) {
+            benchLog(`  - ${name}: ${err.message}`, 'var(--warn)');
+            continue;
+        }
+
+        if (bitrate > 0) {
+            benchLog(`  + ${name}: ${bitrate} kbps`, 'var(--accent)');
+            results.push({ name, bitrate });
+        } else {
+            benchLog(`  - ${name}: no frames received`);
+        }
+    }
+
+    testVideo.pause();
+    document.body.removeChild(testVideo);
+
+    fillEl.style.width = '100%';
+    pctEl.textContent = '100%';
+
+    if (results.length === 0) {
+        benchLog('No codec produced usable output. Check GPU/driver.', 'var(--error)');
+    } else {
+        if (mode === 'speed') {
+            document.getElementById('resSelect').value = "720";
+            document.getElementById('fpsSelect').value = "60";
+            // Sort by bitrate descending — highest throughput = fastest codec
+            results.sort((a, b) => b.bitrate - a.bitrate);
+        } else {
+            document.getElementById('resSelect').value = "1080";
+            document.getElementById('fpsSelect').value = "60";
+            // Best quality is typically AV1 > H265 > VP9 > H264 > VP8
+            const qualityOrder = ['AV1', 'H265', 'VP9', 'H264', 'VP8'];
+            results.sort((a, b) => {
+                const idxA = qualityOrder.indexOf(a.name);
+                const idxB = qualityOrder.indexOf(b.name);
+                if (idxA === idxB) return b.bitrate - a.bitrate;
+                return (idxA !== -1 ? idxA : 99) - (idxB !== -1 ? idxB : 99);
+            });
+        }
+        
+        applyBitrateToAll(); // Applies the new resolution and FPS
+        
+        const winner = results[0];
+        benchLog(`Best: ${winner.name} @ ${winner.bitrate} kbps — applied!`, '#22c55e');
+        document.getElementById('codecSelect').value = winner.name;
+        localStorage.setItem('ns_codec', winner.name);
+        // Reapply to live connections if any
+        Object.values(peerConnections).forEach(pc => { if (pc) preferVideoCodec(pc); });
+    }
+
+    btnSpeed.disabled = false;
+    btnQuality.disabled = false;
+    activeBtn.textContent = originalText;
+    delete activeBtn.dataset.running;
+}
+
 async function setLowLatencyParams(pc) {
     const sender = pc.getSenders().find(s => s.track?.kind === 'video');
     if (!sender) return;
@@ -585,8 +816,13 @@ async function renderUrls(d) {
     let finalTunnelUrl = null;
     if (d.tunnelUrl) {
         const separator = d.tunnelUrl.includes('?') ? '&' : '?';
-        finalTunnelUrl = `${d.tunnelUrl}${separator}host=${encodedName}`;
+        const pSelect = document.getElementById('pipelineSelect');
+        const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+        finalTunnelUrl = `${d.tunnelUrl}${separator}host=${encodedName}${pipeArg}`;
     }
+
+    const pSelect = document.getElementById('pipelineSelect');
+    const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
 
     const rows = [];
     
@@ -596,10 +832,10 @@ async function renderUrls(d) {
         rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: '#444', noclick: true });
     }
 
-    rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}`, label: 'LAN (v3) — same network only', color: '#555' });
+    rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
 
     if (!finalTunnelUrl && d.publicIP)
-        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&host=${encodedName}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
+        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
 
     // 3. NOW clear the HTML and append (prevents the async duplication bug)
     const el = document.getElementById('urlList');
@@ -703,7 +939,7 @@ function renderRoster(list) {
         let currentMode = v.inputMode || 'gamepad';
         const isGuest = v.name.startsWith('Guest');
 
-        if (!isGuest && savedViewerModes[v.name] && currentMode !== savedViewerModes[v.name]) {
+        if (!isGuest && v.id !== 'host_0' && savedViewerModes[v.name] && currentMode !== savedViewerModes[v.name]) {
             currentMode = savedViewerModes[v.name];
             changeInputMode(v.id, currentMode, v.name);
         }
@@ -724,6 +960,7 @@ function renderRoster(list) {
         <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${v.name}</div>
         <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
         <img src="${iconSrc}" style="width:14px;height:14px;filter:invert(0.8);" id="icon-${v.id}" />
+        ${v.id === 'host_0' ? `<span style="font-size:9px;color:var(--muted);">Host</span>` : `
         <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;"
         onchange="changeInputMode('${v.id}', this.value, '${v.name.replace(/'/g, "\\'")}'); this.blur();">
         <option value="gamepad"       ${currentMode === 'gamepad'       ? 'selected' : ''}>Gamepad</option>
@@ -731,6 +968,8 @@ function renderRoster(list) {
         <option value="kbm_emulated"  ${currentMode === 'kbm_emulated'  ? 'selected' : ''}>Emulated KBM</option>
         <option value="disabled"      ${currentMode === 'disabled'      ? 'selected' : ''}>Disabled</option>
         </select>
+        `}
+        ${v.id === 'host_0' ? '' : `
         <div style="width:1px;height:12px;background:var(--border2);margin:0 2px;"></div>
         <button onclick="cycleViewerMic('${v.id}')" title="${micTitle}"
         id="mic-btn-${v.id}"
@@ -740,6 +979,7 @@ function renderRoster(list) {
         <input type="range" min="0" max="100" value="${viewerAudioStates[v.id].vol}"
         oninput="setViewerVolume('${v.id}', this.value)"
         style="width:38px;accent-color:var(--accent);height:3px;" title="Viewer voice volume">
+        `}
         </div>
         </div>
         <div class="rstat">${v.slot !== null ? '(Assigned)' : ''}</div>
@@ -747,7 +987,7 @@ function renderRoster(list) {
         style="background:none;border:none;cursor:pointer;padding:0 4px;width:20px;height:20px;display:flex;align-items:center;">
         <img src="/assets/icons/${v.locked ? 'lock' : 'lock-open'}.svg" style="width:14px;height:14px;${v.locked ? 'filter:invert(0.8) sepia(1) saturate(5) hue-rotate(350deg);' : 'filter:invert(0.5);'}" />
         </button>
-        <button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>
+        ${v.id === 'host_0' ? '' : `<button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>`}
         `;
         c.appendChild(r);
     });
@@ -910,7 +1150,7 @@ function togglePin() {
     const btn = document.getElementById('pinToggle');
     if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled }));
-    if (_vpsWs && _vpsWs.readyState === 1) _vpsWs.send(JSON.stringify({ type: currentStream ? 'stream-active' : 'stream-idle', pinRequired: pinEnabled }));
+    if (_vpsWs && _vpsWs.readyState === 1) _vpsWs.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled }));
 }
 
 function regeneratePin() {
@@ -946,8 +1186,8 @@ function connectWS() {
             forceWebCodecsKeyframe();
             const vid = msg.viewerId || msg._viewerId;
             if (vid && _lastWcConfig) {
-                if (viewerDataChannels[vid] && viewerDataChannels[vid].readyState === 'open') {
-                    try { viewerDataChannels[vid].send(_lastWcConfig); } catch (_) {}
+                if (peerConnections[vid] && peerConnections[vid].wcChannel && peerConnections[vid].wcChannel.readyState === 'open') {
+                    try { peerConnections[vid].wcChannel.send(_lastWcConfig); } catch (_) {}
                 }
             }
             return;
@@ -1037,7 +1277,7 @@ function connectWS() {
                 _vpsWs.send(msg.payload);
             }
         }
-        if (msg.type === 'offer' || msg.type === 'ice-host' || msg.type === 'host-voice-cmd' || msg.type === 'input-state' || msg.type === 'pin-rejected') {
+        if (msg.type === 'offer' || msg.type === 'ice-host' || msg.type === 'host-voice-cmd' || msg.type === 'input-state' || msg.type === 'pin-rejected' || msg.type === 'rumble') {
             // These messages are bounced back from server.js if the target viewer is on the VPS.
             if (_vpsWs && _vpsWs.readyState === 1) {
                 const target = msg._viewerId || msg.targetViewerId;
@@ -1089,25 +1329,31 @@ async function sendOfferToViewer(viewerId) {
         delete peerConnections[viewerId];
     }
 
+    const stunPool = [
+        'stun:stun.l.google.com:19302',
+        'stun:stun1.l.google.com:19302',
+        'stun:stun2.l.google.com:19302',
+        'stun:stun3.l.google.com:19302',
+        'stun:stun4.l.google.com:19302',
+        'stun:stun.cloudflare.com:3478',
+        'stun:stun.twilio.com:3478',
+        'stun:global.stun.twilio.com:3478',
+        'stun:stun.miwifi.com:3478'
+    ];
+
+    if (!_turnCredentials && _turnFetchPromise) {
+        await _turnFetchPromise;
+    }
+
+    // Pick 2 random STUN servers to avoid the "Using five or more STUN/TURN servers slows down discovery" warning
+    // and naturally rotate STUN/TURN across retries for users with VPNs.
+    const shuffledStun = stunPool.sort(() => 0.5 - Math.random()).slice(0, 2).map(url => ({ urls: url }));
+    
+    const iceServers = [...shuffledStun];
+    if (_turnCredentials) iceServers.push(_turnCredentials);
+
     const pc = new RTCPeerConnection({
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' },
-            { urls: 'stun:stun.stunprotocol.org:3478' },
-            // Public OpenRelay TURN server to guarantee WebRTC connections over strict NATs/Tunnels
-            {
-                urls: [
-                    'turn:openrelay.metered.ca:80',
-                    'turn:openrelay.metered.ca:443'
-                ],
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            }
-        ],
+        iceServers: iceServers,
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
         sdpSemantics: 'unified-plan',
@@ -1117,6 +1363,23 @@ async function sendOfferToViewer(viewerId) {
 
     // ── THE MISSING UDP TUNNEL ──
     pc.wcChannel = pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0 });
+
+    // ── UDP FAST-LANE FOR INPUT ──
+    pc.inputChannel = pc.createDataChannel('input', { ordered: false, maxRetransmits: 0 });
+    pc.inputChannel.onmessage = (e) => {
+        if (ws && ws.readyState === 1) {
+            try {
+                const inner = JSON.parse(e.data);
+                // Fast-lane inputs bypass the VPS router, so we must manually stamp the correct session ID
+                inner.viewerId = viewerId;
+                inner.viewer_id = viewerId;
+                if (inner.type === 'gamepad' && !inner.pad_id) inner.pad_id = viewerId + '_0';
+                ws.send(JSON.stringify(inner));
+            } catch (_) {
+                ws.send(e.data);
+            }
+        }
+    };
 
     // When the channel opens for this viewer, send the cached decoder config
     // immediately so they don't wait for the next keyframe (which may be seconds away).
@@ -1161,7 +1424,12 @@ async function sendOfferToViewer(viewerId) {
 
     pc.onicecandidate = (e) => {
         if (e.candidate && e.candidate.candidate) {
-            ws.send(JSON.stringify({ type: 'ice-host', candidate: e.candidate, _viewerId: viewerId }));
+            const msg = { type: 'ice-host', candidate: e.candidate, _viewerId: viewerId };
+            if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
+                window.P2PManager.sendToPeer(viewerId, msg);
+            } else {
+                ws.send(JSON.stringify(msg));
+            }
         }
     };
 
@@ -1212,7 +1480,12 @@ async function sendOfferToViewer(viewerId) {
     try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
-        ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: viewerId }));
+        const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: viewerId };
+        if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
+            window.P2PManager.sendToPeer(viewerId, msg);
+        } else {
+            ws.send(JSON.stringify(msg));
+        }
         log(I18N.t('Offer → viewer') + ' ' + viewerId, 'ok');
     } catch (err) {
         log(I18N.t('Fatal WebRTC Error for') + ' ' + viewerId + ': ' + err.message, 'err');
@@ -1514,11 +1787,12 @@ async function startCapture() {
 
         // ── 1. FFMPEG EXPERIMENTAL INTERCEPTOR ──
         // Ask the backend directly if FFmpeg is active, bypassing UI state
+        /*
         let backendHasFfmpeg = false;
         try {
             const statusRes = await fetch('/api/ffmpeg-status').then(r => r.json());
             if (statusRes.available !== false) backendHasFfmpeg = true;
-        } catch (e) { /* Route 404s if disabled, naturally skipping */ }
+        } catch (e) { }
 
         if (backendHasFfmpeg) {
             log('Routing capture through experimental FFmpeg pipeline...', 'warn');
@@ -1530,6 +1804,7 @@ async function startCapture() {
                 log('FFmpeg failed. Falling back to native Wayland portal.', 'err');
             }
         }
+        */
 
         // ── 2. THE NATIVE WAYLAND BYPASS ──
         // Only trigger if FFmpeg was off or failed
@@ -1832,7 +2107,7 @@ function stopCapture() {
     if (wcCanvas) wcCanvas.remove();
 
     // Stop FFmpeg experimental pipeline if it was running
-    fetch(`/api/stop-ffmpeg-capture`, { method: 'POST' }).catch(() => {});
+    // fetch(`/api/stop-ffmpeg-capture`, { method: 'POST' }).catch(() => {});
     if (window._ffmpegHealthInterval) { clearInterval(window._ffmpegHealthInterval); window._ffmpegHealthInterval = null; }
     const prevEl = document.getElementById('preview');
     if (prevEl) prevEl.srcObject = null;
@@ -2224,6 +2499,7 @@ function connectVps(cfg) {
             if (msg.type === 'auth-ok') {
                 _vpsAuthOk = true;
                 log('VPS: Authenticated — SFU mode active', 'ok');
+                _vpsWs.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled }));
                 _vpsWs.send(JSON.stringify({ type: 'stream-idle', pinRequired: pinEnabled }));
 
                 try {
@@ -2233,7 +2509,9 @@ function connectVps(cfg) {
                     // Read hostName from config API — displayHostName element may not be populated yet
                     loadAppConfig().then(cfg => {
                         const hostParam = encodeURIComponent(cfg.hostName || 'Host');
-                        const viewerUrl = origin + '/?v3&host=' + hostParam + '&name=Player';
+                        const pSelect = document.getElementById('pipelineSelect');
+                        const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+                        const viewerUrl = origin + '/?v3&host=' + hostParam + pipeArg;
                         const el = document.getElementById('urlList');
                         if (el) {
                             el.innerHTML = '';
@@ -2314,9 +2592,9 @@ function connectVps(cfg) {
                     return;
                 }
 
-                // Stamp the viewer ID so the server can map it to a slot
-                if (!inner.viewerId)   inner.viewerId   = viewerId;
-                if (!inner.viewer_id)  inner.viewer_id  = viewerId;
+                // Unconditionally stamp the viewer ID so the server can map it to a slot and prevent stale IDs
+                inner.viewerId = viewerId;
+                inner.viewer_id = viewerId;
                 if (inner.type === 'gamepad' && !inner.pad_id) inner.pad_id = viewerId + '_0';
 
                 if (inner.type === 'answer' || inner.type === 'ice-viewer' || inner.type === 'viewer-mic-ready') {
@@ -2599,6 +2877,76 @@ function confirmTunnel() {
     }).then(() => { clearTimeout(_autoCloseTimer); }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
 }
 
+function startP2POnly() {
+    if (_tunnelBusy) return;
+    const remember = document.getElementById('rememberCheck').checked;
+    
+    // Switch away from VPS SFU if it was active
+    if (typeof disconnectVps === 'function') {
+        disconnectVps();
+        if (window.electronAPI && typeof window.electronAPI.saveVpsConfig === 'function') {
+            window.electronAPI.saveVpsConfig({ vpsEnabled: false, vpsUrl: '', vpsMasterKey: '' });
+        }
+    }
+
+    if (remember) {
+        saveAppConfig({ tunnelProvider: 'p2p', neverAsk: true });
+    }
+
+    // Generate a random 12-char room code
+    const array = new Uint32Array(2);
+    crypto.getRandomValues(array);
+    const code = array[0].toString(36).padStart(6, '0') + '-' + array[1].toString(36).padStart(6, '0');
+    
+    // Set the URL card to the room code
+    const tunnelUrlDisplay = document.getElementById('tunnelUrlDisplay');
+    const tunnelStatusLabel = document.getElementById('tunnelStatusLabel');
+    if (tunnelUrlDisplay) {
+        tunnelUrlDisplay.textContent = code;
+        tunnelUrlDisplay.dataset.url = code;
+        tunnelUrlDisplay.style.color = 'var(--accent2)';
+    }
+    if (tunnelStatusLabel) {
+        tunnelStatusLabel.textContent = 'P2P ROOM CODE';
+        tunnelStatusLabel.style.color = 'var(--green)';
+    }
+
+    log(I18N.t('Starting P2P tunnel') + (remember ? ' (saved)' : '') + '...', 'ok');
+    
+    // Initialize Trystero
+    if (window.P2PManager) {
+        window.P2PManager.initHost(code, (msg) => {
+            // Check PIN locally since there's no server.js
+            if (msg.type === 'join') {
+                if (pinEnabled && msg.pin !== currentPin) {
+                    window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, { type: 'pin-rejected' });
+                    return;
+                }
+                // Translate join to viewer-joined for host.js
+                msg.type = 'viewer-joined';
+                
+                // Emulate server sending host-stream-ready if streaming
+                if (currentStream) {
+                    window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, {
+                        type: 'host-stream-ready',
+                        needsOffer: false // Host sends offer
+                    });
+                }
+            }
+
+            // Let the existing websocket logic handle it
+            if (ws && typeof ws.onmessage === 'function') {
+                // Ensure _viewerId exists for existing routing logic
+                if (msg.viewer_id && !msg._viewerId) msg._viewerId = msg.viewer_id;
+                if (msg.viewerId && !msg._viewerId) msg._viewerId = msg.viewerId;
+                ws.onmessage({ data: JSON.stringify(msg) });
+            }
+        });
+    }
+
+    closeTunnelModal();
+}
+
 document.querySelectorAll('input[name="provider"]').forEach(radio => {
     radio.addEventListener('change', () => {
         if (_tunnelBusy) return;
@@ -2610,7 +2958,9 @@ document.querySelectorAll('input[name="provider"]').forEach(radio => {
 document.querySelectorAll('.provider-card').forEach(card => {
     card.addEventListener('click', () => {
         if (_tunnelBusy) return;
-        card.querySelector('input').checked = true;
+        const input = card.querySelector('input');
+        input.checked = true;
+        input.dispatchEvent(new Event('change'));
         document.querySelectorAll('.provider-card').forEach(c =>
         c.classList.toggle('selected', c.querySelector('input').checked));
     });
@@ -3104,6 +3454,7 @@ function _doArcadeRegister() {
             const btn = document.getElementById('pinToggle');
             if (btn) { btn.textContent = 'OFF'; btn.className = 'pin-toggle-btn'; }
             if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: false }));
+            if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) _vpsWs.send(JSON.stringify({ type: 'set-pin', enabled: false }));
             log(I18N.t('PIN disabled for Arcade session'), 'ok');
         }
 
@@ -3422,3 +3773,28 @@ window.addEventListener('message', (e) => {
         }
     }
 });
+
+// ── SYSTEM INFO POLL ─────────────────────────────────────────────────────────
+async function fetchSysInfo() {
+    try {
+        const res = await fetch('/api/sysinfo');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.error) return;
+
+        const cpuEl = document.getElementById('sysCpu');
+        const ramEl = document.getElementById('sysRam');
+        const netEl = document.getElementById('sysNet');
+
+        if (cpuEl) cpuEl.textContent = `CPU: ${data.cpu}`;
+        if (ramEl) ramEl.textContent = `RAM: ${data.ram}`;
+        if (netEl) netEl.textContent = `NET: ${data.netTx} ↑ ${data.netRx} ↓`;
+    } catch (e) {}
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { setInterval(fetchSysInfo, 3000); fetchSysInfo(); });
+} else {
+    setInterval(fetchSysInfo, 3000);
+    fetchSysInfo();
+}

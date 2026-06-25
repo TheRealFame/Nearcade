@@ -2,18 +2,18 @@ const {
   app, BrowserWindow, ipcMain, shell, Tray, Menu,
   nativeImage, dialog, desktopCapturer, clipboard,
 } = require('electron');
-const os   = require('os');
+const os = require('os');
 const path = require('path');
-const fs   = require('fs');
+const fs = require('fs');
 const { powerSaveBlocker } = require('electron');
 powerSaveBlocker.start('prevent-app-suspension');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 // ── CRITICAL FIX: Detect Arcade Worker immediately ──
-const isArcadeWorker      = process.argv.includes('--arcade-worker');
+const isArcadeWorker = process.argv.includes('--arcade-worker');
 const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
-let isWebCodecs            = process.argv.includes('--webcodecs');
-let isFFmpegCapture        = process.argv.includes('--ffmpeg');
-const gotTheLock          = isArcadeWorker ? true : app.requestSingleInstanceLock();
+let isWebCodecs = process.argv.includes('--webcodecs');
+let isFFmpegCapture = process.argv.includes('--ffmpeg');
+const gotTheLock = isArcadeWorker ? true : app.requestSingleInstanceLock();
 
 
 // ── CONFIGURATION DIR UTILS ──
@@ -25,10 +25,10 @@ function _getConfigDir() {
     return path.join(home, 'Library', 'Application Support', 'NearsecTogether');
   return path.join(home, '.config', 'NearsecTogether');
 }
-const CONFIG_DIR  = _getConfigDir();
+const CONFIG_DIR = _getConfigDir();
 const CONFIG_FILE = path.join(CONFIG_DIR, 'nearsectogether.config.json');
 const BUNDLED_CONTROLLERS = path.join(__dirname, 'config', 'controllers.json');
-const USER_CONTROLLERS    = path.join(CONFIG_DIR, 'controllers.json');
+const USER_CONTROLLERS = path.join(CONFIG_DIR, 'controllers.json');
 
 // ── AUTOMATIC CONFIGURATION OVERRIDES ──
 try {
@@ -75,12 +75,12 @@ function _electronSignalCleanup(signal) {
           "pactl list short modules | awk '/NearsecVirtual|NearsecVirtualCapture/{print $1}' | xargs -r pactl unload-module",
           { stdio: 'ignore' }
         );
-      } catch (_) {}
+      } catch (_) { }
     }
     process.exit(0);
   }
 }
-process.on('SIGINT',  () => _electronSignalCleanup('SIGINT'));
+process.on('SIGINT', () => _electronSignalCleanup('SIGINT'));
 process.on('SIGTERM', () => _electronSignalCleanup('SIGTERM'));
 
 // ── REQ 3: Startup purge ─────────────────────────────────────────────────────
@@ -103,10 +103,10 @@ if (process.platform === 'linux') {
     if (staleIds.length > 0) {
       console.log(`[electron] Startup purge: removing ${staleIds.length} stale PA module(s)`);
       for (const id of staleIds) {
-        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) {}
+        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 }
 
 if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, 'assets/NearsecTogether.png'));
@@ -118,9 +118,9 @@ if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 } else if (process.platform === 'linux') {
-  const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') || 
-                      (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
-  
+  const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
+
   if (isGamescope) {
     // Force X11/XWayland under Gamescope to prevent Electron crashes with native Wayland
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
@@ -130,7 +130,7 @@ if (isArcadeWorker && process.platform === 'linux') {
     app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
   }
-  
+
   // Unlock zero-copy DMA-BUF memory passing
   app.commandLine.appendSwitch('enable-zero-copy');
 }
@@ -182,15 +182,15 @@ const DEFAULTS = {
   hostName: '',
   // Controller
   forceXboxOne: false, enableDualShock: false, enableMotion: false,
-    defaultInputMode: 'gamepad', hybridInput: false,
-      // Tunnels
-      tunnelProvider: null, neverAsk: false, vpsHost: '',
-      // VPS SFU routing
-      vpsEnabled: false, vpsUrl: '', vpsMasterKey: '',
-      // Auto-hosts
-      autoHosts: [],
-      // First run
-      firstRunComplete: false,
+  defaultInputMode: 'gamepad', hybridInput: false,
+  // Tunnels
+  tunnelProvider: null, neverAsk: false, vpsHost: '',
+  // VPS SFU routing
+  vpsEnabled: false, vpsUrl: '', vpsMasterKey: '',
+  // Auto-hosts
+  autoHosts: [],
+  // First run
+  firstRunComplete: false,
 };
 
 function loadSettings() {
@@ -202,9 +202,9 @@ function loadSettings() {
     // Config missing (first run or deleted) — write defaults to disk immediately
     // so the file always exists after launch and settings persist correctly.
     const seed = Object.assign({}, DEFAULTS);
-    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(seed, null, 2)); } catch (_) {}
+    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(seed, null, 2)); } catch (_) { }
     return seed;
-  } catch (_) {}
+  } catch (_) { }
   return Object.assign({}, DEFAULTS);
 }
 
@@ -215,7 +215,7 @@ function loadControllers() {
     if (fs.existsSync(BUNDLED_CONTROLLERS)) {
       bundled = JSON.parse(fs.readFileSync(BUNDLED_CONTROLLERS, 'utf8'));
     }
-  } catch (_) {}
+  } catch (_) { }
   try {
     if (!fs.existsSync(USER_CONTROLLERS)) {
       if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -262,7 +262,7 @@ function startServer() {
   });
 }
 
-let win  = null;
+let win = null;
 let tray = null;
 
 async function createWindow() {
@@ -270,21 +270,21 @@ async function createWindow() {
   console.log('[electron] server ready on port', port);
 
   win = new BrowserWindow({
-    width:  Math.max(settings.w, 600),
-                          height: Math.max(settings.h, 500),
-                          minWidth:  600,
-                          minHeight: 500,
-                          title: 'NearsecTogether',
-                          icon:  path.join(__dirname, 'assets/NearsecTogether.png'),
-                          backgroundColor: '#111111',
-                          alwaysOnTop: settings.alwaysOnTop,
-                          show: false,
-                          webPreferences: {
-                            nodeIntegration:  false,
-                            contextIsolation: true,
-                            preload: path.join(__dirname, 'electron-preload.js'),
-                          },
-                          autoHideMenuBar: true,
+    width: Math.max(settings.w, 600),
+    height: Math.max(settings.h, 500),
+    minWidth: 600,
+    minHeight: 500,
+    title: 'NearsecTogether',
+    icon: path.join(__dirname, 'assets/NearsecTogether.png'),
+    backgroundColor: '#111111',
+    alwaysOnTop: settings.alwaysOnTop,
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'electron-preload.js'),
+    },
+    autoHideMenuBar: true,
   });
 
   win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
@@ -296,8 +296,8 @@ async function createWindow() {
       const idx = process.argv.indexOf(flag);
       return idx > -1 ? process.argv[idx + 1] : null;
     }
-    const gameName   = getCliArg('--game-name')   || 'Arcade Game';
-    const tunnelProv = getCliArg('--game-tunnel')  || 'cloudflared';
+    const gameName = getCliArg('--game-name') || 'Arcade Game';
+    const tunnelProv = getCliArg('--game-tunnel') || 'cloudflared';
     win.loadURL(`http://localhost:${port}/host?auto=1&title=${encodeURIComponent(gameName)}&tunnel=${encodeURIComponent(tunnelProv)}`);
   } else {
     win.loadFile(path.join(PAGES_DIR, 'dashboard.html'), { query: { port: String(port) } });
@@ -308,7 +308,7 @@ async function createWindow() {
     console.error('[electron] failed to load:', code, desc);
     setTimeout(() => {
       if (isArcadeWorker) win.loadURL(`http://localhost:${port}/host?auto=1`);
-        else win.loadFile(path.join(PAGES_DIR, 'dashboard.html'), { query: { port: String(port) } });
+      else win.loadFile(path.join(PAGES_DIR, 'dashboard.html'), { query: { port: String(port) } });
     }, 1000);
   });
 
@@ -354,7 +354,7 @@ async function createWindow() {
             _elDisabled('btnStop', true);
             if (typeof setCapDot === 'function') setCapDot('');
           }
-          `).catch(()=>{});
+          `).catch(() => { });
         }
       }
     }).catch(err => {
@@ -370,7 +370,7 @@ async function createWindow() {
           _elDisabled('btnStop', true);
           if (typeof setCapDot === 'function') setCapDot('');
         }
-        `).catch(()=>{});
+        `).catch(() => { });
       }
     });
   });
@@ -383,8 +383,8 @@ async function createWindow() {
   win.on('closed', () => { win = null; });
 
   // ── Tray ──
-  const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') || 
-                         (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
+  const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
 
   if (!isGamescopeEnv) {
     const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearsecTogether.png')).resize({ width: 22, height: 22 });
@@ -411,7 +411,7 @@ async function createWindow() {
     }
   });
 
-  try { os.setPriority(process.pid, os.constants.priority.PRIORITY_HIGH); } catch (_) {}
+  try { os.setPriority(process.pid, os.constants.priority.PRIORITY_HIGH); } catch (_) { }
 
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 
@@ -436,7 +436,15 @@ async function createWindow() {
     // When the user clicks "Join" from the dashboard, load the viewer UI
     // and pass the host connection data in the URL
     if (win && !win.isDestroyed()) {
-      win.loadURL(`http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(data || '')}`);
+      let url = data?.url || data || '';
+      if (typeof url !== 'string') url = '';
+
+      let viewerUrl = `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(url)}`;
+      if (data?.pin) {
+        viewerUrl += `&pin=${encodeURIComponent(data.pin)}`;
+      }
+
+      win.loadURL(viewerUrl);
     }
     return true;
   });
@@ -447,10 +455,10 @@ async function createWindow() {
     const { spawn } = require('child_process');
     const pyScript = path.join(__dirname, 'src', 'sidecar', 'input_backends', 'read_gamepads.py');
     const pyExec = process.platform === 'win32' ? path.join(__dirname, 'bin', 'python', 'python.exe') : 'python3';
-    
+
     // Fallback to system python on windows if bin/python doesn't exist
     const actualExec = (process.platform === 'win32' && !fs.existsSync(pyExec)) ? 'python' : pyExec;
-    
+
     gamepadProc = spawn(actualExec, [pyScript]);
     gamepadProc.stdout.on('data', (data) => {
       const lines = data.toString().split('\n');
@@ -459,25 +467,35 @@ async function createWindow() {
         try {
           const msg = JSON.parse(line.trim());
           event.reply('native-gamepad-event', msg);
-        } catch (_) {}
+        } catch (_) { }
       }
     });
     gamepadProc.stderr.on('data', d => console.error('[native-gamepad]', d.toString().trim()));
     gamepadProc.on('close', () => { gamepadProc = null; });
   });
 
+  ipcMain.on('native-gamepad-rumble', (event, data) => {
+    if (gamepadProc && gamepadProc.stdin && !gamepadProc.stdin.destroyed) {
+      try {
+        gamepadProc.stdin.write(JSON.stringify({ type: 'rumble', ...data }) + '\n');
+      } catch (err) {
+        console.error('[native-gamepad] Failed to write rumble data:', err.message);
+      }
+    }
+  });
+
   ipcMain.handle('get-settings', () => settings);
   // Dedicated VPS config handler — exposes only VPS fields to the renderer,
   // keeping the master key separate from general settings for clarity.
   ipcMain.handle('get-vps-config', () => ({
-    vpsEnabled:   !!settings.vpsEnabled,
-    vpsUrl:       String(settings.vpsUrl       || ''),
+    vpsEnabled: !!settings.vpsEnabled,
+    vpsUrl: String(settings.vpsUrl || ''),
     vpsMasterKey: String(settings.vpsMasterKey || ''),
   }));
   ipcMain.handle('save-vps-config', (_, cfg) => {
     const safe = {
-      vpsEnabled:   !!cfg.vpsEnabled,
-      vpsUrl:       String(cfg.vpsUrl       || '').slice(0, 512),
+      vpsEnabled: !!cfg.vpsEnabled,
+      vpsUrl: String(cfg.vpsUrl || '').slice(0, 512),
       vpsMasterKey: String(cfg.vpsMasterKey || '').slice(0, 256),
     };
     settings = Object.assign(settings, safe);
@@ -572,7 +590,7 @@ async function createWindow() {
           } else {
             event.reply('setup-failed', 'Setup aborted or failed.');
           }
-        } catch(e) {
+        } catch (e) {
           event.reply('setup-failed', 'Terminal closed early.');
         }
       });
@@ -592,7 +610,7 @@ async function createWindow() {
     // FIX #7: version param ('new' | 'old') is now forwarded from preload
     const route = version === 'old' ? '/old_host' : '/host';
     const captureParams = [];
-    if (isWebCodecs)    captureParams.push('wc=1');
+    if (isWebCodecs) captureParams.push('wc=1');
     if (isFFmpegCapture) captureParams.push('ffmpeg=1');
     const qs = captureParams.length ? '?' + captureParams.join('&') : '';
     if (win && !win.isDestroyed()) win.loadURL(`http://localhost:${serverPort}${route}${qs}`);

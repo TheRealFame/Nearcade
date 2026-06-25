@@ -26,7 +26,6 @@ use tokio::{
     sync::{mpsc, RwLock},
 };
 use tokio_tungstenite::{
-    accept_hdr_async,
     tungstenite::{
         handshake::server::{Request, Response},
         Message,
@@ -39,7 +38,11 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum ClientMsg {
-    Auth { role: Option<String>, key: Option<String> },
+    Auth {
+        #[allow(dead_code)]
+        role: Option<String>,
+        key: Option<String>,
+    },
     Ping {},
     #[serde(other)]
     Unknown,
@@ -50,6 +53,7 @@ enum ClientMsg {
 enum ServerMsg<'a> {
     AuthOk      { message: &'a str },
     AuthFail    { message: &'a str },
+    #[allow(dead_code)]
     Pong        {},
     ViewerInput { viewer_id: &'a str, payload: &'a str },
     ViewerJoined{ viewer_id: &'a str },
@@ -59,6 +63,7 @@ enum ServerMsg<'a> {
 enum HostCmd {
     Authorize(String),
     Dispatch(String, String),
+    SetPin(bool),
 }
 
 // ── Shared state ──────────────────────────────────────────────────────────────
@@ -72,6 +77,8 @@ struct RouterState {
     /// Standby connections (?standby=true) — only receive stream-active / stream-idle
     standby_viewers:     HashMap<String, ViewerTx>,
     last_config:         Option<String>,
+    /// Mirrors the host's pinEnabled flag — when false, new viewers skip the pin check
+    pin_enabled:         bool,
 }
 
 impl RouterState {
@@ -82,6 +89,7 @@ impl RouterState {
             active_viewers:     HashMap::new(),
             standby_viewers:    HashMap::new(),
             last_config:        None,
+            pin_enabled:        true, // default on until host says otherwise
         }
     }
 
@@ -115,6 +123,9 @@ impl RouterState {
     }
 
     fn forward_to_host(&self, viewer_id: &str, payload: &str) {
+        if payload.contains(r#""type":"gamepad""#) {
+            println!("[nearsec-router] [DEBUG GAMEPAD] Relaying input for viewer {}", viewer_id);
+        }
         if let Some(tx) = &self.host_tx {
             let msg  = ServerMsg::ViewerInput { viewer_id, payload };
             let json = serde_json::to_string(&msg).unwrap_or_default();
@@ -207,6 +218,10 @@ fn parse_host_command(text: &str) -> Option<HostCmd> {
                 .to_string();
             Some(HostCmd::Dispatch(id, payload))
         }
+        "set-pin" => {
+            let enabled = v.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            Some(HostCmd::SetPin(enabled))
+        }
         _ => None,
     }
 }
@@ -240,6 +255,12 @@ async fn main() {
 
     let state:      Arc<RwLock<RouterState>> = Arc::new(RwLock::new(RouterState::new()));
     let master_key: Arc<String>              = Arc::new(master_key);
+
+    // Spawn WebTransport UDP Router (If configured)
+    let wt_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        run_webtransport_server(wt_state).await;
+    });
 
     println!("[nearsec-router] Listening on ws://0.0.0.0:{}", port);
 
@@ -304,16 +325,16 @@ async fn handle_connection(
         }
         println!("[nearsec-router] Standby viewer {} registered from {}", standby_id, peer);
 
-        let is_host_connected = {
+        let (is_host_connected, pin_req) = {
             let r = state.read().await;
-            r.host_tx.is_some()
+            (r.host_tx.is_some(), r.pin_enabled)
         };
         let init_msg = if is_host_connected {
-            r#"{"type":"stream-active"}"#
+            format!(r#"{{"type":"stream-active","pinRequired":{}}}"#, pin_req)
         } else {
-            r#"{"type":"stream-idle"}"#
+            format!(r#"{{"type":"stream-idle","pinRequired":{}}}"#, pin_req)
         };
-        let _ = ws_tx.send(Message::Text(init_msg.to_string())).await;
+        let _ = ws_tx.send(Message::Text(init_msg)).await;
 
         let task_send = async {
             while let Some(msg) = standby_rx.recv().await {
@@ -412,6 +433,12 @@ async fn handle_connection(
                                 HostCmd::Dispatch(id, payload) => {
                                     w.send_to_viewer(&id, payload);
                                 }
+                                HostCmd::SetPin(enabled) => {
+                                    w.pin_enabled = enabled;
+                                    println!("[nearsec-router] PIN {}", if enabled { "enabled" } else { "disabled" });
+                                    let msg = format!(r#"{{"type":"pin-update","pinRequired":{}}}"#, enabled);
+                                    w.broadcast_standby(msg);
+                                }
                             }
                             continue;
                         }
@@ -460,6 +487,13 @@ async fn handle_connection(
         println!("[nearsec-router] Host disconnected from {}", peer);
 
     } else {
+        // Check if PIN is enabled on the VPS router level
+        // If disabled, viewers skip the waiting-room and connect directly
+        let pin_required = {
+            let r = state.read().await;
+            r.pin_enabled
+        };
+
         let viewer_id = Uuid::new_v4().to_string();
         let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel::<Message>();
 
@@ -469,11 +503,16 @@ async fn handle_connection(
             w.forward_to_host(&viewer_id, &first_text);
         }
 
-        println!("[nearsec-router] Viewer {} connected (unverified) from {}", viewer_id, peer);
+        println!("[nearsec-router] Viewer {} connected (unverified, pin_required={}) from {}", viewer_id, pin_required, peer);
 
-        let _ = ws_tx.send(Message::Text(
-            serde_json::to_string(&ServerMsg::AuthOk { message: "viewer accepted" }).unwrap()
-        )).await;
+        // Tell the viewer whether a PIN is required so viewer.js can skip the prompt
+        let auth_msg = if pin_required {
+            format!(r#"{{"type":"auth-ok","message":"viewer accepted","viewer_id":"{}"}}"#, viewer_id)
+        } else {
+            // Include pin_required=false so viewer.js knows to auto-join
+            format!(r#"{{"type":"auth-ok","message":"viewer accepted","viewer_id":"{}","pin_required":false}}"#, viewer_id)
+        };
+        let _ = ws_tx.send(Message::Text(auth_msg)).await;
 
         let state_clone = Arc::clone(&state);
         let vid_clone   = viewer_id.clone();
@@ -499,6 +538,7 @@ async fn handle_connection(
                             r.viewer_pool(&vid_clone)
                         };
                         if pool == ViewerPool::Active {
+                            println!("[nearsec-router] WARNING: Viewer {} sent binary data! String conversion may corrupt it. Use WebTransport for binary instead.", vid_clone);
                             let text = String::from_utf8_lossy(&b).into_owned();
                             let r = state_clone.read().await;
                             r.forward_to_host(&vid_clone, &text);
@@ -525,4 +565,64 @@ async fn handle_connection(
         }
         println!("[nearsec-router] Viewer {} disconnected from {}", viewer_id, peer);
     }
+}
+
+// ── EXPERIMENTAL WEBTRANSPORT IMPLEMENTATION STUB ─────────────────────────────
+async fn run_webtransport_server(_state: Arc<RwLock<RouterState>>) {
+    /*
+    use wtransport::endpoint::endpoint_builder::ServerEndpointBuilder;
+    use wtransport::tls::Certificate;
+
+    let cert_path = env::var("WT_CERT_PATH").unwrap_or_default();
+    let key_path  = env::var("WT_KEY_PATH").unwrap_or_default();
+
+    if cert_path.is_empty() || key_path.is_empty() {
+        println!("[nearsec-router] WT_CERT_PATH or WT_KEY_PATH not set. WebTransport (QUIC) is DISABLED.");
+        return;
+    }
+
+    let cert = match Certificate::load(&cert_path, &key_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            println!("[nearsec-router] Failed to load TLS certificates for WebTransport: {}", e);
+            return;
+        }
+    };
+
+    let endpoint = match ServerEndpointBuilder::new(cert)
+        .bind("0.0.0.0:4433")
+        .build() {
+            Ok(ep) => ep,
+            Err(e) => {
+                println!("[nearsec-router] Failed to bind WebTransport UDP port 4433: {}", e);
+                return;
+            }
+        };
+
+    println!("[nearsec-router] WebTransport (QUIC/H3) listening on udp://0.0.0.0:4433");
+
+    while let Some(incoming) = endpoint.accept().await {
+        tokio::spawn(async move {
+            let session = match incoming.await {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            println!("[nearsec-router] WebTransport session established!");
+            
+            // Loop for Unreliable Datagrams (Inputs & Video Frames)
+            loop {
+                match session.receive_datagram().await {
+                    Ok(datagram) => {
+                        // Decode raw binary chunks and route directly to active_viewers / host_tx
+                        // completely bypassing Head-of-Line blocking.
+                    }
+                    Err(e) => {
+                        println!("[nearsec-router] WebTransport datagram error: {}", e);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+    */
 }

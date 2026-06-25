@@ -219,10 +219,7 @@ Napi::Boolean InitializeDevice(const Napi::CallbackInfo& info) {
     ioctl(kbm_fd, UI_SET_RELBIT, REL_WHEEL);
     ioctl(kbm_fd, UI_SET_RELBIT, REL_HWHEEL);
 
-    // Absolute axes (for touch/abs mouse)
-    ioctl(kbm_fd, UI_SET_EVBIT,  EV_ABS);
-    ioctl(kbm_fd, UI_SET_ABSBIT, ABS_X);
-    ioctl(kbm_fd, UI_SET_ABSBIT, ABS_Y);
+    // Absolute axes removed from KBM to prevent SDL2 misidentifying it as a Gamepad
 
     struct uinput_user_dev uud = {};
     snprintf(uud.name, UINPUT_MAX_NAME_SIZE, "Nearsec Virtual KBM");
@@ -230,8 +227,7 @@ Napi::Boolean InitializeDevice(const Napi::CallbackInfo& info) {
     uud.id.vendor  = 0x1234;
     uud.id.product = 0x5678;
     uud.id.version = 1;
-    uud.absmax[ABS_X] = screenW;
-    uud.absmax[ABS_Y] = screenH;
+    uud.id.version = 1;
 
     if (write(kbm_fd, &uud, sizeof(uud)) < 0) {
         close(kbm_fd); kbm_fd = -1;
@@ -380,7 +376,7 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
                 if (rfd != g_rumbleFds.end()) { close(rfd->second); g_rumbleFds.erase(rfd); }
             }
 
-            int fd = open("/dev/uinput", O_WRONLY); // blocking — don't drop gamepad events
+            int fd = open("/dev/uinput", O_RDWR | O_NONBLOCK);
             if (fd < 0) break;
 
             // EV_SYN (explicit, some kernels require it)
@@ -402,9 +398,9 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
             ioctl(fd, UI_SET_ABSBIT, ABS_Z);    ioctl(fd, UI_SET_ABSBIT, ABS_RZ);
             ioctl(fd, UI_SET_ABSBIT, ABS_HAT0X); ioctl(fd, UI_SET_ABSBIT, ABS_HAT0Y);
 
-            // Force-feedback (rumble) capability
-            ioctl(fd, UI_SET_EVBIT,  EV_FF);
-            ioctl(fd, UI_SET_FFBIT,  FF_RUMBLE);
+            // Force Feedback
+            ioctl(fd, UI_SET_EVBIT, EV_FF);
+            ioctl(fd, UI_SET_FFBIT, FF_RUMBLE);
 
             // Build uinput_user_dev with fuzz/flat matching linux_uinput.py:
             //   sticks:   fuzz=16, flat=128  (prevents stick-drift noise)
@@ -419,14 +415,13 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
             set_abs(uud, ABS_RZ,        0,   255,  0,   0);
             set_abs(uud, ABS_HAT0X,    -1,     1,  0,   0);
             set_abs(uud, ABS_HAT0Y,    -1,     1,  0,   0);
+            uud.ff_effects_max = 16;
 
             uud.id.bustype = BUS_USB;
             uud.id.vendor  = vid;
             uud.id.product = pid;
             uud.id.version = ver;
             memcpy(uud.name, dev_name, 32);
-            // FF effect count — 1 rumble slot
-            uud.ff_effects_max = 1;
 
             if (write(fd, &uud, sizeof(uud)) < 0) {
                 close(fd);
@@ -436,10 +431,97 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
             gp_fds[slot]   = fd;
             gp_names[slot] = dev_name_str;
 
-            // Spin up rumble watcher if TSFN is registered
-            if (g_tsfnValid) {
-                attach_rumble_watcher(slot, dev_name_str, viewer_id);
-            }
+            // Spawn background thread:
+            //  1. ACK FF upload/erase so games never deadlock
+            //  2. Intercept EV_FF play events (which come back to the write fd
+            //     via uinput_dev_ff_playback) and fire the rumble callback.
+            //
+            // Key insight: EV_FF play events come back on the WRITE fd (fd),
+            // NOT on the separate eventX read node. The old rumble_watcher was
+            // looking in the wrong place.
+            std::thread([fd, slot, viewer_id]() {
+                // Per-slot effect magnitude table: effect_id -> {strong, weak}
+                std::map<int, std::pair<uint16_t,uint16_t>> effect_mags;
+
+                while (true) {
+                    {
+                        std::lock_guard<std::mutex> lk(g_rumbleMtx);
+                        auto it = gp_fds.find(slot);
+                        if (it == gp_fds.end() || it->second != fd) break;
+                    }
+                    fd_set rfds; FD_ZERO(&rfds); FD_SET(fd, &rfds);
+                    struct timeval tv = { 1, 0 };
+                    if (select(fd + 1, &rfds, nullptr, nullptr, &tv) <= 0) continue;
+
+                    struct input_event ie;
+                    if (read(fd, &ie, sizeof(ie)) < (ssize_t)sizeof(ie)) continue;
+
+                    if (ie.type == EV_UINPUT) {
+                        if (ie.code == UI_FF_UPLOAD) {
+                            struct uinput_ff_upload req; memset(&req, 0, sizeof(req));
+                            req.request_id = ie.value;
+                            ioctl(fd, UI_BEGIN_FF_UPLOAD, &req);
+                            // Store magnitudes so the EV_FF play event has values
+                            if (req.effect.type == FF_RUMBLE) {
+                                effect_mags[req.effect.id] = {
+                                    req.effect.u.rumble.strong_magnitude,
+                                    req.effect.u.rumble.weak_magnitude
+                                };
+                            }
+                            req.retval = 0;
+                            ioctl(fd, UI_END_FF_UPLOAD, &req);
+                        } else if (ie.code == UI_FF_ERASE) {
+                            struct uinput_ff_erase req; memset(&req, 0, sizeof(req));
+                            req.request_id = ie.value;
+                            ioctl(fd, UI_BEGIN_FF_ERASE, &req);
+                            effect_mags.erase(req.effect_id);
+                            req.retval = 0;
+                            ioctl(fd, UI_END_FF_ERASE, &req);
+                        }
+                    } else if (ie.type == EV_FF) {
+                        // EV_FF play command from the game — fire the rumble callback
+                        if (!g_tsfnValid) continue;
+
+                        float strong = 0.0f, weak = 0.0f;
+                        int   duration = 200;
+
+                        if (ie.value > 0) {
+                            auto it = effect_mags.find(ie.code);
+                            if (it != effect_mags.end()) {
+                                strong = std::min(1.0f, it->second.first  / 65535.0f);
+                                weak   = std::min(1.0f, it->second.second / 65535.0f);
+                            } else {
+                                // Unknown effect — use moderate defaults
+                                strong = 0.5f; weak = 0.3f;
+                            }
+                        }
+                        // ie.value == 0 means stop: strong=weak=0
+
+                        std::string real_viewer;
+                        {
+                            std::lock_guard<std::mutex> lk(g_rumbleMtx);
+                            auto vi = g_padViewers.find(std::to_string(slot));
+                            if (vi != g_padViewers.end()) real_viewer = vi->second;
+                        }
+
+                        struct RumbleData {
+                            uint8_t slot; std::string viewerId;
+                            float strong, weak; int duration;
+                        };
+                        auto* rd = new RumbleData{ slot, real_viewer, strong, weak, duration };
+                        g_rumbleTsfn.NonBlockingCall(rd, [](Napi::Env env, Napi::Function cb, RumbleData* rd) {
+                            Napi::Object obj = Napi::Object::New(env);
+                            obj.Set("slot",     Napi::Number::New(env, rd->slot));
+                            obj.Set("viewerId", Napi::String::New(env, rd->viewerId));
+                            obj.Set("strong",   Napi::Number::New(env, rd->strong));
+                            obj.Set("weak",     Napi::Number::New(env, rd->weak));
+                            obj.Set("duration", Napi::Number::New(env, rd->duration));
+                            cb.Call({ obj });
+                            delete rd;
+                        });
+                    }
+                }
+            }).detach();
             break;
         }
 
