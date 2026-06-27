@@ -52,14 +52,7 @@ if UINPUT_OK:
         uinput.ABS_HAT0Y + (-1, 1, 0, 0),
     ]
 
-# ── Rumble / Force-feedback constants ─────────────────────────────────────────
-# Linux input_event struct: timeval (8 bytes) + type (2) + code (2) + value (4)
-_INPUT_EVENT_FMT  = 'llHHi'
-_INPUT_EVENT_SIZE = struct.calcsize(_INPUT_EVENT_FMT)
-EV_FF       = 0x15
-FF_RUMBLE   = 0x50
-# /dev/input path for resolving a uinput device's event node
-_DEV_INPUT = '/dev/input'
+
 
 # ── Controller profiles ────────────────────────────────────────────────────────
 PROFILES = {
@@ -99,128 +92,9 @@ _active_binds    = None
 _auto_map_on     = True
 _is_hybrid       = False
 
-# ── Rumble tracking ────────────────────────────────────────────────────────────
-# pad_id → event node fd (int)  for the FF reader thread
-_rumble_fds      = {}
-# pad_id → viewer_id  so we know which viewer to address the rumble message to
-_pad_to_viewer   = {}
-# Lock protecting _rumble_fds mutations from the watcher threads
-_rumble_lock     = threading.Lock()
 
-def _find_event_node(device_name: str):
-    """
-    Scan /sys/class/input for an eventX whose name matches device_name.
-    Returns e.g. '/dev/input/event7' or None.
-    """
-    sys_input = '/sys/class/input'
-    if not os.path.isdir(sys_input):
-        return None
-    for entry in os.listdir(sys_input):
-        if not entry.startswith('event'):
-            continue
-        name_file = os.path.join(sys_input, entry, 'device', 'name')
-        try:
-            with open(name_file) as f:
-                if f.read().strip() == device_name:
-                    return os.path.join(_DEV_INPUT, entry)
-        except OSError:
-            pass
-    return None
 
-def _rumble_watcher(pad_id: str, fd: int):
-    """
-    Background thread: reads FF_RUMBLE upload events from an open /dev/input
-    eventX fd and writes a JSON rumble message to stdout so server.js can
-    forward it to the correct viewer.
 
-    Linux sends an EV_FF / FF_RUMBLE event when a game uploads a new force-
-    feedback effect (the `value` field carries the effect ID; the actual
-    strong/weak magnitudes are in the ff_rumble struct that preceded it on
-    the fd, but for simple pass-through we read the accompanying EV_FF play
-    event to get the repeat/magnitude hint).
-
-    We emit:
-      {"type":"rumble","pad_id":"v1_0","strong":0.5,"weak":0.25,"duration":500}
-    """
-    try:
-        while True:
-            with _rumble_lock:
-                if _rumble_fds.get(pad_id) != fd:
-                    break   # device was destroyed/replaced — stop watching
-
-            r, _, _ = select.select([fd], [], [], 1.0)
-            if not r:
-                continue
-
-            raw = os.read(fd, _INPUT_EVENT_SIZE)
-            if len(raw) < _INPUT_EVENT_SIZE:
-                continue
-
-            _, _, ev_type, ev_code, ev_value = struct.unpack(_INPUT_EVENT_FMT, raw)
-
-            # EV_FF with code FF_RUMBLE and value > 0 means "start rumble"
-            # value == 0 means "stop rumble"
-            if ev_type == EV_FF and ev_code == FF_RUMBLE:
-                if ev_value > 0:
-                    # Normalise: Linux effect magnitudes are 0-65535
-                    # We don't have the full ff_rumble struct here, so emit
-                    # a sensible default that mirrors what most games request.
-                    strong   = min(1.0, ev_value / 65535.0)
-                    weak     = strong * 0.6
-                    duration = 200  # ms — game will re-trigger if it wants longer
-                else:
-                    strong = weak = 0.0
-                    duration = 0
-
-                viewer_id = _pad_to_viewer.get(pad_id, '')
-                msg = json.dumps({
-                    'type':     'rumble',
-                    'pad_id':   pad_id,
-                    'viewerId': viewer_id,
-                    'strong':   round(strong, 3),
-                    'weak':     round(weak, 3),
-                    'duration': duration,
-                })
-                # stdout is read line-by-line by server.js via the uinput process stdio
-                sys.stdout.write(msg + '\n')
-                sys.stdout.flush()
-
-    except (OSError, ValueError):
-        pass
-    finally:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-
-def _attach_rumble_watcher(pad_id: str, device_name: str):
-    """
-    Find the /dev/input/eventX node for device_name, open it, and spin up
-    a daemon thread to watch for FF events.  Safe to call multiple times —
-    destroys the old watcher first if the device was recreated.
-    """
-    node = _find_event_node(device_name)
-    if not node:
-        return  # Node not (yet) visible in sysfs — skip silently
-
-    try:
-        fd = os.open(node, os.O_RDONLY | os.O_NONBLOCK)
-    except OSError as e:
-        print(f"[rumble] Cannot open {node}: {e}", flush=True)
-        return
-
-    with _rumble_lock:
-        old_fd = _rumble_fds.get(pad_id)
-        if old_fd is not None:
-            try:
-                os.close(old_fd)
-            except OSError:
-                pass
-        _rumble_fds[pad_id] = fd
-
-    t = threading.Thread(target=_rumble_watcher, args=(pad_id, fd), daemon=True)
-    t.start()
-    print(f"[rumble] Watching {node} for pad {pad_id}", flush=True)
 
 # ── Find CSV ──────────────────────────────────────────────────────────────────
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -369,13 +243,7 @@ def _cleanup():
         try: kbm_device.destroy()
         except Exception: pass
     kbm_device = None
-    # Close all open rumble fds
-    with _rumble_lock:
-        for fd in list(_rumble_fds.values()):
-            try: os.close(fd)
-            except OSError: pass
-        _rumble_fds.clear()
-        kbm_device = None
+
 
 atexit.register(_cleanup)
 
@@ -385,13 +253,8 @@ def make_gamepad(profile_key: str = 'xbox360'):
         return None
     v, p, ver, real_name = PROFILES.get(profile_key, PROFILES['xbox360'])
 
-    # Include FF_RUMBLE so games/Steam know this controller can vibrate.
-    extra_ff = []
-    if hasattr(uinput, 'FF_RUMBLE'):
-        extra_ff = [uinput.FF_RUMBLE]
-
     # bustype=3 tells Linux/Steam this is a physical USB device (BUS_USB).
-    return uinput.Device(BTNS + AXES + extra_ff, name=real_name, vendor=v, product=p, version=ver, bustype=3)
+    return uinput.Device(BTNS + AXES, name=real_name, vendor=v, product=p, version=ver, bustype=3)
 
 # ── Input queue (gamepad path) ─────────────────────────────────────────────────
 def _enqueue(pad_id, msg):
@@ -485,16 +348,6 @@ def _ensure_gp(pad_id, vid):
         device_profiles[pad_id] = wanted
         _, _, _, label = PROFILES.get(wanted, ('','','','unknown'))
         print(f"[input] Created {label}: {pad_id[:12]}", flush=True)
-
-        # Track which viewer owns this pad so rumble replies are addressed correctly
-        _pad_to_viewer[pad_id] = vid
-
-        # Give the kernel 300ms to register the new event node in sysfs, then watch it
-        if hasattr(uinput, 'FF_RUMBLE'):
-            def _delayed_watch():
-                time.sleep(0.3)
-                _attach_rumble_watcher(pad_id, label)
-            threading.Thread(target=_delayed_watch, daemon=True).start()
 
 # ── UNIFIED KBM emulation handler ─────────────────────────────────────────────
 def _emit_kbm_event(pad_id: str, vid: str, key: str, is_down: bool, binds: dict):
@@ -683,12 +536,6 @@ def run():
                         try: dev.destroy()
                         except Exception: pass
                     _input_queues.pop(k, None)
-                    _pad_to_viewer.pop(k, None)
-                    with _rumble_lock:
-                        fd = _rumble_fds.pop(k, None)
-                        if fd is not None:
-                            try: os.close(fd)
-                            except OSError: pass
                 viewer_modes.pop(vid, None)
                 viewer_ctrl_type.pop(vid, None)
                 gc.collect()

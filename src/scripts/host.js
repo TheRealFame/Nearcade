@@ -2883,6 +2883,16 @@ function confirmTunnel() {
         if (remember) {
             saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: true });
         }
+        
+        // Clear P2P UI locks
+        window._isP2P = false;
+        window._p2pCode = null;
+        const pinRow = document.querySelector('.pin-row');
+        if (pinRow) {
+            pinRow.style.opacity = '1';
+            pinRow.style.pointerEvents = 'auto';
+            document.getElementById('pinVal').textContent = currentPin || '----';
+        }
 
         connectVps(vpsCfg);
         setTunnelBusy(false);
@@ -2911,6 +2921,12 @@ function confirmTunnel() {
     // Clear any active P2P flags so renderUrls displays the HTTPS link again
     window._isP2P = false;
     window._p2pCode = null;
+    const pinRow2 = document.querySelector('.pin-row');
+    if (pinRow2) {
+        pinRow2.style.opacity = '1';
+        pinRow2.style.pointerEvents = 'auto';
+        document.getElementById('pinVal').textContent = currentPin || '----';
+    }
 
     fetch('/api/start-tunnel', {
         method: 'POST',
