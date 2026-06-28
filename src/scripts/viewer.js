@@ -1329,6 +1329,20 @@ async function connect() {
         if (document.getElementById('spinner')) document.getElementById('spinner').style.display = 'block';
         if (typeof showOverlay === 'function') showOverlay(true);
         
+        // Provide progressive feedback for long P2P discovery times
+        window._p2pProgression1 = setTimeout(() => {
+            const current = document.getElementById('status')?.innerText || '';
+            if (current.includes('Discovering') && typeof setStatus === 'function') {
+                setStatus('Scanning trackers for host session...');
+            }
+        }, 7000);
+        window._p2pProgression2 = setTimeout(() => {
+            const current = document.getElementById('status')?.innerText || '';
+            if (current.includes('Scanning') && typeof setStatus === 'function') {
+                setStatus('Still searching, please wait...');
+            }
+        }, 14000);
+        
         // Emulate WebSocket interface for P2PManager
         ws = {
             readyState: 1,
@@ -1359,6 +1373,8 @@ async function connect() {
                     ws.onmessage({ data: JSON.stringify(msg) });
                 }
             }, () => {
+                clearTimeout(window._p2pProgression1);
+                clearTimeout(window._p2pProgression2);
                 if (typeof setStatus === 'function') setStatus('Host found, negotiating P2P connection...');
                 if (typeof ws.onopen === 'function') ws.onopen();
             });
