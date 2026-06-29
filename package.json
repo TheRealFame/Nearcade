@@ -1,6 +1,6 @@
 {
   "name": "NearsecTogether",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
   "main": "electron-main.js",
@@ -96,7 +96,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "assets/NearsecTogether.png",
+      "icon": "assets/NearsecTogetherLogo.png",
       "requestedExecutionLevel": "requireAdministrator"
     },
     "portable": {
@@ -106,7 +106,7 @@
       "target": [
         "dmg"
       ],
-      "icon": "assets/NearsecTogether.png"
+      "icon": "assets/NearsecTogetherLogo.png"
     },
     "linux": {
       "target": [
@@ -115,7 +115,7 @@
         "rpm",
         "pacman"
       ],
-      "icon": "assets/NearsecTogether.png",
+      "icon": "assets/NearsecTogetherLogo.png",
       "category": "Game"
     }
   }

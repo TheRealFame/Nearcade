@@ -258,14 +258,14 @@ function attachDesktopGain(stream) {
         const dst  = ctx.createMediaStreamDestination();
         const savedVol = parseInt(localStorage.getItem('ns_host_desktop_vol') ?? '100', 10) / 100;
 
-        // 🔊 Apply the 1.4x Volume Buff here!
+        //  Apply the 1.4x Volume Buff here!
         gain.gain.value = window._masterMuteActive ? 0 : (savedVol * 1.4);
 
         src.connect(gain);
         gain.connect(dst);
         _desktopGainNode = gain;
 
-        // 🛡️ Prevent Chrome from aggressively deleting the audio pipeline
+        // 🛡 Prevent Chrome from aggressively deleting the audio pipeline
         window._nsAudioCtx = ctx;
         window._nsAudioSrc = src;
         if (ctx.state === 'suspended') ctx.resume();
@@ -778,10 +778,19 @@ function log(msg, cls) {
     const el = document.getElementById('log');
     const d = document.createElement('div');
     d.className = 'll' + (cls ? ' ' + cls : '');
-    d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    
+    const timeSpan = document.createElement('span');
+    timeSpan.style.opacity = '0.5';
+    timeSpan.style.marginRight = '6px';
+    timeSpan.textContent = '[' + new Date().toLocaleTimeString() + ']';
+    d.appendChild(timeSpan);
+    
+    const textNode = document.createTextNode(I18N.t(msg));
+    d.appendChild(textNode);
+    
     if (el) { el.appendChild(d); el.scrollTop = el.scrollHeight; }
     const mini = document.getElementById('lastLogLine');
-    if (mini) { mini.textContent = msg; mini.style.color = cls === 'ok' ? 'var(--accent)' : cls === 'err' ? 'var(--danger)' : cls === 'warn' ? 'var(--warn)' : '#333'; }
+    if (mini) { mini.textContent = I18N.t(msg); mini.style.color = cls === 'ok' ? 'var(--accent)' : cls === 'err' ? 'var(--danger)' : cls === 'warn' ? 'var(--warn)' : '#333'; }
 }
 
 function appendChat(name, text, isMe) {
@@ -1590,7 +1599,7 @@ async function _populateSourceGrid() {
             ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
             : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
 
-            const sourceType = source.isScreen ? '🖥️ Screen' : '🪟 Window';
+            const sourceType = source.isScreen ? '🖥 Screen' : ' Window';
             card.innerHTML = `${imgHtml}
             <div class="source-name">${source.name}</div>
             <div class="source-type">${sourceType}</div>`;
@@ -1691,7 +1700,7 @@ if (document.readyState === 'loading') {
     hydrateSelectsFromStorage();
 }
 
-// 🔥 THE HOT SWAP ENGINE
+//  THE HOT SWAP ENGINE
 async function hotSwapCapture() {
     if (!currentStream) return;
     log(I18N.t('Applying new stream resolution/FPS...'), 'warn');

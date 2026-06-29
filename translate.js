@@ -1,86 +1,43 @@
 const fs = require('fs');
+const https = require('https');
 
-// The 5 target languages you wanted to build
 const targets = [
     { name: 'Spanish', code: 'es' },
-{ name: 'French', code: 'fr' },
-{ name: 'German', code: 'de' },
-{ name: 'Portuguese', code: 'pt' },
-{ name: 'Japanese', code: 'ja' }
+    { name: 'French', code: 'fr' },
+    { name: 'German', code: 'de' },
+    { name: 'Portuguese', code: 'pt' },
+    { name: 'Japanese', code: 'ja' }
 ];
 
-async function translateChunk(chunkObj, langName, batchIdx, totalBatches) {
-    console.log(`    -> Processing batch ${batchIdx} of ${totalBatches}...`);
-
-    const requestBody = {
-        model: "qwen2.5-7b-instruct-1m",
-        messages: [
-            {
-                role: "system",
-                content: `You are a strict JSON translation API. Translate ONLY the values of the provided JSON object into ${langName}.
-                RULES:
-                1. Output ONLY a raw, valid JSON object.
-                2. DO NOT wrap the output in markdown blocks (e.g., no \`\`\`json).
-                3. KEEP ALL KEYS EXACTLY THE SAME.
-                4. You MUST properly escape any internal double quotes using \\"
-                5. You MUST preserve special formatting characters like \\x1b or \\n exactly as they are.`
-            },
-            {
-                role: "user",
-                content: JSON.stringify(chunkObj)
-            }
-        ],
-        temperature: 0,
-        stream: false
-    };
-
-    const response = await fetch('http://localhost:1234/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+async function translateText(text, targetLangCode) {
+    if (!text || text.trim() === '') return text;
+    return new Promise((resolve) => {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${targetLangCode}&dt=t&q=${encodeURIComponent(text)}`;
+        https.get(url, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    const parsed = JSON.parse(data);
+                    const translated = parsed[0].map(item => item[0]).join('');
+                    resolve(translated);
+                } catch (e) {
+                    resolve(text);
+                }
+            });
+        }).on('error', () => resolve(text));
     });
-
-    const json = await response.json();
-
-    if (json.error) {
-        throw new Error(`LM Studio Error: ${json.error.message}`);
-    }
-
-    let rawResponse = json.choices[0].message.content.trim();
-
-    // 1. Strip markdown wrappers if the model disobeyed
-    rawResponse = rawResponse.replace(/^```json/im, '').replace(/```$/im, '').trim();
-
-    // 2. Isolate the JSON object
-    const startIndex = rawResponse.indexOf('{');
-    const endIndex = rawResponse.lastIndexOf('}');
-
-    if (startIndex === -1 || endIndex === -1) {
-        throw new Error(`No JSON object found in response.`);
-    }
-
-    const cleanJsonString = rawResponse.substring(startIndex, endIndex + 1);
-
-    try {
-        return JSON.parse(cleanJsonString);
-    } catch (err) {
-        // If it still fails, log the corrupted text so we can see what the model broke
-        console.error(`\n[!] JSON Parse Error on Batch ${batchIdx}. Corrupted Output:\n${cleanJsonString}\n`);
-        throw err;
-    }
 }
 
-async function startAFKTranslation() {
+async function startGoogleTranslation() {
     try {
         const enRaw = fs.readFileSync('assets/locales/en.json', 'utf8');
         const enJSON = JSON.parse(enRaw);
-        const entries = Object.entries(enJSON);
+        const keys = Object.keys(enJSON);
+        const values = Object.values(enJSON);
 
-        // Lowered chunk size to 20 to reduce the chance of syntax hallucinations
-        const chunkSize = 20;
-
-        console.log(`[Ollama Suite] Found en.json with ${entries.length} entries.`);
-        console.log(`[Ollama Suite] Starting total automation for ${targets.length} languages.\n`);
+        console.log(`[Google API] Found en.json with ${keys.length} entries.`);
+        console.log(`[Google API] Starting total automation for ${targets.length} languages.\n`);
 
         for (const target of targets) {
             console.log(`==================================================`);
@@ -88,39 +45,30 @@ async function startAFKTranslation() {
             console.log(`==================================================`);
 
             const translatedJSON = {};
+            let promises = [];
+            
+            for (let i = 0; i < values.length; i++) {
+                promises.push(translateText(values[i], target.code).then(res => {
+                    translatedJSON[keys[i]] = res;
+                }));
+            }
 
-            for (let i = 0; i < entries.length; i += chunkSize) {
-                const chunk = entries.slice(i, i + chunkSize);
-                const chunkObj = Object.fromEntries(chunk);
-                const batchIdx = Math.floor(i / chunkSize) + 1;
-                const totalBatches = Math.ceil(entries.length / chunkSize);
-
-                let success = false;
-                let retries = 2;
-
-                while (!success && retries >= 0) {
-                    try {
-                        const cleanChunk = await translateChunk(chunkObj, target.name, batchIdx, totalBatches);
-                        Object.assign(translatedJSON, cleanChunk);
-                        success = true;
-                    } catch (err) {
-                        console.warn(`    ⚠️ Batch ${batchIdx} failed (${err.message}). Retries left: ${retries}`);
-                        retries--;
-                        if (retries < 0) {
-                            console.warn(`    🚨 Batch ${batchIdx} completely failed! Injecting English fallbacks to prevent crash.`);
-                            // Fallback: Copy the English strings for this batch so the file still compiles safely
-                            Object.assign(translatedJSON, chunkObj);
-                        } else {
-                            await new Promise(res => setTimeout(res, 2000));
-                        }
-                    }
+            // Process them in parallel with a concurrency limit
+            let index = 0;
+            async function worker() {
+                while (index < promises.length) {
+                    let i = index++;
+                    await promises[i];
+                    if (i % 50 === 0) console.log(`    -> Translated ${i} of ${keys.length} items...`);
                 }
             }
+            
+            await Promise.all(Array(20).fill(0).map(() => worker()));
 
             fs.writeFileSync(
                 `assets/locales/${target.code}.json`,
                 JSON.stringify(translatedJSON, null, 2),
-                             'utf8'
+                'utf8'
             );
             console.log(`\n[✓] DONE! Saved: assets/locales/${target.code}.json\n`);
         }
@@ -134,4 +82,4 @@ async function startAFKTranslation() {
     }
 }
 
-startAFKTranslation();
+startGoogleTranslation();

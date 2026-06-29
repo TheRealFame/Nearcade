@@ -1,0 +1,33 @@
+<svg width="400" height="450" viewBox="0 0 400 450" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="nt-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="50" x2="0" y2="350">
+            <stop offset="0%" stop-color="#F472F6" />
+            <stop offset="100%" stop-color="#FF5A36" />
+        </linearGradient>
+        
+        <style>
+            .font-base {
+                font-family: 'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif;
+                font-weight: 900;
+                font-style: italic;
+            }
+            .monogram {
+                font-size: 280px;
+                fill: url(#nt-gradient);
+                stroke: #FFFFFF;
+                stroke-width: 8px;
+                paint-order: stroke fill; 
+                stroke-linejoin: round;
+            }
+        </style>
+    </defs>
+
+    <text x="60" y="240" class="font-base">
+        <tspan class="monogram">N</tspan>
+    </text>
+
+    <text x="140" y="420" class="font-base">
+        <tspan class="monogram">T</tspan>
+    </text>
+
+</svg>

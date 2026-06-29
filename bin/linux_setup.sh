@@ -36,9 +36,9 @@ fi
 
 # ── Copy app icon ─────────────────────────────────────────────────────────────
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
-if [ -f "/tmp/NearsecTogether.png" ] && cp "/tmp/NearsecTogether.png" /usr/share/pixmaps/NearsecTogether.png 2>/dev/null; then
+if [ -f "/tmp/NearsecTogetherLogo.png" ] && cp "/tmp/NearsecTogetherLogo.png" /usr/share/pixmaps/NearsecTogetherLogo.png 2>/dev/null; then
   ok "App icon copied to /usr/share/pixmaps/"
-elif cp "$SCRIPT_DIR/../assets/NearsecTogether.png" /usr/share/pixmaps/NearsecTogether.png 2>/dev/null; then
+elif cp "$SCRIPT_DIR/../assets/NearsecTogetherLogo.png" /usr/share/pixmaps/NearsecTogetherLogo.png 2>/dev/null; then
   ok "App icon copied to /usr/share/pixmaps/"
 else
   warn "Could not copy icon (non-fatal)"

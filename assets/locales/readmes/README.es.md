@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
+  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
 [Inglés](README.md)\|[Español](assets/locales/readmes/README.es.md)\|[Francés](assets/locales/readmes/README.fr.md)\|[Alemán](assets/locales/readmes/README.de.md)\|[portugués](assets/locales/readmes/README.pt.md)\|[japonés](assets/locales/readmes/README.ja.md)
@@ -31,18 +31,18 @@ A diferencia de las soluciones tradicionales de juegos en la nube que dependían
 
 | Característica               |      linux     |     ventanas     |       macos      |
 | ---------------------------- | :------------: | :--------------: | :--------------: |
-| **Transmisión WebRTC**       |        ✅       |         ✅        |         ✅        |
-| **Soporte para mandos**      |   ✅ Completo   |  ⚠️ Condicional¹ |     ❌ Ninguno    |
-| **Entrada de teclado/ratón** |   ✅ Completo   |    ⚠️ Limitado   |    ✅ Completo    |
-| **Controles de movimiento**  |        ✅       |         ❌        |         ❌        |
-| **Controlador múltiple**     |        ✅       |    ⚠️ Limitado   |         ❌        |
-| **Reproducción de audio**    |        ✅       |         ✅        |         ✅        |
-| **Captura de pantalla**      |        ✅       |         ✅        |         ✅        |
+| **Transmisión WebRTC**       |               |                 |                 |
+| **Soporte para mandos**      |    Completo   |  ⚠ Condicional¹ |      Ninguno    |
+| **Entrada de teclado/ratón** |    Completo   |    ⚠ Limitado   |     Completo    |
+| **Controles de movimiento**  |               |                 |                 |
+| **Controlador múltiple**     |               |    ⚠ Limitado   |                 |
+| **Reproducción de audio**    |               |                 |                 |
+| **Captura de pantalla**      |               |                 |                 |
 | **Estabilidad**              | **Producción** | **Experimental** | **Experimental** |
 
 ¹ El gamepad de Windows requiere[Controlador ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guía detallada de configuración de la plataforma](PLATFORM_SETUP.md)**— Instrucciones paso a paso, solución de problemas y soluciones alternativas para cada plataforma.
+**[→ Guía detallada de configuración de la plataforma](PLATFORM_SETUP.md)**— Instrucciones paso a paso, solución de problemas y soluciones alternativas para cada plataforma.
 
 * * *
 

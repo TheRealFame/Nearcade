@@ -109,7 +109,7 @@ if (process.platform === 'linux') {
   } catch (_) { }
 }
 
-if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, 'assets/NearsecTogether.png'));
+if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, 'assets/NearsecTogetherLogo.png'));
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
@@ -275,7 +275,7 @@ async function createWindow() {
     minWidth: 600,
     minHeight: 500,
     title: 'NearsecTogether',
-    icon: path.join(__dirname, 'assets/NearsecTogether.png'),
+    icon: path.join(__dirname, 'assets/NearsecTogetherLogo.png'),
     backgroundColor: '#111111',
     alwaysOnTop: settings.alwaysOnTop,
     show: false,
@@ -386,8 +386,8 @@ async function createWindow() {
   const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
     (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
 
-  if (!isGamescopeEnv) {
-    const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearsecTogether.png')).resize({ width: 22, height: 22 });
+  if (!isGamescopeEnv) {    // We only specify height so Electron maintains the natural aspect ratio of the logo
+    const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearsecTogetherLogo.png')).resize({ height: 22 });
     tray = new Tray(trayIcon);
     tray.setToolTip('NearsecTogether');
     tray.setContextMenu(Menu.buildFromTemplate([
@@ -567,12 +567,12 @@ async function createWindow() {
     }
     else if (os.platform() === 'linux') {
       let scriptPath = path.join(__dirname, 'bin', 'linux_setup.sh');
-      let iconPath = path.join(__dirname, 'assets', 'NearsecTogether.png');
+      let iconPath = path.join(__dirname, 'assets', 'NearsecTogetherLogo.png');
       
       // If running from an AppImage or built executable, extraResources places 'bin' directly in resourcesPath
       if (__dirname.includes('app.asar')) {
         scriptPath = path.join(process.resourcesPath, 'bin', 'linux_setup.sh');
-        iconPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'NearsecTogether.png');
+        iconPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'NearsecTogetherLogo.png');
       }
       
       try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
@@ -582,7 +582,7 @@ async function createWindow() {
 
       // Create a clean wrapper that forces the native password prompt and logs the exit code
       // We copy the script to /tmp first because root (sudo) cannot read FUSE mounts like AppImage's /tmp/.mount_*
-      const wrapperContent = `#!/bin/bash\nclear\necho "Starting Nearsec Setup..."\ncp "${scriptPath}" /tmp/nearsec_setup.sh\ncp "${iconPath}" /tmp/NearsecTogether.png 2>/dev/null\nchmod +x /tmp/nearsec_setup.sh\nsudo bash /tmp/nearsec_setup.sh\nif [ $? -eq 0 ]; then echo "SUCCESS" > "${statusFile}"; else echo "FAIL" > "${statusFile}"; fi\necho ""\nread -p "Press Enter to close..."\n`;
+      const wrapperContent = `#!/bin/bash\nclear\necho "Starting Nearsec Setup..."\ncp "${scriptPath}" /tmp/nearsec_setup.sh\ncp "${iconPath}" /tmp/NearsecTogetherLogo.png 2>/dev/null\nchmod +x /tmp/nearsec_setup.sh\nsudo bash /tmp/nearsec_setup.sh\nif [ $? -eq 0 ]; then echo "SUCCESS" > "${statusFile}"; else echo "FAIL" > "${statusFile}"; fi\necho ""\nread -p "Press Enter to close..."\n`;
 
       try {
         fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
@@ -654,6 +654,19 @@ async function createWindow() {
 
   ipcMain.on('window-close', () => { if (win && !win.isDestroyed()) win.close(); });
   ipcMain.on('app-quit', () => { app.isQuiting = true; app.quit(); });
+  ipcMain.on('update-tray-icon', (event, iconName) => {
+    if (tray && !tray.isDestroyed()) {
+      try {
+        const p = path.join(__dirname, 'assets', iconName);
+        if (fs.existsSync(p)) {
+          const newIcon = nativeImage.createFromPath(p).resize({ height: 22 });
+          tray.setImage(newIcon);
+        }
+      } catch (e) {
+        console.error("Failed to update tray icon", e);
+      }
+    }
+  });
 }
 
 app.whenReady().then(() => {

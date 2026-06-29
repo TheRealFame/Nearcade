@@ -854,7 +854,7 @@ async function main() {
       return fs.readFileSync(path.join(projectRoot, 'commit.txt'), 'utf8').trim().substring(0, 7);
     } catch (e) { return ''; }
   })();
-  app.use('/docs', express.static(path.join(__dirname, '..', 'docs')));
+  app.use('/docs', express.static(path.join(__dirname, '..', '..', 'assets', 'locales', 'docs')));
 
   // ── Dynamic version.js — always reflects package.json ──────────────────
   app.get('/js/version.js', (req, res) => {
@@ -885,7 +885,7 @@ async function main() {
     // Inject the host name dynamically into the Discord tags
     const ogTitle = sess ? sess.game : `${hostName} is looking to play!`;
     const ogDesc = sess ? `Join the live ${sess.game} session on Nearsec.` : `${hostName} is hosting a peer-to-peer gaming session on Nearsec.`;
-    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearsec.cutefame.net/assets/NearsecTogether.png";
+    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearsec.cutefame.net/assets/NearsecTogetherLogo.png";
 
     html = html
       .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)

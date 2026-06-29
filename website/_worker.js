@@ -12,7 +12,7 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
-    console.log(`[Worker] 🌐 Request: ${request.method} ${url.pathname}`);
+    console.log(`[Worker]  Request: ${request.method} ${url.pathname}`);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
@@ -26,7 +26,7 @@ export default {
         const isBanned = await env.BANS_KV.get(clientIP);
 
         if (isBanned) {
-          console.log(`[Worker] 🛑 Blocked banned IP: ${clientIP}`);
+          console.log(`[Worker]  Blocked banned IP: ${clientIP}`);
 
           // FOR HOSTS/API CALLS: Return clean JSON with CORS so the app can read the 403 status
           if (url.pathname.startsWith('/api/')) {

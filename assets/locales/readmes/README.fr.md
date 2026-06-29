@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
+  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
 [Anglais](README.md)\|[Espagnol](assets/locales/readmes/README.es.md)\|[Français](assets/locales/readmes/README.fr.md)\|[Allemand](assets/locales/readmes/README.de.md)\|[portugais](assets/locales/readmes/README.pt.md)\|[japonais](assets/locales/readmes/README.ja.md)
@@ -31,18 +31,18 @@ Contrairement aux solutions de cloud gaming traditionnelles qui reposaient sur d
 
 | Fonctionnalité                          |      Linux     |     Fenêtres     |       macOS      |
 | --------------------------------------- | :------------: | :--------------: | :--------------: |
-| **Diffusion WebRTC**                    |        ✅       |         ✅        |         ✅        |
-| **Prise en charge des manettes de jeu** |     ✅ Plein    | ⚠️ Conditionnel¹ |      ❌ Aucun     |
-| **Entrée clavier/souris**               |     ✅ Plein    |     ⚠️ Limité    |      ✅ Plein     |
-| **Commandes de mouvement**              |        ✅       |         ❌        |         ❌        |
-| **Multi-contrôleur**                    |        ✅       |     ⚠️ Limité    |         ❌        |
-| **Lecture audio**                       |        ✅       |         ✅        |         ✅        |
-| **Capture d'affichage**                 |        ✅       |         ✅        |         ✅        |
+| **Diffusion WebRTC**                    |               |                 |                 |
+| **Prise en charge des manettes de jeu** |      Plein    | ⚠ Conditionnel¹ |       Aucun     |
+| **Entrée clavier/souris**               |      Plein    |     ⚠ Limité    |       Plein     |
+| **Commandes de mouvement**              |               |                 |                 |
+| **Multi-contrôleur**                    |               |     ⚠ Limité    |                 |
+| **Lecture audio**                       |               |                 |                 |
+| **Capture d'affichage**                 |               |                 |                 |
 | **Stabilité**                           | **Production** | **Expérimental** | **Expérimental** |
 
 ¹ La manette de jeu Windows nécessite[Pilote ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guide de configuration détaillé de la plateforme](PLATFORM_SETUP.md)**— Instructions étape par étape, dépannage et solutions de contournement pour chaque plate-forme.
+**[→ Guide de configuration détaillé de la plateforme](PLATFORM_SETUP.md)**— Instructions étape par étape, dépannage et solutions de contournement pour chaque plate-forme.
 
 * * *
 

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Session & Navigation ──
   installDrivers: () => ipcRenderer.send('install-drivers'),
   backToDashboard: () => ipcRenderer.send('back-to-dashboard-from-host'),
+  updateTrayIcon: (iconPath) => ipcRenderer.send('update-tray-icon', iconPath),
   joinSession: (url, meta, pin)   => ipcRenderer.invoke('join-session', { url, meta, pin }),
   pingSession: (url)              => ipcRenderer.invoke('ping-session', url),
   getServerInfo: ()               => ipcRenderer.invoke('get-server-info'),

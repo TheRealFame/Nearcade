@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
+  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
 [英語](README.md)\|[スペイン語](README.es.md)\|[フランス語](README.fr.md)\|[ドイツ語](README.de.md)\|[ポルトガル語](README.pt.md)\|[日本語](README.ja.md)

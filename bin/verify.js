@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const http = require('http');
 const WebSocket = require('ws');
 
-console.log("\n🧪 Starting Nearsec Headless Verification Suite...\n");
+console.log("\n Starting Nearsec Headless Verification Suite...\n");
 
 // Inject ELECTRON_MODE to prevent the browser from opening automatically
 const env = Object.assign({}, process.env, { ELECTRON_MODE: 'true', TUNNEL: 'skip' });
@@ -36,7 +36,7 @@ async function runTests() {
                     const status = JSON.parse(data);
                     if (status && typeof status.online !== 'undefined') {
                         checks.apiResponsive = true;
-                        console.log("  ✅ REST API     (/api/status) is responsive");
+                        console.log("   REST API     (/api/status) is responsive");
                         resolve();
                     } else reject(new Error("Invalid API payload"));
                 });
@@ -51,7 +51,7 @@ async function runTests() {
             ws.on('open', () => {
                 clearTimeout(timeout);
                 checks.wsConnected = true;
-                console.log("  ✅ WebSocket    (/ws/host) handshake successful");
+                console.log("   WebSocket    (/ws/host) handshake successful");
                 ws.close();
                 resolve();
             });
@@ -64,7 +64,7 @@ async function runTests() {
             const timeout = setTimeout(() => reject(new Error("Viewer WS Timeout")), 3000);
             ws.on('open', () => {
                 clearTimeout(timeout);
-                console.log("  ✅ WebSocket    (/ws/viewer) handshake successful");
+                console.log("   WebSocket    (/ws/viewer) handshake successful");
                 ws.close();
                 resolve();
             });
@@ -82,7 +82,7 @@ async function runTests() {
                     try {
                         const j = JSON.parse(data);
                         if (typeof j.hasPassword !== 'undefined') {
-                            console.log("  ✅ Session pwd  (/api/session-password-status) responsive");
+                            console.log("   Session pwd  (/api/session-password-status) responsive");
                             resolve();
                         } else reject(new Error("Unexpected payload"));
                     } catch (e) { reject(e); }
@@ -96,7 +96,7 @@ async function runTests() {
         finishTests(true);
 
     } catch (err) {
-        console.error("  ❌ Test failed:", err.message);
+        console.error("   Test failed:", err.message);
         finishTests(false);
     }
 }
@@ -110,7 +110,7 @@ serverProc.stdout.on('data', (data) => {
     if (portMatch && !checks.serverBoot) {
         port = portMatch[1];
         checks.serverBoot = true;
-        console.log(`  ✅ Server Boot  (Bound to port ${port})`);
+        console.log(`   Server Boot  (Bound to port ${port})`);
 
         // Start network tests once the port is open
         setTimeout(runTests, 500);
@@ -119,16 +119,16 @@ serverProc.stdout.on('data', (data) => {
     // Passively monitor Python/Audio sidecar health
     if (out.includes('[uinput] sidecar started')) {
         checks.uinputAlive = true;
-        console.log("  ✅ Input Driver (uinput python sidecar active)");
+        console.log("   Input Driver (uinput python sidecar active)");
     }
     if (out.includes('[VirtualAudio] Worker ready.') || out.includes('[VirtualAudio] Ready')) {
         checks.virtualAudioAlive = true;
-        console.log("  ✅ Audio Engine (Virtual audio modules loaded)");
+        console.log("   Audio Engine (Virtual audio modules loaded)");
     }
 
     // Catch fatal errors thrown in the server logs
     if (out.toLowerCase().includes('uncaught exception') || out.includes('Error:')) {
-        console.error(`\n🚨 SERVER ERROR CAUGHT:\n${out.trim()}`);
+        console.error(`\n SERVER ERROR CAUGHT:\n${out.trim()}`);
     }
 });
 
@@ -136,19 +136,19 @@ serverProc.stderr.on('data', (data) => {
     // Only flag true errors, ignore Node's experimental warnings
     const errStr = data.toString();
     if (!errStr.includes('ExperimentalWarning')) {
-        console.error(`\n🚨 STDERR CAUGHT:\n${errStr.trim()}`);
+        console.error(`\n STDERR CAUGHT:\n${errStr.trim()}`);
     }
 });
 
 // ── Teardown ────────────────────────────────────────────────────────────────
 function finishTests(success) {
-    console.log("\n🧹 Shutting down server...");
+    console.log("\n Shutting down server...");
 
     // Send SIGTERM to trigger your server.js cleanup() function
     serverProc.kill('SIGTERM');
 
     serverProc.on('close', (code) => {
-        console.log(`\n📊 Verification Complete!`);
+        console.log(`\n Verification Complete!`);
         if (success) {
             console.log(`\x1b[32mAll core systems are operational.\x1b[0m\n`);
             process.exit(0);
@@ -161,6 +161,6 @@ function finishTests(success) {
 
 // Failsafe timeout just in case it hangs forever
 setTimeout(() => {
-    console.error("\n⏳ Timeout: Test suite hung for 15 seconds.");
+    console.error("\n Timeout: Test suite hung for 15 seconds.");
     finishTests(false);
 }, 15000);

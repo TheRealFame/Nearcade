@@ -2,7 +2,7 @@ import subprocess
 import json
 import time
 
-print("🎮 Starting Nearsec Input Diagnostics...")
+print(" Starting Nearsec Input Diagnostics...")
 
 # Spawn your driver exactly how Node.js does it
 driver = subprocess.Popen(
@@ -56,7 +56,7 @@ try:
     send_msg({"type": "kbm", "event": "mouseup", "button": 0, "pad_id": "test_1", "viewer_id": "test_1"})
 
 
-    print("\n✅ Diagnostics Complete. Cleaning up...")
+    print("\n Diagnostics Complete. Cleaning up...")
     send_msg({"type": "destroy_all"})
 
 except KeyboardInterrupt:

@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
+  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
 [Inglês](README.md)\|[Espanhol](assets/locales/readmes/README.es.md)\|[Francês](assets/locales/readmes/README.fr.md)\|[Alemão](assets/locales/readmes/README.de.md)\|[Português](assets/locales/readmes/README.pt.md)\|[japonês](assets/locales/readmes/README.ja.md)
@@ -31,18 +31,18 @@ Ao contrário das soluções tradicionais de jogos em nuvem que dependiam de eno
 
 | Recurso                      |     Linux    |      Windows     |       macOS      |
 | ---------------------------- | :----------: | :--------------: | :--------------: |
-| **Transmissão WebRTC**       |       ✅      |         ✅        |         ✅        |
-| **Suporte para gamepad**     |  ✅ Completo  |  ⚠️ Condicional¹ |     ❌ Nenhum     |
-| **Entrada de teclado/mouse** |  ✅ Completo  |    ⚠️ Limitado   |    ✅ Completo    |
-| **Controles de movimento**   |       ✅      |         ❌        |         ❌        |
-| **Multicontrolador**         |       ✅      |    ⚠️ Limitado   |         ❌        |
-| **Reprodução de áudio**      |       ✅      |         ✅        |         ✅        |
-| **Captura de exibição**      |       ✅      |         ✅        |         ✅        |
+| **Transmissão WebRTC**       |             |                 |                 |
+| **Suporte para gamepad**     |   Completo  |  ⚠ Condicional¹ |      Nenhum     |
+| **Entrada de teclado/mouse** |   Completo  |    ⚠ Limitado   |     Completo    |
+| **Controles de movimento**   |             |                 |                 |
+| **Multicontrolador**         |             |    ⚠ Limitado   |                 |
+| **Reprodução de áudio**      |             |                 |                 |
+| **Captura de exibição**      |             |                 |                 |
 | **Estabilidade**             | **Produção** | **Experimental** | **Experimental** |
 
 ¹ O gamepad do Windows requer[Driver ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guia detalhado de configuração da plataforma](PLATFORM_SETUP.md)**— Instruções passo a passo, solução de problemas e soluções alternativas para cada plataforma.
+**[→ Guia detalhado de configuração da plataforma](PLATFORM_SETUP.md)**— Instruções passo a passo, solução de problemas e soluções alternativas para cada plataforma.
 
 * * *
 

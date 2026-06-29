@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
+  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
 <h1>NearsecTogether</h1>
 
 [Englisch](README.md)\|[Spanisch](assets/locales/readmes/README.es.md)\|[Französisch](assets/locales/readmes/README.fr.md)\|[Deutsch](assets/locales/readmes/README.de.md)\|[Portugiesisch](assets/locales/readmes/README.pt.md)\|[japanisch](assets/locales/readmes/README.ja.md)
@@ -31,18 +31,18 @@ Im Gegensatz zu herkömmlichen Cloud-Gaming-Lösungen, die auf riesigen Rechenze
 
 | Besonderheit              |      Linux     |      Windows     |       macOS      |
 | ------------------------- | :------------: | :--------------: | :--------------: |
-| **WebRTC-Streaming**      |        ✅       |         ✅        |         ✅        |
-| **Gamepad-Unterstützung** |     ✅ Voll     |    ⚠️ Bedingt¹   |      ❌ Keine     |
-| **Tastatur-/Mauseingabe** |     ✅ Voll     |    ⚠️ Begrenzt   |      ✅ Voll      |
-| **Bewegungssteuerung**    |        ✅       |         ❌        |         ❌        |
-| **Multi-Controller**      |        ✅       |    ⚠️ Begrenzt   |         ❌        |
-| **Audiowiedergabe**       |        ✅       |         ✅        |         ✅        |
-| **Erfassung anzeigen**    |        ✅       |         ✅        |         ✅        |
+| **WebRTC-Streaming**      |               |                 |                 |
+| **Gamepad-Unterstützung** |      Voll     |    ⚠ Bedingt¹   |       Keine     |
+| **Tastatur-/Mauseingabe** |      Voll     |    ⚠ Begrenzt   |       Voll      |
+| **Bewegungssteuerung**    |               |                 |                 |
+| **Multi-Controller**      |               |    ⚠ Begrenzt   |                 |
+| **Audiowiedergabe**       |               |                 |                 |
+| **Erfassung anzeigen**    |               |                 |                 |
 | **Stabilität**            | **Produktion** | **Experimental** | **Experimental** |
 
 ¹ Windows-Gamepad erforderlich[ViGEmBus-Treiber](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Detaillierte Plattform-Setup-Anleitung](PLATFORM_SETUP.md)**— Schritt-für-Schritt-Anleitungen, Fehlerbehebung und Problemumgehungen für jede Plattform.
+**[→ Detaillierte Plattform-Setup-Anleitung](PLATFORM_SETUP.md)**— Schritt-für-Schritt-Anleitungen, Fehlerbehebung und Problemumgehungen für jede Plattform.
 
 * * *
 

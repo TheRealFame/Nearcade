@@ -21,7 +21,7 @@
 
     <aside class="left-rail glass">
       <div class="rail-logo">
-        <img src="/assets/NearsecTogether.png" alt="Logo">
+        <img src="/assets/NearsecTogetherLogo.png" alt="Logo">
       </div>
 
       <div class="rail-btn-group">
@@ -99,12 +99,10 @@
 
       <header class="topbar glass">
         <div class="host-meta">
-          <div class="host-avatar">
-            <img src="/assets/NearsecTogether.png" alt="">
-          </div>
+          <img src="/assets/NearsecTogetherTitle.png" alt="NearsecTogether" style="height: 32px; width: auto; flex-shrink: 0; object-fit: contain; filter: drop-shadow(0 0 6px var(--accent-glow)); margin-right: 8px;">
           <div>
-            <div class="host-eyebrow">Host Session</div>
-            <div class="host-name">NearsecTogether — <span id="displayHostName"
+            <div class="host-eyebrow" style="margin-bottom: 2px;">Host Session</div>
+            <div class="host-name">Connected as: <span id="displayHostName"
                 style="color:var(--accent2);">Guest</span></div>
           </div>
         </div>
@@ -206,7 +204,7 @@
           <div style="flex:1; display:flex; flex-direction:column; gap:8px; justify-content:center; padding-top:4px;">
             <div class="dock-slider-row" style="display:flex; align-items:center; gap:8px;">
               <span class="dock-slider-label"
-                style="width:48px; flex-shrink:0; font-size:10px; color:var(--muted);">Desktop</span>
+                style="width:90px; flex-shrink:0; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Desktop</span>
               <input type="range" id="desktopVolSlider" class="dock-slider" style="flex:1; min-width:60px; height:4px;"
                 min="0" max="100" value="100"
                 oninput="document.getElementById('desktopVolVal').textContent = this.value; setDesktopVolume(this.value)">
@@ -215,7 +213,7 @@
             </div>
             <div class="dock-slider-row" style="display:flex; align-items:center; gap:8px;">
               <span class="dock-slider-label"
-                style="width:48px; flex-shrink:0; font-size:10px; color:var(--muted);">Mic</span>
+                style="width:90px; flex-shrink:0; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Mic</span>
               <input type="range" id="hostMicSlider" class="dock-slider" style="flex:1; min-width:60px; height:4px;"
                 min="0" max="100" value="100"
                 oninput="document.getElementById('hostMicVal').textContent = this.value; setHostMicGain(this.value)">
@@ -224,7 +222,7 @@
             </div>
             <div class="dock-slider-row" style="display:flex; align-items:center; gap:8px;">
               <span class="dock-slider-label"
-                style="width:48px; flex-shrink:0; font-size:10px; color:var(--muted);">Viewers</span>
+                style="width:90px; flex-shrink:0; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Viewers</span>
               <input type="range" id="globalViewerVolSlider" class="dock-slider"
                 style="flex:1; min-width:60px; height:4px;" min="0" max="100" value="100"
                 oninput="document.getElementById('globalViewerVolVal').textContent = this.value; setGlobalViewerVolume(this.value)">

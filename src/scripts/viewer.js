@@ -1782,7 +1782,7 @@ async function connect() {
                     const baseId = v.id.split('_')[0];
                     if (!seen.has(baseId)) {
                         seen.add(baseId);
-                        if (!hostAdded) { listEl.innerHTML += `<div class="roster-item"><span>👑 Host</span><span class="roster-badge">Streaming</span></div>`; hostAdded = true; }
+                        if (!hostAdded) { listEl.innerHTML += `<div class="roster-item"><span> Host</span><span class="roster-badge">Streaming</span></div>`; hostAdded = true; }
                         const isMe = baseId === myId;
                         listEl.innerHTML += `<div class="roster-item${isMe ? ' roster-me' : ''}">${v.name.replace(/ \d+$/, '')} ${isMe ? '(You)' : ''}</div>`;
                     }

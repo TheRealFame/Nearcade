@@ -18,7 +18,8 @@ cp src/pages/gamepad-popup.html website/arcade/pages/gamepad-popup.html
 cp src/scripts/i18n.js website/js/i18n.js
 
 cp -r assets/* website/assets/
-cp assets/NearsecTogether.png website/NearsecTogether.png
+cp assets/NearsecTogetherLogo.png website/NearsecTogetherLogo.png
+cp assets/NearsecTogetherTitle.png website/NearsecTogetherTitle.png
 
 # 3. Duplicate assets for arcade sub-route
 cp -r website/js website/arcade/js

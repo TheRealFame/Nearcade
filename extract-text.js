@@ -40,7 +40,7 @@ function addEntry(text, prefix = 'txt') {
 filesToScan.forEach(filePath => {
     const fullPath = path.join(__dirname, filePath);
     if (!fs.existsSync(fullPath)) {
-        console.log(`⚠️  Skipping ${filePath} (File not found)`);
+        console.log(`⚠  Skipping ${filePath} (File not found)`);
         return;
     }
 
@@ -58,6 +58,12 @@ filesToScan.forEach(filePath => {
         const placeholderMatches = content.matchAll(/placeholder=["']([^"']+)["']/g);
         for (const match of placeholderMatches) {
             addEntry(match[1], 'ph');
+        }
+
+        // Extract title attributes (tooltips)
+        const titleMatches = content.matchAll(/title=["']([^"']+)["']/g);
+        for (const match of titleMatches) {
+            addEntry(match[1], 'title');
         }
     }
     else if (filePath.endsWith('.js')) {
@@ -94,5 +100,5 @@ filesToScan.forEach(filePath => {
         const outputPath = path.join(outputDir, 'en.json');
         fs.writeFileSync(outputPath, JSON.stringify(dictionary, null, 2));
 
-        console.log(`\n✅ Extraction complete! Found ${Object.keys(dictionary).length} unique strings.`);
-        console.log(`📂 Saved dictionary to: ${outputPath}\n`);
+        console.log(`\n Extraction complete! Found ${Object.keys(dictionary).length} unique strings.`);
+        console.log(` Saved dictionary to: ${outputPath}\n`);
