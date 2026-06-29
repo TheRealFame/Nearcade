@@ -1844,14 +1844,18 @@
       border: 1px solid var(--border); border-radius: 8px;
       padding: 10px 14px; z-index: 200; pointer-events: none;
       font-family: var(--mono); font-size: 10px; color: var(--text);
-      display: flex; flex-direction: column; gap: 4px; width: 140px;
+      display: flex; flex-direction: column; gap: 4px; width: 170px;
     }
     #netStatsOverlay.gone { display: none !important; }
   </style>
   <div id="netStatsOverlay" class="gone">
     <div style="font-weight:700; margin-bottom:4px; font-size:11px; color:var(--accent); font-family:var(--sans);">NET STATS</div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Codec:</span> <span id="nsCodec">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Resolution:</span> <span id="nsRes">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">FPS:</span> <span id="nsFps">--</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Ping:</span> <span id="nsPing">-- ms</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bitrate:</span> <span id="nsBitrate">-- kbps</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bandwidth:</span> <span id="nsBitrate">-- kbps</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Decode Lat:</span> <span id="nsDecode">-- ms</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span id="nsLoss">-- %</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span id="nsJitter">-- ms</span></div>
   </div>

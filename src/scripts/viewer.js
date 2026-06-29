@@ -2182,9 +2182,18 @@ window.startNetStats = function() {
     clearInterval(netStatsInterval);
     let lastBytes = 0;
     let lastTime = 0;
+    let lastDecodeTime = 0;
+    let lastFramesDecoded = 0;
     netStatsInterval = setInterval(async () => {
         if (!pc) return;
         const stats = await pc.getStats();
+        let codecName = '--';
+        stats.forEach(report => {
+            if (report.type === 'codec' && report.mimeType && report.mimeType.startsWith('video/')) {
+                codecName = report.mimeType.split('/')[1];
+            }
+        });
+        
         stats.forEach(report => {
             if (report.type === 'inbound-rtp' && report.kind === 'video') {
                 if (lastTime && report.bytesReceived > lastBytes) {
@@ -2193,6 +2202,32 @@ window.startNetStats = function() {
                     if(el) el.textContent = kbps + ' kbps';
                 }
                 lastBytes = report.bytesReceived;
+                
+                const elCodec = document.getElementById('nsCodec');
+                if(elCodec) elCodec.textContent = codecName;
+                
+                if (report.frameWidth && report.frameHeight) {
+                    const elRes = document.getElementById('nsRes');
+                    if(elRes) elRes.textContent = `${report.frameWidth}x${report.frameHeight}`;
+                }
+                
+                if (report.framesPerSecond != null) {
+                    const elFps = document.getElementById('nsFps');
+                    if(elFps) elFps.textContent = report.framesPerSecond.toFixed(0);
+                }
+                
+                if (report.totalDecodeTime != null && report.framesDecoded != null) {
+                    if (lastFramesDecoded && report.framesDecoded > lastFramesDecoded) {
+                        const decodeDelta = report.totalDecodeTime - lastDecodeTime;
+                        const framesDelta = report.framesDecoded - lastFramesDecoded;
+                        const decodeLatencyMs = (decodeDelta / framesDelta) * 1000;
+                        const elDecode = document.getElementById('nsDecode');
+                        if (elDecode) elDecode.textContent = decodeLatencyMs.toFixed(1) + ' ms';
+                    }
+                    lastDecodeTime = report.totalDecodeTime;
+                    lastFramesDecoded = report.framesDecoded;
+                }
+                
                 lastTime = report.timestamp;
                 if (report.packetsLost != null && report.packetsReceived != null) {
                     const total = report.packetsLost + report.packetsReceived;
@@ -2211,3 +2246,4 @@ window.startNetStats = function() {
         });
     }, 1000);
 };
+

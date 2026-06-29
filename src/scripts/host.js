@@ -3346,16 +3346,46 @@ function _updateStatsHud() {
             _elText('hudRtt', Math.round(bestPair.currentRoundTripTime * 1000) + 'ms');
         }
 
-        if (outboundVideo?.bytesSent != null) {
-            const now  = Date.now();
-            const prev = pcList[0].__statsSnapshot;
-            if (prev) {
-                const dtSec   = (now - prev.ts) / 1000;
-                const byteDiff = outboundVideo.bytesSent - prev.bytes;
-                const kbps    = Math.round((byteDiff * 8) / dtSec / 1000);
-                _elText('hudBitrate', kbps > 0 ? kbps + 'k' : '—');
+        if (outboundVideo) {
+            if (outboundVideo.frameWidth && outboundVideo.frameHeight) {
+                _elText('hudRes', `${outboundVideo.frameWidth}x${outboundVideo.frameHeight}`);
+            } else {
+                _elText('hudRes', '—');
             }
-            pcList[0].__statsSnapshot = { ts: now, bytes: outboundVideo.bytesSent };
+            
+            if (outboundVideo.framesPerSecond != null) {
+                _elText('hudFps', outboundVideo.framesPerSecond.toFixed(0));
+            } else {
+                _elText('hudFps', '—');
+            }
+            
+            const prev = pcList[0].__statsSnapshot;
+            if (outboundVideo.totalEncodeTime != null && outboundVideo.framesEncoded != null && prev) {
+                if (outboundVideo.framesEncoded > prev.frames) {
+                    const encodeDelta = outboundVideo.totalEncodeTime - prev.encodeTime;
+                    const framesDelta = outboundVideo.framesEncoded - prev.frames;
+                    const encodeLatencyMs = (encodeDelta / framesDelta) * 1000;
+                    _elText('hudEncodeLat', encodeLatencyMs.toFixed(1) + 'ms');
+                }
+            } else {
+                _elText('hudEncodeLat', '—');
+            }
+            
+            if (outboundVideo.bytesSent != null) {
+                const now  = Date.now();
+                if (prev) {
+                    const dtSec   = (now - prev.ts) / 1000;
+                    const byteDiff = outboundVideo.bytesSent - prev.bytes;
+                    const kbps    = Math.round((byteDiff * 8) / dtSec / 1000);
+                    _elText('hudBitrate', kbps > 0 ? kbps + 'k' : '—');
+                }
+                pcList[0].__statsSnapshot = { 
+                    ts: now, 
+                    bytes: outboundVideo.bytesSent, 
+                    encodeTime: outboundVideo.totalEncodeTime || 0,
+                    frames: outboundVideo.framesEncoded || 0
+                };
+            }
         }
     }).catch(() => {});
 }
