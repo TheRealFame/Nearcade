@@ -9,6 +9,41 @@ const si = require('systeminformation');
 // Helper to anonymize IPs so we never store them
 function hashIp(ip) { return crypto.createHash('sha256').update(ip).digest('hex'); }
 const os = require("os");
+
+// --- STREAMER PRIVACY SCRUBBER ---
+const _origLog = console.log;
+console.log = function (...args) {
+  let msg = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
+  }).join(' ');
+  
+  // Blur IPv4 addresses (except localhost)
+  msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  
+  // Blur Cloudflare tunnel URLs
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
+  
+  // Blur Zrok / Playit / localhost.run / serveo URLs
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net)/g, 'https://********.$1');
+  
+  // Blur VPS SSH strings
+  msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
+
+  // Blur VPS Master Key (64-char hex)
+  msg = msg.replace(/("?vpsMasterKey"?\s*:\s*['"]?)[a-fA-F0-9]{64}(['"]?)/g, '$1********$2');
+
+  // Blur Session Password
+  msg = msg.replace(/("?sessionPassword"?\s*:\s*['"]?)[^'"\s,]+(['"]?)/g, '$1********$2');
+
+  // Blur global PIN
+  if (typeof PIN !== 'undefined' && PIN) {
+    msg = msg.replace(new RegExp(PIN, 'g'), '****');
+  }
+
+  _origLog.call(console, msg);
+};
+
 const net = require("net");
 const fs = require("fs");
 const path = require('path');
@@ -829,9 +864,9 @@ async function main() {
 
   console.log("\n  \x1b[1mNearsecTogether\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
-  console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
-  if (PUBLIC_IP) console.log("  Public IP : http://" + PUBLIC_IP + ":" + PORT + "/ (needs port forward)");
-  console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
+  console.log("  LAN URL   : http://***.***.***.***:" + PORT + "/");
+  if (PUBLIC_IP) console.log("  Public IP : http://***.***.***.***:" + PORT + "/ (needs port forward)");
+  console.log("  PIN       : \x1b[1;32m****\x1b[0m\n");
 
   const app = express();
   const server = http.createServer(app);
@@ -1574,7 +1609,7 @@ async function main() {
 
           if (msg.type === "regen-pin") {
             PIN = makePin();
-            console.log("[host] PIN regenerated:", PIN);
+            console.log("[host] PIN regenerated: ****");
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
             return;
           }

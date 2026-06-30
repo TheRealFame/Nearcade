@@ -30,6 +30,38 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'nearsectogether.config.json');
 const BUNDLED_CONTROLLERS = path.join(__dirname, 'config', 'controllers.json');
 const USER_CONTROLLERS = path.join(CONFIG_DIR, 'controllers.json');
 
+// ── SESSION FILE LOGGER ──
+const LOG_FILE = path.join(__dirname, 'config', 'latest.log');
+try { 
+  if (!fs.existsSync(path.join(__dirname, 'config'))) fs.mkdirSync(path.join(__dirname, 'config'), { recursive: true });
+  fs.writeFileSync(LOG_FILE, `--- Nearsec Session Log (${new Date().toISOString()}) ---\n`); 
+} catch (e) {}
+
+function appendLog(msg) {
+  try { fs.appendFileSync(LOG_FILE, msg + '\n'); } catch (e) {}
+}
+
+const _nativeLog = console.log.bind(console);
+const _nativeErr = console.error.bind(console);
+
+console.log = function(...args) {
+  _nativeLog(...args);
+  const s = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a); } catch(_) { return String(a); }
+  }).join(' ');
+  appendLog(`[LOG] ${s}`);
+};
+
+console.error = function(...args) {
+  _nativeErr(...args);
+  const s = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a); } catch(_) { return String(a); }
+  }).join(' ');
+  appendLog(`[ERR] ${s}`);
+};
+
 // ── AUTOMATIC CONFIGURATION OVERRIDES ──
 try {
   if (fs.existsSync(CONFIG_FILE)) {
@@ -247,18 +279,22 @@ function startServer() {
     process.env.ELECTRON_MODE = '1';
 
     serverCore = require('./src/scripts/server.js');
-    const _log = console.log.bind(console);
+    const _appLog = console.log.bind(console);
+    
+    // We must safely wrap whatever console.log server.js just created, 
+    // and restore IT, not the original Node.js one.
+    const _serverLog = console.log; 
     console.log = function (...args) {
-      _log(...args);
+      _serverLog(...args);
       const s = args.join(' ');
       const m = s.match(/Listening on port (\d+)/);
       if (m && !serverPort) {
         serverPort = parseInt(m[1]);
-        console.log = _log;
+        console.log = _serverLog; // Restore the server.js scrubber
         resolve(serverPort);
       }
     };
-    setTimeout(() => { if (!serverPort) { serverPort = 3000; resolve(3000); } }, 6000);
+    setTimeout(() => { if (!serverPort) { serverPort = 3000; console.log = _serverLog; resolve(3000); } }, 6000);
   });
 }
 
@@ -302,6 +338,14 @@ async function createWindow() {
   } else {
     win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
   }
+
+  // Intercept frontend logs to save them to the session file (but DO NOT spam terminal)
+  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    let prefix = '[FrontEnd]';
+    if (level === 2) prefix = '[FrontEnd WARN]';
+    if (level === 3) prefix = '[FrontEnd ERR]';
+    appendLog(`${prefix} ${message}`);
+  });
 
   win.webContents.on('did-fail-load', (e, code, desc) => {
     if (code === -3) return;

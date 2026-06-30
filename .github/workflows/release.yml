@@ -155,6 +155,9 @@ jobs:
           for file in NearsecTogether-*.rpm; do [ -f "$file" ] && mv "$file" "Nearsec Together (RedHat).rpm"; done
           for file in *.apk; do [ -f "$file" ] && mv "$file" "Nearsec Together (Android).apk"; done
 
+      - name: Wait for previous Itch.io processing (Rate Limit Bypass)
+        run: sleep 45
+
       - name: Publish Windows to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
         env:

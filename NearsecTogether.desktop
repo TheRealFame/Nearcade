@@ -2,7 +2,7 @@
 Categories=Game;Utility;
 Comment=Browser-based game streaming host
 Exec=bash -c 'cd "$(dirname "%k")" && ./bin/start.cmd'
-Icon=./assets/NearsecTogetherLogo.png
+Icon=/assets/NearsecTogetherLogo.png
 Name=NearsecTogether
 Path=
 StartupNotify=true
