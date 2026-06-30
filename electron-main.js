@@ -300,6 +300,8 @@ function startServer() {
 
 let win = null;
 let tray = null;
+const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+  (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
 
 async function createWindow() {
   const port = await startServer();
@@ -314,7 +316,8 @@ async function createWindow() {
     icon: path.join(__dirname, 'assets/NearsecTogetherLogo.png'),
     backgroundColor: '#111111',
     alwaysOnTop: settings.alwaysOnTop,
-    show: false,
+    show: isGamescopeEnv ? true : false,
+    fullscreen: isGamescopeEnv ? true : false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -323,7 +326,9 @@ async function createWindow() {
     autoHideMenuBar: true,
   });
 
-  win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
+  if (!isGamescopeEnv) {
+    win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
+  }
 
   const PAGES_DIR = path.join(__dirname, 'src', 'pages');
 
@@ -427,9 +432,6 @@ async function createWindow() {
   win.on('closed', () => { win = null; });
 
   // ── Tray ──
-  const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
-    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
-
   if (!isGamescopeEnv) {    // We only specify height so Electron maintains the natural aspect ratio of the logo
     const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearsecTogetherLogo.png')).resize({ height: 22 });
     tray = new Tray(trayIcon);

@@ -5,7 +5,6 @@ config/*.log
 node_modules/
 .env
 .vscode
-kbm_bindings.json
 *.bak
 .flatpak-builder
 
@@ -19,6 +18,5 @@ dist/
 /.cocoindex_code/
 
 # Native addon build artifacts
-src/sidecar/input_backends/build/
 vps/target/
 drafts/

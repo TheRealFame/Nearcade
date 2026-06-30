@@ -1,0 +1,1 @@
+cmd_Release/uinputBridge.node := ln -f "Release/obj.target/uinputBridge.node" "Release/uinputBridge.node" 2>/dev/null || (rm -rf "Release/uinputBridge.node" && cp -af "Release/obj.target/uinputBridge.node" "Release/uinputBridge.node")
