@@ -1,0 +1,72 @@
+name: Build Experimental Unsigned iOS IPA
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-ios-unsigned:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Save Commit Hash
+        run: echo "${{ github.sha }}" > commit.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install NPM dependencies
+        run: npm ci
+
+      - name: Add Capacitor iOS
+        run: npm install @capacitor/ios
+
+      - name: Build Web Assets for iOS
+        run: |
+          chmod +x ./bin/build-android.sh
+          ./bin/build-android.sh
+
+      - name: Initialize Capacitor iOS
+        run: |
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+
+      - name: Build Unsigned Xcode Project
+        working-directory: ./ios/App
+        run: |
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package into IPA
+        working-directory: ./ios/App
+        run: |
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/App.app Payload/
+          zip -qr NearsecTogetherExperimental.ipa Payload
+
+      - name: Upload Unsigned IPA to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "./ios/App/NearsecTogetherExperimental.ipa"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

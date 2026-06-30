@@ -21,6 +21,7 @@
     "@capacitor/android": "^8.3.4",
     "@capacitor/core": "^8.3.4",
     "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/ios": "^8.3.4",
     "@fails-components/webtransport": "^1.6.3",
     "@trystero-p2p/torrent": "^0.25.2",
     "discord-rpc": "^4.0.1",
