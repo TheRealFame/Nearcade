@@ -748,12 +748,16 @@ function refreshTalkingOverlayVisibility() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CODEC_PRIORITY = ['video/H264', 'video/VP8'];
-function preferReceiverCodec(transceiver) {
+function preferReceiverCodec(transceiver, preferredMime) {
     const caps = RTCRtpReceiver.getCapabilities?.('video');
     if (!caps || !transceiver) return null;
+    let priority = CODEC_PRIORITY;
+    if (preferredMime) {
+        priority = [preferredMime, ...CODEC_PRIORITY.filter(c => c.toLowerCase() !== preferredMime.toLowerCase())];
+    }
     const sorted = [
-        ...CODEC_PRIORITY.flatMap(mime => caps.codecs.filter(c => c.mimeType === mime)),
-        ...caps.codecs.filter(c => !CODEC_PRIORITY.includes(c.mimeType))
+        ...priority.flatMap(mime => caps.codecs.filter(c => c.mimeType.toLowerCase() === mime.toLowerCase())),
+        ...caps.codecs.filter(c => !priority.some(p => p.toLowerCase() === c.mimeType.toLowerCase()))
     ];
     try { transceiver.setCodecPreferences(sorted); return sorted[0]?.mimeType || null; } catch { return null; }
 }
@@ -1562,10 +1566,17 @@ async function connect() {
                 pc._remoteSet = true;
 
                 // Apply receiver codec preferences AFTER remote description is set
-                // so transceivers already exist. This nudges Chromium on Windows
-                // to pick H264/VP8 over AV1/H265 which may not be hardware-decoded.
+                // so transceivers already exist. We prioritize the host's requested codec.
                 pc.getTransceivers().forEach(t => {
-                    if (t.receiver?.track?.kind === 'video') preferReceiverCodec(t);
+                    if (t.receiver?.track?.kind === 'video') {
+                        let preferredMime = null;
+                        if (msg.codec === 'av1') preferredMime = 'video/AV1';
+                        else if (msg.codec === 'hevc' || msg.codec === 'h265') preferredMime = 'video/H265';
+                        else if (msg.codec === 'vp8') preferredMime = 'video/VP8';
+                        else if (msg.codec === 'vp9') preferredMime = 'video/VP9';
+                        else if (msg.codec === 'h264') preferredMime = 'video/H264';
+                        preferReceiverCodec(t, preferredMime);
+                    }
                 });
 
                 for (const c of (pc._iceBuf || [])) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { } }
