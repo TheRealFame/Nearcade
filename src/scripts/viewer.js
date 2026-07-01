@@ -162,7 +162,7 @@ let nextAudioTime = 0;
 let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
 document.getElementById('nameInput').value = myName;
 if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
-let enteredPin = '', audioMuted = false;
+let enteredPin = '', enteredPassword = '', audioMuted = false;
 let kbEnabled = false;
 
 // ── VOICE CHAT STATE ──────────────────────────────────────────────────────────
@@ -1394,6 +1394,7 @@ async function connect() {
             : `${proto}://${host}/ws/viewer`;
 
         if (enteredPin) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `pin=${encodeURIComponent(enteredPin)}`;
+        if (enteredPassword) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `password=${encodeURIComponent(enteredPassword)}`;
         ws = new WebSocket(wsUrl);
         ws.binaryType = 'arraybuffer';
         stopReconnect = false;
@@ -1820,7 +1821,7 @@ async function connect() {
             const errEl = document.getElementById('pinErr');
             if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
             document.getElementById('pinInput').value = '';
-            enteredPin = ''; stopReconnect = false; return;
+            enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
         }
         setTimeout(connect, 2000);
     };
@@ -1847,11 +1848,8 @@ function submitPin() {
     const nameVal = document.getElementById('nameInput').value.trim();
     if (nameVal) { myName = nameVal; localStorage.setItem('ns_name', myName); }
     const val = document.getElementById('pinInput').value.trim();
-    if (pinRequired && val.length !== 4) {
-        document.getElementById('pinErr').textContent = 'Enter 4 digits';
-        return;
-    } else if (!pinRequired && val.length > 0 && val.length !== 4) {
-        document.getElementById('pinErr').textContent = 'Enter 4 digits';
+    if (pinRequired && val.length === 0) {
+        document.getElementById('pinErr').textContent = 'PIN / Password required';
         return;
     }
     enteredPin = val;
@@ -1881,11 +1879,8 @@ function submitSessionPassword() {
     if (errEl) errEl.textContent = '';
     document.getElementById('pinScreen')?.classList.add('gone');
 
-    // Reconnect with password as query param
-    const sep = (typeof wsUrl !== 'undefined' && wsUrl.includes('?')) ? '&' : '?';
-    if (typeof wsUrl !== 'undefined') {
-        wsUrl = wsUrl.replace(/[?&]password=[^&]*/g, '') + sep + 'password=' + encodeURIComponent(pw);
-    }
+    // Reconnect with password
+    enteredPassword = pw;
     setTimeout(connect, 200);
 }
 
