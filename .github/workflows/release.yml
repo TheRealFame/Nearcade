@@ -63,17 +63,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Static AppImage for Gearlever
-        if: matrix.os == 'ubuntu-latest'
+      - name: Force Upload Desktop Binaries
         shell: bash
         run: |
-          # Find the generated AppImage
-          APPIMAGE=$(find dist -maxdepth 1 -name "*.AppImage" | head -n 1)
-          if [ -n "$APPIMAGE" ]; then
-            cp "$APPIMAGE" dist/NearsecTogether-latest.AppImage
-            # Upload it to the current release tag
-            gh release upload ${{ github.ref_name }} dist/NearsecTogether-latest.AppImage --clobber
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            APPIMAGE=$(find dist -maxdepth 1 -name "*.AppImage" | head -n 1)
+            if [ -n "$APPIMAGE" ]; then
+              cp "$APPIMAGE" dist/NearsecTogether-latest.AppImage
+            fi
           fi
+          
+          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file..."
+              gh release upload ${{ github.ref_name }} "$file" --clobber || true
+            fi
+          done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
