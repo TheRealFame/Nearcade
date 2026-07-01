@@ -1878,7 +1878,7 @@ async function main() {
 
       // ── Session password check ────────────────────────────────────────────
       if (sessionPassword) {
-        const provided = ws.protocol || params.get('password') || '';
+        const provided = ws.protocol || url.searchParams.get('password') || '';
         if (provided !== sessionPassword) {
           ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' }));
           ws.close();

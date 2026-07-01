@@ -382,9 +382,9 @@
         <div style="margin-top:8px;">
           <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Persistent Session PIN</div>
           <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" id="persistentPasswordInput" class="form-select" style="flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:6px;font-size:11px;" placeholder="Leave blank for random PINs" maxlength="4" inputmode="numeric" pattern="[0-9]*" oninput="this.value=this.value.replace(/[^0-9]/g, '').slice(0,4)" onchange="savePersistentPassword(this.value)">
+            <input type="text" id="persistentPasswordInput" class="form-select" style="flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:6px;font-size:11px;" placeholder="Leave blank for random PINs" maxlength="32" onchange="savePersistentPassword(this.value)">
           </div>
-          <div style="font-size:9px;color:var(--muted2);margin-top:4px;">If set, this 4-digit PIN permanently replaces the random per-session PIN.</div>
+          <div style="font-size:9px;color:var(--muted2);margin-top:4px;">If set, this password permanently replaces the random per-session PIN.</div>
         </div>
 
         <div
