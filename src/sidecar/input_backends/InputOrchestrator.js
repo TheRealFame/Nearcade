@@ -88,6 +88,7 @@ const slotLastUsed = new Map();
 
 let _bridge = null;
 let _pythonProc = null;
+
 let GAME_PROFILES = {};
 let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 
@@ -652,6 +653,7 @@ function _validateKbmMsg(msg) {
 }
 
 function send(msg) {
+
     // ── Schema validation — drop malformed or oversized payloads silently ──────
     let validated = msg;
     if (msg.type === 'gamepad') {

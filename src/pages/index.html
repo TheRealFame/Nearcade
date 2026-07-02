@@ -9,8 +9,8 @@
   <title>NearsecTogether</title>
 
   <meta property="og:site_name" content="Nearsec Arcade" />
-  <meta property="og:title" content="A player is looking to play!" />
-  <meta property="og:description" content="A player is hosting a peer-to-peer gaming session on Nearsec." />
+  <meta property="og:title" content="Join the Session!" />
+  <meta property="og:description" content="Connect instantly to this remote play session via Nearsec Arcade." />
   <meta property="og:image" content="https://nearsec.cutefame.net/assets/NearsecTogetherLogo.png" />
   <meta name="theme-color" content="#8b5cf6" />
   <meta name="twitter:card" content="summary" />
@@ -1670,6 +1670,13 @@
       </button>
 
       <div class="ns-bar-divider"></div>
+      <div class="ns-bar-section">Device API</div>
+      <select id="inputModeSelect" class="ns-bar-btn" style="background:var(--bg);border-color:var(--border2);appearance:none;padding:7px 10px;" onchange="window.updateInputMode && window.updateInputMode(this.value)">
+        <option value="gamepad">Standard Gamepad</option>
+        <option value="guitar">Guitar Hero Controller</option>
+      </select>
+
+      <div class="ns-bar-divider"></div>
       <div class="ns-bar-section">Stream Quality</div>
       <div style="display:flex;gap:4px;padding:0 2px;">
         <button class="ns-bar-btn ns-btn-active" data-bw="auto" onclick="setBandwidthProfile('auto')"
@@ -1863,7 +1870,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/version.js"></script>
   <script type="module" src="/js/p2p-signaler.js"></script>
-  <script src="/js/viewer.js?v=8"></script>
+  <script src="/js/viewer.js?v=9"></script>
 
   <!-- Post-load patches — run after viewer.js is fully parsed -->
   <script>

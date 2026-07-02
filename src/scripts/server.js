@@ -73,6 +73,7 @@ const PusherRaw = require('pusher-js');
 
 const isPackaged = __dirname.includes('app.asar');
 const inputDriver = require('../sidecar/input_backends/InputOrchestrator.js');
+const experimentalDriver = require('../sidecar/input_backends/experimental/ExperimentalOrchestrator.js');
 // ══════════════════════════════════════════════════════════════════════════════
 // VIRTUAL AUDIO — delegated to audio_worker.js via worker_threads IPC
 // The main event loop never calls pactl directly; all blocking OS shell work
@@ -932,12 +933,33 @@ async function main() {
   app.get("/dashboard", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
   app.get("/host", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
 
-  app.get("/old_host", (req, res) => {
+  app.get("/host-minimal", (req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    res.sendFile(path.join(pagesDir, "old_host.html"));
+    res.sendFile(path.join(pagesDir, "host-minimal.html"));
+  });
+  app.get("/host-playground", (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(pagesDir, "host-playground.html"));
+  });
+  app.get("/host-custom", (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(pagesDir, "host-custom.html"));
   });
   app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
+  app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
+  
+  app.post("/api/save-custom-host", express.json({limit: '10mb'}), (req, res) => {
+    const htmlContent = req.body.html;
+    if (typeof htmlContent !== 'string') return res.status(400).json({error: 'Invalid content'});
+    try {
+      fs.writeFileSync(path.join(pagesDir, "host-custom.html"), htmlContent);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/info", (req, res) => res.json({ lanIP: LAN_IP, port: PORT, pin: PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION }));
   app.post("/api/fe-log", express.json(), (req, res) => {
     const { msg, src, line } = req.body || {};
@@ -1610,6 +1632,7 @@ async function main() {
               gamepad: { gp: true, kb: false },
               kbm: { gp: false, kb: true },
               kbm_emulated: { gp: true, kb: true },
+              experimental: { gp: true, kb: true },
               disabled: { gp: false, kb: false }
             };
             const perms = modeMap[msg.mode] || { gp: true, kb: false };
@@ -1821,6 +1844,12 @@ async function main() {
             }
             if (msg.type === 'kbm') console.log(`[DEBUG KBM] Sending to InputOrchestrator!`);
             inputDriver.send(msg);
+            return;
+          }
+
+          const expTypes = ['tablet', 'vr', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          if (expTypes.includes(msg.type)) {
+            experimentalDriver.send(msg);
             return;
           }
 
@@ -2235,6 +2264,12 @@ async function main() {
             toUinput(msg);
             return;
           }
+
+          const expTypes = ['tablet', 'vr', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          if (expTypes.includes(msg.type)) {
+            experimentalDriver.send(msg);
+            return;
+          }
         } catch (e) { console.error("[input] error:", e.message); }
       });
     }
@@ -2333,6 +2368,7 @@ function cleanup(isElectron = false) {
   // Cleanly destroy the input driver (whether it's using C++ or Python)
   try {
     inputDriver.destroy();
+    experimentalDriver.destroy();
   } catch (e) {
     console.error("[Server] Input driver cleanup error:", e);
   }

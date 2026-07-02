@@ -1,3 +1,7 @@
+function closeAllModals() {
+    document.querySelectorAll(".modal-bg").forEach(m => m.classList.add("gone"));
+}
+
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws, currentStream, peerConnections = {}, knownViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;
@@ -233,7 +237,15 @@ window._savedMicGain     = 1.0;
 function setDesktopVolume(val) {
     const v = parseInt(val, 10);
     const el = document.getElementById('desktopVolVal');
-    if (el) el.textContent = v;
+    if (el) el.textContent = v + (el.id === 'desktopVolVal' ? (document.getElementById('volDesktopVal') ? '' : '') : '');
+    const el2 = document.getElementById('volDesktopVal');
+    if (el2) el2.textContent = v + '%';
+    
+    const s1 = document.getElementById('desktopVolSlider');
+    if (s1 && s1.value != v) s1.value = v;
+    const s2 = document.getElementById('volDesktop');
+    if (s2 && s2.value != v) s2.value = v;
+
     saveSetting('ns_host_desktop_vol', v, 'volumeDesktop');
     if (!window._masterMuteActive && _desktopGainNode)
         _desktopGainNode.gain.value = v / 100;
@@ -243,6 +255,14 @@ function setHostMicGain(val) {
     const v = parseInt(val, 10);
     const el = document.getElementById('hostMicVal');
     if (el) el.textContent = v;
+    const el2 = document.getElementById('volMicVal');
+    if (el2) el2.textContent = v + '%';
+
+    const s1 = document.getElementById('hostMicSlider');
+    if (s1 && s1.value != v) s1.value = v;
+    const s2 = document.getElementById('volMic');
+    if (s2 && s2.value != v) s2.value = v;
+
     saveSetting('ns_host_mic_gain', v, 'volumeMic');
     if (!window._masterMuteActive && _hostMicGainNode)
         _hostMicGainNode.gain.value = v / 100;
@@ -831,13 +851,17 @@ function sendChat() {
 }
 
 function setCapDot(state) {
-    document.getElementById('capDot').className = 'dot' + (state === 'live' ? ' live' : state === 'err' ? ' err' : '');
-    document.getElementById('capStatus').textContent = state === 'live' ? 'Live' : state === 'err' ? 'Error' : 'Idle';
+    const d = document.getElementById('capDot');
+    const s = document.getElementById('capStatus');
+    if (d) d.className = 'dot' + (state === 'live' ? ' live' : state === 'err' ? ' err' : '');
+    if (s) s.textContent = state === 'live' ? 'Live' : state === 'err' ? 'Error' : 'Idle';
 }
 
 function setAudDot(state, label) {
-    document.getElementById('audDot').className = 'dot' + (state === 'live' ? ' live' : state === 'warn' ? ' warn' : '');
-    document.getElementById('audStatus').textContent = label;
+    const d = document.getElementById('audDot');
+    const s = document.getElementById('audStatus');
+    if (d) d.className = 'dot' + (state === 'live' ? ' live' : state === 'warn' ? ' warn' : '');
+    if (s) s.textContent = label;
 }
 
 // ── V3 UI UPDATE ──
@@ -861,6 +885,7 @@ async function renderUrls(d) {
         const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
         finalTunnelUrl = `${d.tunnelUrl}${separator}host=${encodedName}${pipeArg}`;
     }
+    window._globalTunnelUrl = finalTunnelUrl;
 
     const pSelect = document.getElementById('pipelineSelect');
     const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
@@ -955,6 +980,8 @@ const _micTitles = [
 function renderRoster(list) {
     const c = document.getElementById('roster');
     const o = document.getElementById('rosterEmpty');
+    if (!c || !o) return;
+    
     const controllers = list;
 
     const listStr = JSON.stringify(controllers);
@@ -994,6 +1021,7 @@ function renderRoster(list) {
         if (currentMode === 'disabled') iconSrc = '/assets/icons/circle-off.svg';
         if (currentMode === 'kbm') iconSrc = '/assets/icons/keyboard.svg';
         if (currentMode === 'kbm_emulated') iconSrc = '/assets/icons/arrow-up-from-line.svg';
+        if (currentMode === 'experimental') iconSrc = '/assets/icons/plug.svg';
 
         if (!viewerAudioStates[v.id]) viewerAudioStates[v.id] = { vol: 100, state: 0 };
         const audState = _globalMicKillActive ? 3 : viewerAudioStates[v.id].state;
@@ -1012,6 +1040,7 @@ function renderRoster(list) {
         <option value="gamepad"       ${currentMode === 'gamepad'       ? 'selected' : ''}>Gamepad</option>
         <option value="kbm"           ${currentMode === 'kbm'           ? 'selected' : ''}>Raw KBM</option>
         <option value="kbm_emulated"  ${currentMode === 'kbm_emulated'  ? 'selected' : ''}>Emulated KBM</option>
+        <option value="experimental"  ${currentMode === 'experimental'  ? 'selected' : ''}>Experimental Hardware</option>
         <option value="disabled"      ${currentMode === 'disabled'      ? 'selected' : ''}>Disabled</option>
         </select>
         `}
@@ -1583,14 +1612,17 @@ let selectedSourceId = null;
 
 
 async function showSourceSelectionModal() {
-    // CRITICAL FIX: Bypass custom modal on Linux.
+    closeAllModals();
+    // CRITICAL FIX: Bypass custom modal on Linux and macOS.
     // Electron's desktopCapturer.getSources() triggers a video-only xdg-desktop-portal
-    // on Wayland, which hides the "Share Audio" checkbox.
-    const isLinux = navigator.userAgent.toLowerCase().includes('linux');
+    // on Wayland, which hides the "Share Audio" checkbox. On macOS, bypassing allows the native SCK picker.
+    const ua = navigator.userAgent.toLowerCase();
+    const isLinux = ua.includes('linux');
+    const isMac = ua.includes('mac os x');
 
-    // Only show modal if electronAPI is available AND we are not on Linux
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux) {
-        if (isLinux) log(I18N.t('Linux Wayland detected: Delegating to native portal for audio support'), 'ok');
+    // Only show modal if electronAPI is available AND we are not on Linux or macOS
+    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac) {
+        if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
         else log(I18N.t('Source selection not available on this platform'), 'warn');
 
         startCapture();
@@ -2089,10 +2121,13 @@ async function startCapture() {
         document.getElementById('prevOverlay').classList.add('hidden');
 
         const finalAudioTracks = currentStream.getAudioTracks();
-        document.getElementById('trackInfo').innerHTML =
-        '<strong>' + (vTrack.label?.split('(')[0].trim() || 'Screen') + '</strong><br>' +
-        settings.width + '×' + settings.height + ' @ ' + Math.round(settings.frameRate || 0) + 'fps<br>' +
-        (finalAudioTracks.length > 0 ? 'Audio: active' : (disableFallback && !aTrack ? 'No audio' : 'Audio: OS fallback'));
+        const ti = document.getElementById('trackInfo');
+        if (ti) {
+            ti.innerHTML =
+            '<strong>' + (vTrack.label?.split('(')[0].trim() || 'Screen') + '</strong><br>' +
+            settings.width + '×' + settings.height + ' @ ' + Math.round(settings.frameRate || 0) + 'fps<br>' +
+            (finalAudioTracks.length > 0 ? 'Audio: active' : (disableFallback && !aTrack ? 'No audio' : 'Audio: OS fallback'));
+        }
 
         const liveResEl   = document.getElementById('liveResDisplay');
         const liveResText = document.getElementById('liveResText');
@@ -2618,6 +2653,7 @@ function connectVps(cfg) {
                         const pSelect = document.getElementById('pipelineSelect');
                         const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
                         const viewerUrl = origin + '/?v3&host=' + hostParam + pipeArg;
+                        window._globalTunnelUrl = viewerUrl;
                         const el = document.getElementById('urlList');
                         if (el) {
                             el.innerHTML = '';
@@ -2773,6 +2809,7 @@ function toggleKbmPanic() {
 }
 
 function showTunnelModal() {
+    closeAllModals();
     resetTunnelModal();
     document.getElementById('tunnelModal').classList.remove('gone');
 
@@ -2859,17 +2896,20 @@ if (document.readyState === 'loading') {
 }
 
 function startAudioMeter(stream) {
+    const fill = document.getElementById('meter');
+    if (!fill) return; // Safely exit if UI doesn't have a meter
+    
     audioCtx = new AudioContext();
     analyser = audioCtx.createAnalyser(); analyser.fftSize = 256;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
-    const fill = document.getElementById('meter');
     (function draw() { animFrame = requestAnimationFrame(draw); analyser.getByteFrequencyData(data); fill.style.width = Math.min(100, data.reduce((a, b) => a + b, 0) / data.length * 2) + '%'; })();
 }
 function stopAudioMeter() {
     if (animFrame) cancelAnimationFrame(animFrame);
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
-    document.getElementById('meter').style.width = '0%';
+    const fill = document.getElementById('meter');
+    if (fill) fill.style.width = '0%';
 }
 
 
@@ -3213,7 +3253,7 @@ function applyCtrlSettingsUI() {
     if (touchSelect) touchSelect.value = ctrlSettings.touchLayout;
 
     const isNonDefault = ctrlSettings.forceXboxOne || ctrlSettings.enableDualShock || ctrlSettings.enableMotion || ctrlSettings.defaultInputMode !== 'gamepad' || ctrlSettings.touchLayout !== 'default';
-    btn.style.color = isNonDefault ? 'var(--warn)' : '';
+    if (btn) btn.style.color = isNonDefault ? 'var(--warn)' : '';
 }
 
 function toggleCtrlSetting(key) {
@@ -3308,6 +3348,7 @@ function closeCtrlModal() {
 
 // ── Unified Settings Modal ─────────────────────────────────────────────────────
 function showSettingsModal(tab) {
+    closeAllModals();
     applyCtrlSettingsUI();
     _syncSmMicRow();
     enumerateAudioDevicesSM();
@@ -3602,6 +3643,7 @@ const arcadeConfig = {
 };
 
 function showArcadeModal(skipRules = false) {
+    closeAllModals();
     if (!skipRules && localStorage.getItem('ns_arcade_rules_accepted') !== 'true') {
         document.getElementById('arcadeRulesModal').classList.remove('gone');
         return;
@@ -3746,6 +3788,7 @@ function togglePreview() {
 }
 
 function showAppSettings() {
+    closeAllModals();
     applyAppSettingsUI();
     enumerateAudioDevices();
     document.getElementById('appSettingsModal').classList.remove('gone');
@@ -3853,7 +3896,14 @@ let globalViewerVolume = 1.0;
 window.setGlobalViewerVolume = function(val) {
     globalViewerVolume = val / 100;
     const valDisplay = document.getElementById('globalViewerVolVal');
-    if (valDisplay) valDisplay.textContent = val;
+    if (valDisplay) valDisplay.textContent = val + '%';
+    
+    const s1 = document.getElementById('globalViewerVol');
+    if (s1 && s1.value != val) s1.value = val;
+    const s2 = document.getElementById('globalViewerVolSlider');
+    if (s2 && s2.value != val) s2.value = val;
+    
+    saveSetting('ns_vol_others', val, 'volumeViewers');
 
     Object.keys(viewerAudioStates).forEach(vid => {
         const audioEl = document.getElementById('remote-audio-' + vid);
@@ -4028,10 +4078,15 @@ async function fetchSysInfo() {
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { setInterval(fetchSysInfo, 3000); fetchSysInfo(); });
+    document.addEventListener('DOMContentLoaded', () => { 
+        setInterval(fetchSysInfo, 3000); 
+        fetchSysInfo(); 
+        setTimeout(loadExpDevices, 500);
+    });
 } else {
     setInterval(fetchSysInfo, 3000);
     fetchSysInfo();
+    setTimeout(loadExpDevices, 500);
 }
 
 function _updateDiscordRPC() {
@@ -4042,7 +4097,11 @@ function _updateDiscordRPC() {
                 state: `Players: ${knownViewers.size + 1}/${arcadeConfig.maxPlayers || 4}`,
                 startTimestamp: window._arcadeStartTime || (window._arcadeStartTime = Date.now()),
                 largeImageKey: 'nearsec_logo',
-                largeImageText: 'Nearsec Arcade'
+                largeImageText: 'Nearsec Arcade',
+                partyId: window.hostSessionId || 'arcade_session',
+                partySize: knownViewers.size + 1,
+                partyMax: parseInt(arcadeConfig.maxPlayers || 4),
+                joinSecret: window._isP2P ? (window._p2pCode || 'none') : (window._globalTunnelUrl || 'none')
             });
         } else if (typeof streamActive !== 'undefined' && streamActive) {
             window.electronAPI.discordSetActivity({
@@ -4050,7 +4109,11 @@ function _updateDiscordRPC() {
                 state: `Viewers: ${knownViewers.size}`,
                 startTimestamp: window._sessionStartTime || (window._sessionStartTime = Date.now()),
                 largeImageKey: 'nearsec_logo',
-                largeImageText: 'NearsecTogether'
+                largeImageText: 'NearsecTogether',
+                partyId: window.hostSessionId || 'private_session',
+                partySize: knownViewers.size + 1,
+                partyMax: 10,
+                joinSecret: window._isP2P ? (window._p2pCode || 'none') : (window._globalTunnelUrl || 'none')
             });
         } else {
             window.electronAPI.discordClear();
@@ -4058,4 +4121,84 @@ function _updateDiscordRPC() {
             window._sessionStartTime = null;
         }
     }
+}
+
+// ── Experimental Devices UI ──────────────────────────────────────────────────
+function saveExpDevices() {
+    const list = document.getElementById('expDeviceList');
+    if (!list) return;
+    const devices = [];
+    list.querySelectorAll('[data-exp-val]').forEach(el => {
+        const toggle = el.querySelector('.ctrl-toggle-track');
+        devices.push({
+            val: el.dataset.expVal,
+            text: el.dataset.expText,
+            enabled: toggle ? toggle.classList.contains('on') : false
+        });
+    });
+    localStorage.setItem('ns_exp_devices', JSON.stringify(devices));
+    saveAppConfig({ expDevices: devices });
+}
+
+function loadExpDevices() {
+    let devices = [];
+    try {
+        if (typeof appConfig !== 'undefined' && appConfig.expDevices) devices = appConfig.expDevices;
+        else devices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
+    } catch(e) {}
+    
+    if (devices.length > 0) {
+        const list = document.getElementById('expDeviceList');
+        if (list) list.innerHTML = '';
+        devices.forEach(d => addExpDevice(d.val, d.text, d.enabled));
+    }
+}
+
+function addExpDevice(inVal, inText, inEnabled = true) {
+    let val, text, enabled = inEnabled;
+    const sel = document.getElementById('expDeviceSelect');
+    
+    if (inVal && inText) {
+        val = inVal;
+        text = inText;
+    } else {
+        if (!sel) return;
+        val = sel.value;
+        text = sel.options[sel.selectedIndex].text;
+    }
+
+    const list = document.getElementById('expDeviceList');
+    if (!list) return;
+    if (list.innerText.includes('No experimental devices enabled')) {
+        list.innerHTML = '';
+    }
+
+    // Check if already added
+    if (list.querySelector(`[data-exp-val="${val}"]`)) return;
+
+    // Determine status text based on device type
+    const isImplemented = val === 'tablet' || val === 'guitar';
+    const statusText = isImplemented ? '<span style="color:var(--green);">Status: Active</span>' : '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
+
+    const el = document.createElement('div');
+    el.dataset.expVal = val;
+    el.dataset.expText = text;
+    el.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); border-radius:6px;";
+    
+    const toggleClass = enabled ? 'ctrl-toggle-track on' : 'ctrl-toggle-track';
+    
+    el.innerHTML = `
+        <div style="display:flex; align-items:center; gap:12px;">
+            <div class="${toggleClass}" onclick="this.classList.toggle('on'); saveExpDevices();" style="cursor:pointer;">
+                <div class="ctrl-toggle-thumb"></div>
+            </div>
+            <div>
+                <div style="font-size:11px; font-weight:600; color:var(--text);">${text}</div>
+                <div style="font-size:9px;">${statusText}</div>
+            </div>
+        </div>
+        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px;" onmouseover="this.style.color='#fff'" onmouseleave="this.style.color='var(--muted)'">&times;</button>
+    `;
+    list.appendChild(el);
+    saveExpDevices();
 }

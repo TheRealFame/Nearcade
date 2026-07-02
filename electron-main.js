@@ -151,12 +151,16 @@ if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 } else if (process.platform === 'linux') {
   const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
-    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+    process.env.SteamDeck === '1' || process.env.SteamGamepadUI;
 
   if (isGamescope) {
     // Force X11/XWayland under Gamescope to prevent Electron crashes with native Wayland
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+    // CRITICAL for SteamOS Game Mode: Steam's nested bwrap conflicts with Electron's sandbox
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-gpu-sandbox');
   } else {
     // Force native Wayland with decorations on other Linux DEs
     app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
@@ -303,7 +307,8 @@ function startServer() {
 let win = null;
 let tray = null;
 const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
-  (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
+  (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+  process.env.SteamDeck === '1' || process.env.SteamGamepadUI;
 
 async function createWindow() {
   const port = await startServer();
@@ -363,24 +368,7 @@ async function createWindow() {
     }, 1000);
   });
 
-  // ── Dashboard Button Injection ──
-  win.webContents.on('did-finish-load', () => {
-    const currentURL = win.webContents.getURL();
-    if (currentURL.includes('/old_host')) {
-      win.webContents.executeJavaScript(`
-      if (!document.getElementById('ns-dash-btn') && window.electronAPI) {
-        const btn = document.createElement('button');
-        btn.id = 'ns-dash-btn';
-        btn.innerHTML = '← Dashboard';
-        btn.style.cssText = 'position:fixed;bottom:24px;left:0;opacity:0.8;z-index:999999;padding:12px 20px;background:#141414;color:#aaa;border:1px solid #252525;border-left:none;border-radius:0 8px 8px 0;font-family:monospace;font-weight:bold;cursor:pointer;transition:all 0.2s;';
-        btn.onmouseover = () => { btn.style.opacity='1'; btn.style.color='#c084fc'; btn.style.borderColor='#c084fc'; };
-        btn.onmouseleave = () => { btn.style.opacity='0.8'; btn.style.color='#aaa'; btn.style.borderColor='#252525'; };
-        btn.onclick = () => window.electronAPI.backToDashboard();
-        document.body.appendChild(btn);
-      }
-      `);
-    }
-  });
+
 
   win.webContents.session.setPermissionCheckHandler(() => true);
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
@@ -680,8 +668,10 @@ async function createWindow() {
 
   // FIX #7 / openHost: version param forwarded correctly from preload
   ipcMain.on('open-host', (event, version) => {
-    // FIX #7: version param ('new' | 'old') is now forwarded from preload
-    const route = version === 'old' ? '/old_host' : '/host';
+    let route = '/host';
+    if (version === 'minimal' || version === 'old') route = '/host-minimal';
+    else if (version === 'playground') route = '/host-playground';
+    else if (version === 'custom') route = '/host-custom';
     const captureParams = [];
     if (isWebCodecs) captureParams.push('wc=1');
     if (isFFmpegCapture) captureParams.push('ffmpeg=1');
@@ -757,6 +747,19 @@ async function createWindow() {
       rpc.on('ready', () => {
         console.log('[Discord] RPC Ready');
         rpc.setActivity(activity).catch(console.error);
+        try {
+          rpc.subscribe('ACTIVITY_JOIN', (args) => {
+            console.log('[Discord] ACTIVITY_JOIN:', args);
+            if (args && args.secret && win && !win.isDestroyed()) {
+              let url = args.secret;
+              let viewerUrl = `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(url)}`;
+              win.loadURL(viewerUrl);
+              if (win.isMinimized()) win.restore();
+              win.show();
+              win.focus();
+            }
+          });
+        } catch(e) { console.error('[Discord] Subscribe err:', e); }
       });
       rpc.login({ clientId: settings.discordClientId }).catch(err => {
         console.error('[Discord] login failed:', err.message);

@@ -909,6 +909,41 @@ document.addEventListener('mousemove', e => { if (!document.pointerLockElement) 
 document.addEventListener('mousedown', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keydown', key: mouseMap[e.button] }); });
 document.addEventListener('mouseup', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keyup', key: mouseMap[e.button] }); });
 
+// ── EXPERIMENTAL TABLET SUPPORT ───────────────────────────────────────────────
+function handleTabletEvent(e) {
+    if (e.pointerType !== 'pen') return;
+    
+    let targetEl = (typeof wcCanvas !== 'undefined' && wcCanvas.style.display !== 'none') ? wcCanvas : 
+                   (typeof video !== 'undefined' && video.style.display !== 'none') ? video : 
+                   (typeof frameCanvas !== 'undefined' ? frameCanvas : null);
+                   
+    if (!targetEl) return;
+    const bounds = targetEl.getBoundingClientRect();
+    
+    // Normalize coordinates (0.0 to 1.0) relative to the video frame
+    const nx = (e.clientX - bounds.left) / bounds.width;
+    const ny = (e.clientY - bounds.top) / bounds.height;
+    
+    // Clamp so the pen doesn't draw way off screen
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+    
+    e.preventDefault(); // Stop standard mouse click emulation
+    sendInputData(JSON.stringify({
+        type: 'tablet',
+        x: nx,
+        y: ny,
+        pressure: e.pressure,
+        tiltX: e.tiltX || 0,
+        tiltY: e.tiltY || 0
+    }));
+}
+// Use passive: false so we can e.preventDefault() to stop normal mouse panning
+document.addEventListener('pointerdown', handleTabletEvent, { passive: false });
+document.addEventListener('pointermove', handleTabletEvent, { passive: false });
+document.addEventListener('pointerup', handleTabletEvent, { passive: false });
+
+
+
 // ── TOUCH ─────────────────────────────────────────────────────────────────────
 let touchMode = false, useGyro = false;
 const touchState = {
@@ -1120,8 +1155,8 @@ function activateGamepad() {
     gpPolling = true;
     const pmt = document.getElementById('gpPrompt');
     if (pmt) { pmt.classList.add('active'); pmt.textContent = 'Grab A Gamepad!'; }
-    // 4ms interval (250 Hz) for maximum competitive fighting game precision
-    setInterval(pollGamepad, 4);
+    // 1ms interval (1000 Hz) for maximum competitive precision / lowest input latency
+    setInterval(pollGamepad, 1);
 }
 
 let knownNativePads = [];
@@ -1149,6 +1184,12 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
     });
     window.electronAPI.startNativeGamepadCapture();
 }
+
+window.currentInputMode = 'gamepad';
+window.updateInputMode = function(val) { 
+    window.currentInputMode = val; 
+    console.log('[InputMode] Switched to:', val);
+};
 
 function pollGamepad() {
     if (!gpPolling) return;
@@ -1233,6 +1274,43 @@ function pollGamepad() {
         state.axes[2] = Math.max(-32767, Math.min(32767, state.axes[2] + Math.round(hidGyroX * 32767)));
         state.axes[3] = Math.max(-32767, Math.min(32767, state.axes[3] + Math.round(hidGyroY * 32767)));
         changed = true; // Gyro is continuously sending
+    }
+
+    if (window.currentInputMode === 'guitar') {
+        const guitarState = {
+            type: 'guitar',
+            viewerId: myId,
+            pad_id: myId + '_' + vIndex,
+            frets: [
+                state.buttons[0].pressed ? 1 : 0,
+                state.buttons[1].pressed ? 1 : 0,
+                state.buttons[3].pressed ? 1 : 0,
+                state.buttons[2].pressed ? 1 : 0,
+                state.buttons[4].pressed ? 1 : 0
+            ],
+            strum: (state.buttons[12].pressed || state.axes[1] < -16000) ? 1 : ((state.buttons[13].pressed || state.axes[1] > 16000) ? -1 : 0),
+            whammy: 0,
+            star: state.buttons[5].pressed ? 1 : 0,
+            start: state.buttons[9].pressed ? 1 : 0,
+            select: state.buttons[8].pressed ? 1 : 0
+        };
+        
+        if (state.buttons[6].value > 0) {
+            guitarState.whammy = state.buttons[6].value / 255.0;
+        } else if (state.buttons[7].value > 0) {
+            guitarState.whammy = state.buttons[7].value / 255.0;
+        } else if (Math.abs(state.axes[2]) > 4000) {
+            guitarState.whammy = (state.axes[2] + 32767) / 65534.0;
+        } else if (Math.abs(state.axes[3]) > 4000) {
+            guitarState.whammy = (state.axes[3] + 32767) / 65534.0;
+        }
+
+        const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
+        if (changed || forceHb) {
+            lastGpSend[vIndex] = now;
+            sendInputData(JSON.stringify(guitarState));
+        }
+        return;
     }
 
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
@@ -1553,7 +1631,11 @@ async function connect() {
                 if (pillEl) pillEl.style.display = '';
                 document.title = 'Nearsec — ' + msg.hostName;
             }
-            setTimeout(() => ws?.readyState === 1 && ws.send(JSON.stringify({ type: 'request-offer' })), 800);
+            // CRITICAL FIX: Do NOT send request-offer unconditionally here.
+            // The Host already automatically sends an offer when 'viewer-joined' is received.
+            // Sending request-offer causes a duplicate 'viewer-joined' trigger on the Host,
+            // which forces the Host to destroy the active RTCPeerConnection and start over,
+            // resulting in 'User-Initiated Abort' / DataChannel disconnect loops!
             return;
         }
         if (msg.type === 'tunnel-url') return;
@@ -1825,17 +1907,23 @@ async function connect() {
         }
     };
 
-    ws.onclose = event => {
-        const AUTH_CODES = new Set([4001, 4002, 4003]);
-        if (AUTH_CODES.has(event.code) || stopReconnect) {
-            document.getElementById('pinScreen').classList.remove('gone');
-            const errEl = document.getElementById('pinErr');
-            if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
-            document.getElementById('pinInput').value = '';
-            enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
-        }
-        setTimeout(connect, 2000);
-    };
+    ws.onclose = (function(thisWs) {
+        return function(event) {
+            // If this socket is no longer the active one (connect() already replaced it),
+            // do NOT schedule another reconnect — that's what causes the cascade loop.
+            if (ws !== thisWs) return;
+
+            const AUTH_CODES = new Set([4001, 4002, 4003]);
+            if (AUTH_CODES.has(event.code) || stopReconnect) {
+                document.getElementById('pinScreen').classList.remove('gone');
+                const errEl = document.getElementById('pinErr');
+                if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
+                document.getElementById('pinInput').value = '';
+                enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
+            }
+            setTimeout(connect, 2000);
+        };
+    })(ws);
 }
 
 // pinRequired is declared early at the top of the file.
