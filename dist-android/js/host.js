@@ -1623,7 +1623,9 @@ function closeSourceModal() {
 }
 
 async function confirmSource() {
+    const savedSourceId = selectedSourceId;
     closeSourceModal();
+    selectedSourceId = savedSourceId;
     await startCapture();
 }
 
@@ -2244,7 +2246,7 @@ async function startWebCodecsPipeline(videoTrack, dataChannel) {
     bitrate: 8000000,     // 8 Mbps
     framerate: 60,
     hardwareAcceleration: 'prefer-hardware',
-    latencyMode: 'realtime' // Throws away jitter buffers!
+    latencyMode: 'quality'
     });
 
     // 3. Rip the raw frames directly from the PipeWire video track
@@ -2397,7 +2399,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         bitrate: 8000000,
         framerate: Math.round(settings.frameRate || 60),
         hardwareAcceleration: 'no-preference',
-        latencyMode: 'realtime'
+        latencyMode: 'quality'
     };
     encoder.configure(wcConfig);
     encoder._lastConfig = wcConfig;

@@ -150,11 +150,121 @@ function requestKeyframeFromHost() {
     if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-keyframe', viewerId: typeof myId !== 'undefined' ? myId : null }));
 }
 
+function requestKeyframeFromHostThrottled() {
+    const now = performance.now();
+    if (now - _wcLastKeyframeRequestAt < 250) return;
+    _wcLastKeyframeRequestAt = now;
+    requestKeyframeFromHost();
+}
+
+let _nsWaitKeyTimer = null;
+function startNsWaitKeyRetry() {
+    clearInterval(_nsWaitKeyTimer);
+    _nsWaitKeyTimer = setInterval(() => {
+        if (window.nsWaitKey) {
+            requestKeyframeFromHost();
+        } else {
+            clearInterval(_nsWaitKeyTimer);
+            _nsWaitKeyTimer = null;
+        }
+    }, 1000);
+}
+function stopNsWaitKeyRetry() {
+    if (_nsWaitKeyTimer) {
+        clearInterval(_nsWaitKeyTimer);
+        _nsWaitKeyTimer = null;
+    }
+}
+
+let _wcLastPendingCheck = 0;
+let _wcLastFramesDecodedCheck = 0;
+function getWcTotalPending() {
+    const pending = _wcStats.chunksIn - _wcStats.framesDecoded;
+
+    // Fast stall detection: pending grows without any decoded frames
+    if (wcDecoder && wcDecoder.state === 'configured' && _wcStats.framesDecoded > 0) {
+        if (_wcStats.framesDecoded === _wcLastFramesDecodedCheck && pending >= _wcLastPendingCheck + 8) {
+            console.warn('[WebCodecs] Pending ' + pending + ' without decode — requesting keyframe');
+            requestKeyframeFromHostThrottled();
+        }
+        if (_wcStats.framesDecoded !== _wcLastFramesDecodedCheck) {
+            _wcLastPendingCheck = pending;
+            _wcLastFramesDecodedCheck = _wcStats.framesDecoded;
+        }
+    }
+
+    // Hail Mary: decoder completely silent for 3s
+    if (wcDecoder && wcDecoder.state === 'configured' && _wcStats.framesDecoded > 0 && _wcLastOutputTime > 0) {
+        const elapsed = performance.now() - _wcLastOutputTime;
+        if (elapsed > 3000 && pending > 5) {
+            console.warn('[WebCodecs] Decoder silent ' + elapsed + 'ms — full reset');
+            _wcLastOutputTime = performance.now();
+            recoverWebCodecsDecoder();
+            return 999;
+        }
+    }
+    return pending;
+}
+
+function shouldDropWebCodecsChunk(isKey) {
+    if (!wcDecoder || wcDecoder.state !== 'configured') return true;
+    const pending = getWcTotalPending();
+    const queueSize = wcDecoder.decodeQueueSize || 0;
+
+    // ── Adaptive backlog control ──
+    // pending=chunks received but not yet decoded (total pipeline)
+    // queueSize=chunks waiting inside the decoder (internal queue)
+    
+    // Severe: backlog > 1 sec → reset decoder entirely
+    if (pending > 60) {
+        console.warn(`[WebCodecs] Backlog ${pending} chunks — resetting decoder`);
+        recoverWebCodecsDecoder();
+        return true;
+    }
+
+    // Moderate: backlog > 0.5 sec → drop deltas + request keyframe
+    if (pending > 30) {
+        if (!isKey) return true;
+        requestKeyframeFromHostThrottled();
+        return false;
+    }
+
+    // Mild: backlog > 0.15 sec → drop deltas only
+    if (pending > 10 && !isKey) return true;
+
+    // Decoder internal queue full
+    if (isKey) return false;
+    if (queueSize > WC_HARD_DECODER_QUEUE) {
+        if (!_wcStuckSince) _wcStuckSince = performance.now();
+        else if (performance.now() - _wcStuckSince > 1000) {
+            requestKeyframeFromHostThrottled();
+            _wcStuckSince = performance.now();
+        }
+        return true;
+    }
+    _wcStuckSince = 0;
+    if (queueSize > WC_MAX_DECODER_QUEUE) return true;
+    return false;
+}
+
+let _lastWcConfig = null;
+
 function recoverWebCodecsDecoder() {
     window.nsWaitKey = true;
+    _wcStuckSince = 0;
+    startNsWaitKeyRetry();
     requestKeyframeFromHost();
     try { if (wcDecoder?.state !== 'closed') wcDecoder.close(); } catch (_) { }
     wcDecoder = null;
+    _wcLastOutputTime = 0;
+    if (_lastWcConfig) {
+        setTimeout(() => {
+            if (!_lastWcConfig) return;
+            window.nsWaitKey = true;
+            startNsWaitKeyRetry();
+            initWebCodecsViewer(_lastWcConfig);
+        }, 500);
+    }
 }
 let sysAudioCtx = null;
 let nextAudioTime = 0;
@@ -189,6 +299,17 @@ let vadIsTalking = false;
 const USE_WEBCODECS = new URLSearchParams(location.search).get('wc') === '1';
 
 let wcDecoder = null;
+let _videoReceiver = null;
+let _liveVideoEl = null;
+const WC_MAX_DECODER_QUEUE = 8;
+const WC_HARD_DECODER_QUEUE = 16;
+let _wcLastKeyframeRequestAt = 0;
+let _wcStuckSince = 0;
+let _wcLastOutputTime = 0;
+let _wcStats = { chunksIn: 0, framesDecoded: 0, fps: 0, _lastFpsTime: 0, _fpsCount: 0, latencies: [], _lastArrival: 0, queueSize: 0 };
+let _wcFragmentBuf = null;
+let _wcFragmentTotal = 0;
+let _wcFragmentOffset = 0;
 // Pre-wire to the canvas already in index.html so initWebCodecsViewer never
 // creates a duplicate element.
 let wcCanvas = document.getElementById('webcodecs-canvas') || null;
@@ -220,7 +341,6 @@ function acknowledgeControllerGuide() {
 function maybeShowControllerGuide() {
     if (!_nsHostConnected) return;
     if (sessionStorage.getItem(CONTROLLER_GUIDE_STORAGE_KEY)) return;
-    if (knownNativePads.length > 0) return; // Native controllers are auto-mapped and bypass browser Gamepad API
 
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let needsCalib = false;
@@ -304,6 +424,8 @@ async function createPC() {
     pc.ontrack = (e) => {
         console.log(`[WebRTC] Received Track: ${e.track.kind}`);
         if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
+        // Store video receiver for periodic low-latency enforcement
+        if (e.track.kind === 'video') _videoReceiver = e.receiver;
         if (e.track.kind === 'video') {
             if (USE_WEBCODECS) {
                 // WebCodecs mode: DataChannel is the real renderer.
@@ -327,7 +449,8 @@ async function createPC() {
             if (videoEl) {
                 videoEl.muted = true; // Required by Chrome/Safari to allow dynamic autoplay
                 videoEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
-                videoEl.play().catch(err => console.warn('[WebRTC] video.play() exception:', err));
+                // Low-latency: speed up playback to drain buffer when it grows
+                _liveVideoEl = videoEl;
                 videoEl.onplaying = () => {
                     if (typeof showOverlay === 'function') showOverlay(false);
                     setStatus('');
@@ -338,6 +461,23 @@ async function createPC() {
                     }
                     const overlay = document.getElementById('overlay');
                     if (overlay) overlay.style.backgroundColor = '';
+                    // Per-frame playoutDelayHint enforcement via requestVideoFrameCallback
+                    // This fires ~60 times/sec and keeps the jitter buffer at minimum.
+                    function _enforceLowLatency(now, metadata) {
+                        if (_videoReceiver && 'playoutDelayHint' in _videoReceiver) {
+                            _videoReceiver.playoutDelayHint = 0;
+                        }
+                        if (videoEl && !videoEl.paused && videoEl.playbackRate > 1.0) {
+                            // Drain complete — return to normal speed
+                            videoEl.playbackRate = 1.0;
+                        }
+                        if (videoEl && !videoEl.paused) {
+                            videoEl.requestVideoFrameCallback(_enforceLowLatency);
+                        }
+                    }
+                    if ('requestVideoFrameCallback' in videoEl) {
+                        videoEl.requestVideoFrameCallback(_enforceLowLatency);
+                    }
                 };
                 console.log('[WebRTC] Video stream attached to #video');
             }
@@ -357,7 +497,6 @@ async function createPC() {
         }
     };
     // ── EXPERIMENTAL WEBCODECS DATA CHANNEL RECEIVER ──
-    let waitingForKeyframe = true;
 
     pc.ondatachannel = (event) => {
         const channel = event.channel;
@@ -368,6 +507,10 @@ async function createPC() {
 
             const askForSync = () => {
                 console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
+                if (!wcDecoder && _lastWcConfig) {
+                    console.log('[WebCodecs] Decoder missing, re-initializing from last config.');
+                    initWebCodecsViewer(_lastWcConfig);
+                }
                 requestKeyframeFromHost();
             };
 
@@ -396,6 +539,29 @@ async function createPC() {
                     // Prevent double-decoding if we are receiving frames from the VPS SFU
                     if (ws && ws.url.includes('/vps')) return;
 
+                    // ── Fragment reassembly ──
+                    const fv = new Uint8Array(e.data);
+                    if (fv[0] === 0xFE) {
+                        const totalSize = new DataView(e.data).getUint32(1, true);
+                        const offset = new DataView(e.data).getUint32(5, true);
+                        const fragData = fv.subarray(9);
+                        if (!_wcFragmentBuf || _wcFragmentTotal !== totalSize) {
+                            _wcFragmentBuf = new Uint8Array(totalSize);
+                            _wcFragmentTotal = totalSize;
+                            _wcFragmentOffset = 0;
+                        }
+                        _wcFragmentBuf.set(fragData, offset);
+                        _wcFragmentOffset += fragData.length;
+                        if (_wcFragmentOffset >= totalSize) {
+                            e.data = _wcFragmentBuf.buffer;
+                            _wcFragmentBuf = null;
+                            _wcFragmentTotal = 0;
+                            _wcFragmentOffset = 0;
+                        } else {
+                            return;
+                        }
+                    }
+
                     if (!wcDecoder || wcDecoder.state !== 'configured') return;
 
                     const view = new DataView(e.data);
@@ -406,12 +572,16 @@ async function createPC() {
                     const chunkData = new Uint8Array(e.data, 9);
 
                     // --- RESILIENCY LAYER ---
-                    if (waitingForKeyframe) {
+                    if (window.nsWaitKey) {
                         if (!isKey) return;
-                        waitingForKeyframe = false;
                         window.nsWaitKey = false;
+                        stopNsWaitKeyRetry();
                         console.log('[WebCodecs] Locked onto keyframe stream.');
                     }
+                    if (shouldDropWebCodecsChunk(isKey)) return;
+
+                    _wcStats.chunksIn++;
+                    _wcStats._lastArrival = performance.now();
 
                     try {
                         const chunk = new EncodedVideoChunk({
@@ -757,20 +927,8 @@ function preferReceiverCodec(transceiver, preferredMime) {
     if (preferredMime) {
         priority = [preferredMime, ...CODEC_PRIORITY.filter(c => c.toLowerCase() !== preferredMime.toLowerCase())];
     }
-    let preferredCodecs = priority.flatMap(mime => caps.codecs.filter(c => c.mimeType.toLowerCase() === mime.toLowerCase()));
-    
-    // Sort H264 to prioritize Constrained Baseline (42e01f) to prevent MediaFoundation black screens
-    preferredCodecs.sort((a, b) => {
-        if (a.mimeType.toLowerCase() !== 'video/h264' || b.mimeType.toLowerCase() !== 'video/h264') return 0;
-        const isBaseA = a.sdpFmtpLine && a.sdpFmtpLine.includes('42e01f');
-        const isBaseB = b.sdpFmtpLine && b.sdpFmtpLine.includes('42e01f');
-        if (isBaseA && !isBaseB) return -1;
-        if (!isBaseA && isBaseB) return 1;
-        return 0;
-    });
-
     const sorted = [
-        ...preferredCodecs,
+        ...priority.flatMap(mime => caps.codecs.filter(c => c.mimeType.toLowerCase() === mime.toLowerCase())),
         ...caps.codecs.filter(c => !priority.some(p => p.toLowerCase() === c.mimeType.toLowerCase()))
     ];
     try { transceiver.setCodecPreferences(sorted); return sorted[0]?.mimeType || null; } catch { return null; }
@@ -848,6 +1006,7 @@ const keyMap = {
     'ShiftLeft': 'KEY_LEFTSHIFT', 'ControlLeft': 'KEY_LEFTCTRL', 'Tab': 'KEY_TAB',
     'KeyQ': 'KEY_Q', 'KeyE': 'KEY_E', 'KeyR': 'KEY_R', 'KeyF': 'KEY_F', 'KeyC': 'KEY_C',
     'KeyZ': 'KEY_Z', 'KeyX': 'KEY_X', 'KeyV': 'KEY_V', 'KeyB': 'KEY_B', 'Digit1': 'KEY_1', 'Digit2': 'KEY_2',
+    'Numpad1': 'KEY_KP1', 'Numpad2': 'KEY_KP2', 'Numpad3': 'KEY_KP3', 'Numpad5': 'KEY_KP5',
     // ── NEW FULL ALPHABET & NUMBERS ──
     'KeyT': 'KEY_T', 'KeyY': 'KEY_Y', 'KeyU': 'KEY_U', 'KeyI': 'KEY_I', 'KeyO': 'KEY_O', 'KeyP': 'KEY_P',
     'KeyG': 'KEY_G', 'KeyH': 'KEY_H', 'KeyJ': 'KEY_J', 'KeyK': 'KEY_K', 'KeyL': 'KEY_L',
@@ -922,41 +1081,6 @@ document.addEventListener('keyup', e => { if (!document.pointerLockElement) retu
 document.addEventListener('mousemove', e => { if (!document.pointerLockElement) return; sendKbm({ event: 'mousemove', dx: e.movementX, dy: e.movementY }); });
 document.addEventListener('mousedown', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keydown', key: mouseMap[e.button] }); });
 document.addEventListener('mouseup', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keyup', key: mouseMap[e.button] }); });
-
-// ── EXPERIMENTAL TABLET SUPPORT ───────────────────────────────────────────────
-function handleTabletEvent(e) {
-    if (e.pointerType !== 'pen') return;
-    
-    let targetEl = (typeof wcCanvas !== 'undefined' && wcCanvas.style.display !== 'none') ? wcCanvas : 
-                   (typeof video !== 'undefined' && video.style.display !== 'none') ? video : 
-                   (typeof frameCanvas !== 'undefined' ? frameCanvas : null);
-                   
-    if (!targetEl) return;
-    const bounds = targetEl.getBoundingClientRect();
-    
-    // Normalize coordinates (0.0 to 1.0) relative to the video frame
-    const nx = (e.clientX - bounds.left) / bounds.width;
-    const ny = (e.clientY - bounds.top) / bounds.height;
-    
-    // Clamp so the pen doesn't draw way off screen
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
-    
-    e.preventDefault(); // Stop standard mouse click emulation
-    sendInputData(JSON.stringify({
-        type: 'tablet',
-        x: nx,
-        y: ny,
-        pressure: e.pressure,
-        tiltX: e.tiltX || 0,
-        tiltY: e.tiltY || 0
-    }));
-}
-// Use passive: false so we can e.preventDefault() to stop normal mouse panning
-document.addEventListener('pointerdown', handleTabletEvent, { passive: false });
-document.addEventListener('pointermove', handleTabletEvent, { passive: false });
-document.addEventListener('pointerup', handleTabletEvent, { passive: false });
-
-
 
 // ── TOUCH ─────────────────────────────────────────────────────────────────────
 let touchMode = false, useGyro = false;
@@ -1169,8 +1293,8 @@ function activateGamepad() {
     gpPolling = true;
     const pmt = document.getElementById('gpPrompt');
     if (pmt) { pmt.classList.add('active'); pmt.textContent = 'Grab A Gamepad!'; }
-    // 1ms interval (1000 Hz) for maximum competitive precision / lowest input latency
-    setInterval(pollGamepad, 1);
+    // 4ms interval (250 Hz) for maximum competitive fighting game precision
+    setInterval(pollGamepad, 4);
 }
 
 let knownNativePads = [];
@@ -1187,7 +1311,7 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
             maybeShowControllerGuide();
         } else if (msg.type === 'gamepad_state') {
             const vIndex = msg.index + 100;
-            const state = { type: 'gamepad', viewerId: myId, pad_id: myId + '_' + vIndex, padIndex: vIndex, axes: msg.state.axes, buttons: msg.state.buttons };
+            const state = { type: 'gamepad', padIndex: vIndex, axes: msg.state.axes, buttons: msg.state.buttons };
             const str = JSON.stringify(state);
             const now = Date.now();
             const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
@@ -1199,19 +1323,9 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
     window.electronAPI.startNativeGamepadCapture();
 }
 
-window.currentInputMode = 'gamepad';
-window.updateInputMode = function(val) { 
-    window.currentInputMode = val; 
-    console.log('[InputMode] Switched to:', val);
-};
-
 function pollGamepad() {
     if (!gpPolling) return;
-    let pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    
-    // If native Python backends are supplying inputs, ignore browser Gamepad API to prevent ghost inputs
-    if (knownNativePads.length > 0) pads = [];
-
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const now = Date.now();
     
     // 1. Find the best device (Standard Gamepad > Any Gamepad > Touch)
@@ -1292,43 +1406,6 @@ function pollGamepad() {
         state.axes[2] = Math.max(-32767, Math.min(32767, state.axes[2] + Math.round(hidGyroX * 32767)));
         state.axes[3] = Math.max(-32767, Math.min(32767, state.axes[3] + Math.round(hidGyroY * 32767)));
         changed = true; // Gyro is continuously sending
-    }
-
-    if (window.currentInputMode === 'guitar') {
-        const guitarState = {
-            type: 'guitar',
-            viewerId: myId,
-            pad_id: myId + '_' + vIndex,
-            frets: [
-                state.buttons[0].pressed ? 1 : 0,
-                state.buttons[1].pressed ? 1 : 0,
-                state.buttons[3].pressed ? 1 : 0,
-                state.buttons[2].pressed ? 1 : 0,
-                state.buttons[4].pressed ? 1 : 0
-            ],
-            strum: (state.buttons[12].pressed || state.axes[1] < -16000) ? 1 : ((state.buttons[13].pressed || state.axes[1] > 16000) ? -1 : 0),
-            whammy: 0,
-            star: state.buttons[5].pressed ? 1 : 0,
-            start: state.buttons[9].pressed ? 1 : 0,
-            select: state.buttons[8].pressed ? 1 : 0
-        };
-        
-        if (state.buttons[6].value > 0) {
-            guitarState.whammy = state.buttons[6].value / 255.0;
-        } else if (state.buttons[7].value > 0) {
-            guitarState.whammy = state.buttons[7].value / 255.0;
-        } else if (Math.abs(state.axes[2]) > 4000) {
-            guitarState.whammy = (state.axes[2] + 32767) / 65534.0;
-        } else if (Math.abs(state.axes[3]) > 4000) {
-            guitarState.whammy = (state.axes[3] + 32767) / 65534.0;
-        }
-
-        const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
-        if (changed || forceHb) {
-            lastGpSend[vIndex] = now;
-            sendInputData(JSON.stringify(guitarState));
-        }
-        return;
     }
 
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
@@ -1543,8 +1620,12 @@ async function connect() {
                     if (window.nsWaitKey) {
                         if (!isKey) return;
                         window.nsWaitKey = false;
+                        stopNsWaitKeyRetry();
                         console.log('[WebCodecs/VPS] Locked onto keyframe.');
                     }
+                    if (shouldDropWebCodecsChunk(isKey)) return;
+                    _wcStats.chunksIn++;
+                    _wcStats._lastArrival = performance.now();
                     const view = new DataView(e.data);
                     const timestamp = view.getFloat64(1, true);
                     const chunkData = new Uint8Array(e.data, 9);
@@ -1569,7 +1650,10 @@ async function connect() {
                 buf.getChannelData(0).set(float32);
                 const src = sysAudioCtx.createBufferSource();
                 src.buffer = buf; src.connect(sysAudioCtx.destination);
-                if (nextAudioTime < sysAudioCtx.currentTime) nextAudioTime = sysAudioCtx.currentTime + 0.1;
+                // Schedule smoothly: if behind, catch up with minimal gap instead of 100ms jump
+                if (nextAudioTime < sysAudioCtx.currentTime) {
+                    nextAudioTime = sysAudioCtx.currentTime + 0.01;
+                }
                 src.start(nextAudioTime);
                 nextAudioTime += buf.duration;
             } catch (err) { console.error('[Audio] Playback error:', err); }
@@ -1649,14 +1733,17 @@ async function connect() {
                 if (pillEl) pillEl.style.display = '';
                 document.title = 'Nearsec — ' + msg.hostName;
             }
-            // CRITICAL FIX: Do NOT send request-offer unconditionally here.
-            // The Host already automatically sends an offer when 'viewer-joined' is received.
-            // Sending request-offer causes a duplicate 'viewer-joined' trigger on the Host,
-            // which forces the Host to destroy the active RTCPeerConnection and start over,
-            // resulting in 'User-Initiated Abort' / DataChannel disconnect loops!
+            setTimeout(() => ws?.readyState === 1 && ws.send(JSON.stringify({ type: 'request-offer' })), 800);
             return;
         }
         if (msg.type === 'tunnel-url') return;
+
+        if (msg.type === 'codec-change') {
+            log('[Host] Codec changed to ' + (msg.codec || '?') + ' — renegotiating...');
+            if (pc) { try { pc.close(); } catch { } pc = null; }
+            setTimeout(() => ws?.readyState === 1 && ws.send(JSON.stringify({ type: 'request-offer' })), 300);
+            return;
+        }
 
         if (msg.type === 'offer') {
             if (pc) { try { pc.close(); } catch { } pc = null; }
@@ -1682,7 +1769,10 @@ async function connect() {
                 for (const c of (pc._iceBuf || [])) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { } }
                 pc._iceBuf = [];
                 const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
+                // ── LOW-LATENCY SDP MUNGING (answer side) ──
+                let ansSdp = answer.sdp;
+                ansSdp = ansSdp.replace(/(a=rtpmap:\d+ opus\/48000\/2)/g, '$1\na=ptime:1\na=maxptime:1');
+                await pc.setLocalDescription({ type: answer.type, sdp: ansSdp });
                 ws.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription }));
                 // Apply bandwidth profile now that transceivers are negotiated
                 _applyBwProfile(pc);
@@ -1925,23 +2015,39 @@ async function connect() {
         }
     };
 
-    ws.onclose = (function(thisWs) {
-        return function(event) {
-            // If this socket is no longer the active one (connect() already replaced it),
-            // do NOT schedule another reconnect — that's what causes the cascade loop.
-            if (ws !== thisWs) return;
-
-            const AUTH_CODES = new Set([4001, 4002, 4003]);
-            if (AUTH_CODES.has(event.code) || stopReconnect) {
-                document.getElementById('pinScreen').classList.remove('gone');
-                const errEl = document.getElementById('pinErr');
-                if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
-                document.getElementById('pinInput').value = '';
-                enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
-            }
-            setTimeout(connect, 2000);
-        };
-    })(ws);
+    ws.onclose = event => {
+        const AUTH_CODES = new Set([4001, 4002, 4003]);
+        if (AUTH_CODES.has(event.code) || stopReconnect) {
+            document.getElementById('pinScreen').classList.remove('gone');
+            const errEl = document.getElementById('pinErr');
+            if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
+            document.getElementById('pinInput').value = '';
+            enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
+        }
+        // Full WebCodecs state reset for clean reconnect
+        stopNsWaitKeyRetry();
+        window.nsWaitKey = false;
+        if (wcDecoder) {
+            try { if (wcDecoder.state !== 'closed') wcDecoder.close(); } catch (_) { }
+            wcDecoder = null;
+        }
+        _wcStats.chunksIn = 0;
+        _wcStats.framesDecoded = 0;
+        _wcLastPendingCheck = 0;
+        _wcLastFramesDecodedCheck = 0;
+        _wcLastOutputTime = 0;
+        _wcStats.fps = 0;
+        _wcStats._lastFpsTime = 0;
+        _wcStats._fpsCount = 0;
+        _wcStats.latencies = [];
+        _wcStats._lastArrival = 0;
+        _wcStats.queueSize = 0;
+        _wcStuckSince = 0;
+        _wcFragmentBuf = null;
+        _wcFragmentTotal = 0;
+        _wcFragmentOffset = 0;
+        setTimeout(connect, 2000);
+    };
 }
 
 // pinRequired is declared early at the top of the file.
@@ -2055,6 +2161,7 @@ acquireWakeLock();
 // ── STATS HUD ─────────────────────────────────────────────────────────────────
 const statsHud = document.getElementById('statsHud');
 let prevBytesReceived = 0, prevStatsTime = 0, prevJitterDelay = 0, prevEmitted = 0;
+let _wcPrevBytes = 0, _wcPrevTime = 0;
 async function updateStats() {
     if (!pc) return;
     try {
@@ -2078,32 +2185,108 @@ async function updateStats() {
                 }
             }
         }
-        if (rtt !== null) {
-            statsHud.style.display = 'flex';
 
-            // ── Quality tier from RTT + packet loss ──────────────────────────
+        // WebCodecs: compute bitrate from datachannel bytes
+        if (USE_WEBCODECS) {
+            for (const r of stats.values()) {
+                if (r.type === 'data-channel' && r.label === 'webcodecs') {
+                    if (_wcPrevTime && r.bytesReceived > _wcPrevBytes) {
+                        kbps = (((r.bytesReceived - _wcPrevBytes) * 8) / ((r.timestamp - _wcPrevTime) / 1000) / 1000).toFixed(0);
+                    }
+                    _wcPrevBytes = r.bytesReceived || 0;
+                    _wcPrevTime = r.timestamp || 0;
+                }
+            }
+        }
+
+        // Always show HUD when connected
+        statsHud.style.display = 'flex';
+        const parts = [];
+
+        // ── Ping → separate line ──
+        if (rtt !== null) {
             const rttN = parseInt(rtt);
             const lossRatio = packetsReceived > 0 ? (packetsLost / (packetsLost + packetsReceived)) * 100 : 0;
-
-            let bars, colour;
-            if (rttN < 40 && lossRatio < 1) { bars = '▪▪▪▪'; colour = '#4ade80'; } // excellent — green
-            else if (rttN < 80 && lossRatio < 3) { bars = '▪▪▪○'; colour = '#a3e635'; } // good — lime
-            else if (rttN < 140 && lossRatio < 6) { bars = '▪▪○○'; colour = '#facc15'; } // fair — yellow
-            else if (rttN < 220 && lossRatio < 12) { bars = '▪○○○'; colour = '#fb923c'; } // poor — orange
-            else { bars = '○○○○'; colour = '#f87171'; } // bad  — red
-
-            const parts = [
-                `<span style="color:${colour};letter-spacing:1px">${bars}</span>`,
-                `<span style="color:${colour}">${rtt}ms</span>`,
-            ];
-            if (jitter) parts.push(`${jitter}ms buf`);
-            if (kbps) parts.push(`${kbps}kbps`);
-
-            statsHud.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
+            const colour = rttN < 40 && lossRatio < 1 ? '#4ade80'
+                : rttN < 80 && lossRatio < 3 ? '#a3e635'
+                : rttN < 140 && lossRatio < 6 ? '#facc15'
+                : rttN < 220 && lossRatio < 12 ? '#fb923c'
+                : '#f87171';
+            parts.push(`<span style="color:${colour}">${rtt}ms</span>`);
         }
+
+        // ── WebCodecs Latency + Buffer ──
+        if (_wcStats.framesDecoded > 0) {
+            const pending = _wcStats.chunksIn - _wcStats.framesDecoded;
+            parts.push(`${_wcStats.fps}fps`);
+            parts.push(`buf:${pending}`);
+            parts.push(`q:${_wcStats.queueSize}`);
+            if (_wcStats.latencies.length > 0) {
+                const avg = _wcStats.latencies.reduce((a, b) => a + b, 0) / _wcStats.latencies.length;
+                parts.push(`${avg.toFixed(0)}ms`);
+            }
+        } else if (jitter) {
+            parts.push(`${jitter}ms buf`);
+        }
+        if (kbps) parts.push(`${kbps}kbps`);
+
+        statsHud.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ')
     } catch { }
 }
-setInterval(updateStats, 2000);
+setInterval(updateStats, 500);
+
+// ── LOW-LATENCY ENFORCEMENT: Proactive buffer drain ──
+// Runs every 500ms. Uses jitterBufferTarget + playoutDelayHint to force the
+// browser's WebRTC stack to minimize the jitter buffer. playbackRate acts as
+// a secondary mechanism when the browser ignores the hints.
+let _prevJitterBufMs = 0;
+let _llPrevJitterDelay = 0;
+let _llPrevJitterEmitted = 0;
+setInterval(async () => {
+    if (!pc || pc.connectionState !== 'connected') return;
+    // Force minimum jitter buffer on all video receivers
+    pc.getReceivers().forEach(r => {
+        if (r.track?.kind !== 'video') return;
+        try {
+            if ('playoutDelayHint' in r) r.playoutDelayHint = 0;
+            // jitterBufferTarget directly tells the WebRTC stack the target buffer size.
+            // This is MORE authoritative than playoutDelayHint on some browsers.
+            if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
+        } catch (_) {}
+    });
+    // Measure buffer and adjust playback rate as secondary drain mechanism
+    try {
+        const stats = await pc.getStats();
+        for (const r of stats.values()) {
+            if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                const emitted = r.jitterBufferEmittedCount || 1;
+                const delay = r.jitterBufferDelay || 0;
+                const emittedDelta = emitted - _llPrevJitterEmitted;
+                const delayDelta = delay - _llPrevJitterDelay;
+                const bufMs = emittedDelta > 0 ? (delayDelta / emittedDelta) * 1000 : _prevJitterBufMs;
+                _llPrevJitterDelay = delay;
+                _llPrevJitterEmitted = emitted;
+                if (_liveVideoEl && !_liveVideoEl.paused) {
+                    if (bufMs < 5) {
+                        _liveVideoEl.playbackRate = 1.0;
+                    } else if (bufMs < 15) {
+                        _liveVideoEl.playbackRate = 1.02;
+                    } else if (bufMs < 30) {
+                        _liveVideoEl.playbackRate = 1.08;
+                    } else if (bufMs < 50) {
+                        _liveVideoEl.playbackRate = 1.15;
+                    } else {
+                        _liveVideoEl.playbackRate = 1.25;
+                    }
+                }
+                if (bufMs > 40 && bufMs > _prevJitterBufMs + 5) {
+                    requestKeyframeFromHost();
+                }
+                _prevJitterBufMs = bufMs;
+            }
+        }
+    } catch (_) {}
+}, 500);
 
 // ── FULLSCREEN ────────────────────────────────────────────────────────────────
 function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
@@ -2143,6 +2326,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── WEBCODECS VIEWER INITIALIZER ──
 function initWebCodecsViewer(config) {
     console.log('[WebCodecs] Received Host Configuration:', config);
+    _lastWcConfig = config;
 
     const videoEl = document.getElementById('video');
     if (videoEl) videoEl.style.display = 'none';
@@ -2198,37 +2382,83 @@ function initWebCodecsViewer(config) {
         } catch (_) { }
         wcDecoder = null;
     }
+    // Reset stats to flush stale backlog from previous session
+    _wcStats.chunksIn = 0;
+    _wcStats.framesDecoded = 0;
+    _wcLastPendingCheck = 0;
+    _wcLastFramesDecodedCheck = 0;
+    _wcLastOutputTime = 0;
 
     // Reset the global keyframe gate so the new decoder waits for a clean
     // keyframe before attempting to decode any delta frames.
     window.nsWaitKey = true;
+    startNsWaitKeyRetry();
+    _wcStuckSince = 0;
 
     let _wcFirstFrame = true;
+    let _wcPendingFrame = null;
+    let _wcRenderScheduled = false;
+
+    function renderLatestWebCodecsFrame() {
+        _wcRenderScheduled = false;
+        const frame = _wcPendingFrame;
+        _wcPendingFrame = null;
+        if (!frame) return;
+
+        // Use displayWidth/displayHeight for correct aspect ratio.
+        // codedWidth/Height includes macroblock padding which can distort the image.
+        const dw = frame.displayWidth || frame.codedWidth;
+        const dh = frame.displayHeight || frame.codedHeight;
+        if (wcCanvas.width !== dw || wcCanvas.height !== dh) {
+            wcCanvas.width = dw;
+            wcCanvas.height = dh;
+            wcCtx = wcCanvas.getContext('2d', { alpha: false });
+        }
+        if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+        frame.close();
+
+        if (_wcFirstFrame) {
+            _wcFirstFrame = false;
+            if (typeof showOverlay === 'function') showOverlay(false);
+            if (typeof setStatus === 'function') setStatus('Live', true);
+            if (spinner) spinner.style.display = 'none';
+            if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
+                _swapOverlayEl.style.display = 'none';
+            }
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.style.backgroundColor = '';
+        }
+    }
 
     wcDecoder = new VideoDecoder({
         output: (frame) => {
-            // BUG 2/5 FIX: Use hardware codedWidth, and re-acquire the context after resize!
-            if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
-                wcCanvas.width = frame.codedWidth;
-                wcCanvas.height = frame.codedHeight;
-                wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            _wcLastOutputTime = performance.now();
+            _wcStats.framesDecoded++;
+            _wcStats._fpsCount++;
+            const now = performance.now();
+            if (_wcStats._lastArrival > 0) {
+                const lat = now - _wcStats._lastArrival;
+                _wcStats.latencies.push(lat);
+                if (_wcStats.latencies.length > 60) _wcStats.latencies.shift();
             }
-            if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
-            frame.close();
-
-            if (_wcFirstFrame) {
-                _wcFirstFrame = false;
-                if (typeof showOverlay === 'function') showOverlay(false);
-                if (typeof setStatus === 'function') setStatus('Live', true);
-                if (spinner) spinner.style.display = 'none';
-                if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
-                    _swapOverlayEl.style.display = 'none';
-                }
-                const overlay = document.getElementById('overlay');
-                if (overlay) overlay.style.backgroundColor = '';
+            if (now - _wcStats._lastFpsTime >= 500) {
+                _wcStats.fps = Math.round((_wcStats._fpsCount / (now - _wcStats._lastFpsTime)) * 1000);
+                _wcStats._fpsCount = 0;
+                _wcStats._lastFpsTime = now;
+            }
+            _wcStats.queueSize = wcDecoder.decodeQueueSize || 0;
+            if (_wcPendingFrame) _wcPendingFrame.close();
+            _wcPendingFrame = frame;
+            if (!_wcRenderScheduled) {
+                _wcRenderScheduled = true;
+                requestAnimationFrame(renderLatestWebCodecsFrame);
             }
         },
         error: (e) => {
+            if (_wcPendingFrame) {
+                _wcPendingFrame.close();
+                _wcPendingFrame = null;
+            }
             console.error('[WebCodecs] Decoder Error:', e);
             recoverWebCodecsDecoder();
         }
@@ -2237,11 +2467,17 @@ function initWebCodecsViewer(config) {
     const decoderConfig = {
         codec: config.codec,
         codedWidth: config.codedWidth,
-        codedHeight: config.codedHeight
+        codedHeight: config.codedHeight,
+        optimizeForLatency: true
     };
 
     if (config.description) decoderConfig.description = new Uint8Array(config.description);
-    wcDecoder.configure(decoderConfig);
+    try {
+        wcDecoder.configure(decoderConfig);
+    } catch (_) {
+        delete decoderConfig.optimizeForLatency;
+        wcDecoder.configure(decoderConfig);
+    }
     console.log('[WebCodecs] Hardware Decoder Ready!');
 }
 
@@ -2377,6 +2613,24 @@ window.startNetStats = function() {
                 if(el) el.textContent = (report.currentRoundTripTime * 1000).toFixed(0) + ' ms';
             }
         });
+        // WebCodecs: override sidebar stats from _wcStats
+        if (_lastWcConfig) {
+            const elCodec = document.getElementById('nsCodec');
+            if (elCodec) elCodec.textContent = _lastWcConfig.codec || '--';
+            const elFps = document.getElementById('nsFps');
+            if (elFps) elFps.textContent = _wcStats.fps != null ? _wcStats.fps : '--';
+            const elRes = document.getElementById('nsRes');
+            if (elRes) elRes.textContent = `${_lastWcConfig.codedWidth || '?'}x${_lastWcConfig.codedHeight || '?'}`;
+            const elDecode = document.getElementById('nsDecode');
+            if (elDecode && _wcStats.latencies.length > 0) {
+                const avg = _wcStats.latencies.reduce((a, b) => a + b, 0) / _wcStats.latencies.length;
+                elDecode.textContent = avg.toFixed(1) + ' ms';
+            }
+            const elBuf = document.getElementById('nsBuf');
+            if (elBuf) {
+                const pending = _wcStats.chunksIn - _wcStats.framesDecoded;
+                elBuf.textContent = pending + ' chunks';
+            }
+        }
     }, 1000);
 };
-

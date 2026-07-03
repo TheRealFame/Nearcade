@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { EventEmitter } = require('events');
 
 // ── Visualizer event bus — host.js listens on inputDriver.events ──────────────
@@ -88,7 +88,6 @@ const slotLastUsed = new Map();
 
 let _bridge = null;
 let _pythonProc = null;
-
 let GAME_PROFILES = {};
 let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 
@@ -98,6 +97,26 @@ let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 let _defaultProfileKey = 'xbox360';
 let _hybridInputEnabled = false;
 
+function _resolvePythonLaunch() {
+    if (!isWin) return { cmd: isMac ? 'python3' : 'python3', args: [] };
+
+    const candidates = [
+        { cmd: 'python', args: ['--version'], launchArgs: [] },
+        { cmd: 'py', args: ['-3', '--version'], launchArgs: ['-3'] },
+    ];
+
+    for (const candidate of candidates) {
+        try {
+            const result = spawnSync(candidate.cmd, candidate.args, { stdio: 'ignore' });
+            if (result.status === 0) {
+                return { cmd: candidate.cmd, args: candidate.launchArgs };
+            }
+        } catch (_) { }
+    }
+
+    return null;
+}
+
 
 const KBM_BTN_MAP = {
     'A': 0x0001, 'B': 0x0002, 'X': 0x0004, 'Y': 0x0008,
@@ -105,6 +124,21 @@ const KBM_BTN_MAP = {
     'LB': 0x0100, 'RB': 0x0200, 'L3': 0x0400, 'R3': 0x0800,
     'START': 0x1000, 'SELECT': 0x2000, 'GUIDE': 0x4000
 };
+
+const BUTTON_ALIASES = {
+    BTN_A: 'A', BTN_B: 'B', BTN_X: 'X', BTN_Y: 'Y',
+    BTN_SOUTH: 'A', BTN_EAST: 'B', BTN_WEST: 'X', BTN_NORTH: 'Y',
+    BTN_TL: 'LB', BTN_TR: 'RB',
+    BTN_SELECT: 'SELECT', BTN_START: 'START',
+    BTN_THUMBL: 'L3', BTN_THUMBR: 'R3',
+    BTN_MODE: 'GUIDE',
+};
+
+function _bindingButtonToAction(target) {
+    if (!target) return null;
+    const normalized = String(target).trim().toUpperCase();
+    return BUTTON_ALIASES[normalized] || normalized.replace(/^BTN_/, '');
+}
 
 const PROFILES = {
     xbox360: { vendor: 0x045E, product: 0x028E, version: 0x0114, name: "Microsoft X-Box 360 pad" },
@@ -162,8 +196,14 @@ function init(screenWidth, screenHeight) {
         return false;
     }
 
-    const pythonCmd = isWin ? 'python' : 'python3';
-    _pythonProc = spawn(pythonCmd, [pythonScript], { stdio: ['pipe', 'pipe', 'inherit'] });
+    const pythonLaunch = _resolvePythonLaunch();
+    if (!pythonLaunch) {
+        console.error('[input] FATAL: Python was not found. Install Python 3 or enable python.exe/py.exe on PATH.');
+        events.emit('input-error', { message: 'Python was not found. Install Python 3 or enable python.exe/py.exe on PATH.', code: 'PYTHON_NOT_FOUND' });
+        return false;
+    }
+
+    _pythonProc = spawn(pythonLaunch.cmd, [...pythonLaunch.args, pythonScript], { stdio: ['pipe', 'pipe', 'inherit'] });
 
     // Parse stdout from the Python sidecar as JSON lines.
     // The sidecar emits structured { "type": "...", "message": "..." } payloads
@@ -220,7 +260,7 @@ function init(screenWidth, screenHeight) {
         }
     });
 
-    console.log(`[input] Python sidecar started: ${pythonScript}`);
+    console.log(`[input] Python sidecar started: ${pythonLaunch.cmd} ${[...pythonLaunch.args, pythonScript].join(' ')}`);
     return true;
 }
 
@@ -332,7 +372,6 @@ function _handleGamepad(msg) {
 
     const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
-    console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex}`);
     if (slotIndex < 0) return;
 
     if (!_bridge) return;
@@ -450,31 +489,32 @@ function _handleKbm(msg) {
 
     const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
-    if (slotIndex < 0) {
-        console.log(`[DEBUG KBM] _handleKbm dropped due to slotIndex < 0`);
-        return;
-    }
+    if (slotIndex < 0) return;
 
     let state = kbmStates.get(viewerId);
     if (!state) {
-        state = { buttons: 0, lt: 0, rt: 0, lx: 0, ly: 0, rx: 0, ry: 0, keys: {} };
+        state = { padId: viewerId, buttons: 0, lt: 0, rt: 0, lx: 0, ly: 0, rx: 0, ry: 0, keys: {} };
         kbmStates.set(viewerId, state);
     }
 
-    // --- THE FIX: Built-in default layout matching viewer.js 'KEY_' prefix ---
+    state.padId = viewerId;
+
     const defaultKeys = {
-        'KEY_W': 'LS_UP', 'KEY_A': 'LS_LEFT', 'KEY_S': 'LS_DOWN', 'KEY_D': 'LS_RIGHT',
-        'KEY_SPACE': 'A', 'KEY_LEFTSHIFT': 'L3', 'KEY_LEFTCTRL': 'B', 'KEY_ESC': 'START', 'KEY_TAB': 'SELECT',
-        'KEY_E': 'X', 'KEY_R': 'Y', 'KEY_F': 'LB', 'KEY_G': 'RB', 'KEY_C': 'R3',
-        'KEY_UP': 'UP', 'KEY_DOWN': 'DOWN', 'KEY_LEFT': 'LEFT', 'KEY_RIGHT': 'RIGHT',
-        'BTN_LEFT': 'RT', 'BTN_RIGHT': 'LT', 'BTN_MIDDLE': 'RB'
+        'KEY_Z': 'A', 'KEY_X': 'B', 'KEY_A': 'X', 'KEY_S': 'Y',
+        'KEY_UP': 'LS_UP', 'KEY_DOWN': 'LS_DOWN', 'KEY_LEFT': 'LS_LEFT', 'KEY_RIGHT': 'LS_RIGHT',
+        'KEY_KP5': 'UP', 'KEY_KP2': 'DOWN', 'KEY_KP1': 'LEFT', 'KEY_KP3': 'RIGHT',
+        'KEY_O': 'RS_UP', 'KEY_L': 'RS_DOWN', 'KEY_K': 'RS_LEFT', 'KEY_SEMICOLON': 'RS_RIGHT', 'KEY_APOSTROPHE': 'RS_RIGHT',
+        'KEY_Q': 'LT', 'KEY_W': 'RT',
+        'KEY_1': 'LB', 'KEY_2': 'RB',
+        'KEY_TAB': 'SELECT', 'KEY_ENTER': 'START',
     };
 
     let flatKeys = { ...defaultKeys };
     if (typeof KBM_BINDINGS !== 'undefined' && KBM_BINDINGS) {
         if (KBM_BINDINGS.buttons) {
             for (const [k, v] of Object.entries(KBM_BINDINGS.buttons)) {
-                flatKeys[k] = v.replace('BTN_', '');
+                const action = _bindingButtonToAction(v);
+                if (action) flatKeys[k] = action;
             }
         }
         if (KBM_BINDINGS.left_stick) {
@@ -483,10 +523,21 @@ function _handleKbm(msg) {
                 if (v.axis === 'ABS_X') flatKeys[k] = v.val < 0 ? 'LS_LEFT' : 'LS_RIGHT';
             }
         }
+        if (KBM_BINDINGS.right_stick) {
+            for (const [k, v] of Object.entries(KBM_BINDINGS.right_stick)) {
+                if (v.axis === 'ABS_RY') flatKeys[k] = v.val < 0 ? 'RS_UP' : 'RS_DOWN';
+                if (v.axis === 'ABS_RX') flatKeys[k] = v.val < 0 ? 'RS_LEFT' : 'RS_RIGHT';
+            }
+        }
         if (KBM_BINDINGS.dpad) {
             for (const [k, v] of Object.entries(KBM_BINDINGS.dpad)) {
                 if (v.axis === 'ABS_HAT0Y') flatKeys[k] = v.val < 0 ? 'UP' : 'DOWN';
                 if (v.axis === 'ABS_HAT0X') flatKeys[k] = v.val < 0 ? 'LEFT' : 'RIGHT';
+            }
+        }
+        if (KBM_BINDINGS.triggers) {
+            for (const [k, v] of Object.entries(KBM_BINDINGS.triggers)) {
+                flatKeys[k] = String(v).toUpperCase();
             }
         }
     }
@@ -496,10 +547,7 @@ function _handleKbm(msg) {
         // Try the loaded layout first, fallback to the hardcoded default
         const action = layout.keys[msg.key] || defaultKeys[msg.key];
 
-        if (!action) {
-            console.log(`[DEBUG KBM] _handleKbm dropped because ${msg.key} has no mapping action!`);
-            return;
-        }
+        if (!action) return;
 
         const isDown = (msg.event === 'keydown');
 
@@ -522,6 +570,9 @@ function _handleKbm(msg) {
             // Revert back to -1.0 to 1.0 float range, because _sendKbmStateToBuffer multiplies by 32767
             state.lx = (state.keys['LS_RIGHT'] ? 1.0 : 0) - (state.keys['LS_LEFT'] ? 1.0 : 0);
             state.ly = (state.keys['LS_DOWN'] ? 1.0 : 0) - (state.keys['LS_UP'] ? 1.0 : 0);
+        } else if (action.startsWith('RS_')) {
+            state.rx = (state.keys['RS_RIGHT'] ? 1.0 : 0) - (state.keys['RS_LEFT'] ? 1.0 : 0);
+            state.ry = (state.keys['RS_DOWN'] ? 1.0 : 0) - (state.keys['RS_UP'] ? 1.0 : 0);
         }
     }
     else if (msg.event === 'mousemove') {
@@ -550,14 +601,44 @@ function _handleKbm(msg) {
     }
 
     if (typeof _sendKbmStateToBuffer === 'function') {
-        console.log(`[DEBUG KBM] calling _sendKbmStateToBuffer: lx=${state.lx}, ly=${state.ly}, buttons=${state.buttons}`);
         _sendKbmStateToBuffer(slotIndex, state);
     }
 }
 
 // Ensure this helper function exists right below _handleKbm
 function _sendKbmStateToBuffer(slotIndex, state) {
-    if (!_bridge) return;
+    const packet = {
+        source: 'kbm',
+        slotIndex,
+        buttons: state.buttons,
+        lt: state.lt, rt: state.rt,
+        lx: state.lx, ly: state.ly,
+        rx: state.rx, ry: state.ry,
+    };
+
+    if (!_bridge) {
+        if (_pythonProc && _pythonProc.stdin?.writable) {
+            const padId = state.padId || String(slotViewers.get(slotIndex) || 'kbm_0');
+            const viewerId = padId.includes('_') ? padId.slice(0, padId.lastIndexOf('_')) : padId;
+            try {
+                _pythonProc.stdin.write(JSON.stringify({
+                    type: 'gamepad',
+                    pad_id: padId,
+                    viewer_id: viewerId,
+                    viewerId,
+                    buttons: state.buttons || 0,
+                    lx: Math.round((state.lx || 0) * 32767),
+                    ly: Math.round((state.ly || 0) * 32767),
+                    rx: Math.round((state.rx || 0) * 32767),
+                    ry: Math.round((state.ry || 0) * 32767),
+                    lt: state.lt || 0,
+                    rt: state.rt || 0,
+                }) + '\n');
+                events.emit('input-packet', { ...packet, source: 'python_kbm' });
+            } catch (_) { }
+        }
+        return;
+    }
 
     // state.buttons uses JS KBM_BTN_MAP format — convert to C++ W3C_BTN and extract dpad
     const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(state.buttons);
@@ -576,13 +657,7 @@ function _sendKbmStateToBuffer(slotIndex, state) {
     _gpBuf[15] = slotIndex;
 
     _bridge.submitInputPacket(_gpBuf);
-    events.emit('input-packet', {
-        source: 'kbm', slotIndex,
-        buttons: state.buttons,
-        lt: state.lt, rt: state.rt,
-        lx: state.lx, ly: state.ly,
-        rx: state.rx, ry: state.ry,
-    });
+    events.emit('input-packet', packet);
 }
 
 // ── Dispatcher & Exports ──────────────────────────────────────────────────────
@@ -653,24 +728,47 @@ function _validateKbmMsg(msg) {
 }
 
 function send(msg) {
-
     // ── Schema validation — drop malformed or oversized payloads silently ──────
     let validated = msg;
     if (msg.type === 'gamepad') {
         validated = _validateGamepadMsg(msg);
-        if (!validated) {
-            console.warn(`[DEBUG GP] DROPPED by validator — pad_id="${msg.pad_id}" lx=${msg.lx} btns=${msg.buttons}`);
-            return; // drop
-        }
-        // Diagnostics: print bridge/python state so we know which path runs
-        console.log(`[DEBUG GP] pad_id="${validated.pad_id}" bridge=${!!_bridge} python=${!!_pythonProc} hybrid=${_hybridInputEnabled}`);
+        if (!validated) return; // drop
     } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
         validated = _validateKbmMsg(msg);
         if (!validated) return; // drop
     }
 
+    if (msg.type === 'set-ctrl-type') {
+        if (msg.viewerId) viewerCtrlType.set(msg.viewerId, msg.ctrlType || 'xbox360');
+        _defaultProfileKey = msg.ctrlType || 'xbox360';
+        return;
+    }
+
+    if (msg.type === 'ctrl-settings-hybrid') {
+        _hybridInputEnabled = !!msg.enabled;
+        console.log(`[input] Hybrid mode ${msg.enabled ? 'ENABLED: Routing via Python' : 'DISABLED: Restoring C++ bridge'}`);
+        return;
+    }
+
+    if (msg.type === 'set-input-mode') {
+        viewerModes.set(msg.viewerId, msg.mode);
+        if (_pythonProc && _pythonProc.stdin?.writable) {
+            try { _pythonProc.stdin.write(JSON.stringify(msg) + '\n'); } catch (_) { }
+        }
+        return;
+    }
+
     // Drop immediately if both backends are dead
     if (!_bridge && !_pythonProc) return;
+
+    if (validated.type === 'kbm' || validated.type === 'keyboard') {
+        const padId = validated.pad_id || (validated.viewerId ? `${validated.viewerId}_0` : '');
+        const mode = viewerModes.get(padId) || viewerModes.get(validated.viewerId) || 'gamepad';
+        if (mode === 'kbm_emulated') {
+            _handleKbm(validated);
+            return;
+        }
+    }
 
     // Fallback passthrough to Python if Native module failed, OR if Hybrid Mode is explicitly enabled
     if ((!_bridge || _hybridInputEnabled) && _pythonProc && _pythonProc.stdin.writable) {
@@ -692,7 +790,6 @@ function send(msg) {
     if (validated.type === 'gamepad') {
         _handleGamepad(validated);
     } else if (validated.type === 'kbm' || validated.type === 'keyboard') {
-        console.log(`[DEBUG KBM] Orchestrator send() routing to _handleKbm`);
         _handleKbm(validated);
     } else if (msg.type === 'set-ctrl-type') {
         // Update per-viewer map AND the global default so new connections inherit the type

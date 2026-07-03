@@ -10,8 +10,7 @@ fi
 
 echo "--- Installing coturn ---"
 if command -v apt-get &> /dev/null; then
-    apt-get update || true
-    apt-get install -y coturn
+    apt-get update && apt-get install -y coturn
 elif command -v dnf &> /dev/null; then
     dnf install -y coturn
 elif command -v yum &> /dev/null; then

@@ -1,0 +1,1887 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+  <link rel="icon" type="image/x-icon" href="../favicon.ico">
+  <meta charset="utf-8">
+  <title>NearsecTogether</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap');
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #141414;
+      --border: #252525;
+      --accent: #c084fc;
+      --accent-dim: #c084fc18;
+      --accent-green: #00ff88;
+      --accent-orange: #ffaa88;
+      --text: #e0e0e0;
+      --muted: #555;
+      --danger: #ff4444;
+      --warn: #ffaa00;
+    }
+
+    body {
+      background: #000;
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .logo-wrap, .hdr-right {
+      /* FIX: Ensure buttons inside the header remain clickable */
+      -webkit-app-region: no-drag;
+    }
+
+    .logo {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .hdr-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .hdr-right span {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .app-layout {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Preview */
+    .preview-panel {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #preview {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .preview-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      background: #000;
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+      transition: opacity .3s;
+    }
+
+    .preview-overlay.hidden {
+      opacity: 0;
+    }
+
+    .preview-overlay svg {
+      opacity: .2;
+      width: 40px;
+      height: 40px;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+      z-index: 5;
+    }
+
+    .sidebar-scrollable {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sec {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .sec-label {
+      font-size: 9px;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #111111;
+      color: #bbbbbb;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+      margin-bottom: 8px;
+    }
+
+    .btn.primary {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .btn.primary:hover:not(:disabled) {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .btn.danger {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(255, 68, 68, 0.1);
+    }
+
+    .btn.danger:hover:not(:disabled) {
+      background: rgba(255, 68, 68, 0.2);
+    }
+
+    .btn:last-child {
+      margin-bottom: 0;
+    }
+
+    .btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .btn.primary {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .btn.primary:hover:not(:disabled) {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .btn.danger {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    .btn.danger:hover:not(:disabled) {
+      background: #ff444418;
+    }
+
+    .btn:disabled {
+      opacity: .35;
+      pointer-events: none;
+    }
+
+    .btn svg {
+      width: 13px;
+      height: 13px;
+      flex-shrink: 0;
+    }
+
+    /* Status */
+    .stat-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+
+    .stat-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .dot.live {
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: pulse 2s infinite;
+    }
+
+    .dot.warn {
+      background: var(--warn);
+    }
+
+    .dot.err {
+      background: var(--danger);
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .4
+      }
+    }
+
+    .meter {
+      height: 3px;
+      background: #1a1a1a;
+      margin-top: 6px;
+    }
+
+    .meter-fill {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width .05s;
+    }
+
+    .info-text {
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-top: 6px;
+    }
+
+    .info-text strong {
+      color: var(--text);
+    }
+
+    /* URL / PIN box */
+    .urlbox {
+      background: #0a0a0a;
+      border: 1px solid #1e1e1e;
+      padding: 8px 10px;
+      margin-top: 0;
+    }
+
+    .url-row {
+      font-size: 10px;
+      word-break: break-all;
+      cursor: pointer;
+      line-height: 1.6;
+      transition: opacity .15s;
+      margin-bottom: 2px;
+    }
+
+    .url-row:hover {
+      opacity: .7;
+    }
+
+    .url-label {
+      font-size: 9px;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .pin-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .pin-val {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-right: 8px;
+    }
+
+    .pin-regen {
+      background: none;
+      border: 1px solid #333;
+      color: #555;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pin-regen:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .svg-icon {
+      width: 14px;
+      height: 14px;
+      filter: invert(0.6);
+      transition: filter 0.2s;
+    }
+
+    .pin-regen:hover .svg-icon {
+      filter: invert(1) sepia(1) saturate(5) hue-rotate(90deg);
+    }
+
+    /* Glow green on hover */
+    .change-link .svg-icon {
+      width: 10px;
+      height: 10px;
+      margin-right: 4px;
+    }
+
+    .tog-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    .tog-btn {
+      background: none;
+      border: 1px solid #333;
+      color: var(--muted);
+      font-size: 9px;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .15s;
+    }
+
+    .tog-btn.on {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Roster */
+    .roster-overlay {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      background: rgba(15, 15, 15, 0.65);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 280px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .roster-title {
+      font-size: 9px;
+      letter-spacing: .15em;
+      color: var(--accent);
+      text-transform: uppercase;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .roster {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .rcard {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      cursor: grab;
+      transition: background .15s, border-color .15s;
+    }
+
+    .rcard:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .rcard.drag-over {
+      border-top: 2px solid var(--accent);
+    }
+
+    .rcard.no-gp {
+      opacity: .4;
+      border-style: dashed;
+    }
+
+    .slot-badge {
+      width: 18px;
+      height: 18px;
+      line-height: 18px;
+      text-align: center;
+      border-radius: 2px;
+      font-size: 9px;
+      font-weight: 600;
+      flex-shrink: 0;
+      background: #1a1a1a;
+      color: var(--muted);
+    }
+
+    .slot-badge.p1 {
+      background: #00ff8820;
+      color: var(--accent)
+    }
+
+    .slot-badge.p2 {
+      background: #ffaa0020;
+      color: var(--warn)
+    }
+
+    .slot-badge.p3 {
+      background: #4488ff20;
+      color: #4488ff
+    }
+
+    .slot-badge.p4 {
+      background: #ff448820;
+      color: #ff4488
+    }
+
+    .rname {
+      flex: 1;
+      font-size: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .rcard-kill {
+      background: none;
+      border: none;
+      color: #333;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 0 2px;
+      line-height: 1;
+    }
+
+    .rcard-kill:hover {
+      color: var(--danger);
+    }
+
+    .empty-note {
+      font-size: 10px;
+      color: #aaa;
+      text-align: center;
+      padding: 4px 0;
+    }
+
+    .codec-badge {
+      font-size: 9px;
+      color: #333;
+      padding: 1px 5px;
+      border: 1px solid #1e1e1e;
+      border-radius: 2px;
+    }
+
+    /* Log */
+    .log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-height: 0;
+    }
+
+    .ll {
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .ll.ok {
+      color: var(--accent);
+    }
+
+    .ll.warn {
+      color: var(--warn);
+    }
+
+    .ll.err {
+      color: var(--danger);
+    }
+
+    /* Chat */
+    .chat {
+      height: clamp(150px, 25vh, 220px);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      min-height: 120px;
+    }
+
+    .chat-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 10px;
+      font-size: clamp(10px, 1vmin, 13px);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .chat-log::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .chat-log::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .chat-log::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+
+    .cmsg {
+      line-height: 1.5;
+      color: #888;
+      word-break: break-word;
+    }
+
+    .cname {
+      color: var(--accent);
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .cname.me {
+      color: var(--warn);
+    }
+
+    .chat-input {
+      display: flex;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      gap: 4px;
+      padding: 4px;
+    }
+
+    .chat-input input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: clamp(10px, 1vmin, 13px);
+      padding: 6px 8px;
+      outline: none;
+      transition: all .15s;
+      min-width: 0;
+    }
+
+    .chat-input input:focus {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .chat-input button {
+      background: linear-gradient(135deg, var(--accent), rgba(255, 100, 80, 0.8));
+      border: none;
+      border-radius: 4px;
+      color: white;
+      padding: clamp(4px, 0.8vh, 8px) clamp(8px, 1.5vw, 12px);
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .chat-input button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(255, 100, 80, 0.2);
+    }
+
+    .chat-input button:active {
+      transform: translateY(0);
+    }
+
+    /* ── Gear button ────────────────────────────────────────────────── */
+    .gear-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 2px 4px;
+      line-height: 1;
+      transition: color .15s;
+    }
+
+    .gear-btn:hover {
+      color: var(--accent);
+    }
+
+    /* ── Discord-style tunnel picker modal ───────────────────────────── */
+    .modal-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .45);
+      backdrop-filter: blur(4px);
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-bg.gone {
+      display: none;
+    }
+
+    .modal {
+      background: #2b2d31;
+      border-radius: 12px;
+      width: 720px;
+      max-width: 95vw;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .7);
+      overflow: hidden;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .modal-head {
+      padding: 24px 24px 0;
+    }
+
+    .modal-head h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #f2f3f5;
+      letter-spacing: .02em;
+      margin-bottom: 4px;
+    }
+
+    .modal-head p {
+      font-size: 11px;
+      color: #949ba4;
+      margin-bottom: 18px;
+      line-height: 1.6;
+    }
+
+    .provider-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .provider-card {
+      background: #1e1f22;
+      border: 2px solid transparent;
+      border-radius: 8px;
+      padding: 14px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      height: 100%;
+    }
+
+    .provider-card:hover {
+      border-color: var(--accent);
+      background: #1a1a1a;
+    }
+
+    .provider-card.selected {
+      border-color: var(--accent);
+      background: #1a1a1a;
+    }
+
+    .provider-card input[type=radio] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .prov-emoji {
+      font-size: 24px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .prov-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .prov-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #f2f3f5;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .prov-desc {
+      font-size: 10px;
+      color: #949ba4;
+      margin-top: 3px;
+      line-height: 1.55;
+    }
+
+    .prov-pills {
+      display: flex;
+      gap: 5px;
+      margin-top: 7px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      font-size: 9px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+      letter-spacing: .03em;
+    }
+
+    .pill-easy {
+      background: #1a6640;
+      color: #57f287;
+    }
+
+    .pill-medium {
+      background: #5a4300;
+      color: #fee75c;
+    }
+
+    .pill-hard {
+      background: #5c1a1a;
+      color: #f38ba8;
+    }
+
+    .pill-lat {
+      background: #2b2d31;
+      color: #949ba4;
+      border: 1px solid #3b3d44;
+    }
+
+    .pill-star {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+
+    .prov-install {
+      margin-top: auto;
+      padding: 7px 10px;
+      background: #111214;
+      border-radius: 5px;
+      font-size: 8px;
+      color: #a3b3c2;
+      font-family: monospace;
+      line-height: 1.4;
+      border-left: 2px solid var(--accent);
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
+
+    .provider-card.selected .prov-install {
+      display: block;
+    }
+
+    .prov-install .cmd {
+      color: #57f287;
+    }
+
+    .prov-install .comment {
+      color: #555;
+    }
+
+    .remember-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 14px 16px 0;
+      font-size: 10px;
+      color: #949ba4;
+    }
+
+    .remember-row input {
+      accent-color: var(--accent);
+      width: 14px;
+      height: 14px;
+    }
+
+    .modal-footer {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 18px 20px;
+      background: #1e1f22;
+      border-top: 1px solid #111214;
+    }
+
+    .modal-footer .btn-row {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .modal-footer button {
+      padding: 8px 24px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .15s;
+      background: #2c2f33;
+      border: 1px solid #444;
+      color: #ddd;
+    }
+
+    .modal-footer button:hover { background: #404249; }
+    .modal-footer button.primary { background: var(--accent); color: #000; border: 1px solid var(--accent); }
+    .modal-footer button.primary:hover { background: #d495ff; }
+
+    /* ── Source/Window Selection Modal ───────────────────────────────── */
+    .source-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      padding: 16px;
+      max-height: 60vh;
+      overflow-y: auto;
+      background: #1e1f22;
+    }
+
+    .source-card {
+      background: #2b2d31;
+      border: 2px solid #404249;
+      border-radius: 8px;
+      padding: 10px;
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .source-card:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .source-card.selected {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      box-shadow: 0 0 12px var(--accent-dim);
+    }
+
+    .source-thumbnail {
+      width: 100%;
+      height: 120px;
+      background: #000;
+      border-radius: 4px;
+      object-fit: cover;
+      border: 1px solid #404249;
+    }
+
+    .source-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .source-type {
+      font-size: 10px;
+      color: #888;
+    }
+
+    .btn-confirm {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      transition: all 0.2s;
+    }
+
+    .btn-confirm:hover {
+      filter: brightness(1.15);
+    }
+
+    .btn-skip {
+      background: #383a40;
+      color: #b5bac1;
+    }
+
+    .btn-skip:hover {
+      background: #41434a;
+    }
+
+    .form-select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #000000;
+      color: #eeeeee;
+      border: 1px solid #333333;
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+
+    .form-select:hover {
+      background: #111111;
+      border-color: #555555;
+    }
+
+    .form-select option {
+      background: #111111;
+      color: #eeeeee;
+    }
+
+    /* ── Modal Loading / Error Overlay ── */
+    .modal-loading {
+      position: absolute;
+      inset: 0;
+      background: rgba(43, 45, 49, 0.95);
+      backdrop-filter: blur(2px);
+      z-index: 10;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-loading.gone {
+      display: none;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 4px solid #383a40;
+      border-top-color: #5865f2;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .loading-text {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f2f3f5;
+      margin-bottom: 8px;
+    }
+
+    .error-text {
+      font-size: 12px;
+      color: #f38ba8;
+      text-align: center;
+      padding: 0 30px;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+
+    .btn-retry {
+      background: #da373c;
+      color: #fff;
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .btn-retry:hover {
+      background: #c9262b;
+    }
+
+    .copy-btn {
+      background: #383a40;
+      border: 1px solid #4e5058;
+      color: #dbdee1;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 9px;
+      cursor: pointer;
+      margin-left: 8px;
+      transition: all 0.2s;
+    }
+
+    .copy-btn:hover {
+      background: #4e5058;
+      color: #fff;
+    }
+    /* ── Controller Settings Modal ──────────────────────────────────────── */
+    .ctrl-modal-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px;
+      background: #1e1f22;
+      border: 1px solid #2e3035;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color .15s;
+      user-select: none;
+    }
+    .ctrl-modal-row:hover { border-color: var(--accent); }
+    .ctrl-modal-row.active { border-color: var(--accent); background: var(--accent-dim); }
+    .ctrl-toggle-track {
+      flex-shrink: 0;
+      width: 36px; height: 20px;
+      background: #444;
+      border-radius: 10px;
+      position: relative;
+      transition: background .2s;
+      margin-top: 2px;
+    }
+    .ctrl-toggle-track.on { background: var(--accent); }
+    .ctrl-toggle-thumb {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 14px; height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+    }
+    .ctrl-toggle-track.on .ctrl-toggle-thumb { transform: translateX(16px); }
+    .ctrl-row-text { flex: 1; }
+    .ctrl-row-label { font-size: 12px; font-weight: 600; color: #f2f3f5; margin-bottom: 3px; }
+    .ctrl-row-desc { font-size: 10px; color: #949ba4; line-height: 1.55; }
+    .ctrl-row-warn { font-size: 9px; color: var(--warn); margin-top: 4px; }
+
+    /* ── Mobile Tweaks ─────────────────────────────────────── */
+    @media (max-width: 768px) {
+    /* Resize the right sidebar */
+    #bar:hover,
+    #bar.open {
+        width: 105px; /* Slightly narrower for mobile */
+    }
+
+    #bar-inner {
+        min-width: unset;
+        padding: 6px;
+    }
+
+    #bar button {
+        font-size: 10px;
+        padding: 6px 8px;
+    }
+
+    /* Resize the Gamepad / Controller Guide Popup */
+    #controllerGuideCard {
+        width: 92vw;
+        height: 75vh; /* Prevents it from spilling off-screen */
+    }
+
+    #controllerGuideTop {
+        height: 42px;
+    }
+
+    #controllerGuideConfirm {
+        height: 46px;
+    }
+
+    /* Ensure Portrait mode stays contained */
+    #video, #frameCanvas {
+        object-fit: contain;
+    }
+}
+  </style>
+</head>
+
+<body>
+  <div class="app-layout">
+    <div class="preview-panel">
+      <video id="preview" autoplay playsinline muted disablePictureInPicture></video>
+      <div class="preview-overlay" id="prevOverlay">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+        <span>Click "Start Sharing" to begin</span>
+      </div>
+      <div class="roster-overlay" id="rosterOverlay">
+        <div class="roster-title">CONNECTED CONTROLLERS</div>
+        <div class="roster" id="roster"></div>
+        <div class="empty-note" id="rosterEmpty">Waiting for viewers...</div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <header>
+        <div class="logo-wrap">
+          <div class="logo">
+            <img src="/assets/NearsecTogetherLogo.png" alt="NearsecTogether" style="height:24px; display:block; margin: 0 auto 4px; filter: drop-shadow(0 0 10px var(--accent-dim));">
+            NearsecTogether
+          </div>
+          <div style="font-size:8px;color:var(--muted);margin-top:2px;letter-spacing:0.05em">
+            Co-op host <span style="margin: 0 4px;">•</span> <span id="displayHostName" style="color: var(--accent); font-weight: 600;">Guest</span>
+          </div>
+        </div>
+        <div class="hdr-right">
+          <span id="codecBadge" class="codec-badge">—</span>
+          <button class="gear-btn" onclick="showCtrlModal()" title="Controller settings" id="ctrlSettingsBtn">
+            <svg style="width:16px; height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152L2 17a1 1 0 0 0 1 1h2.128a1 1 0 0 0 .958-.71l.635-2.115C7.14 14.155 8.13 13.5 9.25 13.5h5.5c1.12 0 2.11.655 2.529 1.675l.635 2.115a1 1 0 0 0 .958.71H21a1 1 0 0 0 1-1l-.685-8.258A4 4 0 0 0 17.32 5z"/>
+            </svg>
+          </button>
+          <button class="gear-btn" onclick="showAppSettings()" title="Settings">
+            <svg class="svg-icon" style="width:16px; height:16px; color:var(--muted)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="sidebar-scrollable">
+        <div class="sec">
+          <div class="sec-label">Capture</div>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <button class="btn primary" id="btnStart" onclick="showSourceSelectionModal()" style="flex:1;margin:0;">
+              <svg viewBox="0 0 24 24" fill="currentColor" style="width:12px;height:12px;"><circle cx="12" cy="12" r="8"/></svg> Start
+            </button>
+            <button class="btn" id="btnArcade" onclick="showArcadeModal()" style="flex:1;margin:0;" title="Arcade Mode">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;stroke-linecap:round;stroke-linejoin:round;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="9" x2="16" y2="9"></line></svg> Arcade
+            </button>
+          </div>
+          <button class="btn" id="btnSwitch" onclick="showSourceSelectionModal()" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+              <path d="M8 16H3v5" />
+            </svg> Switch Source
+          </button>
+          <button class="btn danger" id="btnStop" onclick="stopCapture()" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="1" />
+            </svg> Stop
+          </button>
+          <button class="btn" id="btnKbmPanic" onclick="toggleKbmPanic()" disabled style="background: #8B0000; border-color: #FF0000; color: #FFF;" title="Emergency: Freeze all keyboard/mouse input from viewers">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:12px;height:12px;">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/>
+            </svg> KBM Panic
+          </button>
+          <button class="btn" id="btnPreviewToggle" onclick="togglePreview()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg> Hide Preview
+          </button>
+        </div>
+
+        <div class="sec">
+          <div class="sec-label">Status</div>
+          <div class="stat-row"><span class="dot" id="capDot"></span><span id="capStatus">Idle</span></div>
+          <div class="stat-row"><span class="dot" id="audDot"></span><span id="audStatus">No audio</span></div>
+          <div class="meter">
+            <div class="meter-fill" id="meter"></div>
+          </div>
+          <div class="info-text" id="trackInfo">—</div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-label">Stream Quality</div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <div style="flex:1">
+              <div style="font-size:9px; color:#949ba4; margin-bottom:4px;">CODEC</div>
+              <select id="codecSelect" class="form-select">
+                <option value="H264">H.264 (HW)</option>
+                <option value="H265">H.265 (HW)</option>
+                <option value="VP8" selected>VP8 (SW)</option>
+                <option value="VP9">VP9 (SW)</option>
+                <option value="AV1">AV1 (Experimental)</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:9px; color:#949ba4; margin-bottom:4px;">BITRATE</div>
+              <select id="bitrateSelect" class="form-select" onchange="applyBitrateToAll()">
+                <option value="0">Auto</option>
+                <option value="2000000">2 Mbps</option>
+                <option value="4000000" selected>4 Mbps</option>
+                <option value="8000000">8 Mbps</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:9px; color:#949ba4; margin-bottom:4px;">PRIORITY</div>
+              <select id="degSelect" class="form-select" onchange="applyBitrateToAll()">
+                <option value="maintain-framerate">Smooth</option>
+                <option value="maintain-resolution" selected>Crisp</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <div style="flex:1">
+              <div style="font-size:9px; color:#949ba4; margin-bottom:4px;">MAX RES</div>
+              <select id="resSelect" class="form-select" onchange="applyBitrateToAll()">
+                <option value="0" selected>Native</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:9px; color:#949ba4; margin-bottom:4px;">MAX FPS</div>
+              <select id="fpsSelect" class="form-select" onchange="applyBitrateToAll()">
+                <option value="60" selected>60 FPS</option>
+                <option value="30">30 FPS</option>
+                <option value="15">15 FPS</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-label">Viewer URL</div>
+          <div class="urlbox">
+            <div class="url-label">Click a URL to copy <span class="change-link" onclick="showTunnelModal()"
+                title="Change tunnel provider"><svg class="svg-icon"
+                  style="width:10px; height:10px; margin-right:4px; vertical-align: middle;" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                  </path>
+                </svg> Change
+                tunnel</span></div>
+            <div id="urlList"></div>
+            <div class="pin-row">
+              <div style="display: flex; align-items: center;">
+                <div style="font-size:9px;color:#333;margin-bottom:2px">PIN</div>
+                <div class="pin-val" id="pinVal">----</div>
+                <button class="pin-regen" title="Regenerate PIN" onclick="regeneratePin()">
+                  <svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 4 1 10 7 10"></polyline>
+                    <polyline points="23 20 23 14 17 14"></polyline>
+                    <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+                  </svg>
+                </button>
+                <div style="flex:1"></div>
+                <button class="tog-btn on" id="pinToggle" onclick="togglePin()">ON</button>
+              </div>
+            </div>
+          </div>
+          <div
+            style="margin-top:12px; padding:8px; background:#111; border:1px solid #222; border-radius:4px; font-size:9px; color:#666;">
+            Play retro games with others at <a href="https://nearsec.cutefame.net/arcade" target="_blank"
+              style="color:var(--accent);">Nearsec Arcade</a>
+          </div>
+        </div>
+
+        <div id="lastLogLine" style="padding:6px 14px;font-size:9px;color:#333;border-top:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;"></div>
+      </div>
+
+      <div class="chat">
+        <div class="chat-log" id="chatLog"></div>
+        <div class="chat-input">
+          <input id="chatMsg" placeholder="Message..." maxlength="300" onkeydown="if(event.key==='Enter'){event.preventDefault();sendChat()}">
+          <button onclick="sendChat()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══ APP SETTINGS MODAL ══════════════════════════════════════════════════ -->
+  <div class="modal-bg gone" id="appSettingsModal">
+    <div class="modal" style="position:relative;width:560px;max-height:85vh;display:flex;flex-direction:column;">
+      <div class="modal-head" style="flex-shrink:0;">
+        <h3>
+          <svg style="width:18px;height:18px;margin-right:8px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          Settings
+        </h3>
+        <p>Configure app behavior, audio, and network options.</p>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:0 20px 8px;">
+
+        <!-- ── APP BEHAVIOR ── -->
+        <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">App Behavior</div>
+
+        <div class="ctrl-modal-row" id="settingRowTray" onclick="toggleAppSetting('tray')">
+          <div class="ctrl-toggle-track" id="settingTrackTray"><div class="ctrl-toggle-thumb"></div></div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Minimize to Tray</div>
+            <div class="ctrl-row-desc">Closing the window hides to the system tray instead of quitting.</div>
+          </div>
+        </div>
+
+        <div class="ctrl-modal-row" id="settingRowAlwaysOnTop" onclick="toggleAppSetting('alwaysOnTop')" style="margin-top:8px;">
+          <div class="ctrl-toggle-track" id="settingTrackAlwaysOnTop"><div class="ctrl-toggle-thumb"></div></div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Always on Top</div>
+            <div class="ctrl-row-desc">Keep the NearsecTogether window above all other windows.</div>
+          </div>
+        </div>
+
+        <div class="ctrl-modal-row" id="settingRowHidePreview" onclick="toggleAppSetting('hidePreviewOnStart')" style="margin-top:8px;">
+          <div class="ctrl-toggle-track" id="settingTrackHidePreview"><div class="ctrl-toggle-thumb"></div></div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Hide Preview by Default</div>
+            <div class="ctrl-row-desc">Saves GPU cycles on APUs. Stream still sends to viewers normally.</div>
+          </div>
+        </div>
+
+        <!-- ── AUDIO ── -->
+        <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Audio Capture</div>
+
+        <div style="margin-bottom:10px;">
+          <div style="font-size:10px;color:#949ba4;margin-bottom:6px;">System Audio Device</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="audioOutputSelect" class="form-select" style="flex:1;" onchange="saveAudioDevice('output', this.value)">
+              <option value="default">Default (all system audio)</option>
+            </select>
+            <button class="btn-retry" style="padding:6px 12px;font-size:10px;background:#1e1f22;color:#949ba4;border:1px solid #333;" onclick="enumerateAudioDevices()">Scan</button>
+          </div>
+          <div style="font-size:9px;color:#444;margin-top:4px;">Desktop Audio is captured automatically if selected in the Linux Screen Share prompt.</div>
+        </div>
+
+        <div class="ctrl-modal-row" id="settingRowMic" onclick="toggleAppSetting('captureMic')" style="margin-top:8px;">
+          <div class="ctrl-toggle-track" id="settingTrackMic"><div class="ctrl-toggle-thumb"></div></div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Capture App Audio / Microphone</div>
+            <div class="ctrl-row-desc">Mix a specific input device into the stream. Use this to capture specific virtual audio cables or your microphone.</div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px; padding: 10px; background: #0a0a0a; border-radius: 6px; border: 1px solid #1e1e1e;" id="micDeviceRow">
+          <div style="font-size:10px;color:#949ba4;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+            <span>Input Source (Mic or Virtual Cable)</span>
+            <button class="btn-retry" style="padding:4px 8px;font-size:9px;background:#1e1f22;color:#00ff88;border:1px solid #1a6640;" onclick="createVirtualAudioCable()">+ Create Linux Virtual Cable</button>
+          </div>
+          <select id="audioInputSelect" class="form-select" onchange="saveAudioDevice('input', this.value)">
+            <option value="default">Default Microphone</option>
+          </select>
+          <div style="font-size:10px;color:#666;margin-top:8px;line-height:1.5;" id="virtualAudioHelp">
+            <strong>How to capture a specific app without desktop sounds:</strong><br>
+            1. Click the green button above.<br>
+            2. Open your Linux sound settings (or <code>pavucontrol</code>).<br>
+            3. Find your Game/App and change its Output to <strong>"NearsecVirtual"</strong>.<br>
+            4. In the dropdown directly above this text, select <strong>"Monitor of NearsecVirtual" (or NearsecVirtualCapture)</strong>.<br>
+            5. Ensure the toggle switch above is turned ON.
+          </div>
+
+        <!-- ── NETWORK ── -->
+        <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">Network</div>
+        <button class="btn" style="margin-bottom:8px;" onclick="closeAppSettings(); showTunnelModal();">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          Tunnel Settings
+        </button>
+
+        <!-- ── SYSTEM LOG ── -->
+        <div style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">System Log</div>
+        <div id="log" style="background:#0a0a0a;border:1px solid #1a1a1a;padding:8px;height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;font-family:'IBM Plex Mono',monospace;"></div>
+
+      </div>
+
+      <div class="modal-footer" style="flex-shrink:0;">
+        <div class="btn-row">
+          <button class="btn-confirm" onclick="closeAppSettings()">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-bg gone" id="arcadeModal">
+    <div class="modal" style="position:relative; width:520px;">
+      <div class="modal-head">
+        <h3>
+          <svg style="width:18px; height:18px; margin-right:8px; vertical-align:middle; color:#fff;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="13" y1="6" x2="20" y2="6"></line>
+            <line x1="13" y1="9" x2="20" y2="9"></line>
+            <line x1="13" y1="12" x2="20" y2="12"></line>
+            <line x1="4" y1="6" x2="12" y2="6"></line>
+            <line x1="4" y1="9" x2="12" y2="9"></line>
+            <line x1="4" y1="12" x2="12" y2="12"></line>
+          </svg>
+          Arcade Mode Configuration
+        </h3>
+        <p>Configure your arcade session to be shared with players on the Nearsec Arcade platform.</p>
+      </div>
+      <div class="modal-body" style="padding: 16px; display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="font-size:11px; font-weight:600; color:#f2f3f5;">Game Title</label>
+          <input type="text" id="arcadeGameTitle" placeholder="e.g., Street Fighter II" style="width:100%; padding:8px 10px; background:#000000; color:#eeeeee; border:1px solid #333333; border-radius:6px; font-size:11px; font-family:inherit;">
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="font-size:11px; font-weight:600; color:#f2f3f5;">Game Description</label>
+          <textarea id="arcadeGameDesc" placeholder="Describe the game and rules..." style="width:100%; padding:8px 10px; background:#000000; color:#eeeeee; border:1px solid #333333; border-radius:6px; font-size:11px; font-family:inherit; resize:vertical; min-height:60px; max-height:100px;"></textarea>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="font-size:11px; font-weight:600; color:#f2f3f5;">Thumbnail URL (optional)</label>
+          <input type="hidden" id="arcadeThumbnail" placeholder="https://example.com/image.jpg" style="width:100%; padding:8px 10px; background:#000000; color:#eeeeee; border:1px solid #333333; border-radius:6px; font-size:11px; font-family:inherit;">
+          <div style="font-size:10px; color:#666;">Leave empty for auto-generated screenshot</div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <label style="font-size:11px; font-weight:600; color:#f2f3f5;">Max Players</label>
+          <select id="arcadeMaxPlayers" style="width:100%; padding:8px 10px; background:#000000; color:#eeeeee; border:1px solid #333333; border-radius:6px; font-size:11px; font-family:inherit;">
+            <option value="2">2 Players</option>
+            <option value="4" selected>4 Players</option>
+            <option value="6">6 Players</option>
+            <option value="8">8 Players</option>
+            <option value="16">16 Players</option>
+          </select>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:4px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:11px; cursor:pointer; flex:1;">
+            <input type="checkbox" id="arcadeRequirePin" style="width:16px; height:16px; accent-color:var(--accent);">
+            <span>Require PIN to join</span>
+          </label>
+        </div>
+
+        <div style="background:#111; border:1px solid #222; border-radius:4px; padding:10px; font-size:10px; color:#666; margin-top:8px;">
+          Once you start sharing, your session URL will be displayed below. Share this link on the Arcade page!
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="btn-row">
+          <button class="btn-confirm" onclick="startArcadeSession()">Launch Arcade</button>
+          <button class="btn-skip" onclick="closeArcadeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg gone" id="ctrlModal">
+    <div class="modal" style="position:relative; width:480px;">
+      <div class="modal-head">
+        <h3>
+          <svg style="width:18px; height:18px; margin-right:8px; vertical-align:middle; color:#fff;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152L2 17a1 1 0 0 0 1 1h2.128a1 1 0 0 0 .958-.71l.635-2.115C7.14 14.155 8.13 13.5 9.25 13.5h5.5c1.12 0 2.11.655 2.529 1.675l.635 2.115a1 1 0 0 0 .958.71H21a1 1 0 0 0 1-1l-.685-8.258A4 4 0 0 0 17.32 5z"/>
+          </svg>
+          Controller Settings
+        </h3>
+        <p>Virtual controller emulation options. Changes apply to <strong style="color:#f2f3f5">all connected viewers</strong> immediately.</p>
+      </div>
+      <div class="modal-body" style="padding: 16px; display:flex; flex-direction:column; gap:10px;">
+
+        <div class="ctrl-modal-row" id="ctrlRowForceXboxOne" onclick="toggleCtrlSetting('forceXboxOne')">
+          <div class="ctrl-toggle-track" id="ctrlTrackForceXboxOne">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Disable Xbox 360 emulation</div>
+            <div class="ctrl-row-desc">
+              Forces Xbox One S profile for all Xbox controllers instead of the 360-compat fallback.
+              Use this if games are showing wrong button prompts.
+            </div>
+            <div class="ctrl-row-warn" id="ctrlWarnForceXboxOne" style="display:none;">
+              ⚠ Existing controllers will be re-enumerated on next connect. Reconnect viewers after toggling.
+            </div>
+          </div>
+        </div>
+
+        <div class="ctrl-modal-row" id="ctrlRowDualShock" onclick="toggleCtrlSetting('enableDualShock')">
+          <div class="ctrl-toggle-track" id="ctrlTrackDualShock">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Native PlayStation Profiles</div>
+            <div class="ctrl-row-desc">
+              Allows DualShock 4 and DualSense controllers to appear natively to games (supports native lightbar/touchpad if the game allows it). If disabled, they will automatically emulate Xbox controllers for maximum compatibility.
+            </div>
+          </div>
+        </div>
+
+        <div class="ctrl-modal-row" id="ctrlRowMotion" onclick="toggleCtrlSetting('enableMotion')">
+          <div class="ctrl-toggle-track" id="ctrlTrackMotion">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Enable Motion Controls (Gyro)</div>
+            <div class="ctrl-row-desc">
+              Passes gyroscope and accelerometer data to the host. <br>
+              <span style="color: var(--warn);">Note: Viewers must use a Chromium-based browser and manually grant WebHID permissions.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ctrl-modal-row" style="flex-direction: column; gap: 8px; cursor: default;">
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Default Input Method for Viewers</div>
+            <div class="ctrl-row-desc">
+              Set the default input mode for new viewers. They can still be switched individually from the roster.
+            </div>
+          </div>
+          <select id="defaultInputModeSelect" onchange="changeDefaultInputMode(this.value)" style="padding: 8px; border-radius: 6px; border: 1px solid #444; background: #2c2f33; color: #f2f3f5; font-family: inherit; font-size: 12px;">
+            <option value="gamepad">Gamepad (recommended)</option>
+            <option value="kbm">Raw KBM</option>
+            <option value="kbm_emulated">KBM Emulated</option>
+          </select>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <div class="btn-row">
+          <button class="btn-confirm" onclick="closeCtrlModal()">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg gone" id="tunnelModal">
+    <div class="modal" style="position:relative;">
+      <div class="modal-loading gone" id="tunnelLoading">
+        <div class="spinner" id="tunnelSpinner"></div>
+        <div class="loading-text" id="tunnelLoadText">Starting tunnel...</div>
+        <div class="error-text gone" id="tunnelErrorText"></div>
+        <button class="btn-retry gone" id="tunnelRetryBtn" onclick="resetTunnelModal()">Try Again</button>
+      </div>
+
+      <div class="modal-head">
+        <h3><svg class="svg-icon" style="width:20px; height:20px; margin-right:8px; vertical-align: middle; color:#fff;"
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg> Choose a Tunnel Provider</h3>
+        <p>The tunnel carries the <strong style="color:#f2f3f5">webpage + WebSocket signaling only</strong> — WebRTC
+          video goes UDP peer-to-peer and never touches the tunnel.<br>Pick a provider — all listed options are <strong
+            style="color:#57f287">free</strong>.</p>
+      </div>
+      <div class="modal-body" style="padding: 16px;">
+        <div class="provider-grid">
+          <label class="provider-card selected">
+            <input type="radio" name="provider" value="cloudflared" checked>
+            <div style="display:flex; gap:12px; align-items:center;">
+              <div class="prov-emoji"><svg class="svg-icon" style="width:24px; height:24px; color:#fff;"
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                </svg></div>
+              <div class="prov-name">cloudflared <span class="pill pill-easy">Easy</span></div>
+            </div>
+            <div class="prov-desc">Random URL · No account required · Powered by Cloudflare.</div>
+            <div class="prov-install"><span class="cmd">sudo dpkg -i cloudflared-linux-amd64.deb</span> <button
+                class="copy-btn" onclick="copyCmd(event, 'sudo dpkg -i cloudflared-linux-amd64.deb')">copy</button>
+            </div>
+          </label>
+          <label class="provider-card">
+            <input type="radio" name="provider" value="zrok">
+            <div style="display:flex; gap:12px; align-items:center;">
+              <div class="prov-emoji"><svg class="svg-icon" style="width:24px; height:24px; color:#fff;"
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                </svg></div>
+              <div class="prov-name">zrok.io <span class="pill pill-star">Best</span></div>
+            </div>
+            <div class="prov-desc">Fastest tunnel · Open-source · Peer-to-peer speeds.</div>
+            <div class="prov-install"><span class="cmd">zrok enable [token]</span> <button class="copy-btn"
+                onclick="copyCmd(event, 'zrok enable [token]')">copy</button></div>
+          </label>
+          <label class="provider-card">
+            <input type="radio" name="provider" value="localhostrun">
+            <div style="display:flex; gap:12px; align-items:center;">
+              <div class="prov-emoji"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  class="svg-icon" style="width:24px; height:24px; color:#fff;">
+                  <path
+                    d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" />
+                  <circle cx="12" cy="10" r="3" />
+                </svg></div>
+              <div class="prov-name">localhost.run <span class="pill pill-easy">Fast</span></div>
+            </div>
+            <div class="prov-desc">Uses SSH only · Nothing to install · Fast and simple.</div>
+            <div class="prov-install"><span class="cmd">ssh -R 80:localhost:3000 nokey@localhost.run</span> <button
+                class="copy-btn" onclick="copyCmd(event, 'ssh -R 80:localhost:3000 nokey@localhost.run')">copy</button>
+            </div>
+          </label>
+          <label class="provider-card">
+            <input type="radio" name="provider" value="playit">
+            <div style="display:flex; gap:12px; align-items:center;">
+              <div class="prov-emoji"><svg class="svg-icon" style="width:24px; height:24px; color:#fff;"
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path
+                    d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152L2 17a1 1 0 0 0 1 1h2.128a1 1 0 0 0 .958-.71l.635-2.115C7.14 14.155 8.13 13.5 9.25 13.5h5.5c1.12 0 2.11.655 2.529 1.675l.635 2.115a1 1 0 0 0 .958.71H21a1 1 0 0 0 1-1l-.685-8.258A4 4 0 0 0 17.32 5z">
+                  </path>
+                </svg></div>
+              <div class="prov-name">playit.gg <span class="pill pill-hard">UDP/Paid</span></div>
+            </div>
+            <div class="prov-desc">Requires paid plan for HTTP/TCP signaling.</div>
+            <div class="prov-install"><span class="comment"># Premium required</span></div>
+          </label>
+          <label class="provider-card">
+            <input type="radio" name="provider" value="vps">
+            <div style="display:flex; gap:12px; align-items:center;">
+              <div class="prov-emoji"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  class="svg-icon" style="width:24px; height:24px; color:#fff;">
+                  <ellipse cx="12" cy="5" rx="9" ry="3" />
+                  <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+                  <path d="M3 12A9 3 0 0 0 21 12" />
+                </svg></div>
+              <div class="prov-name">Custom VPS (SSH) <span class="pill pill-hard">Advanced</span></div>
+            </div>
+            <div class="prov-desc">Tunnel to your own server using Reverse SSH.</div>
+            <div class="prov-install"
+              style="padding: 12px; white-space: normal; display: flex; flex-direction: column; gap: 8px;">
+              <div style="color:#949ba4; font-size:10px; margin-bottom:-4px;">SSH Host (Alias or user@ip):</div>
+              <input type="text" id="vpsHostInput" placeholder="user@vps-ip"
+                style="width:100%; background:#000; border:1px solid #444; color:#fff; font-size:12px; padding:8px; border-radius:4px;"
+                onclick="event.stopPropagation()">
+
+              <div style="background:#080808; padding:10px; border-radius:4px; border:1px solid #222;">
+                <div style="font-size:9px; color:#555; margin-bottom:6px; letter-spacing:0.05em;">TERMINAL COMMAND:</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                  <code style="color:#888; font-size:10px; font-family:monospace; word-break:break-all; flex:1;">ssh -N -R 3000:localhost:3000 VPS</code>
+                  <button class="copy-btn" style="margin:0; padding:4px 8px; flex-shrink:0;" onclick="copyCmd(event, 'ssh -N -R 3000:localhost:3000 VPS')">copy</button>
+                </div>
+              </div>
+            </div>
+          </label>
+        </div> <div style="border-top: 1px solid var(--border); margin: 0 -16px; padding: 12px 16px;">
+          <label class="provider-card" style="flex-direction:row; align-items:center; height:auto; margin-bottom:0; padding: 10px 14px;">
+            <input type="radio" name="provider" value="portforward">
+            <div class="prov-emoji" style="display:flex; align-items:center;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon" style="width:20px; height:20px; color:#fff;">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                <line x1="6" y1="6" x2="6.01" y2="6" />
+                <line x1="6" y1="18" x2="6.01" y2="18" />
+              </svg>
+            </div>
+            <div class="prov-name">Manual Port Forwarding <span class="pill pill-lat">Direct</span></div>
+            <div style="margin-left:auto; font-size:10px; color:var(--muted);">Forward port 3000</div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="btn-row">
+          <button class="btn-confirm" onclick="confirmTunnel()">Connect</button>
+          <button class="btn-skip" onclick="closeTunnelModal()">Skip for now</button>
+        </div>
+        <div class="remember-row" style="margin: 0; padding-top: 4px; border: none;">
+          <input type="checkbox" id="rememberCheck">
+          <label for="rememberCheck">Remember this choice & don't ask again on startup</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg gone" id="sourceModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Select Capture Source (Windows/Screens)</h3>
+        <p>Choose a window or screen to share. Your selection will be remembered.</p>
+      </div>
+      <div class="source-grid" id="sourceGrid">
+        </div>
+      <div class="modal-footer">
+        <div class="btn-row">
+          <button class="btn primary" id="confirmSourceBtn" onclick="confirmSource()" disabled>Select</button>
+          <button class="btn" onclick="closeSourceModal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/i18n.js"></script>
+  <script src="/js/host.js"></script>
+  <script>
+    (function patchTunnelCommandsForPlatform() {
+      const ua = navigator.userAgent;
+      const isWin = ua.includes('Win');
+      const isMac = ua.includes('Mac') && !ua.includes('Windows');
+      if (!isWin && !isMac) return; // Linux: keep the existing commands as-is
+
+      // ── Platform-specific commands per provider ──────────────────────────────
+      // Each entry: { cmd (shown + copied), comment (dimmed hint line) }
+      const CMDS = {
+        cloudflared: {
+          win: {
+            cmd:     'winget install Cloudflare.cloudflared',
+            comment: '# Or: github.com/cloudflare/cloudflared/releases  (Windows installer)',
+          },
+          mac: {
+            cmd:     'brew install cloudflare/cloudflare/cloudflared',
+            comment: '# Requires Homebrew — brew.sh',
+          },
+        },
+        zrok: {
+          win: {
+            cmd:     'https://github.com/openziti/zrok/releases',
+            comment: '# Download the Windows zip, extract, add to PATH, then: zrok enable [token]',
+          },
+          mac: {
+            cmd:     'brew install openziti/homebrew-openziti/zrok',
+            comment: '# Then: zrok enable [token]',
+          },
+        },
+        localhostrun: {
+          win: {
+            cmd:     'ssh -R 80:localhost:3000 nokey@localhost.run',
+            comment: '# OpenSSH is built into Windows 10+ — no install needed',
+          },
+          mac: {
+            cmd:     'ssh -R 80:localhost:3000 nokey@localhost.run',
+            comment: '# SSH is built into macOS — no install needed',
+          },
+        },
+        playit: {
+          win: {
+            cmd:     'https://playit.gg/download',
+            comment: '# Download the Windows installer from playit.gg',
+          },
+          mac: {
+            cmd:     'https://playit.gg/download',
+            comment: '# Download the macOS version from playit.gg',
+          },
+        },
+        // VPS and portforward cards have no install commands — skip
+      };
+
+      const platform = isWin ? 'win' : 'mac';
+
+      function applyPlatformCmds() {
+        document.querySelectorAll('.provider-card').forEach(function(card) {
+          const radio = card.querySelector('input[type=radio]');
+          if (!radio) return;
+          const provider = radio.value;
+          const info = CMDS[provider] && CMDS[provider][platform];
+          if (!info) return;
+
+          const installDiv = card.querySelector('.prov-install');
+          if (!installDiv) return;
+
+          // Update displayed command text
+          const cmdSpan = installDiv.querySelector('.cmd');
+          if (cmdSpan) cmdSpan.textContent = info.cmd;
+
+          // Update or inject comment line
+          let commentSpan = installDiv.querySelector('.comment');
+          if (!commentSpan) {
+            commentSpan = document.createElement('span');
+            commentSpan.className = 'comment';
+            commentSpan.style.display = 'block';
+            commentSpan.style.marginTop = '4px';
+            installDiv.appendChild(commentSpan);
+          }
+          commentSpan.textContent = info.comment;
+
+          // Re-wire the copy button to copy the platform command
+          const copyBtn = installDiv.querySelector('.copy-btn');
+          if (copyBtn) {
+            // Replace onclick entirely so it uses the right cmd string
+            copyBtn.onclick = function(e) { copyCmd(e, info.cmd); };
+          }
+        });
+      }
+
+      // Run once on DOM ready (covers initial page load)
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', applyPlatformCmds);
+      } else {
+        applyPlatformCmds();
+      }
+
+      // Also run whenever the tunnel modal is opened (cards are already in DOM,
+      // but this re-applies after any dynamic OS-hint injection in showTunnelModal)
+      const _origShow = window.showTunnelModal;
+      window.showTunnelModal = function() {
+        _origShow && _origShow.apply(this, arguments);
+        // Small delay lets showTunnelModal finish adding its dynamic OS hints first
+        setTimeout(applyPlatformCmds, 0);
+      };
+    })();
+  </script>
+</body>
+</html>

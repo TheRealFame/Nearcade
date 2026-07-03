@@ -32,32 +32,32 @@ const USER_CONTROLLERS = path.join(CONFIG_DIR, 'controllers.json');
 
 // ── SESSION FILE LOGGER ──
 const LOG_FILE = path.join(CONFIG_DIR, 'latest.log');
-try {
+try { 
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(LOG_FILE, `--- Nearsec Session Log (${new Date().toISOString()}) ---\n`);
-} catch (e) { }
+  fs.writeFileSync(LOG_FILE, `--- Nearsec Session Log (${new Date().toISOString()}) ---\n`); 
+} catch (e) {}
 
 function appendLog(msg) {
-  try { fs.appendFileSync(LOG_FILE, msg + '\n'); } catch (e) { }
+  try { fs.appendFileSync(LOG_FILE, msg + '\n'); } catch (e) {}
 }
 
 const _nativeLog = console.log.bind(console);
 const _nativeErr = console.error.bind(console);
 
-console.log = function (...args) {
+console.log = function(...args) {
   _nativeLog(...args);
   const s = args.map(a => {
     if (typeof a === 'string') return a;
-    try { return JSON.stringify(a); } catch (_) { return String(a); }
+    try { return JSON.stringify(a); } catch(_) { return String(a); }
   }).join(' ');
   appendLog(`[LOG] ${s}`);
 };
 
-console.error = function (...args) {
+console.error = function(...args) {
   _nativeErr(...args);
   const s = args.map(a => {
     if (typeof a === 'string') return a;
-    try { return JSON.stringify(a); } catch (_) { return String(a); }
+    try { return JSON.stringify(a); } catch(_) { return String(a); }
   }).join(' ');
   appendLog(`[ERR] ${s}`);
 };
@@ -151,17 +151,12 @@ if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 } else if (process.platform === 'linux') {
   const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
-    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
-    process.env.SteamDeck === '1' ||
-    process.env.SteamGamepadUI === '1';
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
 
   if (isGamescope) {
     // Force X11/XWayland under Gamescope to prevent Electron crashes with native Wayland
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
-    // CRITICAL for SteamOS Game Mode: Steam's nested bwrap conflicts with Electron's sandbox
-    app.commandLine.appendSwitch('no-sandbox');
-    app.commandLine.appendSwitch('disable-gpu-sandbox');
   } else {
     // Force native Wayland with decorations on other Linux DEs
     app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
@@ -287,10 +282,10 @@ function startServer() {
 
     serverCore = require('./src/scripts/server.js');
     const _appLog = console.log.bind(console);
-
+    
     // We must safely wrap whatever console.log server.js just created, 
     // and restore IT, not the original Node.js one.
-    const _serverLog = console.log;
+    const _serverLog = console.log; 
     console.log = function (...args) {
       _serverLog(...args);
       const s = args.join(' ');
@@ -308,9 +303,7 @@ function startServer() {
 let win = null;
 let tray = null;
 const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
-  (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
-  process.env.SteamDeck === '1' ||
-  process.env.SteamGamepadUI === '1';
+  (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope');
 
 async function createWindow() {
   const port = await startServer();
@@ -396,9 +389,14 @@ async function createWindow() {
   win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen', 'window'] }).then(sources => {
       if (sources && sources.length > 0) {
-        // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio
-        if (process.platform === 'win32') callback({ video: sources[0], audio: 'loopback' });
-        else callback({ video: sources[0] });
+        let pick = sources[0];
+        if (_pendingCaptureSourceId) {
+          const match = sources.find(s => s.id === _pendingCaptureSourceId);
+          if (match) pick = match;
+        }
+        _pendingCaptureSourceId = null;
+        if (process.platform === 'win32') callback({ video: pick, audio: 'loopback' });
+        else callback({ video: pick });
       } else {
         console.log('[electron] Capture blocked or no sources found. Cancelling.');
         callback(); // Empty callback safely aborts without crashing PipeWire
@@ -555,7 +553,7 @@ async function createWindow() {
     if (typeof cfg.vpsEnabled !== 'undefined') settings.vpsEnabled = !!cfg.vpsEnabled;
     if (typeof cfg.vpsUrl !== 'undefined') settings.vpsUrl = String(cfg.vpsUrl).slice(0, 512);
     if (typeof cfg.vpsMasterKey !== 'undefined') settings.vpsMasterKey = String(cfg.vpsMasterKey).slice(0, 256);
-
+    
     saveSettings(settings);
     return {
       vpsEnabled: !!settings.vpsEnabled,
@@ -599,6 +597,11 @@ async function createWindow() {
     } catch (_) { return []; }
   });
 
+  let _pendingCaptureSourceId = null;
+  ipcMain.on('set-capture-source', (_event, sourceId) => {
+    _pendingCaptureSourceId = sourceId || null;
+  });
+
   // Fix: Listen for 'run-setup', matching what the dashboard actually sends
   ipcMain.on('run-setup', (event) => {
     const { exec } = require('child_process');
@@ -623,15 +626,15 @@ async function createWindow() {
     else if (os.platform() === 'linux') {
       let scriptPath = path.join(__dirname, 'bin', 'linux_setup.sh');
       let iconPath = path.join(__dirname, 'assets', 'NearsecTogetherLogo.png');
-
+      
       // If running from an AppImage or built executable, extraResources places 'bin' directly in resourcesPath
       if (__dirname.includes('app.asar')) {
         scriptPath = path.join(process.resourcesPath, 'bin', 'linux_setup.sh');
         iconPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'NearsecTogetherLogo.png');
       }
-
+      
       try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
-
+      
       const wrapperPath = path.join(os.tmpdir(), 'nearsec_setup_wrapper.sh');
       const statusFile = path.join(os.tmpdir(), 'nearsec_setup_status');
 
@@ -679,9 +682,9 @@ async function createWindow() {
   ipcMain.handle('get-app-version', () => {
     const pkgPath = path.join(__dirname, 'package.json');
     let version = '1.0.0';
-    try { version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version; } catch (_) { }
+    try { version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version; } catch (_) {}
     let commit = '';
-    try { commit = fs.readFileSync(path.join(__dirname, 'commit.txt'), 'utf8').trim().substring(0, 7); } catch (_) { }
+    try { commit = fs.readFileSync(path.join(__dirname, 'commit.txt'), 'utf8').trim().substring(0, 7); } catch (_) {}
     return { version, commit };
   });
 
@@ -755,7 +758,7 @@ async function createWindow() {
   // ── Discord RPC ──
   let rpc = null;
   const DiscordRPC = require('discord-rpc');
-
+  
   ipcMain.on('discord-set-activity', (event, activity) => {
     if (!settings.discordRPC) return;
     if (!rpc) {
@@ -801,14 +804,14 @@ app.whenReady().then(() => {
       const { autoUpdater } = require('electron-updater');
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
-
+      
       autoUpdater.on('update-downloaded', (info) => {
         console.log('[electron] Update downloaded:', info.version);
         if (win && !win.isDestroyed()) {
           win.webContents.send('update-ready', info.version);
         }
       });
-
+      
       autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('[electron] Auto-update check failed:', e));
     } catch (e) {
       console.error('[electron] autoUpdater error:', e);

@@ -286,7 +286,7 @@ def _handle_gamepad(msg: dict):
                     "duration": 250
                 })
 
-            gp.register_notification(callback_function=_on_vibration, user_data=pad_id)
+            gp.register_notification(callback_function=_on_vibration)
 
             gp.update()  # Send an initial neutral state to register with ViGEmBus
             devices[pad_id] = gp
@@ -312,10 +312,22 @@ def _handle_gamepad(msg: dict):
     btns_raw = msg.get("buttons", 0)
     axes_raw = msg.get("axes", [])
 
+    # InputOrchestrator normalizes viewer Gamepad API packets into named scalar
+    # fields before forwarding them to the Python sidecar on Windows.
+    if isinstance(btns_raw, int) and not axes_raw:
+        axes_raw = [
+            msg.get("lx", 0),
+            msg.get("ly", 0),
+            msg.get("rx", 0),
+            msg.get("ry", 0),
+            int(_clamp(float(msg.get("lt", 0) or 0) * 255.0, 0.0, 255.0)),
+            int(_clamp(float(msg.get("rt", 0) or 0) * 255.0, 0.0, 255.0)),
+        ]
+
     try:
-        if isinstance(btns_raw, int) or "lx" in msg:
-            # Bitmask or flat schema path — from InputOrchestrator's binary protocol
-            _apply_bitmask(gp, btns_raw, axes_raw, msg)
+        if isinstance(btns_raw, int):
+            # Bitmask path — from InputOrchestrator's binary protocol
+            _apply_bitmask(gp, btns_raw, axes_raw)
         else:
             # Legacy W3C array path — direct from viewer.js (pre-orchestrator)
             _apply_w3c_array(gp, btns_raw, axes_raw)
@@ -326,7 +338,7 @@ def _handle_gamepad(msg: dict):
         _error(f"Error updating gamepad {pad_id}: {e}", "GAMEPAD_UPDATE_ERROR")
 
 
-def _apply_bitmask(gp, buttons: int, axes: list, msg: dict = None):
+def _apply_bitmask(gp, buttons: int, axes: list):
     """
     Apply gamepad state from InputOrchestrator's compact bitmask + axes format.
 
@@ -346,59 +358,49 @@ def _apply_bitmask(gp, buttons: int, axes: list, msg: dict = None):
       bit 12 (0x1000): Start
       bit 13 (0x2000): Select/Back
       bit 14 (0x4000): Guide
-    """
-    if isinstance(buttons, int):
-        def _bit(mask): return bool(buttons & mask)
-        def _press(const, state):
-            if state: gp.press_button(button=const)
-            else:     gp.release_button(button=const)
 
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_A,              _bit(0x0001))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_B,              _bit(0x0002))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_X,              _bit(0x0004))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,              _bit(0x0008))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,        _bit(0x0010))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,      _bit(0x0020))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,      _bit(0x0040))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,     _bit(0x0080))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,  _bit(0x0100))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER, _bit(0x0200))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,     _bit(0x0400))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,    _bit(0x0800))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_START,          _bit(0x1000))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,           _bit(0x2000))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,          _bit(0x4000))
-    
-    if msg is not None and "lx" in msg:
-        lx = _axis_to_float(msg.get("lx", 0))
-        ly = -_axis_to_float(msg.get("ly", 0))
+    axes[0..3]: lx, ly, rx, ry  — integers -32767..+32767
+    axes[4..5]: lt, rt           — integers 0..255
+    """
+    def _bit(mask): return bool(buttons & mask)
+    def _press(const, state):
+        if state: gp.press_button(button=const)
+        else:     gp.release_button(button=const)
+
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_A,              _bit(0x0001))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_B,              _bit(0x0002))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_X,              _bit(0x0004))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_Y,              _bit(0x0008))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_UP,        _bit(0x0010))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,      _bit(0x0020))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,      _bit(0x0040))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,     _bit(0x0080))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,  _bit(0x0100))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER, _bit(0x0200))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,     _bit(0x0400))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,    _bit(0x0800))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_START,          _bit(0x1000))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,           _bit(0x2000))
+    _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,          _bit(0x4000))
+
+    # Axes: lx/ly/rx/ry are -32767..+32767; lt/rt are 0..255
+    if len(axes) >= 2:
+        lx = _axis_to_float(axes[0])
+        # ly: Node stores Y+ as "down" (positive = down), vgamepad Y+ = "up".
+        # Negate ly so pushing the stick forward (up) maps to +Y in vgamepad.
+        ly = -_axis_to_float(axes[1])
         gp.left_joystick_float(x_value_float=lx, y_value_float=ly)
-        
-        rx = _axis_to_float(msg.get("rx", 0))
-        ry = -_axis_to_float(msg.get("ry", 0))
+
+    if len(axes) >= 4:
+        rx = _axis_to_float(axes[2])
+        ry = -_axis_to_float(axes[3])
         gp.right_joystick_float(x_value_float=rx, y_value_float=ry)
-        
-        lt = float(msg.get("lt", 0.0))
-        rt = float(msg.get("rt", 0.0))
+
+    if len(axes) >= 6:
+        lt = _trigger_to_float(axes[4])
+        rt = _trigger_to_float(axes[5])
         gp.left_trigger_float(value_float=lt)
         gp.right_trigger_float(value_float=rt)
-    else:
-        # Fallback to reading from legacy axes array if present
-        if len(axes) >= 2:
-            lx = _axis_to_float(axes[0])
-            ly = -_axis_to_float(axes[1])
-            gp.left_joystick_float(x_value_float=lx, y_value_float=ly)
-
-        if len(axes) >= 4:
-            rx = _axis_to_float(axes[2])
-            ry = -_axis_to_float(axes[3])
-            gp.right_joystick_float(x_value_float=rx, y_value_float=ry)
-
-        if len(axes) >= 6:
-            lt = _trigger_to_float(axes[4])
-            rt = _trigger_to_float(axes[5])
-            gp.left_trigger_float(value_float=lt)
-            gp.right_trigger_float(value_float=rt)
 
 
 def _apply_w3c_array(gp, btns: list, axes: list):

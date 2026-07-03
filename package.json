@@ -1,6 +1,6 @@
 {
   "name": "NearsecTogether",
-  "version": "3.0.0",
+  "version": "2.0.8",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
   "main": "electron-main.js",

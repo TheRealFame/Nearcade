@@ -9,8 +9,8 @@
   <title>NearsecTogether</title>
 
   <meta property="og:site_name" content="Nearsec Arcade" />
-  <meta property="og:title" content="Join the Session!" />
-  <meta property="og:description" content="Connect instantly to this remote play session via Nearsec Arcade." />
+  <meta property="og:title" content="A player is looking to play!" />
+  <meta property="og:description" content="A player is hosting a peer-to-peer gaming session on Nearsec." />
   <meta property="og:image" content="https://nearsec.cutefame.net/assets/NearsecTogetherLogo.png" />
   <meta name="theme-color" content="#8b5cf6" />
   <meta name="twitter:card" content="summary" />
@@ -579,18 +579,13 @@
       transition: right 0.35s cubic-bezier(0.1, 0.9, 0.2, 1);
       transition-delay: 0.6s;
       z-index: 300;
-    }
-
-    @media (hover: hover) {
-      #nsBar:hover {
-        right: 0;
-        transition-delay: 0s;
-      }
+      pointer-events: none;
     }
 
     #nsBar.open {
       right: 0;
       transition-delay: 0s;
+      pointer-events: auto;
     }
 
     #nsBarInner {
@@ -1670,13 +1665,6 @@
       </button>
 
       <div class="ns-bar-divider"></div>
-      <div class="ns-bar-section">Device API</div>
-      <select id="inputModeSelect" class="ns-bar-btn" style="background:var(--bg);border-color:var(--border2);appearance:none;padding:7px 10px;" onchange="window.updateInputMode && window.updateInputMode(this.value)">
-        <option value="gamepad">Standard Gamepad</option>
-        <option value="guitar">Guitar Hero Controller</option>
-      </select>
-
-      <div class="ns-bar-divider"></div>
       <div class="ns-bar-section">Stream Quality</div>
       <div style="display:flex;gap:4px;padding:0 2px;">
         <button class="ns-bar-btn ns-btn-active" data-bw="auto" onclick="setBandwidthProfile('auto')"
@@ -1864,6 +1852,7 @@
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Decode Lat:</span> <span id="nsDecode">-- ms</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span id="nsLoss">-- %</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span id="nsJitter">-- ms</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Buffer:</span> <span id="nsBuf">--</span></div>
   </div>
 
   <!-- ════ SCRIPTS ════ -->
@@ -2072,6 +2061,19 @@
         clearTimeout(_nsBarTimeout);
       }
     }, { passive: true });
+
+    // ── Keyboard: M to toggle nsBar ──
+    document.addEventListener('keydown', e => {
+      if (e.key === 'm' || e.key === 'M') {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if (nsBar) {
+          const isOpen = nsBar.classList.contains('open');
+          nsBar.classList.toggle('open', !isOpen);
+          if (isOpen) clearTimeout(_nsBarTimeout);
+          else resetNsBarTimeout();
+        }
+      }
+    });
   </script>
 </body>
 

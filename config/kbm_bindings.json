@@ -1,50 +1,72 @@
 {
     "buttons": {
-        "KEY_SPACE": "BTN_A",
-        "KEY_L": "BTN_B",
-        "KEY_J": "BTN_X",
-        "KEY_K": "BTN_Y",
-        "KEY_U": "BTN_TL",
-        "KEY_I": "BTN_TR",
+        "KEY_Z": "BTN_A",
+        "KEY_X": "BTN_B",
+        "KEY_A": "BTN_X",
+        "KEY_S": "BTN_Y",
+        "KEY_1": "BTN_TL",
+        "KEY_2": "BTN_TR",
         "KEY_TAB": "BTN_SELECT",
         "KEY_ENTER": "BTN_START"
     },
     "left_stick": {
-        "KEY_W": {
+        "KEY_UP": {
             "axis": "ABS_Y",
             "val": -32767
         },
-        "KEY_S": {
+        "KEY_DOWN": {
             "axis": "ABS_Y",
             "val": 32767
         },
-        "KEY_A": {
+        "KEY_LEFT": {
             "axis": "ABS_X",
             "val": -32767
         },
-        "KEY_D": {
+        "KEY_RIGHT": {
             "axis": "ABS_X",
+            "val": 32767
+        }
+    },
+    "right_stick": {
+        "KEY_O": {
+            "axis": "ABS_RY",
+            "val": -32767
+        },
+        "KEY_L": {
+            "axis": "ABS_RY",
+            "val": 32767
+        },
+        "KEY_K": {
+            "axis": "ABS_RX",
+            "val": -32767
+        },
+        "KEY_SEMICOLON": {
+            "axis": "ABS_RX",
             "val": 32767
         }
     },
     "dpad": {
-        "KEY_UP": {
+        "KEY_KP5": {
             "axis": "ABS_HAT0Y",
             "val": -1
         },
-        "KEY_DOWN": {
+        "KEY_KP2": {
             "axis": "ABS_HAT0Y",
             "val": 1
         },
-        "KEY_LEFT": {
+        "KEY_KP1": {
             "axis": "ABS_HAT0X",
             "val": -1
         },
-        "KEY_RIGHT": {
+        "KEY_KP3": {
             "axis": "ABS_HAT0X",
             "val": 1
         }
     },
-    "right_stick_mouse": true,
+    "triggers": {
+        "KEY_Q": "LT",
+        "KEY_W": "RT"
+    },
+    "right_stick_mouse": false,
     "right_stick_multiplier": 1500
 }

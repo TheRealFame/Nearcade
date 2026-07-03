@@ -150,11 +150,100 @@ function requestKeyframeFromHost() {
     if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-keyframe', viewerId: typeof myId !== 'undefined' ? myId : null }));
 }
 
+let _nsWaitKeyTimer = null;
+function startNsWaitKeyRetry() {
+    clearInterval(_nsWaitKeyTimer);
+    _nsWaitKeyTimer = setInterval(() => {
+        if (window.nsWaitKey) requestKeyframeFromHost();
+        else { clearInterval(_nsWaitKeyTimer); _nsWaitKeyTimer = null; }
+    }, 1000);
+}
+function stopNsWaitKeyRetry() {
+    if (_nsWaitKeyTimer) { clearInterval(_nsWaitKeyTimer); _nsWaitKeyTimer = null; }
+}
+
 function recoverWebCodecsDecoder() {
     window.nsWaitKey = true;
+    startNsWaitKeyRetry();
     requestKeyframeFromHost();
     try { if (wcDecoder?.state !== 'closed') wcDecoder.close(); } catch (_) { }
     wcDecoder = null;
+    if (_lastWcConfig) {
+        clearTimeout(window._wcRecoverTimer);
+        window._wcRecoverTimer = setTimeout(() => {
+            if (!_lastWcConfig) return;
+            initWebCodecsViewer(_lastWcConfig);
+        }, 500);
+    }
+}
+const WC_MAX_DECODER_QUEUE = 8;
+const WC_HARD_DECODER_QUEUE = 16;
+let _wcFragmentBuf = null;
+let _wcFragmentTotal = 0;
+let _wcFragmentOffset = 0;
+let _wcLastOutputTime = 0;
+let _wcLastPendingCheck = 0;
+let _wcLastFramesDecodedCheck = 0;
+function getWcTotalPending() {
+    const pending = _wcStats.chunksIn - _wcStats.framesDecoded;
+
+    // Fast stall detection: pending grows without any decoded frames
+    if (wcDecoder && wcDecoder.state === 'configured' && _wcStats.framesDecoded > 0) {
+        if (_wcStats.framesDecoded === _wcLastFramesDecodedCheck && pending >= _wcLastPendingCheck + 8) {
+            console.warn('[WebCodecs] Pending ' + pending + ' without decode — requesting keyframe');
+            requestKeyframeFromHost();
+        }
+        // Only update baseline when a frame was actually decoded
+        if (_wcStats.framesDecoded !== _wcLastFramesDecodedCheck) {
+            _wcLastPendingCheck = pending;
+            _wcLastFramesDecodedCheck = _wcStats.framesDecoded;
+        }
+    }
+
+    // Hail Mary: decoder completely silent for 3s
+    if (wcDecoder && wcDecoder.state === 'configured' && _wcStats.framesDecoded > 0 && _wcLastOutputTime > 0) {
+        const elapsed = performance.now() - _wcLastOutputTime;
+        if (elapsed > 3000 && pending > 5) {
+            console.warn('[WebCodecs] Decoder silent ' + elapsed + 'ms — full reset');
+            _wcLastOutputTime = performance.now();
+            recoverWebCodecsDecoder();
+            return 999;
+        }
+    }
+    return pending;
+}
+function shouldDropWebCodecsChunk(isKey) {
+    if (!wcDecoder || wcDecoder.state !== 'configured') return true;
+    const pending = getWcTotalPending();
+    const queueSize = wcDecoder.decodeQueueSize || 0;
+
+    // Severe → reset decoder
+    if (pending > 60) {
+        console.warn(`[WebCodecs] Backlog ${pending} chunks — resetting decoder`);
+        recoverWebCodecsDecoder();
+        return true;
+    }
+    // Moderate → drop deltas + request keyframe
+    if (pending > 30) {
+        if (!isKey) return true;
+        requestKeyframeFromHost();
+        return false;
+    }
+    // Mild → drop deltas only
+    if (pending > 10 && !isKey) return true;
+
+    if (isKey) return false;
+    if (queueSize > WC_HARD_DECODER_QUEUE) {
+        if (!_wcStuckSince) _wcStuckSince = performance.now();
+        else if (performance.now() - _wcStuckSince > 1000) {
+            requestKeyframeFromHost();
+            _wcStuckSince = performance.now();
+        }
+        return true;
+    }
+    _wcStuckSince = 0;
+    if (queueSize > WC_MAX_DECODER_QUEUE) return true;
+    return false;
 }
 let sysAudioCtx = null;
 let nextAudioTime = 0;
@@ -189,6 +278,11 @@ let vadIsTalking = false;
 const USE_WEBCODECS = new URLSearchParams(location.search).get('wc') === '1';
 
 let wcDecoder = null;
+let _videoReceiver = null;
+let _liveVideoEl = null;
+let _lastWcConfig = null;
+let _wcStats = { chunksIn: 0, framesDecoded: 0, fps: 0, _lastFpsTime: 0, _fpsCount: 0, latencies: [], _lastArrival: 0, queueSize: 0 };
+let _wcStuckSince = 0;
 // Pre-wire to the canvas already in index.html so initWebCodecsViewer never
 // creates a duplicate element.
 let wcCanvas = document.getElementById('webcodecs-canvas') || null;
@@ -297,6 +391,7 @@ async function createPC() {
     pc.ontrack = (e) => {
         console.log(`[WebRTC] Received Track: ${e.track.kind}`);
         if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
+        if (e.track.kind === 'video') _videoReceiver = e.receiver;
         if (e.track.kind === 'video') {
             if (USE_WEBCODECS) {
                 // WebCodecs mode: DataChannel is the real renderer.
@@ -322,6 +417,7 @@ async function createPC() {
                 videoEl.muted = true; // Required by Chrome/Safari to allow dynamic autoplay
                 if (!videoEl.srcObject) videoEl.srcObject = new MediaStream();
                 videoEl.srcObject.addTrack(e.track);
+                _liveVideoEl = videoEl;
                 videoEl.onplaying = () => {
                     if (typeof showOverlay === 'function') showOverlay(false);
                     setStatus('');
@@ -332,6 +428,21 @@ async function createPC() {
                     }
                     const overlay = document.getElementById('overlay');
                     if (overlay) overlay.style.backgroundColor = '';
+                    // Per-frame playoutDelayHint enforcement
+                    function _enforceLowLatency(now, metadata) {
+                        if (_videoReceiver && 'playoutDelayHint' in _videoReceiver) {
+                            _videoReceiver.playoutDelayHint = 0;
+                        }
+                        if (videoEl && !videoEl.paused && videoEl.playbackRate > 1.0) {
+                            videoEl.playbackRate = 1.0;
+                        }
+                        if (videoEl && !videoEl.paused) {
+                            videoEl.requestVideoFrameCallback(_enforceLowLatency);
+                        }
+                    }
+                    if ('requestVideoFrameCallback' in videoEl) {
+                        videoEl.requestVideoFrameCallback(_enforceLowLatency);
+                    }
                 };
                 console.log('[WebRTC] Video stream attached to #video');
             }
@@ -362,6 +473,10 @@ async function createPC() {
 
             const askForSync = () => {
                 console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
+                if (!wcDecoder && _lastWcConfig) {
+                    console.log('[WebCodecs] Decoder missing, re-initializing from last config.');
+                    initWebCodecsViewer(_lastWcConfig);
+                }
                 requestKeyframeFromHost();
             };
 
@@ -390,6 +505,29 @@ async function createPC() {
                     // Prevent double-decoding if we are receiving frames from the VPS SFU
                     if (ws && ws.url.includes('/vps')) return;
 
+                    // ── Fragment reassembly ──
+                    const fv = new Uint8Array(e.data);
+                    if (fv[0] === 0xFE) {
+                        const totalSize = new DataView(e.data).getUint32(1, true);
+                        const offset = new DataView(e.data).getUint32(5, true);
+                        const fragData = fv.subarray(9);
+                        if (!_wcFragmentBuf || _wcFragmentTotal !== totalSize) {
+                            _wcFragmentBuf = new Uint8Array(totalSize);
+                            _wcFragmentTotal = totalSize;
+                            _wcFragmentOffset = 0;
+                        }
+                        _wcFragmentBuf.set(fragData, offset);
+                        _wcFragmentOffset += fragData.length;
+                        if (_wcFragmentOffset >= totalSize) {
+                            e.data = _wcFragmentBuf.buffer;
+                            _wcFragmentBuf = null;
+                            _wcFragmentTotal = 0;
+                            _wcFragmentOffset = 0;
+                        } else {
+                            return;
+                        }
+                    }
+
                     if (!wcDecoder || wcDecoder.state !== 'configured') return;
 
                     const view = new DataView(e.data);
@@ -400,12 +538,18 @@ async function createPC() {
                     const chunkData = new Uint8Array(e.data, 9);
 
                     // --- RESILIENCY LAYER ---
-                    if (waitingForKeyframe) {
+                    const nsWait = window.nsWaitKey;
+                    if (waitingForKeyframe || nsWait) {
                         if (!isKey) return;
                         waitingForKeyframe = false;
                         window.nsWaitKey = false;
+                        stopNsWaitKeyRetry();
                         console.log('[WebCodecs] Locked onto keyframe stream.');
                     }
+                    if (shouldDropWebCodecsChunk(isKey)) return;
+
+                    _wcStats.chunksIn++;
+                    _wcStats._lastArrival = performance.now();
 
                     try {
                         const chunk = new EncodedVideoChunk({
@@ -1412,8 +1556,12 @@ async function connect() {
                     if (window.nsWaitKey) {
                         if (!isKey) return;
                         window.nsWaitKey = false;
+                        stopNsWaitKeyRetry();
                         console.log('[WebCodecs/VPS] Locked onto keyframe.');
                     }
+                    if (shouldDropWebCodecsChunk(isKey)) return;
+                    _wcStats.chunksIn++;
+                    _wcStats._lastArrival = performance.now();
                     const view = new DataView(e.data);
                     const timestamp = view.getFloat64(1, true);
                     const chunkData = new Uint8Array(e.data, 9);
@@ -1777,6 +1925,28 @@ async function connect() {
             document.getElementById('pinInput').value = '';
             enteredPin = ''; stopReconnect = false; return;
         }
+        // Full WebCodecs state reset — ensures clean start on reconnect
+        stopNsWaitKeyRetry();
+        window.nsWaitKey = false;
+        if (wcDecoder) {
+            try { if (wcDecoder.state !== 'closed') wcDecoder.close(); } catch (_) { }
+            wcDecoder = null;
+        }
+        _wcStats.chunksIn = 0;
+        _wcStats.framesDecoded = 0;
+        _wcLastPendingCheck = 0;
+        _wcLastFramesDecodedCheck = 0;
+        _wcLastOutputTime = 0;
+        _wcStats.fps = 0;
+        _wcStats._lastFpsTime = 0;
+        _wcStats._fpsCount = 0;
+        _wcStats.latencies = [];
+        _wcStats._lastArrival = 0;
+        _wcStats.queueSize = 0;
+        _wcStuckSince = 0;
+        _wcFragmentBuf = null;
+        _wcFragmentTotal = 0;
+        _wcFragmentOffset = 0;
         setTimeout(connect, 2000);
     };
 }
@@ -1898,6 +2068,7 @@ acquireWakeLock();
 // ── STATS HUD ─────────────────────────────────────────────────────────────────
 const statsHud = document.getElementById('statsHud');
 let prevBytesReceived = 0, prevStatsTime = 0, prevJitterDelay = 0, prevEmitted = 0;
+let _wcPrevBytes = 0, _wcPrevTime = 0;
 async function updateStats() {
     if (!pc) return;
     try {
@@ -1921,32 +2092,84 @@ async function updateStats() {
                 }
             }
         }
-        if (rtt !== null) {
-            statsHud.style.display = 'flex';
+        if (USE_WEBCODECS) {
+            for (const r of stats.values()) {
+                if (r.type === 'data-channel' && r.label === 'webcodecs') {
+                    if (_wcPrevTime && r.bytesReceived > _wcPrevBytes) {
+                        kbps = (((r.bytesReceived - _wcPrevBytes) * 8) / ((r.timestamp - _wcPrevTime) / 1000) / 1000).toFixed(0);
+                    }
+                    _wcPrevBytes = r.bytesReceived || 0;
+                    _wcPrevTime = r.timestamp || 0;
+                }
+            }
+        }
+        // Always show HUD when connected
+        statsHud.style.display = 'flex';
+        const parts = [];
 
-            // ── Quality tier from RTT + packet loss ──────────────────────────
+        // ── Ping ──
+        if (rtt !== null) {
             const rttN = parseInt(rtt);
             const lossRatio = packetsReceived > 0 ? (packetsLost / (packetsLost + packetsReceived)) * 100 : 0;
-
-            let bars, colour;
-            if (rttN < 40 && lossRatio < 1) { bars = '▪▪▪▪'; colour = '#4ade80'; } // excellent — green
-            else if (rttN < 80 && lossRatio < 3) { bars = '▪▪▪○'; colour = '#a3e635'; } // good — lime
-            else if (rttN < 140 && lossRatio < 6) { bars = '▪▪○○'; colour = '#facc15'; } // fair — yellow
-            else if (rttN < 220 && lossRatio < 12) { bars = '▪○○○'; colour = '#fb923c'; } // poor — orange
-            else { bars = '○○○○'; colour = '#f87171'; } // bad  — red
-
-            const parts = [
-                `<span style="color:${colour};letter-spacing:1px">${bars}</span>`,
-                `<span style="color:${colour}">${rtt}ms</span>`,
-            ];
-            if (jitter) parts.push(`${jitter}ms buf`);
-            if (kbps) parts.push(`${kbps}kbps`);
-
-            statsHud.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ');
+            const colour = rttN < 40 && lossRatio < 1 ? '#4ade80'
+                : rttN < 80 && lossRatio < 3 ? '#a3e635'
+                : rttN < 140 && lossRatio < 6 ? '#facc15'
+                : rttN < 220 && lossRatio < 12 ? '#fb923c'
+                : '#f87171';
+            parts.push(`<span style="color:${colour}">${rtt}ms</span>`);
         }
+
+        // ── WebCodecs Latency + Buffer ──
+        if (_wcStats.framesDecoded > 0) {
+            const pending = _wcStats.chunksIn - _wcStats.framesDecoded;
+            parts.push(`${_wcStats.fps}fps`);
+            parts.push(`buf:${pending}`);
+            parts.push(`q:${_wcStats.queueSize}`);
+            if (_wcStats.latencies.length > 0) {
+                const avg = _wcStats.latencies.reduce((a, b) => a + b, 0) / _wcStats.latencies.length;
+                parts.push(`${avg.toFixed(0)}ms`);
+            }
+        } else if (jitter) {
+            parts.push(`${jitter}ms buf`);
+        }
+        if (kbps) parts.push(`${kbps}kbps`);
+
+        statsHud.innerHTML = parts.join(' <span style="opacity:0.4">·</span> ')
     } catch { }
 }
-setInterval(updateStats, 2000);
+setInterval(updateStats, 500);
+
+// ── LOW-LATENCY ENFORCEMENT ──
+let _prevJitterBufMs = 0;
+setInterval(async () => {
+    if (!pc || pc.connectionState !== 'connected') return;
+    pc.getReceivers().forEach(r => {
+        if (r.track?.kind === 'video' && 'playoutDelayHint' in r) {
+            r.playoutDelayHint = 0;
+        }
+    });
+    try {
+        const stats = await pc.getStats();
+        for (const r of stats.values()) {
+            if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                const emitted = r.jitterBufferEmittedCount || 1;
+                const delay = r.jitterBufferDelay || 0;
+                const bufMs = (delay / emitted) * 1000;
+                if (_liveVideoEl && !_liveVideoEl.paused) {
+                    if (bufMs < 5) _liveVideoEl.playbackRate = 1.0;
+                    else if (bufMs < 15) _liveVideoEl.playbackRate = 1.02;
+                    else if (bufMs < 30) _liveVideoEl.playbackRate = 1.08;
+                    else if (bufMs < 50) _liveVideoEl.playbackRate = 1.15;
+                    else _liveVideoEl.playbackRate = 1.25;
+                }
+                if (bufMs > 40 && bufMs > _prevJitterBufMs + 5) {
+                    requestKeyframeFromHost();
+                }
+                _prevJitterBufMs = bufMs;
+            }
+        }
+    } catch (_) {}
+}, 500);
 
 // ── FULLSCREEN ────────────────────────────────────────────────────────────────
 function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
@@ -1986,6 +2209,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── WEBCODECS VIEWER INITIALIZER ──
 function initWebCodecsViewer(config) {
     console.log('[WebCodecs] Received Host Configuration:', config);
+    _lastWcConfig = config;
 
     const videoEl = document.getElementById('video');
     if (videoEl) videoEl.style.display = 'none';
@@ -2041,37 +2265,77 @@ function initWebCodecsViewer(config) {
         } catch (_) { }
         wcDecoder = null;
     }
+    // Reset stats to flush stale backlog from previous session
+    _wcStats.chunksIn = 0;
+    _wcStats.framesDecoded = 0;
+    _wcLastPendingCheck = 0;
+    _wcLastFramesDecodedCheck = 0;
+    _wcLastOutputTime = 0;
 
     // Reset the global keyframe gate so the new decoder waits for a clean
     // keyframe before attempting to decode any delta frames.
     window.nsWaitKey = true;
+    startNsWaitKeyRetry();
 
     let _wcFirstFrame = true;
 
+    let _wcFirstFrame = true;
+    let _wcPendingFrame = null;
+    let _wcRenderScheduled = false;
+
+    function renderLatestWebCodecsFrame() {
+        _wcRenderScheduled = false;
+        const frame = _wcPendingFrame;
+        _wcPendingFrame = null;
+        if (!frame) return;
+        const dw = frame.displayWidth || frame.codedWidth;
+        const dh = frame.displayHeight || frame.codedHeight;
+        if (wcCanvas.width !== dw || wcCanvas.height !== dh) {
+            wcCanvas.width = dw;
+            wcCanvas.height = dh;
+            wcCtx = wcCanvas.getContext('2d', { alpha: false });
+        }
+        if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+        frame.close();
+        if (_wcFirstFrame) {
+            _wcFirstFrame = false;
+            if (typeof showOverlay === 'function') showOverlay(false);
+            if (typeof setStatus === 'function') setStatus('Live', true);
+            if (spinner) spinner.style.display = 'none';
+            if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
+                _swapOverlayEl.style.display = 'none';
+            }
+            const overlay = document.getElementById('overlay');
+            if (overlay) overlay.style.backgroundColor = '';
+        }
+    }
+
     wcDecoder = new VideoDecoder({
         output: (frame) => {
-            // BUG 2/5 FIX: Use hardware codedWidth, and re-acquire the context after resize!
-            if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
-                wcCanvas.width = frame.codedWidth;
-                wcCanvas.height = frame.codedHeight;
-                wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            _wcLastOutputTime = performance.now();
+            _wcStats.framesDecoded++;
+            _wcStats._fpsCount++;
+            const now = performance.now();
+            if (_wcStats._lastArrival > 0) {
+                const lat = now - _wcStats._lastArrival;
+                _wcStats.latencies.push(lat);
+                if (_wcStats.latencies.length > 60) _wcStats.latencies.shift();
             }
-            if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
-            frame.close();
-
-            if (_wcFirstFrame) {
-                _wcFirstFrame = false;
-                if (typeof showOverlay === 'function') showOverlay(false);
-                if (typeof setStatus === 'function') setStatus('Live', true);
-                if (spinner) spinner.style.display = 'none';
-                if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
-                    _swapOverlayEl.style.display = 'none';
-                }
-                const overlay = document.getElementById('overlay');
-                if (overlay) overlay.style.backgroundColor = '';
+            if (now - _wcStats._lastFpsTime >= 500) {
+                _wcStats.fps = Math.round((_wcStats._fpsCount / (now - _wcStats._lastFpsTime)) * 1000);
+                _wcStats._fpsCount = 0;
+                _wcStats._lastFpsTime = now;
+            }
+            _wcStats.queueSize = wcDecoder.decodeQueueSize || 0;
+            if (_wcPendingFrame) _wcPendingFrame.close();
+            _wcPendingFrame = frame;
+            if (!_wcRenderScheduled) {
+                _wcRenderScheduled = true;
+                requestAnimationFrame(renderLatestWebCodecsFrame);
             }
         },
         error: (e) => {
+            if (_wcPendingFrame) { _wcPendingFrame.close(); _wcPendingFrame = null; }
             console.error('[WebCodecs] Decoder Error:', e);
             recoverWebCodecsDecoder();
         }
@@ -2080,11 +2344,17 @@ function initWebCodecsViewer(config) {
     const decoderConfig = {
         codec: config.codec,
         codedWidth: config.codedWidth,
-        codedHeight: config.codedHeight
+        codedHeight: config.codedHeight,
+        optimizeForLatency: true
     };
 
     if (config.description) decoderConfig.description = new Uint8Array(config.description);
-    wcDecoder.configure(decoderConfig);
+    try {
+        wcDecoder.configure(decoderConfig);
+    } catch (_) {
+        delete decoderConfig.optimizeForLatency;
+        wcDecoder.configure(decoderConfig);
+    }
     console.log('[WebCodecs] Hardware Decoder Ready!');
 }
 
@@ -2185,5 +2455,23 @@ window.startNetStats = function() {
                 if(el) el.textContent = (report.currentRoundTripTime * 1000).toFixed(0) + ' ms';
             }
         });
+        if (_lastWcConfig) {
+            const elCodec = document.getElementById('nsCodec');
+            if (elCodec) elCodec.textContent = _lastWcConfig.codec || '--';
+            const elFps = document.getElementById('nsFps');
+            if (elFps) elFps.textContent = _wcStats.fps != null ? _wcStats.fps : '--';
+            const elRes = document.getElementById('nsRes');
+            if (elRes) elRes.textContent = `${_lastWcConfig.codedWidth || '?'}x${_lastWcConfig.codedHeight || '?'}`;
+            const elDecode = document.getElementById('nsDecode');
+            if (elDecode && _wcStats.latencies.length > 0) {
+                const avg = _wcStats.latencies.reduce((a, b) => a + b, 0) / _wcStats.latencies.length;
+                elDecode.textContent = avg.toFixed(1) + ' ms';
+            }
+            const elBuf = document.getElementById('nsBuf');
+            if (elBuf) {
+                const pending = _wcStats.chunksIn - _wcStats.framesDecoded;
+                elBuf.textContent = pending + ' chunks';
+            }
+        }
     }, 1000);
 };

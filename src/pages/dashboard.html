@@ -634,20 +634,12 @@ Permission is granted to anyone to use this software for any purpose, subject to
               </div>
             </div>
           </div>
-          <div class="setting-row" id="settingRowUISelect">
+          <div class="setting-row" onclick="toggleOldUI()" id="settingRowOldUI">
             <div class="setting-info">
-              <h4>Host Dashboard Design</h4>
-              <p>Select the layout for the Host screen. Selecting Custom prompts for a file.</p>
+              <h4>Use Classic Host UI</h4>
+              <p>Switches the host dashboard to the legacy layout.</p>
             </div>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <select id="hostUISelect" onchange="setHostUI(this.value)" style="padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px; font-family: inherit;">
-                <option value="default">Default</option>
-                <option value="playground">Playground</option>
-                <option value="minimal">Minimal</option>
-                <option value="custom">Custom</option>
-              </select>
-              <input type="file" id="customUIFile" accept=".html" style="display:none;" onchange="uploadCustomUI(this)">
-            </div>
+            <div class="toggle" id="settingTrackOldUI"><div class="toggle-thumb"></div></div>
           </div>
           <div class="setting-row" onclick="toggleAutoHost()" id="settingRowAutoHost" style="margin-top:8px;">
             <div class="setting-info">
@@ -836,15 +828,6 @@ Permission is granted to anyone to use this software for any purpose, subject to
       if(document.getElementById('settingHostName')) {
         document.getElementById('settingHostName').value = appConfig.hostName || localStorage.getItem('ns_name') || '';
       }
-      
-      const uiSel = document.getElementById('hostUISelect');
-      if (uiSel) {
-        let savedUI = localStorage.getItem('ns_ui_version') || 'default';
-        if (savedUI === 'new') savedUI = 'default';
-        if (savedUI === 'old') savedUI = 'minimal';
-        uiSel.value = savedUI;
-      }
-      
       document.getElementById('settingTrackRumble')?.classList.toggle('on', appConfig.rumble !== false);
       document.getElementById('settingTrackTray')?.classList.toggle('on', appConfig.tray !== false);
       document.getElementById('settingTrackCheckForUpdates')?.classList.toggle('on', appConfig.checkForUpdates !== false);
@@ -1241,53 +1224,23 @@ Permission is granted to anyone to use this software for any purpose, subject to
 
     function launchHostSession() {
       // Force direct storage read to prevent race condition with appConfig caching
-      let uiVer = localStorage.getItem('ns_ui_version') || 'default';
-      // Migrate old setting format if present
-      if (uiVer === 'new') uiVer = 'default';
-      if (uiVer === 'old') uiVer = 'minimal';
+      const uiVer = localStorage.getItem('ns_ui_version') === 'old' ? 'old' : 'new';
 
       if (window.electronAPI && window.electronAPI.openHost) {
         window.electronAPI.openHost(uiVer);
       } else {
         const port = _getServerPort();
-        let path = '/host';
-        if (uiVer === 'minimal') path = '/host-minimal';
-        else if (uiVer === 'playground') path = '/host-playground';
-        else if (uiVer === 'custom') path = '/host-custom';
-        window.location.href = 'http://localhost:' + port + path;
+        window.location.href = 'http://localhost:' + port + (uiVer === 'old' ? '/old_host' : '/host');
       }
     }
 
     // Toggle Functions
-    function setHostUI(val) {
-      if (val === 'custom') {
-        document.getElementById('customUIFile').click();
-      }
-      localStorage.setItem('ns_ui_version', val);
-      appConfig.uiVersion = val;
+    function toggleOldUI() {
+      const track = document.getElementById('settingTrackOldUI');
+      const isOld = track.classList.toggle('on');
+      localStorage.setItem('ns_ui_version', isOld ? 'old' : 'new');
+      appConfig.useOldUI = isOld;
       if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
-    }
-    
-    function uploadCustomUI(input) {
-      if (!input.files || !input.files[0]) return;
-      const file = input.files[0];
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const content = e.target.result;
-        fetch('http://localhost:' + _getServerPort() + '/api/save-custom-host', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ html: content })
-        }).then(res => {
-          if (res.ok) alert('Custom Host UI successfully uploaded!');
-          else alert('Failed to save Custom UI');
-        }).catch(err => {
-          console.error(err);
-          alert('Error uploading Custom UI');
-        });
-      };
-      reader.readAsText(file);
-      input.value = ''; // Reset so they can re-upload
     }
 
     function toggleAutoHost() {

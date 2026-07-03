@@ -50,12 +50,12 @@ if ! command -v turnserver &> /dev/null; then
             sudo "$PROJECT_ROOT/bin/setup_turn.sh"
             
             # Auto-populate the .env file with the VPS public IP
-            PUBLIC_IP=$(curl -s https://api.ipify.org || echo "YOUR_VPS_IP")
-            sed -i "s|^STUN_URL=.*|STUN_URL=stun:${PUBLIC_IP}:3478|" "$PROJECT_ROOT/.env"
-            sed -i "s|^TURN_URL=.*|TURN_URL=turn:${PUBLIC_IP}:3478|" "$PROJECT_ROOT/.env"
+            PUBLIC_IP=\$(curl -s https://api.ipify.org || echo "YOUR_VPS_IP")
+            sed -i "s|^STUN_URL=.*|STUN_URL=stun:\${PUBLIC_IP}:3478|" "$PROJECT_ROOT/.env"
+            sed -i "s|^TURN_URL=.*|TURN_URL=turn:\${PUBLIC_IP}:3478|" "$PROJECT_ROOT/.env"
             sed -i "s|^TURN_USERNAME=.*|TURN_USERNAME=nearsec|" "$PROJECT_ROOT/.env"
             sed -i "s|^TURN_CREDENTIAL=.*|TURN_CREDENTIAL=nearsec_turn_secret_change_me|" "$PROJECT_ROOT/.env"
-            echo "      .env file automatically configured with IP $PUBLIC_IP."
+            echo "      .env file automatically configured with IP \$PUBLIC_IP."
         else
             echo "      Error: bin/setup_turn.sh not found."
         fi

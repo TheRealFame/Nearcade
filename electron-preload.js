@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── CRITICAL FIX: Secure IPC routing for screen capture ──
   getWindowSources: () => ipcRenderer.invoke('get-window-sources'),
+  setCaptureSource: (sourceId) => ipcRenderer.send('set-capture-source', sourceId),
 
   // ── Window Chrome & Discord ──
   minimize:                       () => ipcRenderer.send('window-minimize'),
