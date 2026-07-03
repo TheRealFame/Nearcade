@@ -2178,7 +2178,9 @@ async function main() {
 
             // If viewer's primary slot is kbm_emulated, suppress any extra gamepad devices
             // (e.g. touch padIndex:99) to prevent a second virtual gamepad appearing in the OS.
-            if (msg.type === "gamepad" && padIdx !== 0) {
+            // EXCEPTION: padIdx >= 100 are native XInput pads from read_gamepads.py via Electron IPC
+            // and must always pass through regardless of the primary slot's input mode.
+            if (msg.type === "gamepad" && padIdx !== 0 && padIdx < 100) {
               const primaryPerms = inputPerms.get(id + '_0') || {};
               const primaryMode = primaryPerms.gp && primaryPerms.kb ? 'kbm_emulated' : 'gamepad';
               if (primaryMode === 'kbm_emulated') return;

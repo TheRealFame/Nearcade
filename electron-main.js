@@ -32,32 +32,32 @@ const USER_CONTROLLERS = path.join(CONFIG_DIR, 'controllers.json');
 
 // ── SESSION FILE LOGGER ──
 const LOG_FILE = path.join(CONFIG_DIR, 'latest.log');
-try { 
+try {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(LOG_FILE, `--- Nearsec Session Log (${new Date().toISOString()}) ---\n`); 
-} catch (e) {}
+  fs.writeFileSync(LOG_FILE, `--- Nearsec Session Log (${new Date().toISOString()}) ---\n`);
+} catch (e) { }
 
 function appendLog(msg) {
-  try { fs.appendFileSync(LOG_FILE, msg + '\n'); } catch (e) {}
+  try { fs.appendFileSync(LOG_FILE, msg + '\n'); } catch (e) { }
 }
 
 const _nativeLog = console.log.bind(console);
 const _nativeErr = console.error.bind(console);
 
-console.log = function(...args) {
+console.log = function (...args) {
   _nativeLog(...args);
   const s = args.map(a => {
     if (typeof a === 'string') return a;
-    try { return JSON.stringify(a); } catch(_) { return String(a); }
+    try { return JSON.stringify(a); } catch (_) { return String(a); }
   }).join(' ');
   appendLog(`[LOG] ${s}`);
 };
 
-console.error = function(...args) {
+console.error = function (...args) {
   _nativeErr(...args);
   const s = args.map(a => {
     if (typeof a === 'string') return a;
-    try { return JSON.stringify(a); } catch(_) { return String(a); }
+    try { return JSON.stringify(a); } catch (_) { return String(a); }
   }).join(' ');
   appendLog(`[ERR] ${s}`);
 };
@@ -152,7 +152,8 @@ if (isArcadeWorker && process.platform === 'linux') {
 } else if (process.platform === 'linux') {
   const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
     (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
-    process.env.SteamDeck === '1' || process.env.SteamGamepadUI;
+    process.env.SteamDeck === '1' ||
+    process.env.SteamGamepadUI === '1';
 
   if (isGamescope) {
     // Force X11/XWayland under Gamescope to prevent Electron crashes with native Wayland
@@ -286,10 +287,10 @@ function startServer() {
 
     serverCore = require('./src/scripts/server.js');
     const _appLog = console.log.bind(console);
-    
+
     // We must safely wrap whatever console.log server.js just created, 
     // and restore IT, not the original Node.js one.
-    const _serverLog = console.log; 
+    const _serverLog = console.log;
     console.log = function (...args) {
       _serverLog(...args);
       const s = args.join(' ');
@@ -308,7 +309,8 @@ let win = null;
 let tray = null;
 const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
   (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
-  process.env.SteamDeck === '1' || process.env.SteamGamepadUI;
+  process.env.SteamDeck === '1' ||
+  process.env.SteamGamepadUI === '1';
 
 async function createWindow() {
   const port = await startServer();
@@ -368,7 +370,24 @@ async function createWindow() {
     }, 1000);
   });
 
-
+  // ── Dashboard Button Injection ──
+  win.webContents.on('did-finish-load', () => {
+    const currentURL = win.webContents.getURL();
+    if (currentURL.includes('/old_host')) {
+      win.webContents.executeJavaScript(`
+      if (!document.getElementById('ns-dash-btn') && window.electronAPI) {
+        const btn = document.createElement('button');
+        btn.id = 'ns-dash-btn';
+        btn.innerHTML = '← Dashboard';
+        btn.style.cssText = 'position:fixed;bottom:24px;left:0;opacity:0.8;z-index:999999;padding:12px 20px;background:#141414;color:#aaa;border:1px solid #252525;border-left:none;border-radius:0 8px 8px 0;font-family:monospace;font-weight:bold;cursor:pointer;transition:all 0.2s;';
+        btn.onmouseover = () => { btn.style.opacity='1'; btn.style.color='#c084fc'; btn.style.borderColor='#c084fc'; };
+        btn.onmouseleave = () => { btn.style.opacity='0.8'; btn.style.color='#aaa'; btn.style.borderColor='#252525'; };
+        btn.onclick = () => window.electronAPI.backToDashboard();
+        document.body.appendChild(btn);
+      }
+      `);
+    }
+  });
 
   win.webContents.session.setPermissionCheckHandler(() => true);
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
@@ -536,7 +555,7 @@ async function createWindow() {
     if (typeof cfg.vpsEnabled !== 'undefined') settings.vpsEnabled = !!cfg.vpsEnabled;
     if (typeof cfg.vpsUrl !== 'undefined') settings.vpsUrl = String(cfg.vpsUrl).slice(0, 512);
     if (typeof cfg.vpsMasterKey !== 'undefined') settings.vpsMasterKey = String(cfg.vpsMasterKey).slice(0, 256);
-    
+
     saveSettings(settings);
     return {
       vpsEnabled: !!settings.vpsEnabled,
@@ -604,15 +623,15 @@ async function createWindow() {
     else if (os.platform() === 'linux') {
       let scriptPath = path.join(__dirname, 'bin', 'linux_setup.sh');
       let iconPath = path.join(__dirname, 'assets', 'NearsecTogetherLogo.png');
-      
+
       // If running from an AppImage or built executable, extraResources places 'bin' directly in resourcesPath
       if (__dirname.includes('app.asar')) {
         scriptPath = path.join(process.resourcesPath, 'bin', 'linux_setup.sh');
         iconPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'NearsecTogetherLogo.png');
       }
-      
+
       try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
-      
+
       const wrapperPath = path.join(os.tmpdir(), 'nearsec_setup_wrapper.sh');
       const statusFile = path.join(os.tmpdir(), 'nearsec_setup_status');
 
@@ -660,18 +679,16 @@ async function createWindow() {
   ipcMain.handle('get-app-version', () => {
     const pkgPath = path.join(__dirname, 'package.json');
     let version = '1.0.0';
-    try { version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version; } catch (_) {}
+    try { version = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version; } catch (_) { }
     let commit = '';
-    try { commit = fs.readFileSync(path.join(__dirname, 'commit.txt'), 'utf8').trim().substring(0, 7); } catch (_) {}
+    try { commit = fs.readFileSync(path.join(__dirname, 'commit.txt'), 'utf8').trim().substring(0, 7); } catch (_) { }
     return { version, commit };
   });
 
   // FIX #7 / openHost: version param forwarded correctly from preload
   ipcMain.on('open-host', (event, version) => {
-    let route = '/host';
-    if (version === 'minimal' || version === 'old') route = '/host-minimal';
-    else if (version === 'playground') route = '/host-playground';
-    else if (version === 'custom') route = '/host-custom';
+    // FIX #7: version param ('new' | 'old') is now forwarded from preload
+    const route = version === 'old' ? '/old_host' : '/host';
     const captureParams = [];
     if (isWebCodecs) captureParams.push('wc=1');
     if (isFFmpegCapture) captureParams.push('ffmpeg=1');
@@ -738,7 +755,7 @@ async function createWindow() {
   // ── Discord RPC ──
   let rpc = null;
   const DiscordRPC = require('discord-rpc');
-  
+
   ipcMain.on('discord-set-activity', (event, activity) => {
     if (!settings.discordRPC) return;
     if (!rpc) {
@@ -747,19 +764,6 @@ async function createWindow() {
       rpc.on('ready', () => {
         console.log('[Discord] RPC Ready');
         rpc.setActivity(activity).catch(console.error);
-        try {
-          rpc.subscribe('ACTIVITY_JOIN', (args) => {
-            console.log('[Discord] ACTIVITY_JOIN:', args);
-            if (args && args.secret && win && !win.isDestroyed()) {
-              let url = args.secret;
-              let viewerUrl = `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(url)}`;
-              win.loadURL(viewerUrl);
-              if (win.isMinimized()) win.restore();
-              win.show();
-              win.focus();
-            }
-          });
-        } catch(e) { console.error('[Discord] Subscribe err:', e); }
       });
       rpc.login({ clientId: settings.discordClientId }).catch(err => {
         console.error('[Discord] login failed:', err.message);
@@ -797,14 +801,14 @@ app.whenReady().then(() => {
       const { autoUpdater } = require('electron-updater');
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
-      
+
       autoUpdater.on('update-downloaded', (info) => {
         console.log('[electron] Update downloaded:', info.version);
         if (win && !win.isDestroyed()) {
           win.webContents.send('update-ready', info.version);
         }
       });
-      
+
       autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('[electron] Auto-update check failed:', e));
     } catch (e) {
       console.error('[electron] autoUpdater error:', e);

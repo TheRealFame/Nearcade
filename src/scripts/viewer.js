@@ -1173,7 +1173,7 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
             maybeShowControllerGuide();
         } else if (msg.type === 'gamepad_state') {
             const vIndex = msg.index + 100;
-            const state = { type: 'gamepad', padIndex: vIndex, axes: msg.state.axes, buttons: msg.state.buttons };
+            const state = { type: 'gamepad', viewerId: myId, pad_id: myId + '_' + vIndex, padIndex: vIndex, axes: msg.state.axes, buttons: msg.state.buttons };
             const str = JSON.stringify(state);
             const now = Date.now();
             const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
@@ -1193,7 +1193,11 @@ window.updateInputMode = function(val) {
 
 function pollGamepad() {
     if (!gpPolling) return;
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    
+    // If native Python backends are supplying inputs, ignore browser Gamepad API to prevent ghost inputs
+    if (knownNativePads.length > 0) pads = [];
+
     const now = Date.now();
     
     // 1. Find the best device (Standard Gamepad > Any Gamepad > Touch)

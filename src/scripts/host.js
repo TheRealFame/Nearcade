@@ -503,7 +503,8 @@ async function fetchGameThumbnail(gameTitle) {
 }
 
 function preferVideoCodec(pc) {
-    const caps = RTCRtpSender.getCapabilities?.('video');
+    // The WebRTC spec requires setCodecPreferences to receive codecs from RTCRtpReceiver, not RTCRtpSender
+    const caps = RTCRtpReceiver.getCapabilities?.('video');
     if (!caps || !caps.codecs) return null;
     const val = document.getElementById('codecSelect').value;
 
@@ -980,6 +981,9 @@ const _micTitles = [
 function renderRoster(list) {
     const c = document.getElementById('roster');
     const o = document.getElementById('rosterEmpty');
+    const overlayC = document.getElementById('rosterOverlayList');
+    const overlayO = document.getElementById('rosterOverlayEmpty');
+
     if (!c || !o) return;
     
     const controllers = list;
@@ -997,10 +1001,14 @@ function renderRoster(list) {
     if (controllers.length === 0) {
         c.innerHTML = '';
         o.style.display = 'block';
+        if (overlayC) overlayC.innerHTML = '';
+        if (overlayO) overlayO.style.display = 'block';
         return;
     }
     o.style.display = 'none';
     c.innerHTML = '';
+    if (overlayO) overlayO.style.display = 'none';
+    if (overlayC) overlayC.innerHTML = '';
 
     controllers.forEach((v, index) => {
         const r = document.createElement('div');
@@ -1065,8 +1073,21 @@ function renderRoster(list) {
         ${v.id === 'host_0' ? '' : `<button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>`}
         `;
         c.appendChild(r);
+
+        if (overlayC && index < 4) {
+            const r2 = document.createElement('div');
+            r2.className = r.className;
+            r2.draggable = r.draggable;
+            r2.dataset.id = r.dataset.id;
+            r2.style.cssText = r.style.cssText;
+            r2.innerHTML = r.innerHTML
+                .replace(`id="icon-${v.id}"`, `id="overlay-icon-${v.id}"`)
+                .replace(`id="mic-btn-${v.id}"`, `id="overlay-mic-btn-${v.id}"`);
+            overlayC.appendChild(r2);
+        }
     });
     attachDragDrop(c);
+    if (overlayC) attachDragDrop(overlayC);
 }
 
 // ── 4-STATE MIC CYCLE ─────────────────────────────────────────────────────────
@@ -1106,6 +1127,11 @@ function cycleViewerMic(viewerId) {
     if (btn) {
         btn.innerHTML = _micSvg(s.state);
         btn.title     = _micTitles[s.state];
+    }
+    const overlayBtn = document.getElementById('overlay-mic-btn-' + viewerId);
+    if (overlayBtn) {
+        overlayBtn.innerHTML = _micSvg(s.state);
+        overlayBtn.title     = _micTitles[s.state];
     }
 }
 
