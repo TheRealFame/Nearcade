@@ -2061,6 +2061,7 @@ async function connect() {
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
+                    if (enabledExp.includes('vr')) html += '<option value="vr">VR Headset / WebXR</option>';
                     
                     select.innerHTML = html;
                     

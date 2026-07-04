@@ -50,6 +50,17 @@
           </div>
         </div>
 
+        <div class="ctrl-modal-row" id="settingRowAllowVR" onclick="toggleAppSetting('allowVR'); if(typeof sendCtrlSettings === 'function') sendCtrlSettings();"
+          style="margin-top:8px;">
+          <div class="ctrl-toggle-track" id="settingTrackAllowVR">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Enable Experimental VR</div>
+            <div class="ctrl-row-desc">Allow viewers to connect using WebXR headsets. Requires a compatible VR backend running.</div>
+          </div>
+        </div>
+
         <div
           style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
           Audio Capture</div>

@@ -1617,6 +1617,7 @@ async function main() {
             global.hybridInputActive = msg.hybridInput;
             global.touchLayout = msg.touchLayout || 'default';
             global.enableMotion = !!msg.enableMotion;
+            global.allowVR = !!msg.allowVR;
             global.expDevices = msg.expDevices || [];
 
             // Update the orchestrator's global default FIRST (no viewerId = set global default),
@@ -1627,7 +1628,7 @@ async function main() {
             });
 
             // Broadcast to viewers so they update their touch layout
-            broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion, expDevices: global.expDevices }));
+            broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion, allowVR: global.allowVR, expDevices: global.expDevices }));
 
             console.log("[host] ctrl-settings: forceXboxOne=%s enableDualShock=%s enableMotion=%s hybrid=%s ctrlType=%s touchLayout=%s",
               !!msg.forceXboxOne, !!msg.enableDualShock, !!msg.enableMotion, !!msg.hybridInput, global.currentCtrlType, global.touchLayout);
@@ -2208,6 +2209,12 @@ async function main() {
             msg.pad_id = rosterId;
             const norm = normalizeGamepadMsg(msg);
             if (norm) toUinput(norm);
+            return;
+          }
+
+          const expTypes = ['tablet', 'vr', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          if (expTypes.includes(msg.type)) {
+            experimentalDriver.send(msg);
             return;
           }
         } catch { }
