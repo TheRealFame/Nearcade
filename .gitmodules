@@ -1,0 +1,3 @@
+[submodule "src/sidecar/input_backends/experimental/steamvr_driver/openvr"]
+	path = src/sidecar/input_backends/experimental/steamvr_driver/openvr
+	url = https://github.com/ValveSoftware/openvr.git

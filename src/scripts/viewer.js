@@ -183,18 +183,45 @@ let vadTalkingTimer = null;
 let vadIsTalking = false;
 // ─────────────────────────────────────────────────────────────────────────────
 // ── WebCodecs Globals ──
-// USE_WEBCODECS: true when launched with --webcodecs flag (?wc=1 in URL).
+// USE_WEBCODECS: true when launched with --webcodecs flag (?wc=1 or ?wc=2 in URL).
 // In this mode the DataChannel pipeline is the primary renderer; the WebRTC
 // video track is still received (for timing / signalling parity) but is
 // immediately muted and never shown.
-const USE_WEBCODECS = new URLSearchParams(location.search).get('wc') === '1';
+const _wcFlag = new URLSearchParams(location.search).get('wc');
+const USE_WEBCODECS = _wcFlag === '1' || _wcFlag === '2';
+const CUSTOM_WEBCODECS = _wcFlag === '2';
 
 let wcDecoder = null;
 // Pre-wire to the canvas already in index.html so initWebCodecsViewer never
 // creates a duplicate element.
 let wcCanvas = document.getElementById('webcodecs-canvas') || null;
-let wcCtx = wcCanvas ? wcCanvas.getContext('2d', { alpha: false }) : null;
-
+let wcCtx = null;
+let wcGlTexture = null;
+function _setupWebGL(gl) {
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, 'attribute vec2 p; attribute vec2 t; varying vec2 v; void main(){gl_Position=vec4(p,0,1);v=t;}');
+    gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, 'precision mediump float; uniform sampler2D s; varying vec2 v; void main(){gl_FragColor=texture2D(s,v);}');
+    gl.compileShader(fs);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,0,1, 1,-1,1,1, -1,1,0,0, 1,1,1,0]), gl.STATIC_DRAW);
+    const pLoc = gl.getAttribLocation(prog, 'p'), tLoc = gl.getAttribLocation(prog, 't');
+    gl.enableVertexAttribArray(pLoc); gl.enableVertexAttribArray(tLoc);
+    gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(tLoc, 2, gl.FLOAT, false, 16, 8);
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    return tex;
+}
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
 const CLIENT_VERSION = window.NEARSEC_VERSION || '1.0.0';
 
@@ -2358,7 +2385,20 @@ function initWebCodecsViewer(config) {
         // Add CSS so the stream scales to fit the viewport instead of overflowing
         wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10; display: block; overflow: hidden;';
         document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
-        wcCtx = wcCanvas.getContext('2d', { alpha: false });
+        
+        if (CUSTOM_WEBCODECS) {
+            wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+            if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+        } else {
+            wcCtx = null;
+        }
+
+        if (wcCtx) {
+            wcGlTexture = _setupWebGL(wcCtx);
+        } else {
+            wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            wcGlTexture = null;
+        }
         
         // Ensure KBM pointer lock works on the experimental WebCodecs canvas
         if (typeof requestPointerLock === 'function') {
@@ -2385,7 +2425,16 @@ function initWebCodecsViewer(config) {
     window._wcResizeHandler();
 
     if (!wcCtx) {
-        wcCtx = wcCanvas.getContext('2d', { alpha: false });
+        if (CUSTOM_WEBCODECS) {
+            wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+            if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+        }
+        if (wcCtx) {
+            wcGlTexture = _setupWebGL(wcCtx);
+        } else {
+            wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            wcGlTexture = null;
+        }
     }
 
     // Clean up any existing decoder before creating a new one.
@@ -2410,9 +2459,16 @@ function initWebCodecsViewer(config) {
             if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
                 wcCanvas.width = frame.codedWidth;
                 wcCanvas.height = frame.codedHeight;
-                wcCtx = wcCanvas.getContext('2d', { alpha: false });
+                if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
             }
-            if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+            if (wcCtx && wcGlTexture) {
+                wcCtx.activeTexture(wcCtx.TEXTURE0);
+                wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
+                wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
+                wcCtx.drawArrays(wcCtx.TRIANGLE_STRIP, 0, 4);
+            } else if (wcCtx) {
+                wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+            }
             frame.close();
 
             if (_wcFirstFrame) {

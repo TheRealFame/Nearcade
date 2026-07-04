@@ -902,13 +902,13 @@ async function renderUrls(d) {
     if (d.tunnelUrl) {
         const separator = d.tunnelUrl.includes('?') ? '&' : '?';
         const pSelect = document.getElementById('pipelineSelect');
-        const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+        const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
         finalTunnelUrl = `${d.tunnelUrl}${separator}host=${encodedName}${pipeArg}`;
     }
     window._globalTunnelUrl = finalTunnelUrl;
 
     const pSelect = document.getElementById('pipelineSelect');
-    const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+    const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
 
     const rows = [];
     
@@ -1534,7 +1534,7 @@ async function sendOfferToViewer(viewerId) {
     peerConnections[viewerId] = pc;
 
     const pipelineVal = document.getElementById('pipelineSelect')?.value;
-    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs';
+    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
 
     if (forceWc) {
         // ── THE MISSING UDP TUNNEL ──
@@ -2110,7 +2110,7 @@ async function startCapture() {
         const urlParams = new URLSearchParams(window.location.search);
         const pipelineEl = document.getElementById('pipelineSelect');
         const pipelineVal = pipelineEl ? pipelineEl.value : 'native';
-        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs';
+        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
         if (forceWc) {
             log('WebCodecs pipeline active.', 'ok');
             startWebCodecsNetworkPipeline(vTrack);
@@ -2800,7 +2800,7 @@ function connectVps(cfg) {
                     loadAppConfig().then(cfg => {
                         const hostParam = encodeURIComponent(cfg.hostName || 'Host');
                         const pSelect = document.getElementById('pipelineSelect');
-                        const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+                        const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
                         const viewerUrl = origin + '/?v3&host=' + hostParam + pipeArg;
                         window._globalTunnelUrl = viewerUrl;
                         const el = document.getElementById('urlList');
@@ -3003,7 +3003,7 @@ function showTunnelModal() {
 window.saveCodecUI = async function(val) {
     localStorage.setItem('ns_codec', val);
     const pipelineVal = document.getElementById('pipelineSelect')?.value;
-    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs';
+    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
     
     if (forceWc) {
         if (currentStream && window._webcodecsReader) {
@@ -3057,6 +3057,7 @@ function saveCaptureMethod(method) {
     const urlParams = new URLSearchParams(window.location.search);
     let activeMethod = 'native';
     if (urlParams.get('wc') === '1') activeMethod = 'webcodecs';
+    if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
     else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
     
     if (window.electronAPI && window.electronAPI.saveSettings) {
@@ -3620,7 +3621,7 @@ function _updateStatsHud() {
     const pipe  = document.getElementById('pipelineSelect');
     const codec = document.getElementById('codecSelect');
 
-    _elText('hudPipeline', pipe  ? (pipe.value === 'webcodecs' ? 'WC' : 'WebRTC') : '—');
+    _elText('hudPipeline', pipe  ? (pipe.value === 'custom_webcodecs' ? 'WC (GL)' : pipe.value === 'webcodecs' ? 'WC' : 'WebRTC') : '—');
     _elText('hudCodec',    codec ? (codec.options[codec.selectedIndex]?.text?.split(' ')[0] || '—') : '—');
 
     // Pull RTT and outgoing bitrate from the first active peer connection.

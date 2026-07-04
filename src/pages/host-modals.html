@@ -456,12 +456,14 @@
         <div id="stabContent-video" class="stab-content">
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;">
             <div class="ctrl-row-text">
-              <div class="ctrl-row-label">Pipeline</div>
+              <div class="ctrl-row-label">Decoding Pipeline</div>
+              <div class="ctrl-row-desc">WebRTC uses standard browser jitter buffers. The custom WebCodecs + WebGL option achieves true zero-buffer latency, but is highly experimental.</div>
             </div>
             <select id="pipelineSelect" class="form-select" onchange="saveCaptureMethod(this.value)">
-              <option value="native" selected>WebRTC (Stable)</option>
+              <option value="native" selected>WebRTC (Standard / Stable)</option>
               <option value="webcodecs">WebCodecs Experimental (Latency Focused)</option>
-              <option id="optWebTransport" value="webtransport" style="display:none;" disabled>WebTransport Experimental (VPS Only)</option>
+              <option value="custom_webcodecs" style="color:var(--warn);">Custom WebCodecs + WebGL (Unstable / High Reward)</option>
+              <option id="optWebTransport" value="webtransport" style="display:none;" disabled>WebTransport (VPS Only)</option>
             </select>
           </div>
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
