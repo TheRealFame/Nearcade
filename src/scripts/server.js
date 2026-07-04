@@ -1514,6 +1514,13 @@ async function main() {
             return;
           }
 
+          if (msg.type === "request-offer" && msg.viewerId) {
+            if (hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId }));
+            }
+            return;
+          }
+
           // ── STANDARD SIGNALING ──
           if ((msg.type === "offer" || msg.type === "ice-host") && msg._viewerId) {
             const vws = viewers.get(msg._viewerId);

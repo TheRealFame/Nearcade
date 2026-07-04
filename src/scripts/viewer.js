@@ -151,6 +151,20 @@ function requestKeyframeFromHost() {
     if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-keyframe', viewerId: typeof myId !== 'undefined' ? myId : null }));
 }
 
+window.forceReloadStream = function() {
+    if (!ws || ws.readyState !== 1) return;
+    if (window.wcDecoder) {
+        // In VPS SFU / WebCodecs mode, request a fresh IDR keyframe
+        window.nsWaitKey = true;
+        requestKeyframeFromHost();
+        console.log('[Viewer] Forced WebCodecs keyframe request.');
+    } else {
+        // In WebRTC mode, trigger a full SDP renegotiation
+        ws.send(JSON.stringify({ type: 'request-offer' }));
+        console.log('[Viewer] Forced WebRTC offer request.');
+    }
+};
+
 function recoverWebCodecsDecoder() {
     window.nsWaitKey = true;
     requestKeyframeFromHost();
@@ -2048,7 +2062,7 @@ async function connect() {
         }
         if (msg.type === 'ctrl-settings') {
             hostMotionEnabled = msg.enableMotion;
-            window.hostAllowVR = msg.allowVR;
+            window.hostAllowVR = msg.expDevices && msg.expDevices.some(d => d.enabled && d.val === 'vr');
             if (typeof maybeShowVRButton === 'function') maybeShowVRButton();
             
             if (msg.expDevices) {

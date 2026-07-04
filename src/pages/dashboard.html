@@ -679,13 +679,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
           </div>
           <div class="settings-section">
             <h2>Experimental (Requires App Restart)</h2>
-            <div class="setting-row" onclick="toggleAppSetting('allowVR')">
-              <div class="setting-info">
-                <h4>Allow VR Viewers</h4>
-                <p>Permit viewers with VR headsets to activate WebXR and send 6-DOF tracking data.</p>
-              </div>
-              <div class="toggle" id="settingTrackAllowVR"><div class="toggle-thumb"></div></div>
-            </div>
+
             <div class="setting-row" onclick="toggleAppSetting('hwDecode')">
               <div class="setting-info">
                 <h4>Hardware Decoding</h4>
@@ -887,7 +881,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       document.getElementById('settingTrackFpsUnlock')?.classList.toggle('on', !!appConfig.fpsUnlock);
       document.getElementById('settingTrackVsyncOff')?.classList.toggle('on', !!appConfig.vsyncOff);
       document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
-      document.getElementById('settingTrackAllowVR')?.classList.toggle('on', !!appConfig.allowVR);
+
       renderAutoHosts();
     }
 

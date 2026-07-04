@@ -1730,7 +1730,7 @@
       <button class="ns-bar-btn" onclick="toggleNetStats()" style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Toggle Net Stats
       </button>
-      <button class="ns-bar-btn" onclick="if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }))" style="margin-top: 4px; justify-content: center; font-size: 10px;">
+      <button class="ns-bar-btn" onclick="if(typeof forceReloadStream === 'function') forceReloadStream(); else if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }));" style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Force Reload Stream
       </button>
 

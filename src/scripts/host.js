@@ -27,7 +27,6 @@ const appSettings = {
     alwaysOnTop:       localStorage.getItem('ns_app_alwaysOnTop') === 'true',
     hidePreviewOnStart:localStorage.getItem('ns_app_hidePreview') === 'true',
     captureMic:        localStorage.getItem('ns_app_captureMic') === 'true',
-    allowVR:           localStorage.getItem('ns_app_allowVR') === 'true',
 };
 let selectedMicDeviceId    = localStorage.getItem('ns_audio_input')  || 'default';
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
@@ -152,7 +151,6 @@ async function sendVpsViewerBootstrap(viewerId) {
         type: 'ctrl-settings',
         touchLayout: ctrlSettings.touchLayout,
         enableMotion: ctrlSettings.enableMotion,
-        allowVR: appSettings.allowVR,
         expDevices: expDevices,
     });
     if (_smartDb && Object.keys(_smartDb).length) {
@@ -4406,6 +4404,9 @@ function saveExpDevices() {
     localStorage.setItem('ns_exp_devices', JSON.stringify(devices));
     saveAppConfig({ expDevices: devices });
     
+    // Update the global expDevices array so sendCtrlSettings picks it up
+    expDevices = devices;
+    
     // Broadcast the updated experimental devices list to connected viewers
     if (typeof sendCtrlSettings === 'function') {
         sendCtrlSettings();
@@ -4449,7 +4450,7 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     if (list.querySelector(`[data-exp-val="${val}"]`)) return;
 
     // Determine status text based on device type
-    const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas';
+    const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'vr';
     const statusText = isImplemented ? '<span style="color:var(--green);">Status: Active</span>' : '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
 
     const el = document.createElement('div');
