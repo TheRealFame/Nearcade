@@ -171,7 +171,7 @@ if (isArcadeWorker && process.platform === 'linux') {
   if (isGamescope) {
     // Force X11/XWayland under Gamescope to prevent Electron crashes with native Wayland
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization');
     // CRITICAL for SteamOS Game Mode: Steam's nested bwrap conflicts with Electron's sandbox
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-gpu-sandbox');
@@ -240,7 +240,7 @@ const DEFAULTS = {
   // Auto-hosts
   autoHosts: [],
   // Discord RPC
-  discordClientId: '1241907722765324391', // Fallback default ID
+  discordClientId: '1522864642953711776', // Fallback default ID
   // First run
   firstRunComplete: false,
 };
@@ -511,6 +511,9 @@ async function createWindow() {
       if (data?.pin) {
         viewerUrl += `&pin=${encodeURIComponent(data.pin)}`;
       }
+      if (data?.meta?.game && data.meta.game !== 'Direct Connect' && data.meta.game !== 'P2P Session') {
+        viewerUrl += `&arcade=1`;
+      }
 
       win.loadURL(viewerUrl);
     }
@@ -750,6 +753,9 @@ async function createWindow() {
   });
 
   ipcMain.on('window-close', () => { if (win && !win.isDestroyed()) win.close(); });
+  ipcMain.on('window-minimize', () => { if (win && !win.isDestroyed()) win.minimize(); });
+  ipcMain.on('window-maximize', () => { if (win && !win.isDestroyed()) { win.isMaximized() ? win.unmaximize() : win.maximize(); } });
+  ipcMain.on('window-fullscreen', () => { if (win && !win.isDestroyed()) win.setFullScreen(!win.isFullScreen()); });
   ipcMain.on('app-quit', () => { app.isQuiting = true; app.quit(); });
   ipcMain.on('update-tray-icon', (event, iconName) => {
     if (tray && !tray.isDestroyed()) {
@@ -767,28 +773,71 @@ async function createWindow() {
 
   // ── Discord RPC ──
   let rpc = null;
+  let rpcReady = false;
+  let latestActivity = null;
   const DiscordRPC = require('discord-rpc');
 
   ipcMain.on('discord-set-activity', (event, activity) => {
-    if (!settings.discordRPC) return;
+    appendLog(`[Discord RPC] Requested activity: ${JSON.stringify(activity)}`);
+    if (!settings.discordRPC) {
+      appendLog('[Discord RPC] Aborted because settings.discordRPC is false');
+      return;
+    }
+    latestActivity = activity;
+    
     if (!rpc) {
+      appendLog('[Discord RPC] Initializing new client...');
       DiscordRPC.register(settings.discordClientId);
       rpc = new DiscordRPC.Client({ transport: 'ipc' });
+      
       rpc.on('ready', () => {
-        console.log('[Discord] RPC Ready');
-        rpc.setActivity(activity).catch(console.error);
+        appendLog('[Discord RPC] Client Ready');
+        rpcReady = true;
+
+        // Subscribe to unlock Invite buttons in Discord UI
+        try {
+          rpc.subscribe('ACTIVITY_JOIN', (args) => {
+            appendLog(`[Discord RPC] Received ACTIVITY_JOIN: ${JSON.stringify(args)}`);
+            // Here we could handle URL launches or IPC events if needed later
+          });
+          rpc.subscribe('ACTIVITY_JOIN_REQUEST', (args) => {
+            appendLog(`[Discord RPC] Received ACTIVITY_JOIN_REQUEST: ${JSON.stringify(args)}`);
+          });
+          appendLog('[Discord RPC] Subscribed to JOIN events');
+        } catch (e) {
+          appendLog(`[Discord RPC] Subscribe error: ${e.message}`);
+        }
+
+        if (latestActivity) {
+          rpc.setActivity(latestActivity)
+            .then(() => appendLog('[Discord RPC] Activity successfully set!'))
+            .catch(err => appendLog(`[Discord RPC] setActivity failed: ${err.message}`));
+        }
       });
-      rpc.login({ clientId: settings.discordClientId }).catch(err => {
-        console.error('[Discord] login failed:', err.message);
+      
+      rpc.on('disconnected', () => {
+        appendLog('[Discord RPC] Disconnected');
+        rpcReady = false;
         rpc = null;
       });
+      
+      rpc.login({ clientId: settings.discordClientId }).catch(err => {
+        appendLog(`[Discord RPC] login failed: ${err.message}`);
+        rpc = null;
+        rpcReady = false;
+      });
+    } else if (rpcReady) {
+      rpc.setActivity(latestActivity)
+        .then(() => appendLog('[Discord RPC] Activity successfully updated!'))
+        .catch(err => appendLog(`[Discord RPC] updateActivity failed: ${err.message}`));
     } else {
-      rpc.setActivity(activity).catch(console.error);
+      appendLog('[Discord RPC] Client exists but not ready yet. Caching activity.');
     }
   });
 
   ipcMain.on('discord-clear', () => {
-    if (rpc) {
+    latestActivity = null;
+    if (rpc && rpcReady) {
       rpc.clearActivity().catch(console.error);
     }
   });
@@ -819,6 +868,18 @@ app.whenReady().then(() => {
         console.log('[electron] Update downloaded:', info.version);
         if (win && !win.isDestroyed()) {
           win.webContents.send('update-ready', info.version);
+          
+          // Inject "Update Required" button
+          win.webContents.executeJavaScript(`
+            if (!document.getElementById('ns-update-btn') && window.electronAPI) {
+              const btn = document.createElement('button');
+              btn.id = 'ns-update-btn';
+              btn.innerHTML = 'Update Required (' + '${info.version}' + ')';
+              btn.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:999999;padding:12px 24px;background:#d32f2f;color:#fff;border:none;border-radius:8px;font-family:monospace;font-weight:bold;cursor:pointer;box-shadow:0 8px 16px rgba(0,0,0,0.5);';
+              btn.onclick = () => window.electronAPI.installUpdate();
+              document.body.appendChild(btn);
+            }
+          `).catch(() => {});
         }
       });
 

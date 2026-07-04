@@ -40,7 +40,10 @@ function send(msg) {
         }
 
         const pythonCmd = isWin ? 'python' : 'python3';
-        proc = spawn(pythonCmd, [pythonScript], { stdio: ['pipe', 'inherit', 'inherit'] });
+        const args = [pythonScript];
+        if (scriptName === 'backend_eyetracking.py') args.push('--joystick');
+        
+        proc = spawn(pythonCmd, args, { stdio: ['pipe', 'inherit', 'inherit'] });
         console.log(`[ExperimentalOrchestrator] sidecar started for type: ${msg.type}`);
         
         proc.on('close', () => { _procs.delete(msg.type); });

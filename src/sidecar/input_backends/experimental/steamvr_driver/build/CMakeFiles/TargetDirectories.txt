@@ -1,0 +1,3 @@
+/home/fame/Documents/NearsecTogether/src/sidecar/input_backends/experimental/steamvr_driver/build/CMakeFiles/driver_nearsecvr.dir
+/home/fame/Documents/NearsecTogether/src/sidecar/input_backends/experimental/steamvr_driver/build/CMakeFiles/edit_cache.dir
+/home/fame/Documents/NearsecTogether/src/sidecar/input_backends/experimental/steamvr_driver/build/CMakeFiles/rebuild_cache.dir

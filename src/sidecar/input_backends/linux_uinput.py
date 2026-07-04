@@ -26,7 +26,7 @@ try:
     import uinput
     UINPUT_OK = True
 except ImportError:
-    print("[input] ERROR: python-uinput not installed", flush=True)
+    print(json.dumps({"type": "error", "code": "E100", "message": "python-uinput is missing or /dev/uinput lacks permissions. Please run the setup script!"}), flush=True)
     UINPUT_OK = False
 
 if UINPUT_OK:
@@ -80,7 +80,7 @@ if UINPUT_OK:
     try:
         kbm_device = uinput.Device(KBM_EVENTS, name="Nearsec_KBM_Injector")
     except Exception as e:
-        print(f"[input] WARNING: KBM device failed: {e}", flush=True)
+        print(json.dumps({"type": "error", "code": "E101", "message": f"KBM device failed (check /dev/uinput permissions): {e}"}), flush=True)
 
 # ── State ──────────────────────────────────────────────────────────────────────
 devices          = {}

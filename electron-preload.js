@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onServerLog:    (cb) => ipcRenderer.on('server-log',    (_e, v) => cb(v)),
   onViewerClosed: (cb) => ipcRenderer.on('viewer-closed', ()      => cb()),
   onUpdateReady:  (cb) => ipcRenderer.on('update-ready',  (_e, v) => cb(v)),
+  onAppError:     (cb) => ipcRenderer.on('app-error',     (_e, msg, severity) => cb(msg, severity)),
 
   startNativeGamepadCapture: () => ipcRenderer.send('start-native-gamepad'),
   onNativeGamepadEvent: (cb) => ipcRenderer.on('native-gamepad-event', (_e, msg) => cb(msg)),

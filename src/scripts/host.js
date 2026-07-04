@@ -3,7 +3,7 @@ function closeAllModals() {
 }
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-let ws, currentStream, peerConnections = {}, knownViewers = new Set(), viewerCount = 0;
+let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
 let kbmPanicActive = false;
@@ -27,6 +27,7 @@ const appSettings = {
     alwaysOnTop:       localStorage.getItem('ns_app_alwaysOnTop') === 'true',
     hidePreviewOnStart:localStorage.getItem('ns_app_hidePreview') === 'true',
     captureMic:        localStorage.getItem('ns_app_captureMic') === 'true',
+    allowVR:           localStorage.getItem('ns_app_allowVR') === 'true',
 };
 let selectedMicDeviceId    = localStorage.getItem('ns_audio_input')  || 'default';
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
@@ -141,10 +142,18 @@ async function sendVpsViewerBootstrap(viewerId) {
         hostName: cfg.hostName || 'Host',
         hostRegion,
     });
+    let expDevices = [];
+    try {
+        if (typeof appConfig !== 'undefined' && appConfig.expDevices) expDevices = appConfig.expDevices;
+        else expDevices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
+    } catch(e) {}
+
     vpsDispatch(viewerId, {
         type: 'ctrl-settings',
         touchLayout: ctrlSettings.touchLayout,
         enableMotion: ctrlSettings.enableMotion,
+        allowVR: appSettings.allowVR,
+        expDevices: expDevices,
     });
     if (_smartDb && Object.keys(_smartDb).length) {
         vpsDispatch(viewerId, { type: 'smart-db', payload: _smartDb });
@@ -503,7 +512,8 @@ async function fetchGameThumbnail(gameTitle) {
 }
 
 function preferVideoCodec(pc) {
-    // The WebRTC spec requires setCodecPreferences to receive codecs from RTCRtpReceiver, not RTCRtpSender
+    // setCodecPreferences STRICTLY requires codec objects returned by RTCRtpReceiver.getCapabilities.
+    // We cannot use RTCRtpSender.getCapabilities here or the browser will throw "Invalid codec preferences".
     const caps = RTCRtpReceiver.getCapabilities?.('video');
     if (!caps || !caps.codecs) return null;
     const val = document.getElementById('codecSelect').value;
@@ -512,36 +522,31 @@ function preferVideoCodec(pc) {
     const targetMime = 'video/' + (val === 'H265' ? 'hevc' : val).toLowerCase();
     const fallbackMime = val === 'H265' ? 'video/h265' : targetMime;
 
-    let preferred = caps.codecs.filter(c =>
-        c.mimeType.toLowerCase() === targetMime || c.mimeType.toLowerCase() === fallbackMime
-    );
+    let codecs = [...caps.codecs];
+    let targetIdx = -1;
 
-    // If the selected codec is unavailable on this machine (e.g. AV1/H265 on Windows),
-    // silently fall back to H264 — the safest cross-platform baseline.
-    if (preferred.length === 0) {
-        console.warn(`[WebRTC] Codec ${val} not available, falling back to H264`);
-        preferred = caps.codecs.filter(c => c.mimeType.toLowerCase() === 'video/h264');
+    // H264 profile fix for Windows AMD/MediaFoundation decoder bugs:
+    // We MUST force Constrained Baseline (42e01f) to the absolute top of the H264 list.
+    if (targetMime === 'video/h264') {
+        targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === 'video/h264' && c.sdpFmtpLine && c.sdpFmtpLine.includes('42e01f'));
+    }
+    
+    if (targetIdx === -1) {
+        targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === targetMime || c.mimeType.toLowerCase() === fallbackMime);
     }
 
     // Fallback to browser default if hardware is missing
-    if (preferred.length === 0) return null;
+    if (targetIdx === -1) return null;
 
-    // H264 profile fix for Windows AMD/MediaFoundation decoder bugs:
-    // Linux hosts using VaapiVideoEncoder sometimes prioritize High Profile or Main Profile
-    // which fails to decode properly on Windows MediaFoundation, resulting in a black screen.
-    // We MUST force Constrained Baseline (42e01f) to the absolute top of the H264 list.
-    if (targetMime === 'video/h264' || preferred.some(c => c.mimeType.toLowerCase() === 'video/h264')) {
-        preferred.sort((a, b) => {
-            const isBaseA = a.sdpFmtpLine && a.sdpFmtpLine.includes('42e01f');
-            const isBaseB = b.sdpFmtpLine && b.sdpFmtpLine.includes('42e01f');
-            if (isBaseA && !isBaseB) return -1;
-            if (!isBaseA && isBaseB) return 1;
-            return 0;
-        });
+    // WebRTC requires RTX/RED codecs to remain adjacent to their base codecs.
+    // We lift the selected codec and its RTX companion to the top of the list.
+    let count = 1;
+    if (codecs[targetIdx + 1] && codecs[targetIdx + 1].mimeType.toLowerCase() === 'video/rtx') {
+        count = 2;
     }
 
-    const rest = caps.codecs.filter(c => !preferred.includes(c));
-    const sorted = [...preferred, ...rest];
+    const preferred = codecs.splice(targetIdx, count);
+    const sorted = [...preferred, ...codecs];
 
     let used = null;
     pc.getTransceivers().forEach(t => {
@@ -1038,6 +1043,11 @@ function renderRoster(list) {
             currentMode = savedViewerModes[v.name];
             changeInputMode(v.id, currentMode, v.name);
         }
+        
+        let displayName = v.name;
+        if (vrActiveViewers.has(v.id.split('_')[0])) {
+            displayName += ' <span style="color:var(--accent);font-size:10px;">(VR)</span>';
+        }
 
         let iconSrc = '/assets/icons/gamepad.svg';
         if (currentMode === 'disabled') iconSrc = '/assets/icons/circle-off.svg';
@@ -1053,7 +1063,7 @@ function renderRoster(list) {
         r.innerHTML = `
         <div class="rnum">${index + 1}</div>
         <div style="flex:1; overflow:hidden;">
-        <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${v.name}</div>
+        <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${displayName}</div>
         <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
         <img src="${iconSrc}" style="width:14px;height:14px;filter:invert(0.8);" id="icon-${v.id}" />
         ${v.id === 'host_0' ? `<span style="font-size:9px;color:var(--muted);">Host</span>` : `
@@ -1374,7 +1384,21 @@ function connectWS() {
                     console.log(`[webrtc] Stale answer dropped. State is: ${pc.signalingState}`);
                     return;
                 }
-                try { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); } catch (e) { log(I18N.t('answer err:') + ' ' + e.message, 'err'); }
+                try { 
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); 
+                    // Seamless Renegotiation Hack: When swapping codecs mid-stream, 
+                    // the decoder stalls waiting for the next IDR frame (which can take 5-10s).
+                    // Triggering a track replacement immediately after applying the answer 
+                    // flushes the Chromium encoder and resumes the stream instantly.
+                    setTimeout(() => {
+                        if (pc.connectionState === 'connected') {
+                            const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                            if (videoSender && videoSender.track) {
+                                videoSender.replaceTrack(videoSender.track).catch(()=>{});
+                            }
+                        }
+                    }, 150);
+                } catch (e) { log(I18N.t('answer err:') + ' ' + e.message, 'err'); }
             }
         }
         if (msg.type === 'ice-viewer') {
@@ -1386,6 +1410,13 @@ function connectWS() {
         if (msg.type === 'viewer-mic-ready') {
             log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone. Re-syncing tracks...', 'ok');
             sendOfferToViewer(msg._viewerId);
+        }
+
+        if (msg.type === 'viewer-vr-active') {
+            vrActiveViewers.add(msg._viewerId || msg.viewerId);
+            if (_lastRosterList) renderRoster(_lastRosterList);
+            log(`Viewer ${msg._viewerId || msg.viewerId} entered VR mode`, 'ok');
+            return;
         }
 
         if (msg.type === 'tunnel-url') {
@@ -1440,6 +1471,11 @@ function connectWS() {
             // Backend driver failure (e.g. ViGEmBus missing on Windows)
             console.error('[Input Error]', msg.message);
             log('Input Driver Error: ' + msg.message, 'err');
+            if (window.showError) {
+                // If it's a missing setup, show a warning. If it's a driver crash, show a critical red error.
+                const severity = msg.message.toLowerCase().includes('udev') ? 'yellow' : 'red';
+                window.showError('Input Driver Error: ' + msg.message, severity);
+            }
         }
         if (msg.type === 'input-ready') {
             log('Input driver ready: ' + (msg.message || ''), 'ok');
@@ -1497,8 +1533,31 @@ async function sendOfferToViewer(viewerId) {
 
     peerConnections[viewerId] = pc;
 
-    // ── THE MISSING UDP TUNNEL ──
-    pc.wcChannel = pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0 });
+    const pipelineVal = document.getElementById('pipelineSelect')?.value;
+    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs';
+
+    if (forceWc) {
+        // ── THE MISSING UDP TUNNEL ──
+        pc.wcChannel = pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0 });
+
+        // When the channel opens for this viewer, send the cached decoder config
+        // immediately so they don't wait for the next keyframe (which may be seconds away).
+        // Then force a keyframe so they can start decoding right away.
+        pc.wcChannel.onopen = () => {
+            console.log(`[WebCodecs] wcChannel open for ${viewerId} — sending cached config and forcing a keyframe`);
+
+            // 1. Send the configuration to boot the decoder
+            if (_lastWcConfig && pc.wcChannel.readyState === 'open') {
+                pc.wcChannel.send(_lastWcConfig);
+            }
+
+            // 2. FORCE THE ENCODER TO SEND A NEW KEYFRAME
+            if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                _wcForceKeyframe = true;
+                console.log(`[WebCodecs] Keyframe requested for late-joiner ${viewerId}`);
+            }
+        };
+    }
 
     // ── UDP FAST-LANE FOR INPUT ──
     pc.inputChannel = pc.createDataChannel('input', { ordered: false, maxRetransmits: 0 });
@@ -1517,26 +1576,12 @@ async function sendOfferToViewer(viewerId) {
         }
     };
 
-    // When the channel opens for this viewer, send the cached decoder config
-    // immediately so they don't wait for the next keyframe (which may be seconds away).
-    // Then force a keyframe so they can start decoding right away.
-    pc.wcChannel.onopen = () => {
-        console.log(`[WebCodecs] wcChannel open for ${viewerId} — sending cached config and forcing a keyframe`);
-
-        // 1. Send the configuration to boot the decoder
-        if (_lastWcConfig && pc.wcChannel.readyState === 'open') {
-            pc.wcChannel.send(_lastWcConfig);
-        }
-
-        // 2. FORCE THE ENCODER TO SEND A NEW KEYFRAME
-        // This guarantees the viewer gets a fresh full frame immediately after connecting
-        if (_wcEncoder && _wcEncoder.state !== 'closed') {
-            _wcForceKeyframe = true;
-            console.log(`[WebCodecs] Keyframe requested for late-joiner ${viewerId}`);
-        }
-    };
-
     currentStream.getTracks().forEach(track => {
+        if (track.kind === 'video' && forceWc) {
+            console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
+            return;
+        }
+
         const sender = pc.addTrack(track, currentStream);
         if (track.kind === 'video' && sender.setParameters) {
             const params = sender.getParameters();
@@ -1547,9 +1592,12 @@ async function sendOfferToViewer(viewerId) {
         }
     });
 
-    const codec = preferVideoCodec(pc);
-    const cb = document.getElementById('codecBadge');
-    if (codec && cb) cb.textContent = codec.split('/')[1];
+    let codec = null;
+    if (!forceWc) {
+        codec = preferVideoCodec(pc);
+        const cb = document.getElementById('codecBadge');
+        if (codec && cb) cb.textContent = codec.split('/')[1];
+    }
 
     let connectTimeout = setTimeout(() => {
         if (pc.connectionState !== 'connected' && peerConnections[viewerId] === pc) {
@@ -1774,7 +1822,7 @@ let activeSourceId = null;
 // would silently never fire. This pattern handles both cases.
 function hydrateSelectsFromStorage() {
     const selectDefs = [
-        { key: 'ns_codec',   id: 'codecSelect',   onChange: null },
+        { key: 'ns_codec',   id: 'codecSelect',    onChange: async () => { if (currentStream) await window.saveCodecUI(document.getElementById('codecSelect').value); } },
         { key: 'ns_bitrate', id: 'bitrateSelect',  onChange: () => { if (currentStream) applyBitrateToAll(); } },
         { key: 'ns_deg',     id: 'degSelect',      onChange: () => { if (currentStream) applyBitrateToAll(); } },
         { key: 'ns_res',     id: 'resSelect',      onChange: async () => { if (currentStream) await hotSwapCapture(); } },
@@ -2187,6 +2235,35 @@ async function startCapture() {
                     alt.textContent = label;
                 }
             }
+            
+            // WebRTC HW Encoding Diagnostics
+            const pcList = Object.values(peerConnections);
+            if (pcList.length > 0 && pcList[0]) {
+                pcList[0].getStats().then(stats => {
+                    let isHw = false;
+                    let hwStr = '';
+                    stats.forEach(report => {
+                        if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                            if (report.encoderImplementation) {
+                                const impl = report.encoderImplementation.toLowerCase();
+                                isHw = !impl.includes('libvpx') && !impl.includes('openh264') && !impl.includes('fallback');
+                                hwStr = report.encoderImplementation;
+                            }
+                        }
+                    });
+                    const cb = document.getElementById('codecBadge');
+                    if (cb && hwStr) {
+                        cb.title = `Encoder: ${hwStr} (${isHw ? 'Hardware' : 'Software'})`;
+                        if (isHw) {
+                            cb.style.border = '1px solid var(--ok)';
+                            cb.style.color = 'var(--ok)';
+                        } else {
+                            cb.style.border = '';
+                            cb.style.color = '';
+                        }
+                    }
+                }).catch(()=>{});
+            }
         }
         _updateRes();
         if (window._resInterval) clearInterval(window._resInterval);
@@ -2254,6 +2331,7 @@ function _forceKillStream(stream) {
 }
 
 function stopCapture() {
+    isArcade = false;
     if (currentStream) { _forceKillStream(currentStream); currentStream = null; }
     if (window._resInterval) { clearInterval(window._resInterval); window._resInterval = null; }
     _stopStatsHud();
@@ -2922,6 +3000,56 @@ function showTunnelModal() {
 }
 
 // ── SAVING THE CAPTURE METHOD (PIPELINE) ──
+window.saveCodecUI = async function(val) {
+    localStorage.setItem('ns_codec', val);
+    const pipelineVal = document.getElementById('pipelineSelect')?.value;
+    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs';
+    
+    if (forceWc) {
+        if (currentStream && window._webcodecsReader) {
+            log(I18N.t('Applying new WebCodecs encoder...'), 'warn');
+            await startWebCodecsCapture(currentStream);
+            log(I18N.t('Encoder restarted successfully!'), 'ok');
+        }
+    } else {
+        if (Object.keys(peerConnections).length > 0) {
+            log(I18N.t('Applying new codec to active viewers (seamless renegotiation)...'), 'warn');
+            
+            // Broadcast the codec change to all viewers in chat
+            const selectEl = document.getElementById('codecSelect');
+            if (selectEl && ws && ws.readyState === 1) {
+                const codecName = selectEl.options[selectEl.selectedIndex].text;
+                const chatMsg = `Host dynamically swapped the stream codec to ${codecName}.`;
+                ws.send(JSON.stringify({ type: 'chat', from: 'Nearsec', msg: chatMsg }));
+                if (typeof appendChat === 'function') appendChat('Nearsec', chatMsg, false);
+            }
+
+            for (const vid in peerConnections) {
+                const pc = peerConnections[vid];
+                if (pc.connectionState === 'connected' || pc.connectionState === 'connecting') {
+                    const codec = preferVideoCodec(pc);
+                    const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
+                    const cb = document.getElementById('codecBadge');
+                    if (codec && cb) cb.textContent = codec.split('/')[1];
+
+                    pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false })
+                        .then(offer => pc.setLocalDescription(offer))
+                        .then(() => {
+                            const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: vid, codec: rawCodecName };
+                            if (window.P2PManager && window.P2PManager.isPeer(vid)) {
+                                window.P2PManager.sendToPeer(vid, msg);
+                            } else {
+                                ws.send(JSON.stringify(msg));
+                            }
+                            log(I18N.t('Codec renegotiated for viewer') + ' ' + vid, 'ok');
+                        })
+                        .catch(err => console.error('[WebRTC] Renegotiation failed:', err));
+                }
+            }
+        }
+    }
+};
+
 function saveCaptureMethod(method) {
     const pSelect = document.getElementById('pipelineSelect');
     
@@ -3394,6 +3522,12 @@ function changeDefaultInputMode(mode) {
 }
 
 function sendCtrlSettings() {
+    let expDevices = [];
+    try {
+        if (typeof appConfig !== 'undefined' && appConfig.expDevices) expDevices = appConfig.expDevices;
+        else expDevices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
+    } catch(e) {}
+
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({
             type: 'ctrl-settings',
@@ -3404,6 +3538,7 @@ function sendCtrlSettings() {
             hybridInput:      ctrlSettings.hybridInput,
             ctrlType:         ctrlSettings.ctrlType,
             touchLayout:      ctrlSettings.touchLayout,
+            expDevices:       expDevices,
         }));
     }
 }
@@ -3705,6 +3840,7 @@ function _syncSmMicRow() {
     if (smMicRow) smMicRow.style.display = appSettings.captureMic ? 'block' : 'none';
 }
 
+let isArcade = false;
 const arcadeConfig = {
     title: localStorage.getItem('ns_arcade_title') || 'Unknown Game',
     desc: localStorage.getItem('ns_arcade_desc') || '',
@@ -3821,6 +3957,9 @@ function _doArcadeRegister() {
         arcadePingInterval = setInterval(() => {
             arcadeChannel.trigger('client-session-ping', getPingData());
         }, 10000);
+
+        isArcade = true;
+        _updateDiscordRPC();
 
     }).catch(() => log(I18N.t('Arcade: Could not read server info'), 'err'));
 }
@@ -4160,37 +4299,69 @@ if (document.readyState === 'loading') {
     setTimeout(loadExpDevices, 500);
 }
 
+let _discordStartTime = null;
+
 function _updateDiscordRPC() {
-    if (typeof window.electronAPI !== 'undefined' && window.electronAPI.discordSetActivity) {
-        if (typeof isArcade !== 'undefined' && isArcade && typeof arcadeConfig !== 'undefined' && arcadeConfig.title) {
-            window.electronAPI.discordSetActivity({
-                details: `Playing ${arcadeConfig.title}`,
-                state: `Players: ${knownViewers.size + 1}/${arcadeConfig.maxPlayers || 4}`,
-                startTimestamp: window._arcadeStartTime || (window._arcadeStartTime = Date.now()),
-                largeImageKey: 'nearsec_logo',
-                largeImageText: 'Nearsec Arcade',
-                partyId: window.hostSessionId || 'arcade_session',
-                partySize: knownViewers.size + 1,
-                partyMax: parseInt(arcadeConfig.maxPlayers || 4),
-                joinSecret: window._isP2P ? (window._p2pCode || 'none') : (window._globalTunnelUrl || 'none')
-            });
-        } else if (typeof streamActive !== 'undefined' && streamActive) {
-            window.electronAPI.discordSetActivity({
-                details: `Hosting a session`,
-                state: `Viewers: ${knownViewers.size}`,
-                startTimestamp: window._sessionStartTime || (window._sessionStartTime = Date.now()),
-                largeImageKey: 'nearsec_logo',
-                largeImageText: 'NearsecTogether',
-                partyId: window.hostSessionId || 'private_session',
-                partySize: knownViewers.size + 1,
-                partyMax: 10,
-                joinSecret: window._isP2P ? (window._p2pCode || 'none') : (window._globalTunnelUrl || 'none')
-            });
-        } else {
-            window.electronAPI.discordClear();
-            window._arcadeStartTime = null;
-            window._sessionStartTime = null;
+    console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
+    if (!window.electronAPI || typeof window.electronAPI.discordSetActivity !== 'function') {
+        console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
+        return;
+    }
+
+    if (!_discordStartTime) {
+        _discordStartTime = Date.now();
+    }
+
+    if (typeof isArcade !== 'undefined' && isArcade && typeof arcadeConfig !== 'undefined' && arcadeConfig.title) {
+        const lang = (window.I18N && I18N.targetLang) ? I18N.targetLang : 'en';
+        const supportedLogos = ['de', 'es', 'fr', 'ja', 'pt'];
+        const imageKey = supportedLogos.includes(lang) ? `nearsec_logo_${lang}` : 'nearsec_logo';
+
+        const payload = {
+            details: `Playing ${arcadeConfig.title}`,
+            state: `Arcade Mode (${arcadeConfig.requirePin ? 'Private' : 'Public'})`,
+            startTimestamp: _discordStartTime,
+            largeImageKey: imageKey,
+            largeImageText: 'NearsecTogether'
+        };
+        
+        if (window.hostSessionId) payload.partyId = window.hostSessionId;
+        if (typeof knownViewers !== 'undefined') {
+            payload.partySize = knownViewers.size + 1;
+            payload.partyMax = parseInt(arcadeConfig.maxPlayers || 4);
         }
+        const secret = window._isP2P ? window._p2pCode : window._globalTunnelUrl;
+        if (secret && secret !== 'none') payload.joinSecret = secret;
+        
+        console.log('[DEBUG] Sending Discord Arcade Activity:', payload);
+        window.electronAPI.discordSetActivity(payload);
+    } else if (typeof streamActive !== 'undefined' && streamActive) {
+        const lang = (window.I18N && I18N.targetLang) ? I18N.targetLang : 'en';
+        const supportedLogos = ['de', 'es', 'fr', 'ja', 'pt'];
+        const imageKey = supportedLogos.includes(lang) ? `nearsec_logo_${lang}` : 'nearsec_logo';
+
+        const payload = {
+            details: 'Hosting a session',
+            state: `${knownViewers.size} viewer(s) connected`,
+            startTimestamp: _discordStartTime,
+            largeImageKey: imageKey,
+            largeImageText: 'NearsecTogether'
+        };
+
+        if (window.hostSessionId) payload.partyId = window.hostSessionId;
+        if (typeof knownViewers !== 'undefined') {
+            payload.partySize = knownViewers.size + 1;
+            payload.partyMax = 10;
+        }
+        const secret = window._isP2P ? window._p2pCode : window._globalTunnelUrl;
+        if (secret && secret !== 'none') payload.joinSecret = secret;
+
+        console.log('[DEBUG] Sending Discord Private Activity:', payload);
+        window.electronAPI.discordSetActivity(payload);
+    } else {
+        console.log('[DEBUG] Clearing Discord Activity');
+        _discordStartTime = null;
+        window.electronAPI.discordClear();
     }
 }
 
@@ -4209,6 +4380,11 @@ function saveExpDevices() {
     });
     localStorage.setItem('ns_exp_devices', JSON.stringify(devices));
     saveAppConfig({ expDevices: devices });
+    
+    // Broadcast the updated experimental devices list to connected viewers
+    if (typeof sendCtrlSettings === 'function') {
+        sendCtrlSettings();
+    }
 }
 
 function loadExpDevices() {
@@ -4248,7 +4424,7 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     if (list.querySelector(`[data-exp-val="${val}"]`)) return;
 
     // Determine status text based on device type
-    const isImplemented = val === 'tablet' || val === 'guitar';
+    const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas';
     const statusText = isImplemented ? '<span style="color:var(--green);">Status: Active</span>' : '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
 
     const el = document.createElement('div');
@@ -4268,7 +4444,12 @@ function addExpDevice(inVal, inText, inEnabled = true) {
                 <div style="font-size:9px;">${statusText}</div>
             </div>
         </div>
-        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" style="background:none; border:none; color:var(--muted); cursor:pointer; font-size:14px;" onmouseover="this.style.color='#fff'" onmouseleave="this.style.color='var(--muted)'">&times;</button>
+        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </button>
     `;
     list.appendChild(el);
     saveExpDevices();

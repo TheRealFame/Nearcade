@@ -1,7 +1,7 @@
 electron-main.js
 nearsectogether.config.json
 config/nearsectogether.config.json
-config/*.log
+*.log
 node_modules/
 .env
 .vscode

@@ -174,7 +174,8 @@ function stopLoopbackWatcher() {
 
 // ── Game audio routing ────────────────────────────────────────────────────────
 const AUDIO_BLACKLIST = [
-  'webrtc', 'teamspeak', 'discord', 'vesktop', 'firefox', 'chrome', 'brave', 'vivaldi', 'sd_dummy'
+  'webrtc', 'teamspeak', 'discord', 'vesktop', 'firefox', 'chrome', 'brave', 'vivaldi', 'sd_dummy',
+  'spotify', 'zoom', 'teams', 'telegram-desktop', 'mumble', 'slack'
 ];
 
 let _targetProcess = null;

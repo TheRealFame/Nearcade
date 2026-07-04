@@ -75,6 +75,7 @@ async function _applyBwProfile(targetPc) {
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 const host = location.host;
 let ws, pc, myId = sessionStorage.getItem('ns_viewer_id');
+let _reconnectTimer = null;
 let viewerRegion = '';
 let smartDb = {};
 window.smartDb = smartDb;
@@ -285,8 +286,11 @@ async function createPC() {
         if (pc.connectionState === 'failed') {
             console.warn('[WebRTC] Connection failed — requesting fresh offer in 1s...');
             setStatus('Connection failed. Retrying...');
-            setTimeout(() => {
-                if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
+            clearTimeout(_reconnectTimer);
+            _reconnectTimer = setTimeout(() => {
+                if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
+                    ws.send(JSON.stringify({ type: 'request-offer' }));
+                }
             }, 1000);
         }
         if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
@@ -757,22 +761,29 @@ function preferReceiverCodec(transceiver, preferredMime) {
     if (preferredMime) {
         priority = [preferredMime, ...CODEC_PRIORITY.filter(c => c.toLowerCase() !== preferredMime.toLowerCase())];
     }
-    let preferredCodecs = priority.flatMap(mime => caps.codecs.filter(c => c.mimeType.toLowerCase() === mime.toLowerCase()));
     
-    // Sort H264 to prioritize Constrained Baseline (42e01f) to prevent MediaFoundation black screens
-    preferredCodecs.sort((a, b) => {
-        if (a.mimeType.toLowerCase() !== 'video/h264' || b.mimeType.toLowerCase() !== 'video/h264') return 0;
-        const isBaseA = a.sdpFmtpLine && a.sdpFmtpLine.includes('42e01f');
-        const isBaseB = b.sdpFmtpLine && b.sdpFmtpLine.includes('42e01f');
-        if (isBaseA && !isBaseB) return -1;
-        if (!isBaseA && isBaseB) return 1;
-        return 0;
-    });
+    let codecs = [...caps.codecs];
+    let reordered = [];
+    
+    // We iterate through our priority list and splice out the matching codec (and its RTX payload if present)
+    // to build our strictly compliant preferred list, keeping the remaining codecs in their exact original order.
+    for (const mime of priority) {
+        let targetIdx = -1;
+        if (mime.toLowerCase() === 'video/h264') {
+            targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === 'video/h264' && c.sdpFmtpLine && c.sdpFmtpLine.includes('42e01f'));
+        }
+        if (targetIdx === -1) {
+            targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === mime.toLowerCase());
+        }
+        
+        if (targetIdx !== -1) {
+            let count = 1;
+            if (codecs[targetIdx + 1] && codecs[targetIdx + 1].mimeType.toLowerCase() === 'video/rtx') count = 2;
+            reordered.push(...codecs.splice(targetIdx, count));
+        }
+    }
 
-    const sorted = [
-        ...preferredCodecs,
-        ...caps.codecs.filter(c => !priority.some(p => p.toLowerCase() === c.mimeType.toLowerCase()))
-    ];
+    const sorted = [...reordered, ...codecs];
     try { transceiver.setCodecPreferences(sorted); return sorted[0]?.mimeType || null; } catch { return null; }
 }
 
@@ -1159,7 +1170,7 @@ function applyCalibration(gp, state) {
 }
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
-let gpPolling = false, lastGpSend = {};
+let gpPolling = false, lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
 let gpDeadzones = {};
 let sentGpid = new Set();
@@ -1200,10 +1211,103 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
 }
 
 window.currentInputMode = 'gamepad';
+let eyeTrackerCam = null;
+let eyeTrackerFaceMesh = null;
+
 window.updateInputMode = function(val) { 
     window.currentInputMode = val; 
     console.log('[InputMode] Switched to:', val);
+    
+    if (val === 'eyetracking') {
+        startEyeTracking();
+    } else {
+        stopEyeTracking();
+    }
 };
+
+function startEyeTracking() {
+    if (eyeTrackerCam) return;
+    console.log('[EyeTrack] Starting MediaPipe FaceMesh...');
+    
+    const videoElement = document.createElement('video');
+    videoElement.style.display = 'none';
+    videoElement.setAttribute('autoplay', '');
+    videoElement.setAttribute('playsinline', '');
+    document.body.appendChild(videoElement);
+
+    if (typeof FaceMesh === 'undefined') {
+        alert("FaceMesh library is not loaded. Ensure you have an internet connection.");
+        return;
+    }
+
+    eyeTrackerFaceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    
+    eyeTrackerFaceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    
+    eyeTrackerFaceMesh.onResults(onFaceMeshResults);
+
+    eyeTrackerCam = new Camera(videoElement, {
+        onFrame: async () => {
+            if (eyeTrackerFaceMesh) {
+                await eyeTrackerFaceMesh.send({image: videoElement});
+            }
+        },
+        width: 640,
+        height: 480
+    });
+    eyeTrackerCam.start();
+    eyeTrackerCam.videoElement = videoElement;
+}
+
+function stopEyeTracking() {
+    if (eyeTrackerCam) {
+        console.log('[EyeTrack] Stopping MediaPipe FaceMesh...');
+        eyeTrackerCam.stop();
+        if (eyeTrackerCam.videoElement) {
+            eyeTrackerCam.videoElement.srcObject?.getTracks().forEach(t => t.stop());
+            eyeTrackerCam.videoElement.remove();
+        }
+        eyeTrackerCam = null;
+    }
+    if (eyeTrackerFaceMesh) {
+        eyeTrackerFaceMesh.close();
+        eyeTrackerFaceMesh = null;
+    }
+}
+
+function onFaceMeshResults(results) {
+    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+    
+    const landmarks = results.multiFaceLandmarks[0];
+    const nose = landmarks[1];
+    const leftEye = landmarks[33];
+    const rightEye = landmarks[263];
+    const chin = landmarks[152];
+    
+    const px = (nose.x - 0.5) * 200;
+    const py = (nose.y - 0.5) * 200;
+    const pz = nose.z * -1000;
+    
+    const yaw = Math.atan2(rightEye.z - leftEye.z, rightEye.x - leftEye.x) * (180/Math.PI);
+    const pitch = Math.atan2(chin.z - nose.z, chin.y - nose.y) * (180/Math.PI) - 15;
+    const roll = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * (180/Math.PI);
+
+    const eyeState = {
+        type: 'eyetracking',
+        viewerId: myId,
+        x: px, y: py, z: pz,
+        yaw: yaw, pitch: pitch, roll: roll
+    };
+    
+    sendInputData(JSON.stringify(eyeState));
+}
 
 function pollGamepad() {
     if (!gpPolling) return;
@@ -1327,6 +1431,24 @@ function pollGamepad() {
         if (changed || forceHb) {
             lastGpSend[vIndex] = now;
             sendInputData(JSON.stringify(guitarState));
+        }
+        return;
+    }
+
+    if (window.currentInputMode === 'hotas') {
+        const hotasState = {
+            type: 'hotas',
+            viewerId: myId,
+            pad_id: myId + '_' + vIndex,
+            axes: state.axes.map(a => Math.max(-1.0, Math.min(1.0, a / 32767.0))),
+            buttons: state.buttons.map(b => (b.pressed || b.value > 127) ? 1 : 0),
+            hatX: (state.buttons[15]?.pressed ? 1 : (state.buttons[14]?.pressed ? -1 : 0)),
+            hatY: (state.buttons[13]?.pressed ? 1 : (state.buttons[12]?.pressed ? -1 : 0))
+        };
+        const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
+        if (changed || forceHb) {
+            lastGpSend[vIndex] = now;
+            sendInputData(JSON.stringify(hotasState));
         }
         return;
     }
@@ -1659,6 +1781,7 @@ async function connect() {
         if (msg.type === 'tunnel-url') return;
 
         if (msg.type === 'offer') {
+            clearTimeout(_reconnectTimer);
             if (pc) { try { pc.close(); } catch { } pc = null; }
             await createPC();
             try {
@@ -1862,6 +1985,31 @@ async function connect() {
         }
         if (msg.type === 'ctrl-settings') {
             hostMotionEnabled = msg.enableMotion;
+            window.hostAllowVR = msg.allowVR;
+            if (typeof maybeShowVRButton === 'function') maybeShowVRButton();
+            
+            if (msg.expDevices) {
+                const select = document.getElementById('inputModeSelect');
+                if (select) {
+                    const currentVal = select.value;
+                    let html = '<option value="gamepad">Standard Gamepad</option>';
+                    const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
+                    if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
+                    if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
+                    if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
+                    if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
+                    
+                    select.innerHTML = html;
+                    
+                    if (Array.from(select.options).some(o => o.value === currentVal)) {
+                        select.value = currentVal;
+                    } else {
+                        select.value = 'gamepad';
+                        if (window.updateInputMode) window.updateInputMode('gamepad');
+                    }
+                }
+            }
+            
             const hBtn = document.getElementById('hidBtn');
             if (hBtn) hBtn.style.display = hostMotionEnabled ? 'block' : 'none';
             if (msg.touchLayout) {
@@ -2437,3 +2585,130 @@ window.startNetStats = function() {
     }, 1000);
 };
 
+// ── WEBXR (VR) INPUT POLLING ──────────────────────────────────────────────────
+let xrSession = null;
+let xrRefSpace = null;
+let lastVrSend = 0;
+
+function maybeShowVRButton() {
+    if (!window.hostAllowVR || !navigator.xr) {
+        const btn = document.getElementById('btnEnterVR');
+        if (btn) btn.style.display = 'none';
+        return;
+    }
+
+    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+        if (!supported) return;
+
+        let btn = document.getElementById('btnEnterVR');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'btnEnterVR';
+            btn.textContent = 'Enter VR Mode';
+            btn.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:9999; padding:12px 24px; font-weight:bold; background:var(--accent); color:#000; border:none; border-radius:8px; cursor:pointer; box-shadow:0 4px 15px rgba(192,132,252,0.4); font-family:sans-serif;';
+            btn.onclick = startVRSession;
+            document.body.appendChild(btn);
+        }
+        btn.style.display = 'block';
+    });
+}
+
+function startVRSession() {
+    if (!navigator.xr) return;
+    navigator.xr.requestSession('immersive-vr').then(session => {
+        xrSession = session;
+        const btn = document.getElementById('btnEnterVR');
+        if (btn) btn.style.display = 'none';
+
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'viewer-vr-active', viewerId: myId }));
+
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl', { xrCompatible: true });
+        session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+
+        session.requestReferenceSpace('local').then(refSpace => {
+            xrRefSpace = refSpace;
+            session.requestAnimationFrame(onXRFrame);
+        });
+
+        session.addEventListener('end', () => {
+            xrSession = null;
+            if (window.hostAllowVR) maybeShowVRButton();
+        });
+    }).catch(err => {
+        console.error('[WebXR] Failed to start session:', err);
+        alert('Failed to enter VR: ' + err.message);
+    });
+}
+
+function onXRFrame(time, frame) {
+    if (!xrSession) return;
+    xrSession.requestAnimationFrame(onXRFrame);
+
+    const now = Date.now();
+    if (now - lastVrSend < 16) return;
+    
+    const pose = frame.getViewerPose(xrRefSpace);
+    if (!pose) return;
+
+    let changed = false;
+    const vrState = {
+        type: 'vr',
+        viewerId: myId,
+        head: null,
+    };
+
+    const hmdPos = pose.transform.position;
+    const hmdOri = pose.transform.orientation;
+    vrState.head = {
+        px: hmdPos.x, py: hmdPos.y, pz: hmdPos.z,
+        qw: hmdOri.w, qx: hmdOri.x, qy: hmdOri.y, qz: hmdOri.z
+    };
+    changed = true;
+
+    for (const source of xrSession.inputSources) {
+        if (!source.gripSpace || (source.handedness !== 'left' && source.handedness !== 'right')) continue;
+        const cp = frame.getPose(source.gripSpace, xrRefSpace);
+        if (cp) {
+            let trigger = 0, grip = 0, buttons = 0, ax = 0, ay = 0;
+            const gp = source.gamepad;
+            if (gp) {
+                if (gp.buttons.length > 0) trigger = gp.buttons[0].value;
+                if (gp.buttons.length > 1) grip = gp.buttons[1].value;
+                
+                // Construct a 4-bit mask for the VR backend:
+                // bit0 = A/X (button 4), bit1 = B/Y (button 5)
+                // bit2 = menu (button 6?), bit3 = thumbstick click (button 3)
+                if (gp.buttons.length > 4 && gp.buttons[4].pressed) buttons |= 1;
+                if (gp.buttons.length > 5 && gp.buttons[5].pressed) buttons |= 2;
+                if (gp.buttons.length > 3 && gp.buttons[3].pressed) buttons |= 8;
+                // Just as a generic mapping for whatever WebXR defines as menu
+                if (gp.buttons.length > 6 && gp.buttons[6].pressed) buttons |= 4;
+
+                if (gp.axes.length >= 4) {
+                    ax = gp.axes[2];
+                    ay = gp.axes[3];
+                } else if (gp.axes.length >= 2) {
+                    ax = gp.axes[0];
+                    ay = gp.axes[1];
+                }
+            }
+
+            vrState[source.handedness] = {
+                px: cp.transform.position.x,
+                py: cp.transform.position.y,
+                pz: cp.transform.position.z,
+                qw: cp.transform.orientation.w,
+                qx: cp.transform.orientation.x,
+                qy: cp.transform.orientation.y,
+                qz: cp.transform.orientation.z,
+                trigger, grip, buttons, ax, ay
+            };
+        }
+    }
+
+    if (changed) {
+        lastVrSend = now;
+        sendInputData(JSON.stringify(vrState));
+    }
+}

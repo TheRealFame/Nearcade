@@ -287,6 +287,23 @@
   </style>
 </head>
 <body>
+  <!-- Error / Warning Popup Overlay -->
+  <div id="ns-error-popup" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
+    <span id="ns-error-text">Critical Error occurred.</span>
+    <button onclick="this.parentElement.style.display='none'" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
+  </div>
+  <script>
+    window.showError = function(msg, severity = 'red') {
+      const popup = document.getElementById('ns-error-popup');
+      const text = document.getElementById('ns-error-text');
+      if (!popup || !text) return;
+      popup.style.background = severity === 'yellow' ? '#f59e0b' : '#d32f2f';
+      popup.style.color = severity === 'yellow' ? '#000' : '#fff';
+      text.innerText = msg;
+      popup.style.display = 'flex';
+      if (severity === 'yellow') setTimeout(() => { popup.style.display = 'none'; }, 10000);
+    };
+  </script>
 
   <!-- Update Modal -->
   <div id="updateModal">
@@ -392,16 +409,20 @@ Permission is granted to anyone to use this software for any purpose, subject to
 
   <div id="docsModal" onclick="if(event.target === this) closeDocs()" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center;">
     <div style="background: var(--surface); border: 1px solid var(--border); width: 80%; max-width: 800px; height: 80vh; border-radius: 12px; display: flex; flex-direction: column;">
-      <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;">
-        <h3 style="margin: 0;">Nearsec Documentation</h3>
-        <button onclick="closeDocs()" style="background: transparent; border: none; color: var(--text); cursor: pointer; font-size: 18px;">×</button>
+      <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; color: var(--accent);">Nearsec Documentation</h3>
+        <button class="ns-about-close" onclick="closeDocs()" style="position: relative; top: auto; right: auto;">×</button>
       </div>
       <div style="display: flex; flex: 1; overflow: hidden;">
         <div style="width: 200px; border-right: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 8px;">
-          <button onclick="loadDoc('GETTING_STARTED.md')" style="text-align: left; background: none; border: none; color: var(--accent); cursor: pointer;">Getting Started</button>
-          <button onclick="loadDoc('HOST_USAGE.md')" style="text-align: left; background: none; border: none; color: var(--accent); cursor: pointer;">Host Usage</button>
-          <button onclick="loadDoc('API_AND_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--accent); cursor: pointer;">API & Setup</button>
-          <button onclick="loadDoc('ADVANCED_LOGIC.md')" style="text-align: left; background: none; border: none; color: var(--accent); cursor: pointer;">Advanced Logic</button>
+          <button onclick="loadDoc('GETTING_STARTED.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Getting Started</button>
+          <button onclick="loadDoc('HOST_USAGE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Host Usage</button>
+          <button onclick="loadDoc('API_AND_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">API & Setup</button>
+          <button onclick="loadDoc('VPS_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">VPS Setup</button>
+          <button onclick="loadDoc('NEARSEC_ARCADE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearsec Arcade</button>
+          <button onclick="loadDoc('ERROR_CODES.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Error Codes</button>
+          <button onclick="loadDoc('ADVANCED_LOGIC.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Advanced Logic</button>
+          <button onclick="loadDoc('AUTOMATED_SETUP_LEGALITY.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Setup Legality</button>
         </div>
         <div id="docContent" style="flex: 1; padding: 24px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap; font-family: sans-serif;">
           Select a document to read.
@@ -658,6 +679,13 @@ Permission is granted to anyone to use this software for any purpose, subject to
           </div>
           <div class="settings-section">
             <h2>Experimental (Requires App Restart)</h2>
+            <div class="setting-row" onclick="toggleAppSetting('allowVR')">
+              <div class="setting-info">
+                <h4>Allow VR Viewers</h4>
+                <p>Permit viewers with VR headsets to activate WebXR and send 6-DOF tracking data.</p>
+              </div>
+              <div class="toggle" id="settingTrackAllowVR"><div class="toggle-thumb"></div></div>
+            </div>
             <div class="setting-row" onclick="toggleAppSetting('hwDecode')">
               <div class="setting-info">
                 <h4>Hardware Decoding</h4>
@@ -799,10 +827,14 @@ Permission is granted to anyone to use this software for any purpose, subject to
       panel.classList.add('active');
       document.getElementById('tab-' + name)?.classList.add('active');
 
-      // Docs button: hide on arcade and settings panels (distracting in those contexts)
       const docsBtn = document.getElementById('docsFloatBtn');
       if (docsBtn) {
         docsBtn.style.display = (name === 'arcade' || name === 'settings') ? 'none' : 'flex';
+      }
+
+      const versionDisplay = document.getElementById('version-display');
+      if (versionDisplay) {
+        versionDisplay.style.display = (name === 'arcade') ? 'none' : 'block';
       }
 
       const setupBtn = document.getElementById('floating-setup-btn');
@@ -855,6 +887,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       document.getElementById('settingTrackFpsUnlock')?.classList.toggle('on', !!appConfig.fpsUnlock);
       document.getElementById('settingTrackVsyncOff')?.classList.toggle('on', !!appConfig.vsyncOff);
       document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
+      document.getElementById('settingTrackAllowVR')?.classList.toggle('on', !!appConfig.allowVR);
       renderAutoHosts();
     }
 
@@ -1430,6 +1463,12 @@ Permission is granted to anyone to use this software for any purpose, subject to
         }, 1800); // Wait for the 2s CSS animation to mostly finish
       }
     });
+
+    if (window.electronAPI && window.electronAPI.onAppError) {
+      window.electronAPI.onAppError((msg, severity) => {
+        if (window.showError) window.showError(msg, severity);
+      });
+    }
   </script>
   </body>
 </html>

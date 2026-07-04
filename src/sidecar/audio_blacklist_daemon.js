@@ -97,6 +97,7 @@ function parseSinkInputs(raw) {
       mediaName: g(/media\.name\s*=\s*"([^"]+)"/),
       // Stable client reference for ejection cache
       clientKey: clientId || processId || id,
+      rawBlock: block,
     });
   }
   return results;
@@ -120,13 +121,8 @@ function parseSinks(raw) {
  * entry as a case-insensitive substring.
  */
 function isBlacklisted(input, blacklist) {
-  const fields = [
-    input.appBinary, input.appName, input.nodeName, input.mediaName,
-  ].map(f => f.toLowerCase()).filter(Boolean);
-
-  return blacklist.some(entry =>
-    fields.some(f => f.includes(entry.toLowerCase()))
-  );
+  const rawLower = (input.rawBlock || '').toLowerCase();
+  return blacklist.some(entry => rawLower.includes(entry.toLowerCase()));
 }
 
 // ── Ejection cache ────────────────────────────────────────────────────────────

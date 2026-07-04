@@ -468,7 +468,7 @@
             <div class="ctrl-row-text">
               <div class="ctrl-row-label">Codec</div>
             </div>
-            <select id="codecSelect" class="form-select">
+            <select id="codecSelect" class="form-select" onchange="saveCodecUI(this.value)">
               <option value="H264">H.264 (Hardware)</option>
               <option value="H265">H.265 (Hardware)</option>
               <option value="VP8" selected>VP8 (Software)</option>
@@ -814,6 +814,7 @@
             <option value="flight">Flight Sticks (HOTAS)</option>
             <option value="tablet">Drawing Tablets (Stylus)</option>
             <option value="guitar">Guitars / Rhythm</option>
+            <option value="hotas">Flight Stick / HOTAS</option>
             <option value="vr">VR Headsets (OpenVR)</option>
             <option value="balance">Balance Boards</option>
             <option value="eye">Eye / Head Tracking</option>

@@ -97,17 +97,18 @@ def start_eyetracking_backend():
     ui = None
     if use_joystick and sys.platform.startswith("linux"):
         try:
-            from evdev import UInput, ecodes as e, AbsInfo
-            axis_info = AbsInfo(value=AXIS_MID, min=0, max=AXIS_MAX, fuzz=4, flat=32, resolution=0)
-            cap = {
-                e.EV_ABS: [
-                    (e.ABS_X, axis_info),  # Gaze / Yaw
-                    (e.ABS_Y, axis_info),  # Gaze / Pitch
-                ],
-            }
-            ui = UInput(cap, name="Nearsec Virtual Eye Tracker", version=0x3)
+            import uinput
+            events = [
+                uinput.BTN_JOYSTICK,
+                uinput.ABS_X + (0, AXIS_MAX, 0, 0),
+                uinput.ABS_Y + (0, AXIS_MAX, 0, 0),
+            ]
+            ui = uinput.Device(events, name="Nearsec Virtual Eye Tracker", vendor=0x045E, product=0x028E, version=0x0110, bustype=3)
             print("[backend_eyetracking] Virtual joystick fallback created at /dev/uinput.", flush=True)
-        except (ImportError, PermissionError) as err:
+        except ImportError as err:
+            print(f"[backend_eyetracking] Could not create virtual joystick: python-uinput not installed", file=sys.stderr)
+            sys.exit(1)
+        except Exception as err:
             print(f"[backend_eyetracking] Could not create virtual joystick: {err}", file=sys.stderr)
             sys.exit(1)
     elif use_joystick:
@@ -143,13 +144,11 @@ def start_eyetracking_backend():
                 udp_sock.sendto(packet, (FREETRACK_HOST, FREETRACK_PORT))
 
             if ui:
-                # Map yaw (-90..90) and pitch (-45..45) to axis range
-                from evdev import ecodes as e
+                import uinput
                 norm_x = max(0, min(AXIS_MAX, int((yaw   / 180.0 + 0.5) * AXIS_MAX)))
                 norm_y = max(0, min(AXIS_MAX, int((pitch /  90.0 + 0.5) * AXIS_MAX)))
-                ui.write(e.EV_ABS, e.ABS_X, norm_x)
-                ui.write(e.EV_ABS, e.ABS_Y, norm_y)
-                ui.syn()
+                ui.emit(uinput.ABS_X, norm_x, syn=False)
+                ui.emit(uinput.ABS_Y, norm_y, syn=True)
 
         except (json.JSONDecodeError, KeyError, ValueError, OSError):
             continue

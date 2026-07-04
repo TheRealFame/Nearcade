@@ -1,7 +1,13 @@
 publicnearsec.cutefame.net {
     encode gzip
 
-    # WebSocket lanes — matched before any reverse_proxy or file_server rule
+    @inputWs {
+        header Connection *Upgrade*
+        header Upgrade    websocket
+        path   /ws/input
+    }
+    reverse_proxy @inputWs localhost:3001
+
     @localWs {
         header Connection *Upgrade*
         header Upgrade    websocket

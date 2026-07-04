@@ -248,17 +248,37 @@ async function pingSession(session) {
     try {
         console.log(`[Arcade Debug]  Pinging tunnel: ${session.url}`);
         const t0 = performance.now();
-        await fetch(session.url + '/api/info', { method: 'HEAD', mode: 'no-cors', cache: 'no-store' });
-        const rawMs = performance.now() - t0;
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const res = await fetch(session.url + '/api/info', { 
+            method: 'GET', 
+            mode: 'cors', 
+            cache: 'no-store',
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) throw new Error('Host returned error status');
+        
+        // Verify it's a real Nearsec host by parsing the JSON
+        const data = await res.json();
+        if (!data || !data.hostName) throw new Error('Invalid host data');
 
+        const rawMs = performance.now() - t0;
         const ms = Math.max(1, Math.round(rawMs / 2.5));
         let color = ms < 60 ? 'green' : ms < 120 ? 'yellow' : 'red';
 
         console.log(`[Arcade Debug] ⏱ Latency to ${session.id}: ${ms}ms (${color})`);
         latencyMap[session.id] = { ms, color };
     } catch (err) {
-        console.warn(`[Arcade Debug] ⚠ Ping failed for ${session.id} - Host might be offline or tunnel dropped.`);
+        console.warn(`[Arcade Debug] ⚠ Ping failed for ${session.id} - Host might be offline, dropped, or invalid.`, err.message);
         latencyMap[session.id] = { ms: null, color: 'pending' };
+        
+        // Optionally flag or remove the session if it's completely unreachable
+        // But for now, just show it as pending/offline.
     }
 
     const tag = document.getElementById('lat-' + session.id);

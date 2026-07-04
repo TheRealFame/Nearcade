@@ -877,6 +877,9 @@ async function main() {
   app.use((req, res, next) => {
     res.setHeader("Permissions-Policy", "gamepad=*, display-capture=(self)");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS");
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
 
@@ -1600,6 +1603,7 @@ async function main() {
             global.hybridInputActive = msg.hybridInput;
             global.touchLayout = msg.touchLayout || 'default';
             global.enableMotion = !!msg.enableMotion;
+            global.expDevices = msg.expDevices || [];
 
             // Update the orchestrator's global default FIRST (no viewerId = set global default),
             // then update each connected viewer's per-viewer entry.
@@ -1609,7 +1613,7 @@ async function main() {
             });
 
             // Broadcast to viewers so they update their touch layout
-            broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion }));
+            broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion, expDevices: global.expDevices }));
 
             console.log("[host] ctrl-settings: forceXboxOne=%s enableDualShock=%s enableMotion=%s hybrid=%s ctrlType=%s touchLayout=%s",
               !!msg.forceXboxOne, !!msg.enableDualShock, !!msg.enableMotion, !!msg.hybridInput, global.currentCtrlType, global.touchLayout);
@@ -1992,7 +1996,8 @@ async function main() {
               ws.send(JSON.stringify({
                 type: "ctrl-settings",
                 enableMotion: !!global.enableMotion,
-                touchLayout: global.touchLayout || 'default'
+                touchLayout: global.touchLayout || 'default',
+                expDevices: global.expDevices || []
               }));
               if (hostStreaming) {
                 ws.send(JSON.stringify({ type: "host-stream-ready" }));
@@ -2249,7 +2254,13 @@ async function main() {
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: myId, id: msg.id }));
             return;
           }
-          if (msg.type === "gamepad") { toUinput(normalizeGamepadMsg(msg)); return; }
+          if (msg.type === "gamepad") {
+            if (!myId) return;
+            const perms = inputPerms.get(msg.pad_id) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
+            if (!perms.gp) return;
+            toUinput(normalizeGamepadMsg(msg));
+            return;
+          }
 
           if (msg.type === "keyboard" || msg.type === "kbm") {
             console.log(`[DEBUG KBM] (/ws/input) received keyboard event:`, msg.event, msg.key);
@@ -2257,7 +2268,7 @@ async function main() {
               console.log(`[DEBUG KBM] Dropped in /ws/input: myId is null`);
               return;
             }
-            const perms = inputPerms.get(myId) || { gp: true, kb: false };
+            const perms = inputPerms.get(msg.pad_id) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
             if (!perms.kb) {
               console.log(`[DEBUG KBM] Dropped in /ws/input: perms.kb=false for id ${myId}`);
               return;
@@ -2347,6 +2358,7 @@ function cleanup(isElectron = false) {
   _cleanupDone = true;
 
   console.log('\n[server] Shutting down — running cleanup...');
+  console.log(new Error('Cleanup Trace').stack);
 
   // ── Terminate worker threads gracefully ──────────────────────────────────
   // Audio worker: ask it to destroy virtual audio, then terminate

@@ -1523,12 +1523,54 @@
         // The connect flow goes straight to the direct link or arcade
         document.body.classList.add('client-only');
         console.log('[Build] Client-only mode active — host UI hidden');
+        
+        initArcadeUI();
       });
     }
+
+    function initArcadeUI() {
+      if (new URLSearchParams(location.search).get('arcade') === '1') {
+        const touchRight = document.querySelector('.controls-right');
+        if (touchRight) touchRight.style.display = 'none';
+      }
+    }
   </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 </head>
 
 <body>
+
+  <!-- Error / Warning Popup Overlay -->
+  <div id="ns-error-popup" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
+    <span id="ns-error-text">Critical Error occurred.</span>
+    <button onclick="this.parentElement.style.display='none'" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
+  </div>
+  
+  <script>
+    window.showError = function(msg, severity = 'red') {
+      const popup = document.getElementById('ns-error-popup');
+      const text = document.getElementById('ns-error-text');
+      if (!popup || !text) return;
+      
+      popup.style.background = severity === 'yellow' ? '#f59e0b' : '#d32f2f';
+      popup.style.color = severity === 'yellow' ? '#000' : '#fff';
+      text.innerText = msg;
+      popup.style.display = 'flex';
+      
+      // Auto-hide warnings after 10s, keep reds until closed
+      if (severity === 'yellow') {
+        setTimeout(() => { popup.style.display = 'none'; }, 10000);
+      }
+    };
+    
+    if (window.electronAPI && window.electronAPI.onAppError) {
+      window.electronAPI.onAppError((msg, severity) => {
+        if (window.showError) window.showError(msg, severity);
+      });
+    }
+  </script>
+
 
   <!-- ════ PIN / JOIN SCREEN ════ -->
   <div id="pinScreen">
@@ -1673,7 +1715,6 @@
       <div class="ns-bar-section">Device API</div>
       <select id="inputModeSelect" class="ns-bar-btn" style="background:var(--bg);border-color:var(--border2);appearance:none;padding:7px 10px;" onchange="window.updateInputMode && window.updateInputMode(this.value)">
         <option value="gamepad">Standard Gamepad</option>
-        <option value="guitar">Guitar Hero Controller</option>
       </select>
 
       <div class="ns-bar-divider"></div>
@@ -1906,6 +1947,16 @@
       if (dy < -2 || e.clientY < 60) {
         showTopBar(3000);
       }
+      
+      // Desktop mouse-to-right-edge to open nsBar
+      if (e.clientX >= window.innerWidth - 10) {
+        const nsBar = document.getElementById('nsBar');
+        if (nsBar && nsBar.style.display !== 'none') {
+          nsBar.classList.add('open');
+          if (typeof resetNsBarTimeout === 'function') resetNsBarTimeout();
+        }
+      }
+      
       _lastMouseY = e.clientY;
     }, { passive: true });
 
