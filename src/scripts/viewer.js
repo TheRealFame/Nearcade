@@ -924,16 +924,6 @@ function sendInputData(data) {
         ws.send(isBin ? data : str);
     }
 }
-    if (window._fastLaneChannel && window._fastLaneChannel.readyState === 'open') {
-        try { window._fastLaneChannel.send(str); return; } catch (_) { }
-    }
-    if (inputWs && inputWs.readyState === 1) {
-        inputWs.send(str); return;
-    }
-    if (ws && ws.readyState === 1) {
-        ws.send(str);
-    }
-}
 
 function sendKbm(data) {
     if (document.pointerLockElement) {
