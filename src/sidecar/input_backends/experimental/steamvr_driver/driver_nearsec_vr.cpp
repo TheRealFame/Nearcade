@@ -28,7 +28,7 @@ struct NearsecVRPacket {
 };
 #pragma pack(pop)
 
-class SteamVRNearsecDriver : public vr::ITrackedDeviceServerDriver, public vr::IVRDisplayComponent, public vr::IVRDriverDirectModeComponent {
+class SteamVRNearsecDriver : public vr::ITrackedDeviceServerDriver, public vr::IVRDisplayComponent {
 public:
     virtual vr::EVRInitError Activate(uint32_t unObjectId) override {
         m_unObjectId = unObjectId;
@@ -36,6 +36,13 @@ public:
 
         vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_ModelNumber_String, "NearsecVR_HMD");
         vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_RenderModelName_String, "generic_hmd");
+
+        // Required properties for HMDs to prevent Compositor crashes
+        vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_UserIpdMeters_Float, 0.065f);
+        vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_UserHeadToEyeDepthMeters_Float, 0.f);
+        vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_DisplayFrequency_Float, 90.f);
+        vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_SecondsFromVsyncToPhotons_Float, 0.11f);
+        vr::VRProperties()->SetBoolProperty(m_ulPropertyContainer, vr::Prop_IsOnDesktop_Bool, false);
 
         // Start UDP Listener Thread
         m_bIsRunning = true;
@@ -59,16 +66,9 @@ public:
         if (0 == strcmp(pchComponentNameAndVersion, vr::IVRDisplayComponent_Version)) {
             return (vr::IVRDisplayComponent*)this;
         }
-        if (0 == strcmp(pchComponentNameAndVersion, vr::IVRDriverDirectModeComponent_Version)) {
-            return (vr::IVRDriverDirectModeComponent*)this;
-        }
         return nullptr;
     }
     virtual void DebugRequest(const char* pchRequest, char* pchResponseBuffer, uint32_t unResponseBufferSize) override {}
-
-    // --- IVRDriverDirectModeComponent Implementation ---
-    // (We inherit empty implementations from the header, so no need to override them all)
-    // ---------------------------------------------------
 
     // --- IVRDisplayComponent Implementation ---
     virtual void GetWindowBounds(int32_t *pnX, int32_t *pnY, uint32_t *pnWidth, uint32_t *pnHeight) override {
@@ -77,7 +77,7 @@ public:
         *pnWidth = 1920;
         *pnHeight = 1080;
     }
-    virtual bool IsDisplayOnDesktop() override { return false; }
+    virtual bool IsDisplayOnDesktop() override { return true; }
     virtual bool IsDisplayRealDisplay() override { return false; }
     virtual void GetRecommendedRenderTargetSize(uint32_t *pnWidth, uint32_t *pnHeight) override {
         *pnWidth = 1920;
