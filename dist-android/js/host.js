@@ -1,5 +1,9 @@
+function closeAllModals() {
+    document.querySelectorAll(".modal-bg").forEach(m => m.classList.add("gone"));
+}
+
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-let ws, currentStream, peerConnections = {}, knownViewers = new Set(), viewerCount = 0;
+let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
 let kbmPanicActive = false;
@@ -28,6 +32,13 @@ let selectedMicDeviceId    = localStorage.getItem('ns_audio_input')  || 'default
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
 
 let previewHidden = false;
+let _lastChatFingerprint = '';
+let _lastChatTimestamp = 0;
+const CHAT_DEDUP_WINDOW_MS = 1200;
+
+function makeChatFingerprint(name, text) {
+    return `${String(name).trim()}|${String(text).trim()}`;
+}
 
 // ── PPS (Packets-Per-Second) flood protection ─────────────────────────────────
 // Tracks input message counts per viewer. If any viewer exceeds 300 msgs/sec
@@ -109,6 +120,8 @@ async function saveSetting(localStorageKey, value, configKey) {
     saveAppConfig({ [configKey]: value });
 }
 
+let _tunnelModalManual = false; // set when user manually opens tunnel modal
+
 function setTunnelBusy(busy) {
     _tunnelBusy = busy;
     document.querySelectorAll('.provider-card, #tunnelModal .modal-footer button').forEach(el => {
@@ -137,10 +150,17 @@ async function sendVpsViewerBootstrap(viewerId) {
         hostName: cfg.hostName || 'Host',
         hostRegion,
     });
+    let expDevices = [];
+    try {
+        if (typeof appConfig !== 'undefined' && appConfig.expDevices) expDevices = appConfig.expDevices;
+        else expDevices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
+    } catch(e) {}
+
     vpsDispatch(viewerId, {
         type: 'ctrl-settings',
         touchLayout: ctrlSettings.touchLayout,
         enableMotion: ctrlSettings.enableMotion,
+        expDevices: expDevices,
     });
     if (_smartDb && Object.keys(_smartDb).length) {
         vpsDispatch(viewerId, { type: 'smart-db', payload: _smartDb });
@@ -183,6 +203,22 @@ if (window.electronAPI?.getControllers) {
 function _elDisabled(id, val) { const e = document.getElementById(id); if (e) e.disabled = val; }
 function _elText(id, val)     { const e = document.getElementById(id); if (e) e.textContent = val; }
 function _elClass(id, cls, add) { const e = document.getElementById(id); if (e) e.classList[add ? 'add' : 'remove'](cls); }
+
+function updatePlaygroundToolbarState(isLive) {
+    if (!document.body.dataset.playgroundHost) return;
+    const startBtn = document.getElementById('btnStart');
+    const stopBtn = document.getElementById('btnStop');
+    if (startBtn) {
+        startBtn.style.display = isLive ? 'none' : '';
+        const title = startBtn.querySelector('.tile-title');
+        const subtitle = startBtn.querySelector('.tile-subtitle');
+        if (title) title.textContent = isLive ? 'Streaming' : 'Start Stream';
+        if (subtitle) subtitle.textContent = isLive ? 'Live broadcast active' : 'Broadcast your gameplay';
+    }
+    if (stopBtn) {
+        stopBtn.style.display = isLive ? '' : 'none';
+    }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 let audioSettings = {
@@ -193,7 +229,7 @@ let audioSettings = {
 Pusher.logToConsole = false;
 const pusher = new Pusher('a93f5405058cd9fc7967', {
     cluster: 'us2',
-    authEndpoint: 'https://nearsec.cutefame.net/api/pusher-auth'
+    authEndpoint: 'https://nearcade.cutefame.net/api/pusher-auth'
 });
 const arcadeChannel = pusher.subscribe('private-arcade-global');
 
@@ -219,7 +255,42 @@ arcadeChannel.bind('pusher:subscription_error', (status) => {
 
 let arcadePingInterval = null;
 let arcadeOverrodePin = false;
-const hostSessionId = 'ns-' + Math.random().toString(36).substr(2, 9);
+const hostSessionId = 'ns-' + (window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 9) : Math.random().toString(36).substr(2, 9));
+
+// ── Version check ────────────────────────────────────────────────────────────
+function compareVersions(a, b) {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        const na = pa[i] || 0, nb = pb[i] || 0;
+        if (na > nb) return 1;
+        if (na < nb) return -1;
+    }
+    return 0;
+}
+
+async function _checkClientVersion() {
+    try {
+        const res = await fetch('https://nearcade.cutefame.net/api/client-version');
+        if (!res.ok) return;
+        const data = await res.json();
+        const minVer = data.minimum || '0.0.0';
+        if (compareVersions(window.NEARSEC_VERSION, minVer) < 0) {
+            const overlay = document.createElement('div');
+            overlay.id = 'versionCheckOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
+            overlay.innerHTML = '<div style="background:#121518;border:1px solid #ff5d3d;border-radius:12px;padding:40px;max-width:420px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">'
+                + '<h2 style="color:#ff5d3d;margin:0 0 12px 0;text-transform:uppercase;letter-spacing:1px;">Client Outdated</h2>'
+                + '<p style="color:#949ba4;font-size:14px;line-height:1.6;margin:0 0 16px 0;">'
+                + 'You are running <strong style="color:#f0f3f5;">Nearcade v' + window.NEARSEC_VERSION + '</strong>.<br>'
+                + 'The arcade directory requires at least <strong style="color:#f0f3f5;">v' + minVer + '</strong>.<br><br>'
+                + 'Please update to the latest version to continue hosting arcade sessions.</p>'
+                + '<a href="https://github.com/TheRealFame/Nearcade/releases/latest" target="_blank" style="display:inline-block;background:#ff5d3d;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Download Update</a>'
+                + '</div>';
+            document.body.appendChild(overlay);
+        }
+    } catch (_) {}
+}
 
 
 // ── AUDIO STATE & MASTER MUTE ────────────────────────────────────────────────
@@ -233,7 +304,15 @@ window._savedMicGain     = 1.0;
 function setDesktopVolume(val) {
     const v = parseInt(val, 10);
     const el = document.getElementById('desktopVolVal');
-    if (el) el.textContent = v;
+    if (el) el.textContent = v + (el.id === 'desktopVolVal' ? (document.getElementById('volDesktopVal') ? '' : '') : '');
+    const el2 = document.getElementById('volDesktopVal');
+    if (el2) el2.textContent = v + '%';
+    
+    const s1 = document.getElementById('desktopVolSlider');
+    if (s1 && s1.value != v) s1.value = v;
+    const s2 = document.getElementById('volDesktop');
+    if (s2 && s2.value != v) s2.value = v;
+
     saveSetting('ns_host_desktop_vol', v, 'volumeDesktop');
     if (!window._masterMuteActive && _desktopGainNode)
         _desktopGainNode.gain.value = v / 100;
@@ -243,6 +322,14 @@ function setHostMicGain(val) {
     const v = parseInt(val, 10);
     const el = document.getElementById('hostMicVal');
     if (el) el.textContent = v;
+    const el2 = document.getElementById('volMicVal');
+    if (el2) el2.textContent = v + '%';
+
+    const s1 = document.getElementById('hostMicSlider');
+    if (s1 && s1.value != v) s1.value = v;
+    const s2 = document.getElementById('volMic');
+    if (s2 && s2.value != v) s2.value = v;
+
     saveSetting('ns_host_mic_gain', v, 'volumeMic');
     if (!window._masterMuteActive && _hostMicGainNode)
         _hostMicGainNode.gain.value = v / 100;
@@ -258,14 +345,14 @@ function attachDesktopGain(stream) {
         const dst  = ctx.createMediaStreamDestination();
         const savedVol = parseInt(localStorage.getItem('ns_host_desktop_vol') ?? '100', 10) / 100;
 
-        // 🔊 Apply the 1.4x Volume Buff here!
+        //  Apply the 1.4x Volume Buff here!
         gain.gain.value = window._masterMuteActive ? 0 : (savedVol * 1.4);
 
         src.connect(gain);
         gain.connect(dst);
         _desktopGainNode = gain;
 
-        // 🛡️ Prevent Chrome from aggressively deleting the audio pipeline
+        // 🛡 Prevent Chrome from aggressively deleting the audio pipeline
         window._nsAudioCtx = ctx;
         window._nsAudioSrc = src;
         if (ctx.state === 'suspended') ctx.resume();
@@ -473,7 +560,7 @@ function toggleStreamState() {
 
 async function fetchGameThumbnail(gameTitle) {
     try {
-        const res = await fetch(`https://nearsec.cutefame.net/api/game-art?title=${encodeURIComponent(gameTitle)}`);
+        const res = await fetch(`https://nearcade.cutefame.net/api/game-art?title=${encodeURIComponent(gameTitle)}`);
         const data = await res.json();
         return data.thumbnail || '';
     } catch (e) {
@@ -483,7 +570,9 @@ async function fetchGameThumbnail(gameTitle) {
 }
 
 function preferVideoCodec(pc) {
-    const caps = RTCRtpSender.getCapabilities?.('video');
+    // setCodecPreferences STRICTLY requires codec objects returned by RTCRtpReceiver.getCapabilities.
+    // We cannot use RTCRtpSender.getCapabilities here or the browser will throw "Invalid codec preferences".
+    const caps = RTCRtpReceiver.getCapabilities?.('video');
     if (!caps || !caps.codecs) return null;
     const val = document.getElementById('codecSelect').value;
 
@@ -491,15 +580,31 @@ function preferVideoCodec(pc) {
     const targetMime = 'video/' + (val === 'H265' ? 'hevc' : val).toLowerCase();
     const fallbackMime = val === 'H265' ? 'video/h265' : targetMime;
 
-    const preferred = caps.codecs.filter(c =>
-    c.mimeType.toLowerCase() === targetMime || c.mimeType.toLowerCase() === fallbackMime
-    );
+    let codecs = [...caps.codecs];
+    let targetIdx = -1;
+
+    // H264 profile fix for Windows AMD/MediaFoundation decoder bugs:
+    // We MUST force Constrained Baseline (42e01f) to the absolute top of the H264 list.
+    if (targetMime === 'video/h264') {
+        targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === 'video/h264' && c.sdpFmtpLine && c.sdpFmtpLine.includes('42e01f'));
+    }
+    
+    if (targetIdx === -1) {
+        targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === targetMime || c.mimeType.toLowerCase() === fallbackMime);
+    }
 
     // Fallback to browser default if hardware is missing
-    if (preferred.length === 0) return null;
+    if (targetIdx === -1) return null;
 
-    const rest = caps.codecs.filter(c => !preferred.includes(c));
-    const sorted = [...preferred, ...rest];
+    // WebRTC requires RTX/RED codecs to remain adjacent to their base codecs.
+    // We lift the selected codec and its RTX companion to the top of the list.
+    let count = 1;
+    if (codecs[targetIdx + 1] && codecs[targetIdx + 1].mimeType.toLowerCase() === 'video/rtx') {
+        count = 2;
+    }
+
+    const preferred = codecs.splice(targetIdx, count);
+    const sorted = [...preferred, ...codecs];
 
     let used = null;
     pc.getTransceivers().forEach(t => {
@@ -580,15 +685,26 @@ async function runBenchmark(mode) {
 
     benchLog(`Testing ${toTest.length} codec(s) — 8s each…`);
 
-    // Set up test video element (uses test_video.mp4 as the source signal)
-    const testVideo = document.createElement('video');
-    testVideo.src = '/assets/test_video.mp4';
-    testVideo.loop = true;
-    testVideo.muted = true;
-    testVideo.playsInline = true;
-    testVideo.style.display = 'none';
-    document.body.appendChild(testVideo);
-    await testVideo.play().catch(() => {});
+    // Set up test canvas to simulate video stream
+    const testCanvas = document.createElement('canvas');
+    testCanvas.width = 1280;
+    testCanvas.height = 720;
+    const testCtx = testCanvas.getContext('2d');
+    testCtx.fillStyle = '#0f111a';
+    testCtx.fillRect(0, 0, 1280, 720);
+    // Draw a spinning block to force encoder motion
+    let testAngle = 0;
+    const testAnim = setInterval(() => {
+        testCtx.fillStyle = '#0f111a';
+        testCtx.fillRect(0, 0, 1280, 720);
+        testCtx.save();
+        testCtx.translate(640, 360);
+        testCtx.rotate(testAngle);
+        testCtx.fillStyle = '#8b5cf6';
+        testCtx.fillRect(-200, -200, 400, 400);
+        testCtx.restore();
+        testAngle += 0.1;
+    }, 33);
 
     const results = [];
 
@@ -608,10 +724,11 @@ async function runBenchmark(mode) {
             pc1.onicecandidate = e => e.candidate && pc2.addIceCandidate(e.candidate).catch(() => {});
             pc2.onicecandidate = e => e.candidate && pc1.addIceCandidate(e.candidate).catch(() => {});
 
-            // Add video track from the test video
-            const stream = testVideo.captureStream ? testVideo.captureStream(30) : testVideo.mozCaptureStream?.(30);
+            // Add video track from the test canvas
+            const stream = testCanvas.captureStream(30);
             if (!stream) throw new Error('captureStream not supported');
             const [track] = stream.getVideoTracks();
+            if (!track) throw new Error('Video track not available yet');
             pc1.addTrack(track, stream);
 
             // Prefer the specific codec on pc1's sender
@@ -696,8 +813,7 @@ async function runBenchmark(mode) {
         }
     }
 
-    testVideo.pause();
-    document.body.removeChild(testVideo);
+    clearInterval(testAnim);
 
     fillEl.style.width = '100%';
     pctEl.textContent = '100%';
@@ -781,18 +897,42 @@ function log(msg, cls) {
     const el = document.getElementById('log');
     const d = document.createElement('div');
     d.className = 'll' + (cls ? ' ' + cls : '');
-    d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    
+    const timeSpan = document.createElement('span');
+    timeSpan.style.opacity = '0.5';
+    timeSpan.style.marginRight = '6px';
+    timeSpan.textContent = '[' + new Date().toLocaleTimeString() + ']';
+    d.appendChild(timeSpan);
+    
+    const textNode = document.createTextNode(I18N.t(msg));
+    d.appendChild(textNode);
+    
     if (el) { el.appendChild(d); el.scrollTop = el.scrollHeight; }
     const mini = document.getElementById('lastLogLine');
-    if (mini) { mini.textContent = msg; mini.style.color = cls === 'ok' ? 'var(--accent)' : cls === 'err' ? 'var(--danger)' : cls === 'warn' ? 'var(--warn)' : '#333'; }
+    if (mini) { mini.textContent = I18N.t(msg); mini.style.color = cls === 'ok' ? 'var(--accent)' : cls === 'err' ? 'var(--danger)' : cls === 'warn' ? 'var(--warn)' : '#333'; }
 }
 
 function appendChat(name, text, isMe) {
+    const fingerprint = makeChatFingerprint(name, text);
+    const now = Date.now();
+    if (fingerprint === _lastChatFingerprint && now - _lastChatTimestamp < CHAT_DEDUP_WINDOW_MS) {
+        return;
+    }
+    _lastChatFingerprint = fingerprint;
+    _lastChatTimestamp = now;
+
     const el = document.getElementById('chatLog');
     const d = document.createElement('div');
     d.className = 'cmsg';
-    d.innerHTML = '<span class="cname' + (isMe ? ' me' : '') + '">' + name + '</span>' + text;
-    el.appendChild(d); el.scrollTop = el.scrollHeight;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'cname' + (isMe ? ' me' : '');
+    nameSpan.textContent = name;
+    d.appendChild(nameSpan);
+    d.appendChild(document.createTextNode(text));
+    if (el) {
+        el.appendChild(d);
+        el.scrollTop = el.scrollHeight;
+    }
 }
 
 function sendChat() {
@@ -804,13 +944,17 @@ function sendChat() {
 }
 
 function setCapDot(state) {
-    document.getElementById('capDot').className = 'dot' + (state === 'live' ? ' live' : state === 'err' ? ' err' : '');
-    document.getElementById('capStatus').textContent = state === 'live' ? 'Live' : state === 'err' ? 'Error' : 'Idle';
+    const d = document.getElementById('capDot');
+    const s = document.getElementById('capStatus');
+    if (d) d.className = 'dot' + (state === 'live' ? ' live' : state === 'err' ? ' err' : '');
+    if (s) s.textContent = state === 'live' ? 'Live' : state === 'err' ? 'Error' : 'Idle';
 }
 
 function setAudDot(state, label) {
-    document.getElementById('audDot').className = 'dot' + (state === 'live' ? ' live' : state === 'warn' ? ' warn' : '');
-    document.getElementById('audStatus').textContent = label;
+    const d = document.getElementById('audDot');
+    const s = document.getElementById('audStatus');
+    if (d) d.className = 'dot' + (state === 'live' ? ' live' : state === 'warn' ? ' warn' : '');
+    if (s) s.textContent = label;
 }
 
 // ── V3 UI UPDATE ──
@@ -831,14 +975,16 @@ async function renderUrls(d) {
     if (d.tunnelUrl) {
         const separator = d.tunnelUrl.includes('?') ? '&' : '?';
         const pSelect = document.getElementById('pipelineSelect');
-        const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+        const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
         finalTunnelUrl = `${d.tunnelUrl}${separator}host=${encodedName}${pipeArg}`;
     }
+    window._globalTunnelUrl = finalTunnelUrl;
 
     const pSelect = document.getElementById('pipelineSelect');
-    const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+    const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
 
     const rows = [];
+    const isPlaygroundHost = document.body?.dataset.playgroundHost === '1' || document.body?.dataset.playgroundHost === 'true';
     
     // Check if we are running in P2P mode!
     if (window._isP2P && window._p2pCode) {
@@ -849,11 +995,11 @@ async function renderUrls(d) {
         rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: '#444', noclick: true });
     }
 
-    if (!window._isP2P) {
+    if (!window._isP2P && !isPlaygroundHost) {
         rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
     }
 
-    if (!finalTunnelUrl && d.publicIP)
+    if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost)
         rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
 
     // 3. NOW clear the HTML and append (prevents the async duplication bug)
@@ -864,6 +1010,8 @@ async function renderUrls(d) {
             const div = document.createElement('div');
             div.className = 'url-row';
             div.style.color = r.color;
+            div.style.display = 'block';
+            div.style.width = '100%';
             div.textContent = r.url;
             if (!r.noclick) div.onclick = () => {
                 navigator.clipboard.writeText(r.url).catch(() => { });
@@ -877,7 +1025,7 @@ async function renderUrls(d) {
     }
 
     // Always show LAN IP as a secondary row — useful even in VPS mode for local testing
-    if (d.lanIP) {
+    if (d.lanIP && !isPlaygroundHost) {
         const lanUrl = `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}`;
         const existing = [...(el?.querySelectorAll('.url-row') || [])].find(e => e.textContent.includes(d.lanIP));
         if (!existing && el) {
@@ -928,6 +1076,11 @@ const _micTitles = [
 function renderRoster(list) {
     const c = document.getElementById('roster');
     const o = document.getElementById('rosterEmpty');
+    const overlayC = document.getElementById('rosterOverlayList');
+    const overlayO = document.getElementById('rosterOverlayEmpty');
+
+    if (!c || !o) return;
+    
     const controllers = list;
 
     const listStr = JSON.stringify(controllers);
@@ -943,10 +1096,14 @@ function renderRoster(list) {
     if (controllers.length === 0) {
         c.innerHTML = '';
         o.style.display = 'block';
+        if (overlayC) overlayC.innerHTML = '';
+        if (overlayO) overlayO.style.display = 'block';
         return;
     }
     o.style.display = 'none';
     c.innerHTML = '';
+    if (overlayO) overlayO.style.display = 'none';
+    if (overlayC) overlayC.innerHTML = '';
 
     controllers.forEach((v, index) => {
         const r = document.createElement('div');
@@ -962,11 +1119,17 @@ function renderRoster(list) {
             currentMode = savedViewerModes[v.name];
             changeInputMode(v.id, currentMode, v.name);
         }
+        
+        let displayName = v.name;
+        if (vrActiveViewers.has(v.id.split('_')[0])) {
+            displayName += ' <span style="color:var(--accent);font-size:10px;">(VR)</span>';
+        }
 
         let iconSrc = '/assets/icons/gamepad.svg';
         if (currentMode === 'disabled') iconSrc = '/assets/icons/circle-off.svg';
         if (currentMode === 'kbm') iconSrc = '/assets/icons/keyboard.svg';
         if (currentMode === 'kbm_emulated') iconSrc = '/assets/icons/arrow-up-from-line.svg';
+        if (currentMode === 'experimental') iconSrc = '/assets/icons/plug.svg';
 
         if (!viewerAudioStates[v.id]) viewerAudioStates[v.id] = { vol: 100, state: 0 };
         const audState = _globalMicKillActive ? 3 : viewerAudioStates[v.id].state;
@@ -976,7 +1139,7 @@ function renderRoster(list) {
         r.innerHTML = `
         <div class="rnum">${index + 1}</div>
         <div style="flex:1; overflow:hidden;">
-        <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${v.name}</div>
+        <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${displayName}</div>
         <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
         <img src="${iconSrc}" style="width:14px;height:14px;filter:invert(0.8);" id="icon-${v.id}" />
         ${v.id === 'host_0' ? `<span style="font-size:9px;color:var(--muted);">Host</span>` : `
@@ -985,6 +1148,7 @@ function renderRoster(list) {
         <option value="gamepad"       ${currentMode === 'gamepad'       ? 'selected' : ''}>Gamepad</option>
         <option value="kbm"           ${currentMode === 'kbm'           ? 'selected' : ''}>Raw KBM</option>
         <option value="kbm_emulated"  ${currentMode === 'kbm_emulated'  ? 'selected' : ''}>Emulated KBM</option>
+        <option value="experimental"  ${currentMode === 'experimental'  ? 'selected' : ''}>Experimental Hardware</option>
         <option value="disabled"      ${currentMode === 'disabled'      ? 'selected' : ''}>Disabled</option>
         </select>
         `}
@@ -1007,10 +1171,24 @@ function renderRoster(list) {
         <img src="/assets/icons/${v.locked ? 'lock' : 'lock-open'}.svg" style="width:14px;height:14px;${v.locked ? 'filter:invert(0.8) sepia(1) saturate(5) hue-rotate(350deg);' : 'filter:invert(0.5);'}" />
         </button>
         ${v.id === 'host_0' ? '' : `<button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>`}
+        ${v.id === 'host_0' || typeof isArcade === 'undefined' || !isArcade ? '' : `<button class="rreport" onclick="reportViewer('${v.id}')" title="Report Viewer">!</button>`}
         `;
         c.appendChild(r);
+
+        if (overlayC && index < 4) {
+            const r2 = document.createElement('div');
+            r2.className = r.className;
+            r2.draggable = r.draggable;
+            r2.dataset.id = r.dataset.id;
+            r2.style.cssText = r.style.cssText;
+            r2.innerHTML = r.innerHTML
+                .replace(`id="icon-${v.id}"`, `id="overlay-icon-${v.id}"`)
+                .replace(`id="mic-btn-${v.id}"`, `id="overlay-mic-btn-${v.id}"`);
+            overlayC.appendChild(r2);
+        }
     });
     attachDragDrop(c);
+    if (overlayC) attachDragDrop(overlayC);
 }
 
 // ── 4-STATE MIC CYCLE ─────────────────────────────────────────────────────────
@@ -1050,6 +1228,11 @@ function cycleViewerMic(viewerId) {
     if (btn) {
         btn.innerHTML = _micSvg(s.state);
         btn.title     = _micTitles[s.state];
+    }
+    const overlayBtn = document.getElementById('overlay-mic-btn-' + viewerId);
+    if (overlayBtn) {
+        overlayBtn.innerHTML = _micSvg(s.state);
+        overlayBtn.title     = _micTitles[s.state];
     }
 }
 
@@ -1156,6 +1339,21 @@ function kickViewer(id) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'kick-viewer', viewerId: id }));
 }
 
+function reportViewer(id) {
+    if (!confirm('Report this viewer for violating the arcade rules?')) return;
+    if (ws && ws.readyState === 1) {
+        const anonHash = typeof _viewerIpHashes !== 'undefined' ? _viewerIpHashes[id] : null;
+        ws.send(JSON.stringify({
+            type: 'report-viewer',
+            viewerId: id,
+            anonHash: anonHash,
+            sessionId: hostSessionId,
+            reason: 'arcade-violation'
+        }));
+        log(`Reported viewer ${id}`, 'ok');
+    }
+}
+
 function toggleSlotLock(rosterId, newLockState) {
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type: 'toggle-slot-lock', viewerId: rosterId, locked: newLockState }));
@@ -1179,6 +1377,19 @@ function regeneratePin() {
     }
 }
 
+function savePersistentPassword(val) {
+    const password = (val || '').trim();
+    fetch('/api/set-session-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password })
+    }).then(r => r.json()).then(cfg => {
+        log(password ? 'Persistent password saved! Replaces PIN.' : 'Persistent password cleared. Using random PINs.', 'ok');
+    }).catch(err => {
+        log('Failed to save password: ' + err.message, 'err');
+    });
+}
+
 function connectWS() {
     ws = new WebSocket(proto + '://' + location.host + '/ws/host');
     ws.onopen = () => {
@@ -1188,11 +1399,19 @@ function connectWS() {
         fetch('/api/config').then(r => r.json()).then(cfg => {
             const hostNameEl = document.getElementById('displayHostName');
             if (hostNameEl) hostNameEl.textContent = cfg.hostName || 'Guest';
+            
+            const passInput = document.getElementById('persistentPasswordInput');
+            if (passInput && cfg.persistentPassword) {
+                passInput.value = cfg.persistentPassword;
+            }
         });
 
             fetch('/api/info').then(r => r.json()).then(d => {
-                currentPin = d.pin;
-                document.getElementById('pinVal').textContent = d.pin;
+                if (d.pin) currentPin = d.pin;
+                if (!window._isP2P) {
+                    const pVal = document.getElementById('pinVal');
+                    if (pVal) pVal.textContent = currentPin;
+                }
                 renderUrls(d);
                 ws.send(JSON.stringify({ type: 'sync-pin', pin: currentPin, enabled: pinEnabled }));
                 sendCtrlSettings();
@@ -1257,7 +1476,21 @@ function connectWS() {
                     console.log(`[webrtc] Stale answer dropped. State is: ${pc.signalingState}`);
                     return;
                 }
-                try { await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); } catch (e) { log(I18N.t('answer err:') + ' ' + e.message, 'err'); }
+                try { 
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)); 
+                    // Seamless Renegotiation Hack: When swapping codecs mid-stream, 
+                    // the decoder stalls waiting for the next IDR frame (which can take 5-10s).
+                    // Triggering a track replacement immediately after applying the answer 
+                    // flushes the Chromium encoder and resumes the stream instantly.
+                    setTimeout(() => {
+                        if (pc.connectionState === 'connected') {
+                            const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                            if (videoSender && videoSender.track) {
+                                videoSender.replaceTrack(videoSender.track).catch(()=>{});
+                            }
+                        }
+                    }, 150);
+                } catch (e) { log(I18N.t('answer err:') + ' ' + e.message, 'err'); }
             }
         }
         if (msg.type === 'ice-viewer') {
@@ -1271,6 +1504,13 @@ function connectWS() {
             sendOfferToViewer(msg._viewerId);
         }
 
+        if (msg.type === 'viewer-vr-active') {
+            vrActiveViewers.add(msg._viewerId || msg.viewerId);
+            if (_lastRosterList) renderRoster(_lastRosterList);
+            log(`Viewer ${msg._viewerId || msg.viewerId} entered VR mode`, 'ok');
+            return;
+        }
+
         if (msg.type === 'tunnel-url') {
             // In VPS SFU mode the tunnel URL is irrelevant — the custom domain
             // is already displayed. Swallowing this message prevents the Cloudflare
@@ -1280,8 +1520,11 @@ function connectWS() {
                 return;
             }
             log(I18N.t('Tunnel ready:') + ' ' + msg.url, 'ok');
-            fetch('/api/info').then(r => r.json()).then(d => { d.tunnelUrl = msg.url; renderUrls(d); });
-            closeTunnelModal();
+            // Set _globalTunnelUrl synchronously so _updateDiscordRPC picks it up
+            // even if the async fetch below hasn't resolved yet.
+            window._globalTunnelUrl = msg.url;
+            fetch('/api/info').then(r => r.json()).then(async function(d) { d.tunnelUrl = msg.url; await renderUrls(d); if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC(); });
+            if (!_tunnelModalManual) closeTunnelModal();
         }
         if (msg.type === 'tunnel-error') {
             log(I18N.t('Tunnel failed:') + ' ' + msg.provider, 'err');
@@ -1315,7 +1558,10 @@ function connectWS() {
             audio.play().catch(err => console.warn('[Audio] Could not play UI sound:', err));
             return;
         }
-        if (msg.type === 'chat') appendChat(msg.from, msg.msg, false);
+        if (msg.type === 'chat') {
+            const isMe = msg.from === 'Host';
+            appendChat(msg.from, msg.msg, isMe);
+        }
         if (msg.type === 'viewer-gpid') log(I18N.t('Controller:') + ' ' + msg.id, 'ok');
         if (msg.type === 'arcade-session-active') log(I18N.t('Arcade session is LIVE on Nearsec Arcade!'), 'ok');
         if (msg.type === 'arcade-session-error') log(I18N.t('Arcade error:') + ' ' + (msg.reason || 'unknown'), 'err');
@@ -1323,6 +1569,11 @@ function connectWS() {
             // Backend driver failure (e.g. ViGEmBus missing on Windows)
             console.error('[Input Error]', msg.message);
             log('Input Driver Error: ' + msg.message, 'err');
+            if (window.showError) {
+                // If it's a missing setup, show a warning. If it's a driver crash, show a critical red error.
+                const severity = msg.message.toLowerCase().includes('udev') ? 'yellow' : 'red';
+                window.showError('Input Driver Error: ' + msg.message, severity);
+            }
         }
         if (msg.type === 'input-ready') {
             log('Input driver ready: ' + (msg.message || ''), 'ok');
@@ -1380,13 +1631,47 @@ async function sendOfferToViewer(viewerId) {
 
     peerConnections[viewerId] = pc;
 
-    // ── THE MISSING UDP TUNNEL ──
-    pc.wcChannel = pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0 });
+    const pipelineVal = document.getElementById('pipelineSelect')?.value;
+    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+
+    if (forceWc) {
+        // ── THE MISSING UDP TUNNEL ──
+        pc.wcChannel = pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0 });
+
+        // When the channel opens for this viewer, send the cached decoder config
+        // immediately so they don't wait for the next keyframe (which may be seconds away).
+        // Then force a keyframe so they can start decoding right away.
+        pc.wcChannel.onopen = () => {
+            console.log(`[WebCodecs] wcChannel open for ${viewerId} — sending cached config and forcing a keyframe`);
+
+            // 1. Send the configuration to boot the decoder
+            if (_lastWcConfig && pc.wcChannel.readyState === 'open') {
+                pc.wcChannel.send(_lastWcConfig);
+            }
+
+            // 2. FORCE THE ENCODER TO SEND A NEW KEYFRAME
+            if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                _wcForceKeyframe = true;
+                console.log(`[WebCodecs] Keyframe requested for late-joiner ${viewerId}`);
+            }
+        };
+    }
 
     // ── UDP FAST-LANE FOR INPUT ──
     pc.inputChannel = pc.createDataChannel('input', { ordered: false, maxRetransmits: 0 });
     pc.inputChannel.onmessage = (e) => {
         if (ws && ws.readyState === 1) {
+            if (e.data instanceof ArrayBuffer || e.data instanceof Blob) {
+                const isBlob = e.data instanceof Blob;
+                if (isBlob) {
+                    e.data.arrayBuffer().then(ab => processBinaryInput(ab, viewerId));
+                    return;
+                } else {
+                    processBinaryInput(e.data, viewerId);
+                    return;
+                }
+            }
+
             try {
                 const inner = JSON.parse(e.data);
                 // Fast-lane inputs bypass the VPS router, so we must manually stamp the correct session ID
@@ -1399,27 +1684,26 @@ async function sendOfferToViewer(viewerId) {
             }
         }
     };
-
-    // When the channel opens for this viewer, send the cached decoder config
-    // immediately so they don't wait for the next keyframe (which may be seconds away).
-    // Then force a keyframe so they can start decoding right away.
-    pc.wcChannel.onopen = () => {
-        console.log(`[WebCodecs] wcChannel open for ${viewerId} — sending cached config and forcing a keyframe`);
-
-        // 1. Send the configuration to boot the decoder
-        if (_lastWcConfig && pc.wcChannel.readyState === 'open') {
-            pc.wcChannel.send(_lastWcConfig);
+    
+    function processBinaryInput(ab, viewerId) {
+        const original = new Uint8Array(ab);
+        if (original[0] === 0x01) { // PKT::GAMEPAD
+            const vidBytes = new TextEncoder().encode(viewerId);
+            const outBuf = new Uint8Array(2 + vidBytes.length + original.length);
+            outBuf[0] = 0x80; // Custom magic for Host->Server Binary Input
+            outBuf[1] = vidBytes.length;
+            outBuf.set(vidBytes, 2);
+            outBuf.set(original, 2 + vidBytes.length);
+            ws.send(outBuf);
         }
-
-        // 2. FORCE THE ENCODER TO SEND A NEW KEYFRAME
-        // This guarantees the viewer gets a fresh full frame immediately after connecting
-        if (_wcEncoder && _wcEncoder.state !== 'closed') {
-            _wcForceKeyframe = true;
-            console.log(`[WebCodecs] Keyframe requested for late-joiner ${viewerId}`);
-        }
-    };
+    }
 
     currentStream.getTracks().forEach(track => {
+        if (track.kind === 'video' && forceWc) {
+            console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
+            return;
+        }
+
         const sender = pc.addTrack(track, currentStream);
         if (track.kind === 'video' && sender.setParameters) {
             const params = sender.getParameters();
@@ -1430,9 +1714,12 @@ async function sendOfferToViewer(viewerId) {
         }
     });
 
-    const codec = preferVideoCodec(pc);
-    const cb = document.getElementById('codecBadge');
-    if (codec && cb) cb.textContent = codec.split('/')[1];
+    let codec = null;
+    if (!forceWc) {
+        codec = preferVideoCodec(pc);
+        const cb = document.getElementById('codecBadge');
+        if (codec && cb) cb.textContent = codec.split('/')[1];
+    }
 
     let connectTimeout = setTimeout(() => {
         if (pc.connectionState !== 'connected' && peerConnections[viewerId] === pc) {
@@ -1484,6 +1771,25 @@ async function sendOfferToViewer(viewerId) {
             clearTimeout(connectTimeout);
             setLowLatencyParams(pc);
             monitorCongestion(pc, viewerId);
+
+            // ── KEYFRAME HACK ──
+            // Some hardware encoders (Linux Vaapi) drop or ignore PLI requests from new viewers,
+            // resulting in a permanent black screen until the stream is fully restarted.
+            // Replacing the sender's track with itself forces Chromium to flush the encoder pipeline
+            // and emit a fresh IDR keyframe, instantly fixing the black screen for late-joiners.
+            // Guard: only fire if this pc is still the active connection for this viewer.
+            // Without this guard, a stale timer from a replaced pc fires on the new connection's
+            // DTLS transport while it is being set up, triggering a DcSctpTransport abort cascade.
+            setTimeout(() => {
+                if (peerConnections[viewerId] !== pc) return;
+                try {
+                    const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (videoSender && videoSender.track) {
+                        videoSender.replaceTrack(videoSender.track).catch(e => console.warn('[WebRTC] Keyframe force failed:', e));
+                        log(I18N.t('Forced keyframe for') + ' ' + viewerId, 'ok');
+                    }
+                } catch (e) { }
+            }, 600);
         }
 
         if (s === 'failed' || s === 'disconnected') {
@@ -1516,14 +1822,17 @@ let selectedSourceId = null;
 
 
 async function showSourceSelectionModal() {
-    // CRITICAL FIX: Bypass custom modal on Linux.
+    closeAllModals();
+    // CRITICAL FIX: Bypass custom modal on Linux and macOS.
     // Electron's desktopCapturer.getSources() triggers a video-only xdg-desktop-portal
-    // on Wayland, which hides the "Share Audio" checkbox.
-    const isLinux = navigator.userAgent.toLowerCase().includes('linux');
+    // on Wayland, which hides the "Share Audio" checkbox. On macOS, bypassing allows the native SCK picker.
+    const ua = navigator.userAgent.toLowerCase();
+    const isLinux = ua.includes('linux');
+    const isMac = ua.includes('mac os x');
 
-    // Only show modal if electronAPI is available AND we are not on Linux
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux) {
-        if (isLinux) log(I18N.t('Linux Wayland detected: Delegating to native portal for audio support'), 'ok');
+    // Only show modal if electronAPI is available AND we are not on Linux or macOS
+    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac) {
+        if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
         else log(I18N.t('Source selection not available on this platform'), 'warn');
 
         startCapture();
@@ -1576,7 +1885,7 @@ async function _populateSourceGrid() {
             ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
             : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
 
-            const sourceType = source.isScreen ? '🖥️ Screen' : '🪟 Window';
+            const sourceType = source.isScreen ? '🖥 Screen' : ' Window';
             card.innerHTML = `${imgHtml}
             <div class="source-name">${source.name}</div>
             <div class="source-type">${sourceType}</div>`;
@@ -1635,7 +1944,7 @@ let activeSourceId = null;
 // would silently never fire. This pattern handles both cases.
 function hydrateSelectsFromStorage() {
     const selectDefs = [
-        { key: 'ns_codec',   id: 'codecSelect',   onChange: null },
+        { key: 'ns_codec',   id: 'codecSelect',    onChange: async () => { if (currentStream) await window.saveCodecUI(document.getElementById('codecSelect').value); } },
         { key: 'ns_bitrate', id: 'bitrateSelect',  onChange: () => { if (currentStream) applyBitrateToAll(); } },
         { key: 'ns_deg',     id: 'degSelect',      onChange: () => { if (currentStream) applyBitrateToAll(); } },
         { key: 'ns_res',     id: 'resSelect',      onChange: async () => { if (currentStream) await hotSwapCapture(); } },
@@ -1645,7 +1954,10 @@ function hydrateSelectsFromStorage() {
         const el = document.getElementById(id);
         if (!el) return;
         const saved = localStorage.getItem(key);
-        if (saved) el.value = saved;
+        if (saved) {
+            el.value = saved;
+            el.dispatchEvent(new Event('input'));
+        }
         el.addEventListener('change', async (e) => {
             saveSetting(key, e.target.value, key.replace('ns_', 'quality_'));
             if (onChange) {
@@ -1674,7 +1986,7 @@ if (document.readyState === 'loading') {
     hydrateSelectsFromStorage();
 }
 
-// 🔥 THE HOT SWAP ENGINE
+//  THE HOT SWAP ENGINE
 async function hotSwapCapture() {
     if (!currentStream) return;
     log(I18N.t('Applying new stream resolution/FPS...'), 'warn');
@@ -1704,6 +2016,10 @@ async function hotSwapCapture() {
 
         // Strip artificial height constraints so the browser doesn't crop the screen
         let videoConstraints = { frameRate: { ideal: fpsVal } };
+        
+        if (window._lastSourceId && window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
+            window.electronAPI.setSelectedSource(window._lastSourceId);
+        }
 
         // 2. Grab the new video track (with timeout protection)
         let newScreenStream;
@@ -1847,6 +2163,14 @@ async function startCapture() {
                 //       if it starts with 'screen:' already → leave it
                 //       if it starts with 'window:' already → leave it
                 //       anything else with no colon → assume window, add prefix
+                // Windows Audio Capture fallback bug:
+                // Chromium on Windows refuses to start a new getUserMedia capture if the
+                // previous MediaStreamTrack was not explicitly stopped AND nulled.
+                // Furthermore, if we fall back to getDisplayMedia, the main process needs to know what we selected.
+                if (window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
+                    window.electronAPI.setSelectedSource(selectedSourceId);
+                }
+
                 if (!selectedSourceId.startsWith('window:') && !selectedSourceId.startsWith('screen:')) {
                     // Raw numeric IDs (e.g. '123456789') are window handles on Windows
                     const isNumeric = /^\d+$/.test(selectedSourceId);
@@ -1920,7 +2244,7 @@ async function startCapture() {
         const urlParams = new URLSearchParams(window.location.search);
         const pipelineEl = document.getElementById('pipelineSelect');
         const pipelineVal = pipelineEl ? pipelineEl.value : 'native';
-        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs';
+        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
         if (forceWc) {
             log('WebCodecs pipeline active.', 'ok');
             startWebCodecsNetworkPipeline(vTrack);
@@ -2019,10 +2343,13 @@ async function startCapture() {
         document.getElementById('prevOverlay').classList.add('hidden');
 
         const finalAudioTracks = currentStream.getAudioTracks();
-        document.getElementById('trackInfo').innerHTML =
-        '<strong>' + (vTrack.label?.split('(')[0].trim() || 'Screen') + '</strong><br>' +
-        settings.width + '×' + settings.height + ' @ ' + Math.round(settings.frameRate || 0) + 'fps<br>' +
-        (finalAudioTracks.length > 0 ? 'Audio: active' : (disableFallback && !aTrack ? 'No audio' : 'Audio: OS fallback'));
+        const ti = document.getElementById('trackInfo');
+        if (ti) {
+            ti.innerHTML =
+            '<strong>' + (vTrack.label?.split('(')[0].trim() || 'Screen') + '</strong><br>' +
+            settings.width + '×' + settings.height + ' @ ' + Math.round(settings.frameRate || 0) + 'fps<br>' +
+            (finalAudioTracks.length > 0 ? 'Audio: active' : (disableFallback && !aTrack ? 'No audio' : 'Audio: OS fallback'));
+        }
 
         const liveResEl   = document.getElementById('liveResDisplay');
         const liveResText = document.getElementById('liveResText');
@@ -2041,6 +2368,35 @@ async function startCapture() {
                 if (alt && !alt.innerHTML.includes('<strong>')) {
                     alt.textContent = label;
                 }
+            }
+            
+            // WebRTC HW Encoding Diagnostics
+            const pcList = Object.values(peerConnections);
+            if (pcList.length > 0 && pcList[0]) {
+                pcList[0].getStats().then(stats => {
+                    let isHw = false;
+                    let hwStr = '';
+                    stats.forEach(report => {
+                        if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                            if (report.encoderImplementation) {
+                                const impl = report.encoderImplementation.toLowerCase();
+                                isHw = !impl.includes('libvpx') && !impl.includes('openh264') && !impl.includes('fallback');
+                                hwStr = report.encoderImplementation;
+                            }
+                        }
+                    });
+                    const cb = document.getElementById('codecBadge');
+                    if (cb && hwStr) {
+                        cb.title = `Encoder: ${hwStr} (${isHw ? 'Hardware' : 'Software'})`;
+                        if (isHw) {
+                            cb.style.border = '1px solid var(--ok)';
+                            cb.style.color = 'var(--ok)';
+                        } else {
+                            cb.style.border = '';
+                            cb.style.color = '';
+                        }
+                    }
+                }).catch(()=>{});
             }
         }
         _updateRes();
@@ -2073,6 +2429,7 @@ async function startCapture() {
         _elDisabled('btnSwitch', false);
         _elDisabled('btnStop', false);
         _elDisabled('btnKbmPanic', false);
+        updatePlaygroundToolbarState(true);
 
     } catch (err) {
         // UNFREEZE TRIGGER: Now runs cleanly whether by user abort or by our timeout
@@ -2089,6 +2446,7 @@ async function startCapture() {
         _elDisabled('btnStart', false);
         _elDisabled('btnSwitch', true);
         _elDisabled('btnStop', true);
+        updatePlaygroundToolbarState(false);
     }
 }
 
@@ -2109,6 +2467,7 @@ function _forceKillStream(stream) {
 }
 
 function stopCapture() {
+    isArcade = false;
     if (currentStream) { _forceKillStream(currentStream); currentStream = null; }
     if (window._resInterval) { clearInterval(window._resInterval); window._resInterval = null; }
     _stopStatsHud();
@@ -2153,6 +2512,7 @@ function stopCapture() {
     _elDisabled('btnStop', true);
     _elDisabled('btnKbmPanic', true);
     kbmPanicActive = false;
+    updatePlaygroundToolbarState(false);
     updateKbmPanicButton();
     Object.values(peerConnections).forEach(pc => pc.close());
     peerConnections = {};
@@ -2387,7 +2747,17 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     _wcEncoder = encoder;
 
     // Derive codec string from the host's UI selection so AV1/VP9/H264 are honored.
-    const _wcCodecSel = (document.getElementById('codecSelect')?.value || 'VP8').toUpperCase();
+    // WebCodecs codec strings differ from WebRTC mimeTypes — map them explicitly.
+    let _wcCodecSel = (document.getElementById('codecSelect')?.value || 'VP8').toUpperCase();
+    
+    // FIX: Linux VaapiVideoEncoder fails to emit mandatory AVCC extradata (description) for H264.
+    // Windows VideoDecoder completely crashes/blacks out if description is missing.
+    // Force fallback to VP9 on Linux to bypass the H264 hardware encoder bug in WebCodecs.
+    if (_wcCodecSel === 'H264' && navigator.userAgent.toLowerCase().includes('linux')) {
+        console.warn('[WebCodecs] Linux H264 hardware encoding is broken (missing AVCC). Forcing VP9 fallback.');
+        _wcCodecSel = 'VP9';
+    }
+
     const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.10.08', 'VP8': 'vp8', 'H264': 'avc1.42002A', 'H265': 'hvc1.1.6.L93.B0' };
     const _wcCodecStr = _wcCodecMap[_wcCodecSel] || 'vp8';
     const wcConfig = {
@@ -2413,12 +2783,34 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                 const { done, value: frame } = await reader.read();
                 if (done) break;
 
+                if (encoder.state === 'closed') {
+                    frame.close();
+                    continue;
+                }
+
+                // FIX: Dynamic Resolution Handling
+                // Capture cards and emulators (e.g., Smash Ultimate) frequently resize frames.
+                // If the encoder isn't reconfigured, it throws an error and permanently dies, causing a black screen.
+                const fW = (frame.displayWidth || frame.codedWidth) & ~1;
+                const fH = (frame.displayHeight || frame.codedHeight) & ~1;
+                if (fW > 0 && fH > 0 && (fW !== encoder._lastConfig.width || fH !== encoder._lastConfig.height)) {
+                    console.log(`[WebCodecs] Resolution changed: ${encoder._lastConfig.width}x${encoder._lastConfig.height} -> ${fW}x${fH}`);
+                    encoder._lastConfig.width = fW;
+                    encoder._lastConfig.height = fH;
+                    try { encoder.configure(encoder._lastConfig); } catch (e) { console.error(e); }
+                    _wcForceKeyframe = true;
+                }
+
                 if (encoder.encodeQueueSize > 2) {
                     frame.close();
                 } else {
                     const keyFrame = _wcForceKeyframe;
                     if (keyFrame) _wcForceKeyframe = false;
-                    encoder.encode(frame, { keyFrame });
+                    try {
+                        encoder.encode(frame, { keyFrame });
+                    } catch (e) {
+                        console.error('[WebCodecs] Encode frame error:', e);
+                    }
                     frame.close();
                 }
             }
@@ -2545,8 +2937,10 @@ function connectVps(cfg) {
                     loadAppConfig().then(cfg => {
                         const hostParam = encodeURIComponent(cfg.hostName || 'Host');
                         const pSelect = document.getElementById('pipelineSelect');
-                        const pipeArg = (pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : '');
+                        const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
                         const viewerUrl = origin + '/?v3&host=' + hostParam + pipeArg;
+                        window._globalTunnelUrl = viewerUrl;
+                        if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC();
                         const el = document.getElementById('urlList');
                         if (el) {
                             el.innerHTML = '';
@@ -2632,7 +3026,7 @@ function connectVps(cfg) {
                 inner.viewer_id = viewerId;
                 if (inner.type === 'gamepad' && !inner.pad_id) inner.pad_id = viewerId + '_0';
 
-                if (inner.type === 'answer' || inner.type === 'ice-viewer' || inner.type === 'viewer-mic-ready') {
+                if (inner.type === 'answer' || inner.type === 'ice-viewer' || inner.type === 'viewer-mic-ready' || inner.type === 'viewer-vr-active') {
                     inner._viewerId = viewerId;
                     // Feed directly to the local host's websocket handler so it processes the WebRTC handshake
                     if (ws && typeof ws.onmessage === 'function') {
@@ -2701,9 +3095,11 @@ function toggleKbmPanic() {
     }
 }
 
-function showTunnelModal() {
+function showTunnelModal(isManual) {
+    closeAllModals();
     resetTunnelModal();
     document.getElementById('tunnelModal').classList.remove('gone');
+    if (isManual) _tunnelModalManual = true;
 
     loadAppConfig().then(cfg => {
         if (!cfg) return;
@@ -2743,6 +3139,56 @@ function showTunnelModal() {
 }
 
 // ── SAVING THE CAPTURE METHOD (PIPELINE) ──
+window.saveCodecUI = async function(val) {
+    localStorage.setItem('ns_codec', val);
+    const pipelineVal = document.getElementById('pipelineSelect')?.value;
+    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+    
+    if (forceWc) {
+        if (currentStream && window._webcodecsReader) {
+            log(I18N.t('Applying new WebCodecs encoder...'), 'warn');
+            await startWebCodecsCapture(currentStream);
+            log(I18N.t('Encoder restarted successfully!'), 'ok');
+        }
+    } else {
+        if (Object.keys(peerConnections).length > 0) {
+            log(I18N.t('Applying new codec to active viewers (seamless renegotiation)...'), 'warn');
+            
+            // Broadcast the codec change to all viewers in chat
+            const selectEl = document.getElementById('codecSelect');
+            if (selectEl && ws && ws.readyState === 1) {
+                const codecName = selectEl.options[selectEl.selectedIndex].text;
+                const chatMsg = `Host dynamically swapped the stream codec to ${codecName}.`;
+                ws.send(JSON.stringify({ type: 'chat', from: 'Nearsec', msg: chatMsg }));
+                if (typeof appendChat === 'function') appendChat('Nearsec', chatMsg, false);
+            }
+
+            for (const vid in peerConnections) {
+                const pc = peerConnections[vid];
+                if (pc.connectionState === 'connected' || pc.connectionState === 'connecting') {
+                    const codec = preferVideoCodec(pc);
+                    const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
+                    const cb = document.getElementById('codecBadge');
+                    if (codec && cb) cb.textContent = codec.split('/')[1];
+
+                    pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false })
+                        .then(offer => pc.setLocalDescription(offer))
+                        .then(() => {
+                            const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: vid, codec: rawCodecName };
+                            if (window.P2PManager && window.P2PManager.isPeer(vid)) {
+                                window.P2PManager.sendToPeer(vid, msg);
+                            } else {
+                                ws.send(JSON.stringify(msg));
+                            }
+                            log(I18N.t('Codec renegotiated for viewer') + ' ' + vid, 'ok');
+                        })
+                        .catch(err => console.error('[WebRTC] Renegotiation failed:', err));
+                }
+            }
+        }
+    }
+};
+
 function saveCaptureMethod(method) {
     const pSelect = document.getElementById('pipelineSelect');
     
@@ -2750,11 +3196,12 @@ function saveCaptureMethod(method) {
     const urlParams = new URLSearchParams(window.location.search);
     let activeMethod = 'native';
     if (urlParams.get('wc') === '1') activeMethod = 'webcodecs';
+    if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
     else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
     
     if (window.electronAPI && window.electronAPI.saveSettings) {
         // Let the user know they need to restart
-        const confirmMsg = "Capture pipeline changed to " + method.toUpperCase() + ". You must restart NearsecTogether for this to take effect. Close the app now?";
+        const confirmMsg = "Capture pipeline changed to " + method.toUpperCase() + ". You must restart Nearcade for this to take effect. Close the app now?";
         if (confirm(confirmMsg)) {
             window.electronAPI.saveSettings({ captureMethod: method });
             console.log(`[Host] Capture pipeline saved as: ${method}. Closing app...`);
@@ -2788,17 +3235,20 @@ if (document.readyState === 'loading') {
 }
 
 function startAudioMeter(stream) {
+    const fill = document.getElementById('meter');
+    if (!fill) return; // Safely exit if UI doesn't have a meter
+    
     audioCtx = new AudioContext();
     analyser = audioCtx.createAnalyser(); analyser.fftSize = 256;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
-    const fill = document.getElementById('meter');
     (function draw() { animFrame = requestAnimationFrame(draw); analyser.getByteFrequencyData(data); fill.style.width = Math.min(100, data.reduce((a, b) => a + b, 0) / data.length * 2) + '%'; })();
 }
 function stopAudioMeter() {
     if (animFrame) cancelAnimationFrame(animFrame);
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
-    document.getElementById('meter').style.width = '0%';
+    const fill = document.getElementById('meter');
+    if (fill) fill.style.width = '0%';
 }
 
 
@@ -2810,6 +3260,7 @@ function resetTunnelModal() {
     document.getElementById('tunnelRetryBtn').classList.add('gone');
 }
 function closeTunnelModal() {
+    _tunnelModalManual = false;
     document.getElementById('tunnelModal').classList.add('gone');
     setTunnelBusy(false);
     resetTunnelModal();
@@ -2881,6 +3332,16 @@ function confirmTunnel() {
         if (remember) {
             saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: true });
         }
+        
+        // Clear P2P UI locks
+        window._isP2P = false;
+        window._p2pCode = null;
+        const pinRow = document.querySelector('.pin-row');
+        if (pinRow) {
+            pinRow.style.opacity = '1';
+            pinRow.style.pointerEvents = 'auto';
+            document.getElementById('pinVal').textContent = currentPin || '----';
+        }
 
         connectVps(vpsCfg);
         setTunnelBusy(false);
@@ -2894,7 +3355,7 @@ function confirmTunnel() {
     if (typeof disconnectVps === 'function') {
         disconnectVps();
         if (window.electronAPI && typeof window.electronAPI.saveVpsConfig === 'function') {
-            window.electronAPI.saveVpsConfig({ vpsEnabled: false, vpsUrl: '', vpsMasterKey: '' });
+            window.electronAPI.saveVpsConfig({ vpsEnabled: false });
         }
     }
 
@@ -2905,6 +3366,17 @@ function confirmTunnel() {
     let _autoCloseTimer = setTimeout(() => { closeTunnelModal(); }, 5000);
 
     log(I18N.t('Starting') + ' ' + provider + ' tunnel' + (remember ? ' (saved)' : '') + '...', 'ok');
+    
+    // Clear any active P2P flags so renderUrls displays the HTTPS link again
+    window._isP2P = false;
+    window._p2pCode = null;
+    const pinRow2 = document.querySelector('.pin-row');
+    if (pinRow2) {
+        pinRow2.style.opacity = '1';
+        pinRow2.style.pointerEvents = 'auto';
+        document.getElementById('pinVal').textContent = currentPin || '----';
+    }
+
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2914,13 +3386,25 @@ function confirmTunnel() {
 
 function startP2POnly() {
     if (_tunnelBusy) return;
+    
+    if (localStorage.getItem('p2pWarned')) {
+        proceedP2POnly();
+        return;
+    }
+    closeTunnelModal();
+    document.getElementById('p2pWarningModal').classList.remove('gone');
+}
+
+function proceedP2POnly() {
+    localStorage.setItem('p2pWarned', 'true');
+
     const remember = document.getElementById('rememberCheck').checked;
     
     // Switch away from VPS SFU if it was active
     if (typeof disconnectVps === 'function') {
         disconnectVps();
         if (window.electronAPI && typeof window.electronAPI.saveVpsConfig === 'function') {
-            window.electronAPI.saveVpsConfig({ vpsEnabled: false, vpsUrl: '', vpsMasterKey: '' });
+            window.electronAPI.saveVpsConfig({ vpsEnabled: false });
         }
     }
 
@@ -2937,8 +3421,24 @@ function startP2POnly() {
     window._isP2P = true;
     window._p2pCode = code;
 
+    // Force PIN off for P2P mode (the 12-char room code acts as the security)
+    pinEnabled = false;
+    const pinRow = document.querySelector('.pin-row');
+    if (pinRow) {
+        pinRow.style.opacity = '0.3';
+        pinRow.style.pointerEvents = 'none';
+        const pVal = document.getElementById('pinVal');
+        if (pVal) pVal.textContent = 'P2P';
+        const pTog = document.getElementById('pinToggle');
+        if (pTog) { pTog.textContent = 'OFF'; pTog.classList.remove('on'); }
+    }
+
     // Immediately trigger a UI refresh so the Room Code is displayed
-    fetch('/api/info').then(r => r.json()).then(d => renderUrls(d)).catch(() => {});
+    fetch('/api/info').then(r => r.json()).then(d => { renderUrls(d); if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC(); }).catch(() => {
+        // Fallback if local Express server is unreachable
+        renderUrls({ lanIP: '127.0.0.1', port: '4266' });
+        if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC();
+    });
 
     log(I18N.t('Starting P2P tunnel') + (remember ? ' (saved)' : '') + '...', 'ok');
     
@@ -2948,18 +3448,18 @@ function startP2POnly() {
             // Check PIN locally since there's no server.js
             if (msg.type === 'join') {
                 if (pinEnabled && msg.pin !== currentPin) {
-                    window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, { type: 'pin-rejected' });
+                    window.P2PManager.sendToPeer(msg.viewer_id || msg.viewerId, { type: 'pin-rejected' });
                     return;
                 }
                 // Translate join to viewer-joined for host.js
                 msg.type = 'viewer-joined';
                 
                 // Emulate server initialization packets so the Viewer hides the PIN screen
-                window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, {
+                window.P2PManager.sendToPeer(msg.viewer_id || msg.viewerId, {
                     type: 'your-id',
-                    viewerId: msg.viewerId || msg.viewer_id
+                    viewerId: msg.viewer_id || msg.viewerId
                 });
-                window.P2PManager.sendToPeer(msg.viewerId || msg.viewer_id, {
+                window.P2PManager.sendToPeer(msg.viewer_id || msg.viewerId, {
                     type: 'host-connected',
                     hostName: 'P2P Host'
                 });
@@ -2971,6 +3471,26 @@ function startP2POnly() {
                         needsOffer: false // Host sends offer
                     });
                 }
+                
+                // Forward join to server.js so the P2P viewer shows up in the Host UI roster
+                if (ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({
+                        type: 'vps-viewer-join',
+                        viewerId: msg.viewer_id || msg.viewerId,
+                        name: msg.name,
+                        viewerRegion: msg.viewerRegion,
+                        isDesktopApp: msg.isDesktopApp,
+                    }));
+                }
+            }
+
+            if (msg.type === 'viewer-left') {
+                if (ws && ws.readyState === 1) {
+                    ws.send(JSON.stringify({
+                        type: 'vps-viewer-leave',
+                        viewerId: msg.viewer_id || msg.viewerId,
+                    }));
+                }
             }
 
             // Let the existing websocket logic handle it
@@ -2978,9 +3498,18 @@ function startP2POnly() {
                 // Ensure _viewerId exists for existing routing logic
                 if (msg.viewer_id && !msg._viewerId) msg._viewerId = msg.viewer_id;
                 if (msg.viewerId && !msg._viewerId) msg._viewerId = msg.viewerId;
+                // We must unconditionally map the P2P peerId into viewerId so the Host routes the offer correctly!
+                // If we don't, the Host will try to send the offer to the viewer's local session ID, which Trystero doesn't know about.
+                if (msg.viewer_id) {
+                    msg._viewerId = msg.viewer_id;
+                    msg.viewerId = msg.viewer_id;
+                }
+                
                 ws.onmessage({ data: JSON.stringify(msg) });
             }
         });
+        
+        log(I18N.t('P2P tunnel ready! Waiting for viewers...'), 'ok');
     }
 
     closeTunnelModal();
@@ -3065,7 +3594,7 @@ function applyCtrlSettingsUI() {
     if (touchSelect) touchSelect.value = ctrlSettings.touchLayout;
 
     const isNonDefault = ctrlSettings.forceXboxOne || ctrlSettings.enableDualShock || ctrlSettings.enableMotion || ctrlSettings.defaultInputMode !== 'gamepad' || ctrlSettings.touchLayout !== 'default';
-    btn.style.color = isNonDefault ? 'var(--warn)' : '';
+    if (btn) btn.style.color = isNonDefault ? 'var(--warn)' : '';
 }
 
 function toggleCtrlSetting(key) {
@@ -3135,17 +3664,30 @@ function changeDefaultInputMode(mode) {
 }
 
 function sendCtrlSettings() {
+    let expDevices = [];
+    try {
+        if (typeof appConfig !== 'undefined' && appConfig.expDevices) expDevices = appConfig.expDevices;
+        else expDevices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
+    } catch(e) {}
+
+    const payload = JSON.stringify({
+        type: 'ctrl-settings',
+        forceXboxOne:     ctrlSettings.forceXboxOne,
+        enableDualShock:  ctrlSettings.enableDualShock,
+        enableMotion:     ctrlSettings.enableMotion,
+        defaultInputMode: ctrlSettings.defaultInputMode,
+        hybridInput:      ctrlSettings.hybridInput,
+        ctrlType:         ctrlSettings.ctrlType,
+        touchLayout:      ctrlSettings.touchLayout,
+        expDevices:       expDevices,
+    });
+
     if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({
-            type: 'ctrl-settings',
-            forceXboxOne:     ctrlSettings.forceXboxOne,
-            enableDualShock:  ctrlSettings.enableDualShock,
-            enableMotion:     ctrlSettings.enableMotion,
-            defaultInputMode: ctrlSettings.defaultInputMode,
-            hybridInput:      ctrlSettings.hybridInput,
-            ctrlType:         ctrlSettings.ctrlType,
-            touchLayout:      ctrlSettings.touchLayout,
-        }));
+        ws.send(payload);
+    }
+    
+    if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) {
+        _vpsWs.send(payload);
     }
 }
 
@@ -3160,6 +3702,7 @@ function closeCtrlModal() {
 
 // ── Unified Settings Modal ─────────────────────────────────────────────────────
 function showSettingsModal(tab) {
+    closeAllModals();
     applyCtrlSettingsUI();
     _syncSmMicRow();
     enumerateAudioDevicesSM();
@@ -3225,7 +3768,7 @@ function _updateStatsHud() {
     const pipe  = document.getElementById('pipelineSelect');
     const codec = document.getElementById('codecSelect');
 
-    _elText('hudPipeline', pipe  ? (pipe.value === 'webcodecs' ? 'WC' : 'WebRTC') : '—');
+    _elText('hudPipeline', pipe  ? (pipe.value === 'custom_webcodecs' ? 'WC (GL)' : pipe.value === 'webcodecs' ? 'WC' : 'WebRTC') : '—');
     _elText('hudCodec',    codec ? (codec.options[codec.selectedIndex]?.text?.split(' ')[0] || '—') : '—');
 
     // Pull RTT and outgoing bitrate from the first active peer connection.
@@ -3258,16 +3801,46 @@ function _updateStatsHud() {
             _elText('hudRtt', Math.round(bestPair.currentRoundTripTime * 1000) + 'ms');
         }
 
-        if (outboundVideo?.bytesSent != null) {
-            const now  = Date.now();
-            const prev = pcList[0].__statsSnapshot;
-            if (prev) {
-                const dtSec   = (now - prev.ts) / 1000;
-                const byteDiff = outboundVideo.bytesSent - prev.bytes;
-                const kbps    = Math.round((byteDiff * 8) / dtSec / 1000);
-                _elText('hudBitrate', kbps > 0 ? kbps + 'k' : '—');
+        if (outboundVideo) {
+            if (outboundVideo.frameWidth && outboundVideo.frameHeight) {
+                _elText('hudRes', `${outboundVideo.frameWidth}x${outboundVideo.frameHeight}`);
+            } else {
+                _elText('hudRes', '—');
             }
-            pcList[0].__statsSnapshot = { ts: now, bytes: outboundVideo.bytesSent };
+            
+            if (outboundVideo.framesPerSecond != null) {
+                _elText('hudFps', outboundVideo.framesPerSecond.toFixed(0));
+            } else {
+                _elText('hudFps', '—');
+            }
+            
+            const prev = pcList[0].__statsSnapshot;
+            if (outboundVideo.totalEncodeTime != null && outboundVideo.framesEncoded != null && prev) {
+                if (outboundVideo.framesEncoded > prev.frames) {
+                    const encodeDelta = outboundVideo.totalEncodeTime - prev.encodeTime;
+                    const framesDelta = outboundVideo.framesEncoded - prev.frames;
+                    const encodeLatencyMs = (encodeDelta / framesDelta) * 1000;
+                    _elText('hudEncodeLat', encodeLatencyMs.toFixed(1) + 'ms');
+                }
+            } else {
+                _elText('hudEncodeLat', '—');
+            }
+            
+            if (outboundVideo.bytesSent != null) {
+                const now  = Date.now();
+                if (prev) {
+                    const dtSec   = (now - prev.ts) / 1000;
+                    const byteDiff = outboundVideo.bytesSent - prev.bytes;
+                    const kbps    = Math.round((byteDiff * 8) / dtSec / 1000);
+                    _elText('hudBitrate', kbps > 0 ? kbps + 'k' : '—');
+                }
+                pcList[0].__statsSnapshot = { 
+                    ts: now, 
+                    bytes: outboundVideo.bytesSent, 
+                    encodeTime: outboundVideo.totalEncodeTime || 0,
+                    frames: outboundVideo.framesEncoded || 0
+                };
+            }
         }
     }).catch(() => {});
 }
@@ -3415,6 +3988,7 @@ function _syncSmMicRow() {
     if (smMicRow) smMicRow.style.display = appSettings.captureMic ? 'block' : 'none';
 }
 
+let isArcade = false;
 const arcadeConfig = {
     title: localStorage.getItem('ns_arcade_title') || 'Unknown Game',
     desc: localStorage.getItem('ns_arcade_desc') || '',
@@ -3423,7 +3997,12 @@ const arcadeConfig = {
     requirePin: localStorage.getItem('ns_arcade_requirePin') === 'true'
 };
 
-function showArcadeModal() {
+function showArcadeModal(skipRules = false) {
+    closeAllModals();
+    if (!skipRules && localStorage.getItem('ns_arcade_rules_accepted') !== 'true') {
+        document.getElementById('arcadeRulesModal').classList.remove('gone');
+        return;
+    }
     document.getElementById('arcadeGameTitle').value = arcadeConfig.title;
     document.getElementById('arcadeGameDesc').value = arcadeConfig.desc;
     document.getElementById('arcadeMaxPlayers').value = arcadeConfig.maxPlayers;
@@ -3436,6 +4015,31 @@ function closeArcadeModal() {
 }
 
 async function startArcadeSession() {
+    if (typeof appConfig !== 'undefined' && appConfig.hidmaestro) {
+        log(I18N.t('Arcade mode is not compatible with the HIDMaestro backend. Disable HIDMaestro in Settings to host Arcade sessions.'), 'err');
+        const overlay = document.createElement('div');
+        overlay.id = 'arcadeHmConflict';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
+        overlay.innerHTML = `<div style="background:#121518;border:1px solid var(--warn);border-radius:12px;padding:32px;max-width:440px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">
+            <h2 style="color:var(--warn);margin:0 0 12px 0;font-size:15px;">HIDMaestro Conflicts With Arcade</h2>
+            <p style="color:#949ba4;font-size:13px;line-height:1.6;margin:0 0 6px 0;">
+                The HIDMaestro virtual controller backend is not compatible with Arcade mode.
+            </p>
+            <p style="color:#949ba4;font-size:13px;line-height:1.6;margin:0 0 20px 0;">
+                Disable it in <strong>Settings → HIDMaestro Virtual Controller</strong> to host Arcade sessions.
+            </p>
+            <button onclick="this.closest('[id=arcadeHmConflict]').remove()" style="padding:10px 28px;border-radius:6px;border:none;background:var(--accent);color:#000;font-weight:600;cursor:pointer;">OK</button>
+        </div>`;
+        document.body.appendChild(overlay);
+        closeArcadeModal();
+        return;
+    }
+    const provider = document.querySelector('input[name="provider"]:checked');
+    if (provider && provider.value === 'p2p') {
+        log(I18N.t('Arcade mode is not supported over P2P tunnels.'), 'err');
+        closeArcadeModal();
+        return;
+    }
     arcadeConfig.title = document.getElementById('arcadeGameTitle').value.trim() || 'Arcade Game';
     arcadeConfig.desc = document.getElementById('arcadeGameDesc').value.trim();
     arcadeConfig.maxPlayers = document.getElementById('arcadeMaxPlayers').value;
@@ -3508,6 +4112,7 @@ function _doArcadeRegister() {
             thumbnail: arcadeConfig.thumbnail,
             hasPin: arcadeConfig.requirePin,
             url: info.tunnelUrl,
+            version: window.NEARSEC_VERSION || '0.0.0',
             hostRegion,
             region: `${knownViewers.size + 1}/${arcadeConfig.maxPlayers} Players • ${getHostOS()}`
         });
@@ -3520,6 +4125,9 @@ function _doArcadeRegister() {
         arcadePingInterval = setInterval(() => {
             arcadeChannel.trigger('client-session-ping', getPingData());
         }, 10000);
+
+        isArcade = true;
+        _updateDiscordRPC();
 
     }).catch(() => log(I18N.t('Arcade: Could not read server info'), 'err'));
 }
@@ -3558,6 +4166,7 @@ function togglePreview() {
 }
 
 function showAppSettings() {
+    closeAllModals();
     applyAppSettingsUI();
     enumerateAudioDevices();
     document.getElementById('appSettingsModal').classList.remove('gone');
@@ -3590,6 +4199,11 @@ function toggleAppSetting(key) {
 
     if (key === 'alwaysOnTop' && window.electronAPI?.toggleAlwaysOnTop) {
         window.electronAPI.toggleAlwaysOnTop();
+    }
+    if (window.electronAPI?.saveSettings) {
+        if (key === 'tray') window.electronAPI.saveSettings({ tray: appSettings[key] });
+        if (key === 'discordRPC') window.electronAPI.saveSettings({ discordRPC: appSettings[key] });
+        if (key === 'rumble') window.electronAPI.saveSettings({ rumble: appSettings[key] });
     }
     log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
@@ -3665,7 +4279,14 @@ let globalViewerVolume = 1.0;
 window.setGlobalViewerVolume = function(val) {
     globalViewerVolume = val / 100;
     const valDisplay = document.getElementById('globalViewerVolVal');
-    if (valDisplay) valDisplay.textContent = val;
+    if (valDisplay) valDisplay.textContent = val + '%';
+    
+    const s1 = document.getElementById('globalViewerVol');
+    if (s1 && s1.value != val) s1.value = val;
+    const s2 = document.getElementById('globalViewerVolSlider');
+    if (s2 && s2.value != val) s2.value = val;
+    
+    saveSetting('ns_vol_others', val, 'volumeViewers');
 
     Object.keys(viewerAudioStates).forEach(vid => {
         const audioEl = document.getElementById('remote-audio-' + vid);
@@ -3747,6 +4368,9 @@ if (urlParams.get('auto') === '1') {
         // the VPS connection is managed by connectVps() on WS open.
         if (_vpsConfig && _vpsConfig.vpsEnabled) {
             console.log('[Headless] VPS SFU active — skipping local tunnel boot.');
+        } else if (autoTunnel === 'p2p') {
+            console.log('[Headless] Starting P2P tunnel via auto boot...');
+            proceedP2POnly();
         } else {
             fetch('/api/start-tunnel', {
                 method: 'POST',
@@ -3837,34 +4461,195 @@ async function fetchSysInfo() {
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { setInterval(fetchSysInfo, 3000); fetchSysInfo(); });
+    document.addEventListener('DOMContentLoaded', () => { 
+        setInterval(fetchSysInfo, 3000); 
+        fetchSysInfo(); 
+        setTimeout(loadExpDevices, 500);
+        setTimeout(_checkClientVersion, 1000);
+    });
 } else {
     setInterval(fetchSysInfo, 3000);
     fetchSysInfo();
+    setTimeout(loadExpDevices, 500);
+    setTimeout(_checkClientVersion, 1000);
 }
 
+let _discordStartTime = null;
+
 function _updateDiscordRPC() {
-    if (typeof window.electronAPI !== 'undefined' && window.electronAPI.discordSetActivity) {
-        if (typeof isArcade !== 'undefined' && isArcade && typeof arcadeConfig !== 'undefined' && arcadeConfig.title) {
-            window.electronAPI.discordSetActivity({
-                details: `Playing ${arcadeConfig.title}`,
-                state: `Players: ${knownViewers.size + 1}/${arcadeConfig.maxPlayers || 4}`,
-                startTimestamp: window._arcadeStartTime || (window._arcadeStartTime = Date.now()),
-                largeImageKey: 'nearsec_logo',
-                largeImageText: 'Nearsec Arcade'
-            });
-        } else if (typeof streamActive !== 'undefined' && streamActive) {
-            window.electronAPI.discordSetActivity({
-                details: `Hosting a session`,
-                state: `Viewers: ${knownViewers.size}`,
-                startTimestamp: window._sessionStartTime || (window._sessionStartTime = Date.now()),
-                largeImageKey: 'nearsec_logo',
-                largeImageText: 'NearsecTogether'
-            });
-        } else {
-            window.electronAPI.discordClear();
-            window._arcadeStartTime = null;
-            window._sessionStartTime = null;
-        }
+    console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
+    if (!window.electronAPI || typeof window.electronAPI.discordSetActivity !== 'function') {
+        console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
+        return;
     }
+
+    if (!_discordStartTime) {
+        _discordStartTime = Date.now();
+    }
+
+    const lang = (window.I18N && I18N.targetLang) ? I18N.targetLang : 'en';
+    const supportedLogos = ['de', 'es', 'fr', 'ja', 'pt'];
+    const imageKey = supportedLogos.includes(lang) ? `nearcade_logo_${lang}` : 'nearcade_logo';
+
+    if (typeof isArcade !== 'undefined' && isArcade && typeof arcadeConfig !== 'undefined' && arcadeConfig.title) {
+        const payload = {
+            details: `Playing ${arcadeConfig.title}`,
+            state: `Arcade Mode (${arcadeConfig.requirePin ? 'Private' : 'Public'})`,
+            startTimestamp: _discordStartTime,
+            largeImageKey: imageKey,
+            largeImageText: 'Nearcade'
+        };
+        
+        if (hostSessionId) payload.partyId = hostSessionId;
+        if (typeof knownViewers !== 'undefined') {
+            payload.partySize = knownViewers.size + 1;
+            payload.partyMax = parseInt(arcadeConfig.maxPlayers || 4);
+        }
+        const secret = window._isP2P ? window._p2pCode : window._globalTunnelUrl;
+        if (secret && secret !== 'none') payload.joinSecret = secret;
+        
+        console.log('[DEBUG] Sending Discord Arcade Activity:', payload);
+        window.electronAPI.discordSetActivity(payload);
+        return;
+    }
+
+    const secret = window._isP2P ? window._p2pCode : window._globalTunnelUrl;
+
+    if (typeof streamActive !== 'undefined' && streamActive) {
+        const payload = {
+            details: 'Hosting a session',
+            state: `${knownViewers.size} viewer(s) connected`,
+            startTimestamp: _discordStartTime,
+            largeImageKey: imageKey,
+            largeImageText: 'Nearcade'
+        };
+
+        if (hostSessionId) payload.partyId = hostSessionId;
+        if (typeof knownViewers !== 'undefined') {
+            payload.partySize = knownViewers.size + 1;
+            payload.partyMax = 10;
+        }
+        if (secret && secret !== 'none') payload.joinSecret = secret;
+
+        console.log('[DEBUG] Sending Discord Private Activity:', payload);
+        window.electronAPI.discordSetActivity(payload);
+        return;
+    }
+
+    // Tunnel/P2P ready but not yet streaming — set a basic activity so
+    // Discord "Invite to Play" works before the host starts capturing.
+    if (secret && secret !== 'none') {
+        const payload = {
+            details: 'Session ready',
+            state: 'Waiting to start stream',
+            startTimestamp: _discordStartTime,
+            largeImageKey: imageKey,
+            largeImageText: 'Nearcade'
+        };
+        if (hostSessionId) payload.partyId = hostSessionId;
+        payload.partySize = 1;
+        payload.partyMax = 10;
+        payload.joinSecret = secret;
+
+        console.log('[DEBUG] Sending Discord Ready Activity:', payload);
+        window.electronAPI.discordSetActivity(payload);
+        return;
+    }
+
+    console.log('[DEBUG] Clearing Discord Activity');
+    _discordStartTime = null;
+    window.electronAPI.discordClear();
+}
+
+// ── Experimental Devices UI ──────────────────────────────────────────────────
+function saveExpDevices() {
+    const list = document.getElementById('expDeviceList');
+    if (!list) return;
+    const devices = [];
+    list.querySelectorAll('[data-exp-val]').forEach(el => {
+        const toggle = el.querySelector('.ctrl-toggle-track');
+        devices.push({
+            val: el.dataset.expVal,
+            text: el.dataset.expText,
+            enabled: toggle ? toggle.classList.contains('on') : false
+        });
+    });
+    localStorage.setItem('ns_exp_devices', JSON.stringify(devices));
+    saveAppConfig({ expDevices: devices });
+    
+    // Update the global expDevices array so sendCtrlSettings picks it up
+    expDevices = devices;
+    
+    // Broadcast the updated experimental devices list to connected viewers
+    if (typeof sendCtrlSettings === 'function') {
+        sendCtrlSettings();
+    }
+}
+
+function loadExpDevices() {
+    let devices = [];
+    try {
+        if (typeof appConfig !== 'undefined' && appConfig.expDevices) devices = appConfig.expDevices;
+        else devices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
+    } catch(e) {}
+    
+    if (devices.length > 0) {
+        const list = document.getElementById('expDeviceList');
+        if (list) list.innerHTML = '';
+        devices.forEach(d => addExpDevice(d.val, d.text, d.enabled));
+    }
+}
+
+function addExpDevice(inVal, inText, inEnabled = true) {
+    let val, text, enabled = inEnabled;
+    const sel = document.getElementById('expDeviceSelect');
+    
+    if (inVal && inText) {
+        val = inVal;
+        text = inText;
+    } else {
+        if (!sel) return;
+        val = sel.value;
+        text = sel.options[sel.selectedIndex].text;
+    }
+
+    const list = document.getElementById('expDeviceList');
+    if (!list) return;
+    if (list.innerText.includes('No experimental devices enabled')) {
+        list.innerHTML = '';
+    }
+
+    // Check if already added
+    if (list.querySelector(`[data-exp-val="${val}"]`)) return;
+
+    // Determine status text based on device type
+    const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas';
+    const statusText = isImplemented ? '<span style="color:var(--green);">Status: Active</span>' : '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
+
+    const el = document.createElement('div');
+    el.dataset.expVal = val;
+    el.dataset.expText = text;
+    el.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); border-radius:6px;";
+    
+    const toggleClass = enabled ? 'ctrl-toggle-track on' : 'ctrl-toggle-track';
+    
+    el.innerHTML = `
+        <div style="display:flex; align-items:center; gap:12px;">
+            <div class="${toggleClass}" onclick="this.classList.toggle('on'); saveExpDevices();" style="cursor:pointer;">
+                <div class="ctrl-toggle-thumb"></div>
+            </div>
+            <div>
+                <div style="font-size:11px; font-weight:600; color:var(--text);">${text}</div>
+                <div style="font-size:9px;">${statusText}</div>
+            </div>
+        </div>
+        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </button>
+    `;
+    list.appendChild(el);
+    saveExpDevices();
 }

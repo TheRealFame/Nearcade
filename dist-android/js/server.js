@@ -9,6 +9,41 @@ const si = require('systeminformation');
 // Helper to anonymize IPs so we never store them
 function hashIp(ip) { return crypto.createHash('sha256').update(ip).digest('hex'); }
 const os = require("os");
+
+// --- STREAMER PRIVACY SCRUBBER ---
+const _origLog = console.log;
+console.log = function (...args) {
+  let msg = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
+  }).join(' ');
+  
+  // Blur IPv4 addresses (except localhost)
+  msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  
+  // Blur Cloudflare tunnel URLs
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
+  
+  // Blur Zrok / Playit / localhost.run / serveo URLs
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net)/g, 'https://********.$1');
+  
+  // Blur VPS SSH strings
+  msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
+
+  // Blur VPS Master Key (64-char hex)
+  msg = msg.replace(/("?vpsMasterKey"?\s*:\s*['"]?)[a-fA-F0-9]{64}(['"]?)/g, '$1********$2');
+
+  // Blur Session Password
+  msg = msg.replace(/("?sessionPassword"?\s*:\s*['"]?)[^'"\s,]+(['"]?)/g, '$1********$2');
+
+  // Blur global PIN
+  if (typeof PIN !== 'undefined' && PIN) {
+    msg = msg.replace(new RegExp(PIN, 'g'), '****');
+  }
+
+  _origLog.call(console, msg);
+};
+
 const net = require("net");
 const fs = require("fs");
 const path = require('path');
@@ -24,13 +59,39 @@ let activePort = 3000;
 let hostWS = null;
 let tunnelUrl = null;
 let activeTunnelProc = null;
+
+// ── WiVRn lifecycle ──────────────────────────────────────────────────
+let wivrnVrActivityTimer = null;
+const WIVRN_VR_TIMEOUT_MS = 10000;
+
+function wivrnBumpVrActivity() {
+  if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
+  wivrnVrActivityTimer = setTimeout(() => {
+    console.log('[WiVRn] No VR data for 10s — shutting down WiVRn');
+    wivrnInt.stopServer();
+  }, WIVRN_VR_TIMEOUT_MS);
+}
+
+async function wivrnEnsureRunning() {
+  if (wivrnInt._isServerOnBus()) return true;
+  const result = await wivrnInt.startServer();
+  if (!result.ok) {
+    console.log('[WiVRn] Failed to start:', result.message);
+    return false;
+  }
+  console.log('[WiVRn] Server started on D-Bus');
+  return true;
+}
+const MAX_VIEWER_CONTROLLERS = 1;
 let uinputProc = null;
 let audioProc = null;
-let vidCount = 0;
 const viewers = new Map();
 const viewerNames = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
+const urlSpam = new Map();
+const reports = new Map();    // anonHash -> Array<{ timestamp, sessionId }>
+const bannedIps = new Map();  // anonHash -> { bannedAt, expiresAt, reason }
 
 const { Worker } = require('worker_threads');
 
@@ -38,6 +99,8 @@ const PusherRaw = require('pusher-js');
 
 const isPackaged = __dirname.includes('app.asar');
 const inputDriver = require('../sidecar/input_backends/InputOrchestrator.js');
+const experimentalDriver = require('../sidecar/input_backends/experimental/ExperimentalOrchestrator.js');
+const wivrnInt = require('../sidecar/wivrn-integration.js');
 // ══════════════════════════════════════════════════════════════════════════════
 // VIRTUAL AUDIO — delegated to audio_worker.js via worker_threads IPC
 // The main event loop never calls pactl directly; all blocking OS shell work
@@ -162,7 +225,7 @@ if (typeof PusherRaw === 'function') {
 
 const pusher = new Pusher('a93f5405058cd9fc7967', {
   cluster: 'us2',
-  authEndpoint: 'https://nearsec.cutefame.net/api/pusher-auth'
+  authEndpoint: 'https://nearcade.cutefame.net/api/pusher-auth'
 });
 
 const globalArcadeChannel = pusher.subscribe('private-arcade-global');
@@ -244,14 +307,16 @@ function normalizeGamepadMsg(msg) {
 
   // Axes arrive as int16 (-32767..+32767) — pass directly.
   // _validateGamepadMsg → _clampAxis handles range clamping.
-  const lx = Number(axes[0]) || 0;
-  const ly = Number(axes[1]) || 0;
-  const rx = Number(axes[2]) || 0;
-  const ry = Number(axes[3]) || 0;
+  let lx = Number(axes[0]); if (!isFinite(lx)) lx = 0;
+  let ly = Number(axes[1]); if (!isFinite(ly)) ly = 0;
+  let rx = Number(axes[2]); if (!isFinite(rx)) rx = 0;
+  let ry = Number(axes[3]); if (!isFinite(ry)) ry = 0;
 
   // Triggers: buttons[6]=LT, buttons[7]=RT (viewer encodes value 0-255)
-  const lt = (Number((btns[6] && btns[6].value) || 0)) / 255;
-  const rt = (Number((btns[7] && btns[7].value) || 0)) / 255;
+  let lt = (Number((btns[6] && btns[6].value) || 0)) / 255;
+  if (!isFinite(lt)) lt = 0;
+  let rt = (Number((btns[7] && btns[7].value) || 0)) / 255;
+  if (!isFinite(rt)) rt = 0;
 
   //  W3C Gamepad API index → JS viewer bitmask (correct per W3C spec)
   const W3C_TO_JS = [
@@ -292,9 +357,9 @@ const projectRoot = path.join(__dirname, '..', '..');
 function getSafeDataDir() {
   const home = os.homedir();
   let p;
-  if (process.platform === 'win32') p = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'NearsecTogether');
-  else if (process.platform === 'darwin') p = path.join(home, 'Library', 'Application Support', 'NearsecTogether');
-  else p = path.join(home, '.config', 'NearsecTogether');
+  if (process.platform === 'win32') p = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+  else if (process.platform === 'darwin') p = path.join(home, 'Library', 'Application Support', 'Nearcade');
+  else p = path.join(home, '.config', 'Nearcade');
 
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
   return p;
@@ -304,17 +369,17 @@ const dataDir = getSafeDataDir();
 const envFile = path.join(dataDir, '.env');
 
 // ── Convenience symlink for source-code devs ──────────────────────────────────
-// Creates config/nearsectogether.config.json → ~/.config/NearsecTogether/…
+// Creates config/nearcade.config.json → ~/.config/Nearcade/…
 // so you can always find/edit the live config right inside the project tree.
 // Windows symlinks require elevated privilege — skip on win32.
 (function ensureConfigSymlink() {
-  if (process.platform === 'win32') return;
+  if (process.platform === 'win32' || isPackaged) return;
   try {
     // Walk up from src/scripts to find the project root (two levels up)
     const projectRoot = path.resolve(__dirname, '..', '..');
     const configDir = path.join(projectRoot, 'config');
-    const symlinkPath = path.join(configDir, 'nearsectogether.config.json');
-    const realTarget = path.join(dataDir, 'nearsectogether.config.json');
+    const symlinkPath = path.join(configDir, 'nearcade.config.json');
+    const realTarget = path.join(dataDir, 'nearcade.config.json');
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     try {
       const existing = fs.lstatSync(symlinkPath);
@@ -328,7 +393,7 @@ const envFile = path.join(dataDir, '.env');
       }
     } catch (_) { /* doesn't exist yet — fall through to create */ }
     fs.symlinkSync(realTarget, symlinkPath);
-    console.log('[config] Symlink: config/nearsectogether.config.json → ' + realTarget);
+    console.log('[config] Symlink: config/nearcade.config.json → ' + realTarget);
   } catch (e) {
     // Non-fatal — just a convenience helper
     console.warn('[config] Could not create config symlink:', e.message);
@@ -408,7 +473,12 @@ const FALLBACK_PATHS = {
     path.join(os.homedir(), 'zrok', 'zrok.exe'),
     path.join(os.homedir(), 'bin', 'zrok.exe'),
     path.join(os.homedir(), 'zrok', 'zrok'),
-    path.join(os.homedir(), 'bin', 'zrok')
+    path.join(os.homedir(), 'bin', 'zrok'),
+    path.join(os.homedir(), 'bin', 'zrok2')
+  ],
+  zrok2: [
+    path.join(os.homedir(), 'zrok', 'zrok2'),
+    path.join(os.homedir(), 'bin', 'zrok2')
   ],
   playit: [
     path.join(os.homedir(), 'playit.exe'),
@@ -655,7 +725,9 @@ function startTunnelZrok(port, retries = 3) {
     const zrokPath = await findBinaryPath('zrok').then(p => p).catch(() => null)
       || await findBinaryPath('zrok2').then(p => p).catch(() => null)
       || (function () {
+        const cfgBin = path.join(os.homedir(), '.config', 'Nearcade', 'bin');
         const candidates = [
+          path.join(cfgBin, 'zrok2'), path.join(cfgBin, 'zrok'),
           '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
           path.join(os.homedir(), 'bin/zrok'), './zrok',
           path.join(os.homedir(), 'zrok', 'zrok.exe'),
@@ -738,10 +810,31 @@ async function startTunnel(port) {
 }
 
 function sanitize(str) {
-  return String(str).replace(/[<>&"']/g, c =>
-    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c])).slice(0, 300);
+  return String(str).replace(/[<>&"'`]/g, c =>
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c])).slice(0, 300);
 }
-function makePin() { return String(Math.floor(1000 + Math.random() * 9000)); }
+function makePin() { 
+  return String(crypto.randomInt(1000, 10000));
+}
+
+// ── Simple in-memory rate limiter ──────────────────────────────────────────────
+const rateLimitStore = new Map();
+function rateLimit(key, maxRequests, windowMs) {
+  const now = Date.now();
+  let entry = rateLimitStore.get(key);
+  if (!entry || now - entry.windowStart > windowMs) {
+    entry = { count: 0, windowStart: now };
+    rateLimitStore.set(key, entry);
+  }
+  entry.count++;
+  return entry.count <= maxRequests;
+}
+setInterval(() => {
+  const cutoff = Date.now() - 60000;
+  for (const [key, entry] of rateLimitStore) {
+    if (entry.windowStart < cutoff) rateLimitStore.delete(key);
+  }
+}, 60000);
 
 // ── Arcade session registry ───────────────────────────────────────────────────
 const arcadeSessions = new Map();
@@ -769,7 +862,7 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_FILE = path.join(dataDir, 'nearsectogether.config.json');
+const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
 function loadConfig() {
   try {
     const data = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
@@ -821,25 +914,48 @@ async function main() {
   const PORT = activePort;
   const LAN_IP = getLanIP();
   const PUBLIC_IP = await getPublicIP();
-  let PIN = makePin();
+  const initialCfg = loadConfig();
+  let sessionPassword = initialCfg.persistentPassword || '';
+  let PIN = sessionPassword ? sessionPassword : makePin();
   let pinEnabled = true;
-  // Per-session password — set by host via 'set-session-password' WS message.
-  // Empty string means no session password. Separate from the global PIN.
-  let sessionPassword = '';
 
-  console.log("\n  \x1b[1mNearsecTogether\x1b[0m");
+  console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
-  console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
-  if (PUBLIC_IP) console.log("  Public IP : http://" + PUBLIC_IP + ":" + PORT + "/ (needs port forward)");
-  console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
+  console.log("  LAN URL   : http://***.***.***.***:" + PORT + "/");
+  if (PUBLIC_IP) console.log("  Public IP : http://***.***.***.***:" + PORT + "/ (needs port forward)");
+  console.log("  PIN       : \x1b[1;32m****\x1b[0m\n");
 
   const app = express();
   const server = http.createServer(app);
-  const wss = new WebSocket.Server({ server, perMessageDeflate: false });
+  const wss = new WebSocket.Server({
+    server,
+    perMessageDeflate: false,
+    maxPayload: 1048576,
+    verifyClient: (info, cb) => {
+      const origin = info.origin || info.req.headers['origin'] || '';
+      if (!origin || origin === 'null') { cb(true); return; }
+      try {
+        const u = new URL(origin);
+        const host = u.hostname;
+        if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+          cb(true);
+        } else if (u.protocol === 'http:' || u.protocol === 'https:') {
+          cb(true);
+        } else {
+          cb(false, 403, 'Origin not allowed');
+        }
+      } catch {
+        cb(false, 403, 'Origin not allowed');
+      }
+    }
+  });
 
   app.use((req, res, next) => {
     res.setHeader("Permissions-Policy", "gamepad=*, display-capture=(self)");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS");
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
 
@@ -849,7 +965,12 @@ async function main() {
       return pkg.version || '1.0.0';
     } catch (e) { return '1.0.0'; }
   })();
-  app.use('/docs', express.static(path.join(__dirname, '..', 'docs')));
+  const COMMIT_HASH = (() => {
+    try {
+      return fs.readFileSync(path.join(projectRoot, 'commit.txt'), 'utf8').trim().substring(0, 7);
+    } catch (e) { return ''; }
+  })();
+  app.use('/docs', express.static(path.join(__dirname, '..', '..', 'assets', 'locales', 'docs')));
 
   // ── Dynamic version.js — always reflects package.json ──────────────────
   app.get('/js/version.js', (req, res) => {
@@ -857,7 +978,7 @@ async function main() {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nconsole.log("[Nearsec] Version loaded:", window.NEARSEC_VERSION);`);
+    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nwindow.NEARSEC_COMMIT = "${COMMIT_HASH}";\nconsole.log("[Nearsec] Version loaded:", window.NEARSEC_VERSION, window.NEARSEC_COMMIT ? "("+window.NEARSEC_COMMIT+")" : "");`);
   });
 
   app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
@@ -880,7 +1001,7 @@ async function main() {
     // Inject the host name dynamically into the Discord tags
     const ogTitle = sess ? sess.game : `${hostName} is looking to play!`;
     const ogDesc = sess ? `Join the live ${sess.game} session on Nearsec.` : `${hostName} is hosting a peer-to-peer gaming session on Nearsec.`;
-    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearsec.cutefame.net/assets/NearsecTogether.png";
+    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearcade.cutefame.net/assets/NearcadeLogo.png";
 
     html = html
       .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)
@@ -888,31 +1009,75 @@ async function main() {
       .replace(/(<meta property="og:image"\s+content=")[^"]*"/, `$1${ogImage}"`);
     res.type("html").send(html);
   });
-  app.get("/host", (req, res) => res.sendFile(path.join(pagesDir, "host.html")));
+  app.get("/dashboard", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
+  app.get("/setup", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "setup.html")); });
+  app.get("/host", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
 
-  app.get("/old_host", (req, res) => {
-    res.sendFile(path.join(pagesDir, "old_host.html"));
+  app.get("/host-minimal", (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(pagesDir, "host-minimal.html"));
   });
-  app.get("/gamepad-popup.html", (req, res) => res.sendFile(path.join(pagesDir, "gamepad-popup.html")));
+  app.get("/host-playground", (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(pagesDir, "host-playground.html"));
+  });
+  app.get("/host-custom", (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(pagesDir, "host-custom.html"));
+  });
+  app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
-  app.get("/api/info", (req, res) => res.json({ lanIP: LAN_IP, port: PORT, pin: PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION }));
+  app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
+  
+  app.post("/api/save-custom-host", express.json({limit: '10mb'}), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ error: 'localhost only' });
+    }
+    const htmlContent = req.body.html;
+    if (typeof htmlContent !== 'string') return res.status(400).json({error: 'Invalid content'});
+    if (htmlContent.length > 10485760) return res.status(400).json({error: 'Content too large'});
+    try {
+      const targetPath = path.join(pagesDir, "host-custom.html");
+      if (!targetPath.startsWith(pagesDir)) return res.status(403).json({error: 'Invalid path'});
+      fs.writeFileSync(targetPath, htmlContent);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/info", (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION });
+  });
   app.post("/api/fe-log", express.json(), (req, res) => {
+    const clientIp = req.socket.remoteAddress || 'unknown';
+    if (!rateLimit('fe-log:' + clientIp, 30, 10000)) return res.status(429).json({ error: 'rate limited' });
     const { msg, src, line } = req.body || {};
-    console.error(`[renderer] ${msg} @ ${src}:${line}`);
+    if (typeof msg !== 'string' || typeof src !== 'string' || (line !== undefined && typeof line !== 'string' && typeof line !== 'number')) {
+      return res.status(400).json({ error: 'invalid payload' });
+    }
+    console.error(`[renderer] ${msg.slice(0, 500)} @ ${src.slice(0, 200)}:${String(line).slice(0, 20)}`);
     res.json({ ok: true });
   });
 
   app.get("/api/pin-required", (req, res) => {
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-    const hasTunnelHeader = !!req.headers['x-forwarded-for'] || !!req.headers['cf-connecting-ip'];
+    const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+    const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
   app.get("/api/config", (req, res) => res.json(loadConfig()));
   app.post("/api/config", express.json(), (req, res) => { res.json(saveConfig(req.body || {})); });
 
   app.post('/api/set-session-password', express.json(), (req, res) => {
-    sessionPassword = (req.body?.password || '').trim();
+    const newPass = (req.body?.password || '').trim();
+    saveConfig({ persistentPassword: newPass });
+    sessionPassword = newPass;
+    PIN = sessionPassword ? sessionPassword : makePin();
     console.log(`[host] Session password ${sessionPassword ? 'set' : 'cleared'}`);
+    if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
     res.json({ ok: true, hasPassword: !!sessionPassword });
   });
 
@@ -941,14 +1106,38 @@ async function main() {
   });
 
   app.get("/api/turn", (req, res) => {
-    res.json({
-      urls: [
-        process.env.METERED_TURN_URL || 'turn:openrelay.metered.ca:80',
-        process.env.METERED_TURN_URL_SECURE || 'turn:openrelay.metered.ca:443'
-      ],
-      username: process.env.METERED_TURN_USERNAME || 'openrelayproject',
-      credential: process.env.METERED_TURN_CREDENTIAL || 'openrelayproject'
-    });
+    const iceServers = [];
+
+    // ── Custom STUN server (optional) ───────────────────────────────────────
+    if (process.env.STUN_URL) {
+      iceServers.push({ urls: process.env.STUN_URL });
+    }
+
+    // ── Custom TURN server (optional) ───────────────────────────────────────
+    if (process.env.TURN_URL) {
+      const entry = { urls: [] };
+      entry.urls.push(process.env.TURN_URL);
+      if (process.env.TURN_URL_TLS) entry.urls.push(process.env.TURN_URL_TLS);
+      if (process.env.TURN_USERNAME) entry.username = process.env.TURN_USERNAME;
+      if (process.env.TURN_CREDENTIAL) entry.credential = process.env.TURN_CREDENTIAL;
+      iceServers.push(entry);
+    }
+
+    // ── Legacy Metered.ca env vars (backward compat) ────────────────────────
+    if (!process.env.TURN_URL && process.env.METERED_TURN_URL) {
+      iceServers.push({
+        urls: [
+          process.env.METERED_TURN_URL,
+          process.env.METERED_TURN_URL_SECURE || ''
+        ].filter(Boolean),
+        username: process.env.METERED_TURN_USERNAME || 'openrelayproject',
+        credential: process.env.METERED_TURN_CREDENTIAL || 'openrelayproject'
+      });
+    }
+
+    // Return null if nothing is configured — clients will use their built-in STUN pool
+    if (iceServers.length === 0) return res.json(null);
+    res.json(iceServers.length === 1 ? iceServers[0] : iceServers);
   });
 
   app.get("/api/status", (req, res) => {
@@ -1008,12 +1197,35 @@ async function main() {
   app.get("/api/arcade/sessions", (req, res) => {
     res.json([...arcadeSessions.values()]);
   });
+
+  app.post("/api/report", express.json(), (req, res) => {
+    const clientIp = req.socket.remoteAddress || 'unknown';
+    if (!rateLimit('report:' + clientIp, 5, 60000)) return res.status(429).json({ error: 'rate limited' });
+    const { viewerId, reason, sessionId } = req.body || {};
+    const anonHash = hashIp(clientIp);
+    const list = reports.get(anonHash) || [];
+    list.push({ timestamp: Date.now(), sessionId: sessionId || '?', viewerId: viewerId || null, reason: reason || 'unspecified' });
+    if (list.length > 100) list.splice(0, list.length - 100);
+    reports.set(anonHash, list);
+    console.log(`[report] Session ${sessionId || '?'} reported from ${anonHash.slice(0, 8)} reason: ${reason || 'unspecified'} (${list.length} total reports for this IP)`);
+    res.json({ ok: true });
+  });
+
   app.post("/api/open-terminal", express.json(), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ ok: false, reason: 'localhost only' });
+    }
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
     const { cmd, name } = req.body || {};
-    if (!cmd) return res.status(400).json({ ok: false });
-    const title = (name || "Auto-Host").replace(/"/g, "'");
-    const terms = [`gnome-terminal --title="${title}" -- bash -c "${cmd}; exec bash"`, `xterm -title "${title}" -e bash -c "${cmd}; exec bash"`, `konsole --title "${title}" -e bash -c "${cmd}; exec bash"`];
+    if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false });
+    if (cmd.length > 2000) return res.status(400).json({ ok: false, reason: 'command too long' });
+    const title = (name || "Auto-Host").replace(/"/g, "'").slice(0, 100);
+    const terms = [
+      `gnome-terminal --title="${title}" -- bash -c "${cmd.replace(/"/g, '\\"')}; exec bash"`,
+      `xterm -title "${title}" -e bash -c "${cmd.replace(/"/g, '\\"')}; exec bash"`,
+      `konsole --title "${title}" -e bash -c "${cmd.replace(/"/g, '\\"')}; exec bash"`
+    ];
     const { exec: _exec } = require("child_process");
     let i = 0; (function t() { if (i >= terms.length) return res.json({ ok: false, reason: "no terminal found" }); _exec(terms[i++], err => { if (err) t(); else res.json({ ok: true }); }); })();
   });
@@ -1021,6 +1233,10 @@ async function main() {
   let activeGameProc = null;
 
   app.post("/api/force-route", express.json(), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ ok: false, reason: 'localhost only' });
+    }
     if (!pb) {
       console.warn("[Audio] PatchBay not ready.");
       return res.json({ success: false });
@@ -1059,6 +1275,10 @@ async function main() {
   });
 
   app.post("/api/restart-game", express.json(), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ ok: false, reason: 'localhost only' });
+    }
     if (activeGameProc) {
       try { process.kill(-activeGameProc.pid); } catch (e) { }
       try { activeGameProc.kill(); } catch (e) { }
@@ -1068,6 +1288,15 @@ async function main() {
     if (req.body && req.body.command && req.body.command !== 'KILL_ONLY') {
       const parts = req.body.command.split(' ');
       const cmd = parts.shift();
+      if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false, reason: 'invalid command' });
+
+      const ALLOWED_GAMES = ['steam', 'Heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak', '.exe', '.AppImage', 'bash', 'sh'];
+      const allowMatch = (cmd) => ALLOWED_GAMES.some(a => cmd.includes(a) || cmd.endsWith(a));
+      if (!allowMatch(cmd)) {
+        console.warn(`[security] BLOCKED restart-game: "${cmd}" not in allowlist`);
+        return res.status(403).json({ ok: false, reason: 'game not in allowlist' });
+      }
+
       console.log("  \x1b[35m~\x1b[0m Launching game process:", req.body.command);
 
       // ── CRITICAL AUDIO ROUTING: Force game audio into the virtual sink ──
@@ -1115,6 +1344,10 @@ async function main() {
     if (req.body && req.body.remember) saveConfig({ tunnelProvider: provider, neverAsk: true });
 
     res.json({ ok: true, starting: true });
+
+    if (provider === 'p2p' || provider === 'vps-sfu' || provider === 'portforward') {
+      return; // Handled entirely by the browser, no local Node tunnel needed
+    }
 
     // CRITICAL FIX: Use readEnv to catch the host if the GUI fails to pass it!
     const resolvedVpsHost = (req.body && req.body.vpsHost)
@@ -1357,6 +1590,20 @@ async function main() {
 
       ws.on("message", (raw, isBinary) => {
         if (isBinary) {
+          if (raw[0] === 0x80) { // Binary Input from Host
+             const vidLen = raw[1];
+             const viewerId = raw.toString('utf8', 2, 2 + vidLen);
+             const payload = raw.subarray(2 + vidLen);
+             
+             const padIndex = payload[1];
+             const padId = viewerId + '_' + padIndex;
+             const perms = inputPerms.get(padId) || inputPerms.get(viewerId + '_0') || { gp: true, kb: false };
+             if (!perms.gp) return; // Dropped by perms
+
+             if (inputDriver.sendBinary) inputDriver.sendBinary(viewerId, payload);
+             return;
+          }
+
           // Tunnel WebCodecs binary frames from Host -> Node.js Server -> Viewers
           viewers.forEach(vws => {
             if (vws && vws.readyState === 1) vws.send(raw);
@@ -1396,6 +1643,13 @@ async function main() {
             if (audioProc) {
               audioProc.kill();
               audioProc = null;
+            }
+            return;
+          }
+
+          if (msg.type === "request-offer" && msg.viewerId) {
+            if (hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId }));
             }
             return;
           }
@@ -1457,6 +1711,20 @@ async function main() {
             return;
           }
 
+          if (msg.type === "report-viewer") {
+            const realId = msg.viewerId.split('_')[0];
+            const name = viewerNames.get(realId) || realId;
+            const anonHash = msg.anonHash || null;
+            console.log(`[host] Report for viewer ${realId} (${name})${anonHash ? ' hash=' + anonHash.slice(0, 8) : ''} reason: ${msg.reason || 'none'}`);
+            if (anonHash) {
+              const list = reports.get(anonHash) || [];
+              list.push({ timestamp: Date.now(), sessionId: msg.sessionId || '?' });
+              reports.set(anonHash, list);
+              console.log(`[host] Viewer ${name} reported (${list.length} total reports)`);
+            }
+            return;
+          }
+
           if (msg.type === "set-pin") { pinEnabled = !!msg.enabled; return; }
 
           if (msg.type === "set-input") {
@@ -1483,7 +1751,44 @@ async function main() {
             return;
           }
 
-          if (msg.type === "chat") { broadcast(JSON.stringify(msg)); return; }
+          if (msg.type === "chat") {
+            const text = String(msg.msg || '');
+            const urlRegex = /\b(?:https?:\/\/|www\.)[^\s]+\b/i;
+            const hasUrl = urlRegex.test(text);
+            const anonHash = hashIp(req.socket.remoteAddress || 'unknown');
+            if (hasUrl) {
+              const state = urlSpam.get(anonHash) || { count: 0, lockedUntil: 0 };
+              state.count += 1;
+              if (state.count > 3) {
+                state.lockedUntil = Date.now() + 2 * 60 * 1000;
+                urlSpam.set(anonHash, state);
+                console.log(`[viewer] ${id} kicked for URL spam (count=${state.count})`);
+                if (hostWS && hostWS.readyState === 1) {
+                  hostWS.send(JSON.stringify({ type: "viewer-kicked", viewerId: id, name: viewerNames.get(id) || id, reason: "URL spam" }));
+                }
+                try { ws.send(JSON.stringify({ type: "session-blocked", reason: "url-spam-timeout" })); } catch { }
+                ws.close(4003, "URL_SPAM_TIMEOUT");
+                return;
+              }
+              urlSpam.set(anonHash, state);
+              // Hide URLs from other viewers. Only the host dashboard sees that a URL was blocked.
+              if (hostWS && hostWS.readyState === 1) {
+                hostWS.send(JSON.stringify({ type: "chat", from: viewerNames.get(id) || msg.from || 'Guest', msg: '[URL hidden]', viewerId: id, urlHidden: true }));
+              }
+              try { ws.send(JSON.stringify({ type: "chat", from: "System", msg: "URLs are not shared in lobby chat. Your message was hidden from other viewers." })); } catch { }
+              return;
+            }
+            const payload = JSON.stringify(msg);
+            viewers.forEach((vws) => {
+              if (vws && vws.readyState === 1 && vws !== ws) {
+                vws.send(payload);
+              }
+            });
+            if (hostWS && hostWS.readyState === 1) {
+              hostWS.send(payload);
+            }
+            return;
+          }
 
           // FIX 1: Catch the direct profile change from the UI and send to Python
           if (msg.type === "set-ctrl-type") {
@@ -1503,6 +1808,7 @@ async function main() {
             global.hybridInputActive = msg.hybridInput;
             global.touchLayout = msg.touchLayout || 'default';
             global.enableMotion = !!msg.enableMotion;
+            global.expDevices = msg.expDevices || [];
 
             // Update the orchestrator's global default FIRST (no viewerId = set global default),
             // then update each connected viewer's per-viewer entry.
@@ -1512,7 +1818,7 @@ async function main() {
             });
 
             // Broadcast to viewers so they update their touch layout
-            broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion }));
+            broadcast(JSON.stringify({ type: 'ctrl-settings', touchLayout: global.touchLayout, enableMotion: global.enableMotion, expDevices: global.expDevices }));
 
             console.log("[host] ctrl-settings: forceXboxOne=%s enableDualShock=%s enableMotion=%s hybrid=%s ctrlType=%s touchLayout=%s",
               !!msg.forceXboxOne, !!msg.enableDualShock, !!msg.enableMotion, !!msg.hybridInput, global.currentCtrlType, global.touchLayout);
@@ -1535,6 +1841,7 @@ async function main() {
               gamepad: { gp: true, kb: false },
               kbm: { gp: false, kb: true },
               kbm_emulated: { gp: true, kb: true },
+              experimental: { gp: true, kb: true },
               disabled: { gp: false, kb: false }
             };
             const perms = modeMap[msg.mode] || { gp: true, kb: false };
@@ -1562,13 +1869,20 @@ async function main() {
           }
 
           if (msg.type === "regen-pin") {
-            PIN = makePin();
-            console.log("[host] PIN regenerated:", PIN);
+            if (!sessionPassword) {
+              PIN = makePin();
+              console.log("[host] PIN regenerated: ****");
+            }
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
             return;
           }
 
           if (msg.type === "arcade-session-start") {
+            if (sessionPassword) {
+              PIN = makePin();
+              if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
+            }
+            
             const arcadeUrl = msg.tunnelUrl || tunnelUrl;
             if (!arcadeUrl) { /* error logic */ return; }
 
@@ -1595,6 +1909,10 @@ async function main() {
           }
 
           if (msg.type === "arcade-session-stop") {
+            if (sessionPassword) {
+              PIN = sessionPassword;
+              if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
+            }
             for (const [id, s] of arcadeSessions) {
               arcadeSessions.delete(id);
               broadcastToArcade({ type: 'arcade-session-stopped', id });
@@ -1610,6 +1928,10 @@ async function main() {
             for (const [id, s] of arcadeSessions) {
               arcadeSessions.delete(id);
               broadcastToArcade({ type: 'arcade-session-stopped', id });
+            }
+            if (sessionPassword && PIN !== sessionPassword) {
+              PIN = sessionPassword;
+              if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
             }
           }
 
@@ -1732,6 +2054,12 @@ async function main() {
             return;
           }
 
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          if (expTypes.includes(msg.type)) {
+            experimentalDriver.send(msg);
+            return;
+          }
+
           broadcast(JSON.stringify(msg));
 
         } catch (err) {
@@ -1754,10 +2082,27 @@ async function main() {
 
       // ── VIEWER ───────────────────────────────────────────────────────────────
     } else if (wsPath === "/ws/viewer") {
-      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-      const hasTunnelHeader = !!req.headers['x-forwarded-for'] || !!req.headers['cf-connecting-ip'];
+      const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+      const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];;
       const requirePin = shouldRequirePin(clientIp, hasTunnelHeader);
       const anonHash = hashIp(clientIp);
+      const spamState = urlSpam.get(anonHash) || { count: 0, lockedUntil: 0 };
+
+      if (spamState.lockedUntil && Date.now() < spamState.lockedUntil) {
+        try { ws.send(JSON.stringify({ type: "session-blocked", reason: "url-spam-timeout" })); } catch { }
+        ws.close(4005, "URL_SPAM_TIMEOUT");
+        console.log(`[viewer] rejected — URL spam timeout for ${clientIp}`);
+        return;
+      }
+
+      // Temporary ban check
+      const ban = bannedIps.get(anonHash);
+      if (ban && Date.now() < ban.expiresAt) {
+        try { ws.send(JSON.stringify({ type: "session-blocked", reason: "banned", banExpiresAt: ban.expiresAt })); } catch { }
+        ws.close(4006, "BANNED");
+        console.log(`[viewer] rejected — temporarily banned for ${ban.reason || 'reported'} (expires ${new Date(ban.expiresAt).toLocaleTimeString()})`);
+        return;
+      }
 
       if (pinEnabled && requirePin) {
         const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
@@ -1785,18 +2130,22 @@ async function main() {
       }
 
       // ── Session password check ────────────────────────────────────────────
-      if (sessionPassword) {
-        const provided = ws.protocol || params.get('password') || '';
+      // Only run when there is NO active pin gate. When pinEnabled && requirePin
+      // is true AND sessionPassword is set, PIN === sessionPassword, so the PIN
+      // check above already validated the credential — checking again here causes
+      // spurious session-password-required rejections for correctly authenticated viewers.
+      if (sessionPassword && !(pinEnabled && requirePin)) {
+        const provided = url.searchParams.get('password') || url.searchParams.get('pin') || '';
         if (provided !== sessionPassword) {
-          ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' }));
-          ws.close();
-          console.log(`[viewer] rejected — wrong session password from ${clientIp}`);
+          try { ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' })); } catch {}
+          ws.close(4004, "SESSION_PASSWORD_REJECTED");
+          console.log(`[viewer] rejected — wrong session password (non-PIN path) from ${clientIp}`);
           return;
         }
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      let id = "v" + (++vidCount);
+      let id = "v" + crypto.randomUUID().slice(0, 8);
       const defaultName = "Guest" + (1000 + Math.floor(Math.random() * 9000));
 
       // ── Arcade viewer cap ─────────────────────────────────────────────────
@@ -1867,7 +2216,8 @@ async function main() {
               ws.send(JSON.stringify({
                 type: "ctrl-settings",
                 enableMotion: !!global.enableMotion,
-                touchLayout: global.touchLayout || 'default'
+                touchLayout: global.touchLayout || 'default',
+                expDevices: global.expDevices || []
               }));
               if (hostStreaming) {
                 ws.send(JSON.stringify({ type: "host-stream-ready" }));
@@ -1948,8 +2298,8 @@ async function main() {
               console.log("[viewer] global slot cap (16) reached, ignoring from", id);
               return;
             }
-            if ((viewerGamepads.get(id) || new Set()).size >= 4) {
-              console.log("[viewer] per-viewer cap (4) reached for", id);
+            if ((viewerGamepads.get(id) || new Set()).size >= MAX_VIEWER_CONTROLLERS) {
+              console.log("[viewer] per-viewer cap (" + MAX_VIEWER_CONTROLLERS + ") reached for", id);
               return;
             }
 
@@ -1983,7 +2333,7 @@ async function main() {
             msg.msg = sanitize(msg.msg);
             msg.from = sanitize(viewerNames.get(id) || msg.from || 'Guest').slice(0, 20);
             broadcast(JSON.stringify(msg));
-            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
+            if (hostWS && hostWS.readyState === 1 && ws !== hostWS) hostWS.send(JSON.stringify(msg));
             return;
           }
 
@@ -1995,6 +2345,28 @@ async function main() {
             toUinput({ type: 'flush_neutral', viewer_id: rosterId });
             toUinput({ type: 'disconnect_viewer', viewer_id: rosterId });
             broadcastRoster();
+            return;
+          }
+
+          if (msg.type === "viewer-vr-active") {
+            console.log('[WiVRn] Viewer', id, 'entered VR mode');
+            wivrnEnsureRunning();
+            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
+            return;
+          }
+
+          if (msg.type === "vr") {
+            wivrnBumpVrActivity();
+            const h = msg.head, l = msg.left, r = msg.right;
+            if (h && l && r) {
+              wivrnInt.injectVirtualTracking(
+                { qx: h.qx||0, qy: h.qy||0, qz: h.qz||0, qw: h.qw||1, px: h.px||0, py: h.py||0, pz: h.pz||0 },
+                { qx: l.qx||0, qy: l.qy||0, qz: l.qz||0, qw: l.qw||1, px: l.px||0, py: l.py||0, pz: l.pz||0 },
+                { qx: r.qx||0, qy: r.qy||0, qz: r.qz||0, qw: r.qw||1, px: r.px||0, py: r.py||0, pz: r.pz||0 },
+                l.trigger ?? 0, l.grip ?? 0, r.trigger ?? 0, r.grip ?? 0,
+                l.buttons ?? 0, r.buttons ?? 0
+              ).catch(() => {});
+            }
             return;
           }
 
@@ -2053,7 +2425,9 @@ async function main() {
 
             // If viewer's primary slot is kbm_emulated, suppress any extra gamepad devices
             // (e.g. touch padIndex:99) to prevent a second virtual gamepad appearing in the OS.
-            if (msg.type === "gamepad" && padIdx !== 0) {
+            // EXCEPTION: padIdx >= 100 are native XInput pads from read_gamepads.py via Electron IPC
+            // and must always pass through regardless of the primary slot's input mode.
+            if (msg.type === "gamepad" && padIdx !== 0 && padIdx < 100) {
               const primaryPerms = inputPerms.get(id + '_0') || {};
               const primaryMode = primaryPerms.gp && primaryPerms.kb ? 'kbm_emulated' : 'gamepad';
               if (primaryMode === 'kbm_emulated') return;
@@ -2122,7 +2496,13 @@ async function main() {
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: myId, id: msg.id }));
             return;
           }
-          if (msg.type === "gamepad") { toUinput(normalizeGamepadMsg(msg)); return; }
+          if (msg.type === "gamepad") {
+            if (!myId) return;
+            const perms = inputPerms.get(msg.pad_id) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
+            if (!perms.gp) return;
+            toUinput(normalizeGamepadMsg(msg));
+            return;
+          }
 
           if (msg.type === "keyboard" || msg.type === "kbm") {
             console.log(`[DEBUG KBM] (/ws/input) received keyboard event:`, msg.event, msg.key);
@@ -2130,13 +2510,19 @@ async function main() {
               console.log(`[DEBUG KBM] Dropped in /ws/input: myId is null`);
               return;
             }
-            const perms = inputPerms.get(myId) || { gp: true, kb: false };
+            const perms = inputPerms.get(msg.pad_id) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
             if (!perms.kb) {
               console.log(`[DEBUG KBM] Dropped in /ws/input: perms.kb=false for id ${myId}`);
               return;
             }
             console.log(`[DEBUG KBM] Sending to InputOrchestrator from /ws/input!`);
             toUinput(msg);
+            return;
+          }
+
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          if (expTypes.includes(msg.type)) {
+            experimentalDriver.send(msg);
             return;
           }
         } catch (e) { console.error("[input] error:", e.message); }
@@ -2176,6 +2562,8 @@ async function main() {
       // by the user's saved VPS URL, not by any local tunnel provider.
       console.log("  \x1b[36m~\x1b[0m Tunnel: VPS SFU mode (managed by host app — no local tunnel started)");
       // Do NOT modify tunnelProvider or neverAsk here.
+    } else if (cfg.tunnelProvider === 'p2p') {
+      console.log("  \x1b[36m~\x1b[0m Tunnel: P2P mode (managed by host app — no local tunnel started)");
     } else if (cfg.neverAsk && cfg.tunnelProvider === 'portforward') {
       console.log("  ~ Tunnel: port forward mode (saved).");
     } else if (cfg.neverAsk && cfg.tunnelProvider) {
@@ -2201,6 +2589,37 @@ async function main() {
     } else {
       console.log("  ~ Tunnel: waiting for host to choose provider...");
     }
+
+    // Auto-start WiVRn server on boot
+    console.log("[WiVRn] Auto-starting WiVRn server...");
+    wivrnEnsureRunning().then(running => {
+      if (running) console.log("[WiVRn] WiVRn server ready");
+    });
+
+    // Periodically fetch the global ban list from the arcade directory
+    if (cfg.modEndpoint) {
+      async function syncBans() {
+        try {
+          const modCfg = loadConfig();
+          if (!modCfg.modEndpoint || !modCfg.modSecret) return;
+          const res = await fetch(modCfg.modEndpoint, {
+            headers: { 'Authorization': `Bearer ${modCfg.modSecret}` }
+          });
+          if (!res.ok) return;
+          const list = await res.json();
+          if (!Array.isArray(list)) return;
+          bannedIps.clear();
+          const now = Date.now();
+          for (const ip of list) {
+            const hash = hashIp(ip);
+            bannedIps.set(hash, { bannedAt: now, expiresAt: now + 86400000, reason: 'remote-ban' });
+          }
+          console.log(`[bans] Synced ${list.length} banned IP(s) from directory`);
+        } catch (_) {}
+      }
+      syncBans();
+      setInterval(syncBans, 300000); // every 5 minutes
+    }
   });
 }
 
@@ -2212,6 +2631,7 @@ function cleanup(isElectron = false) {
   _cleanupDone = true;
 
   console.log('\n[server] Shutting down — running cleanup...');
+  console.log(new Error('Cleanup Trace').stack);
 
   // ── Terminate worker threads gracefully ──────────────────────────────────
   // Audio worker: ask it to destroy virtual audio, then terminate
@@ -2232,9 +2652,14 @@ function cleanup(isElectron = false) {
   if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
   if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
 
+  // Stop WiVRn
+  if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
+  try { wivrnInt.stopServer(); } catch {}
+
   // Cleanly destroy the input driver (whether it's using C++ or Python)
   try {
     inputDriver.destroy();
+    experimentalDriver.destroy();
   } catch (e) {
     console.error("[Server] Input driver cleanup error:", e);
   }
@@ -2242,15 +2667,18 @@ function cleanup(isElectron = false) {
   if (audioProc) { try { audioProc.kill(); } catch (_) { } }
 
   if (process.platform === 'linux') {
-    const { execSync } = require('child_process');
+    const { execSync, execFileSync } = require('child_process');
 
     // THE FIX: Unload loopback BEFORE the sink to prevent the audio buzz
     const unloadOrder = ['loopback', 'remap', 'sink', 'daemonHandle'];
     for (const key of unloadOrder) {
       const id = _vAudioModules[key];
       if (id) {
-        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
-        console.log(`[VirtualAudio] Cleaned up ${key} module ${id}`);
+        const moduleId = parseInt(id, 10);
+        if (!isNaN(moduleId)) {
+          try { execFileSync('pactl', ['unload-module', String(moduleId)], { stdio: 'ignore' }); } catch (_) { }
+          console.log(`[VirtualAudio] Cleaned up ${key} module ${moduleId}`);
+        }
       }
     }
 

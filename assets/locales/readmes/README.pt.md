@@ -1,6 +1,6 @@
 <p align="left">
-  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
-<h1>NearsecTogether</h1>
+  <img src="assets/NearcadeLogo.png" width="160" height="140">
+<h1>Nearcade</h1>
 
 [Inglês](README.md)\|[Espanhol](assets/locales/readmes/README.es.md)\|[Francês](assets/locales/readmes/README.fr.md)\|[Alemão](assets/locales/readmes/README.de.md)\|[Português](assets/locales/readmes/README.pt.md)\|[japonês](assets/locales/readmes/README.ja.md)
 
@@ -15,9 +15,9 @@
 
 ## Descrição do projeto
 
-NearsecTogether é uma plataforma de código aberto de baixa latência que permite que você jogue jogos cooperativos locais pela Internet com seus amigos. Ao aproveitar o WebRTC para streaming UDP primeiro e codificadores de hardware de navegador integrados, o NearsecTogether fornece latência quase imperceptível que rivaliza com plataformas comerciais de jogos em nuvem – adaptadas especificamente para instâncias auto-hospedadas.
+Nearcade é uma plataforma de código aberto de baixa latência que permite que você jogue jogos cooperativos locais pela Internet com seus amigos. Ao aproveitar o WebRTC para streaming UDP primeiro e codificadores de hardware de navegador integrados, o Nearcade fornece latência quase imperceptível que rivaliza com plataformas comerciais de jogos em nuvem – adaptadas especificamente para instâncias auto-hospedadas.
 
-Ao contrário das soluções tradicionais de jogos em nuvem que dependiam de enormes canais de data center e codificadores de hardware QUIC/VP9 personalizados, o NearsecTogether é otimizado para funcionar com elegância em uma conexão doméstica padrão de Internet.
+Ao contrário das soluções tradicionais de jogos em nuvem que dependiam de enormes canais de data center e codificadores de hardware QUIC/VP9 personalizados, o Nearcade é otimizado para funcionar com elegância em uma conexão doméstica padrão de Internet.
 
 ## Pilha de tecnologia
 

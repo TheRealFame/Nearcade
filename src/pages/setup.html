@@ -2,78 +2,685 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>NearsecTogether Setup</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Nearcade Setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* Fixed: This ensures the black background fills the entire window */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100%; height: 100%;
-      margin: 0; padding: 0;
       background: #080808;
       color: #e8e8e8;
-      font-family: 'IBM Plex Mono', monospace;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+      font-family: 'Inter', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .wizard {
+      background: #121416;
+      border: 1px solid #1e2024;
+      border-radius: 16px;
+      width: 780px;
+      max-width: 92vw;
+      max-height: 90vh;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
     }
-    .card { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 40px; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; }
-    img { width: 80px; margin-bottom: 20px; filter: drop-shadow(0 0 15px rgba(192,132,252,0.4)); }
-    h1 { margin: 0 0 10px; color: #c084fc; font-size: 24px; }
-    p { color: #888; line-height: 1.6; margin-bottom: 24px; font-size: 13px; }
+    /* ── Header / Dots ── */
+    .wizard-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 28px 32px 0;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.3s;
+    }
+    .dot.active { background: #c084fc; }
+    .dot.done { background: #4ade80; }
+    .dot-line {
+      width: 48px; height: 1px;
+      background: #333;
+    }
+    .dot-line.done { background: #4ade80; }
 
-    .btn-row { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
-    button { background: #c084fc; color: #000; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-family: inherit; font-size: 13px; cursor: pointer; transition: all 0.2s; }
-    button:hover { background: #d495ff; transform: scale(1.02); }
-    button:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+    /* ── Steps ── */
+    .step {
+      display: none;
+      padding: 32px 40px 28px;
+      flex: 1;
+      flex-direction: column;
+    }
+    .step.active { display: flex; }
 
-    .skip-btn { background: #222; color: #aaa; border: 1px solid #333; }
-    .skip-btn:hover { background: #333; color: #fff; border-color: #555; }
+    .step-icon {
+      width: 48px; height: 48px;
+      margin-bottom: 16px;
+    }
+    .step-icon svg {
+      width: 100%; height: 100%;
+      stroke: #c084fc;
+      stroke-width: 1.8;
+      fill: none;
+    }
 
-    #status { margin-top: 20px; font-size: 12px; color: #facc15; min-height: 16px; }
-    .err { color: #f87171 !important; }
+    .step h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f0f3f5;
+      margin-bottom: 6px;
+    }
+    .step p {
+      font-size: 13px;
+      color: #888;
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+
+    .step-body {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* ── Step 2: OS cards ── */
+    .os-cards {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .os-card {
+      flex: 1;
+      min-width: 140px;
+      background: #1a1c20;
+      border: 1px solid #2a2c30;
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+      cursor: default;
+      transition: border-color 0.2s;
+    }
+    .os-card:hover { border-color: #c084fc; }
+    .os-card img, .os-card svg {
+      width: 32px; height: 32px;
+      margin-bottom: 8px;
+      stroke: #c084fc;
+    }
+    .os-card h4 { font-size: 13px; color: #e8e8e8; margin-bottom: 4px; }
+    .os-card p { font-size: 11px; color: #666; margin: 0; }
+
+    /* ── Step 3: Tunnel cards ── */
+    .tunnel-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .tunnel-card {
+      background: #1a1c20;
+      border: 1px solid #2a2c30;
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .tunnel-card:hover { border-color: #c084fc; background: #1e2024; }
+    .tunnel-card.installed { border-color: #4ade80; }
+    .tunnel-card svg {
+      width: 28px; height: 28px;
+      flex-shrink: 0;
+      stroke: #c084fc;
+      fill: none;
+    }
+    .tunnel-card .info { flex: 1; }
+    .tunnel-card .info h4 { font-size: 13px; color: #e8e8e8; }
+    .tunnel-card .info p { font-size: 11px; color: #666; margin: 0; }
+    .tunnel-card .status {
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status.bundled { background: #0a2e1a; color: #4ade80; }
+    .status.missing { background: #2e0a0a; color: #f87171; }
+    .status.manual { background: #2e2a0a; color: #facc15; }
+    .status.downloading { background: #2e2a0a; color: #facc15; }
+    .tunnel-card .badge-installed {
+      position: absolute;
+      top: 0; right: 0;
+      background: #4ade80;
+      color: #000;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 0 10px 0 8px;
+      display: none;
+    }
+    .tunnel-card.installed .badge-installed { display: block; }
+
+    /* ── Step 4: module grid ── */
+    .module-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .module-card {
+      background: #1a1c20;
+      border: 1px solid #2a2c30;
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .module-card svg {
+      width: 26px; height: 26px;
+      flex-shrink: 0;
+      stroke: #888;
+      fill: none;
+    }
+    .module-card .info { flex: 1; }
+    .module-card .info h4 { font-size: 13px; color: #e8e8e8; }
+    .module-card .info p { font-size: 11px; color: #666; margin: 0; }
+
+    /* ── Footer / Buttons ── */
+    .wizard-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 40px 24px;
+      border-top: 1px solid #1e2024;
+    }
+    .wizard-footer .left { display: flex; gap: 8px; }
+    .btn {
+      padding: 9px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: #c084fc; color: #000; }
+    .btn-primary:hover { background: #d495ff; transform: scale(1.02); }
+    .btn-primary:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+    .btn-secondary { background: #222; color: #aaa; border: 1px solid #333; }
+    .btn-secondary:hover { background: #333; color: #fff; border-color: #555; }
+    .btn-ghost { background: transparent; color: #666; }
+    .btn-ghost:hover { color: #aaa; }
+
+    #setupStatus {
+      font-size: 12px;
+      color: #facc15;
+      min-height: 16px;
+    }
+    #setupStatus.err { color: #f87171 !important; }
+    #setupStatus.ok { color: #4ade80 !important; }
+
+    @media (max-width: 600px) {
+      .wizard { width: 100%; max-width: 100vw; border-radius: 0; max-height: 100vh; }
+      .step { padding: 24px 20px 20px; }
+      .wizard-footer { padding: 12px 20px 20px; flex-wrap: wrap; gap: 8px; }
+      .tunnel-grid, .module-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <img src="../../assets/NearsecTogetherLogo.png" alt="Logo">
-    <h1>First Time Setup</h1>
-    <p>NearsecTogether needs to install system dependencies (drivers and virtual controllers) to run properly.</p>
-    <p style="font-size: 11px; color: #555;">A terminal window will pop up to run the installation.</p>
-
-    <div class="btn-row">
-      <button id="btn" onclick="startSetup()">Run Setup</button>
-      <button class="skip-btn" onclick="window.electronAPI.continueBoot()">Skip for now</button>
+  <div class="wizard" id="wizard">
+    <!-- Header dots -->
+    <div class="wizard-header" id="dotContainer">
+      <span class="dot active" data-step="0"></span>
+      <span class="dot-line" data-step="0"></span>
+      <span class="dot" data-step="1"></span>
+      <span class="dot-line" data-step="1"></span>
+      <span class="dot" data-step="2"></span>
+      <span class="dot-line" data-step="2"></span>
+      <span class="dot" data-step="3"></span>
     </div>
-    <div id="status"></div>
+
+    <!-- Step 0: Welcome -->
+    <div class="step active" data-step="0">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+      <h2>Welcome to Nearcade</h2>
+      <p>This quick setup will get your system ready for hosting and playing local co-op games over the internet. You'll set up system dependencies, choose your tunnel provider, and explore optional modules.</p>
+      <div class="step-body">
+        <div style="background:#1a1c20;border-radius:10px;padding:16px;margin-top:8px;">
+          <p style="margin:0;font-size:12px;color:#888;">Nearcade is an open-source platform that lets you play local co-op games over the internet with friends. It uses secure tunnel technology so your friends can connect directly to your game session from anywhere in the world, no port forwarding or complex network setup needed.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 1: System Setup -->
+    <div class="step" data-step="1">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </div>
+      <h2>System Setup</h2>
+      <p>Nearcade needs system dependencies (drivers and virtual controllers) to run properly. Choose how you'd like to proceed.</p>
+      <div class="step-body">
+        <div class="os-cards">
+          <div class="os-card" id="osLinux">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+            <h4>Linux</h4>
+            <p>Run the terminal setup script to install udev rules, PipeWire routing, and uinput drivers.</p>
+          </div>
+          <div class="os-card" id="osWindows">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            </svg>
+            <h4>Windows</h4>
+            <p>Run the PowerShell setup script as Administrator to install ViGEmBus and configure audio.</p>
+          </div>
+          <div class="os-card" id="osMac">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;">
+              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/>
+            </svg>
+            <h4>macOS</h4>
+            <p>Manual steps are available in the documentation. No automated setup script exists yet.</p>
+          </div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="runSetup()" id="setupBtn">Run Setup Script</button>
+          <a href="https://github.com/TheRealFame/Nearcade/blob/main/src/docs/GETTING_STARTED.md" target="_blank" class="btn btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center;">Manual Instructions</a>
+        </div>
+        <div id="setupStatus" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
+    <!-- Step 2: Tunnel Setup -->
+    <div class="step" data-step="2">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+        </svg>
+      </div>
+      <h2>Tunnel Setup</h2>
+      <p>Click a tunnel card below to download or view install instructions. Nearcade uses tunnels to let friends connect from anywhere.</p>
+      <div class="step-body">
+        <div class="tunnel-grid" id="tunnelGrid"></div>
+        <p id="tunnelStatus" style="font-size:11px;color:#555;margin-top:14px;"></p>
+        <pre id="tunnelInstallCmd" style="display:none;margin-top:12px;background:#0a0c0e;border:1px solid #1e2024;border-radius:8px;padding:12px;font-size:12px;color:#4ade80;overflow-x:auto;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+    </div>
+
+    <!-- Step 3: Advanced -->
+    <div class="step" data-step="3">
+      <div class="step-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+        </svg>
+      </div>
+      <h2>Advanced Modules</h2>
+      <p>Nearcade supports optional modules and integrations. Configure these later from the Host dashboard.</p>
+      <div class="step-body">
+        <div class="module-grid">
+          <div class="module-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+            <div class="info">
+              <h4>VR Streaming</h4>
+              <p>WiVRn integration for wireless VR headset streaming.</p>
+            </div>
+          </div>
+          <div class="module-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+            </svg>
+            <div class="info">
+              <h4>Discord RPC</h4>
+              <p>Rich Presence with join secret for one-click invites.</p>
+            </div>
+          </div>
+          <div class="module-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+            </svg>
+            <div class="info">
+              <h4>Arcade Directory</h4>
+              <p>Public session listing for global discovery.</p>
+            </div>
+          </div>
+          <div class="module-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+            <div class="info">
+              <h4>Viewer Accounts</h4>
+              <p>Optional session passwords for private games.</p>
+            </div>
+          </div>
+          <div class="module-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <div class="info">
+              <h4>Multi-Controller</h4>
+              <p>Up to 4 controllers with individual gamepad mapping.</p>
+            </div>
+          </div>
+          <div class="module-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            <div class="info">
+              <h4>Voice Chat</h4>
+              <p>Built-in viewer voice with per-viewer volume control.</p>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:11px;color:#555;margin-top:14px;">All options are configurable from the Settings tab in the Host dashboard.</p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="wizard-footer">
+      <div class="left">
+        <button class="btn btn-ghost" onclick="prevStep()" id="backBtn" style="visibility:hidden;">Back</button>
+        
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="skipAll()" id="skipBtn">Skip</button>
+        <button class="btn btn-primary" onclick="nextStep()" id="nextBtn">Next</button>
+      </div>
+    </div>
   </div>
 
-  <script src="../scripts/i18n.js"></script>
+  <script src="/js/i18n.js"></script>
   <script>
-    function startSetup() {
-      const btn = document.getElementById('btn');
-      const status = document.getElementById('status');
+    let currentStep = 0;
+    const totalSteps = 4;
+
+    function updateUI() {
+      // Steps
+      document.querySelectorAll('.step').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.step) === currentStep);
+      });
+      // Dots
+      document.querySelectorAll('.dot').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('active', s === currentStep);
+        el.classList.toggle('done', s < currentStep);
+      });
+      document.querySelectorAll('.dot-line').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('done', s < currentStep);
+      });
+      // Buttons
+      document.getElementById('backBtn').style.visibility = currentStep > 0 ? 'visible' : 'hidden';
+      const nextBtn = document.getElementById('nextBtn');
+      const skipBtn = document.getElementById('skipBtn');
+      if (currentStep === totalSteps - 1) {
+        nextBtn.textContent = 'Finish';
+        skipBtn.style.display = 'none';
+      } else {
+        nextBtn.textContent = 'Next';
+        skipBtn.style.display = '';
+      }
+    }
+
+    function nextStep() {
+      if (currentStep < totalSteps - 1) {
+        currentStep++;
+        updateUI();
+      } else {
+        finishSetup();
+      }
+    }
+
+    function prevStep() {
+      if (currentStep > 0) {
+        currentStep--;
+        updateUI();
+      }
+    }
+
+    function skipAll() {
+      if (window.electronAPI) window.electronAPI.continueBoot();
+      else document.querySelector('.wizard').innerHTML = '<div style="padding:40px;text-align:center;color:#888;">Setup skipped. You can run it again from the dashboard.</div>';
+    }
+
+    function finishSetup() {
+      if (window.electronAPI) {
+        document.getElementById('nextBtn').disabled = true;
+        document.getElementById('nextBtn').textContent = 'Done!';
+        setTimeout(() => window.electronAPI.continueBoot(), 500);
+      } else {
+        document.querySelector('.wizard').innerHTML = '<div style="padding:40px;text-align:center;color:#888;">Setup complete. Close this tab and return to the app.</div>';
+      }
+    }
+
+    function runSetup() {
+      const btn = document.getElementById('setupBtn');
+      const status = document.getElementById('setupStatus');
+      if (!btn || !status) return;
       btn.disabled = true;
       btn.textContent = 'Running...';
       status.className = '';
-      status.textContent = 'Please check the terminal window that just opened...';
+      status.textContent = 'Check the terminal window that just opened...';
 
       if (window.electronAPI) {
         window.electronAPI.runSetup();
-
         window.electronAPI.onSetupSuccess(() => {
-          status.style.color = '#4ade80';
-          status.textContent = 'Success! Starting app...';
-          setTimeout(() => window.electronAPI.continueBoot(), 1000);
+          status.className = 'ok';
+          status.textContent = 'Setup complete!';
+          btn.textContent = 'Done';
         });
-
         window.electronAPI.onSetupFailed((err) => {
           btn.disabled = false;
           btn.textContent = 'Try Again';
           status.className = 'err';
-          status.textContent = 'Installation failed or was cancelled.';
+          status.textContent = 'Setup failed or was cancelled.';
         });
+      } else {
+        status.textContent = 'Electron API not available. Run the setup script manually from the bin/ folder.';
+        btn.disabled = false;
+        btn.textContent = 'Try Again';
       }
     }
+
+    const TUNNELS = [
+      {
+        id: 'cloudflared', label: 'Cloudflared',
+        desc: 'Fast, widely supported. Uses Cloudflare\'s network.',
+        svg: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+        url: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/',
+        dlUrl: { linux: 'cloudflared-linux-amd64', win: 'cloudflared-windows-amd64.exe', mac: 'cloudflared-darwin-amd64' },
+        manual: false
+      },
+      {
+        id: 'zrok', label: 'Zrok',
+        desc: 'Open-source, self-hostable tunnel.',
+        svg: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+        url: 'https://github.com/openziti/zrok/releases/latest',
+        dlUrl: null,
+        manual: false
+      },
+      {
+        id: 'playit', label: 'Playit',
+        desc: 'Gaming-focused tunnel with dashboard.',
+        svg: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+        url: 'https://playit.gg/download',
+        dlUrl: { linux: 'playit-cli-linux-amd64', win: 'playit-windows-x86_64-signed.exe', mac: null },
+        manual: false
+      },
+      {
+        id: 'vps', label: 'VPS / Port Forward',
+        desc: 'For advanced users with their own server or open ports.',
+        svg: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+        url: null,
+        dlUrl: null,
+        manual: true
+      }
+    ];
+
+    let tunnelInstalled = {};
+    let tunnelInfo = {};
+
+    async function checkTunnelInstalled(id) {
+      if (id === 'vps') return { installed: true, onPath: false };
+      if (window.electronAPI) {
+        return await window.electronAPI.checkTunnelInstalled(id);
+      }
+      const ls = !!localStorage.getItem('ns_tunnel_' + id);
+      return { installed: ls, onPath: false };
+    }
+
+    async function refreshTunnelStatus() {
+      for (const t of TUNNELS) {
+        const r = await checkTunnelInstalled(t.id);
+        tunnelInstalled[t.id] = r.installed;
+        tunnelInfo[t.id] = r;
+      }
+      renderTunnels();
+    }
+
+    function renderTunnels() {
+      const grid = document.getElementById('tunnelGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      TUNNELS.forEach(t => {
+        const installed = tunnelInstalled[t.id];
+        const info = tunnelInfo[t.id] || {};
+        const card = document.createElement('div');
+        card.className = 'tunnel-card' + (installed ? ' installed' : '');
+        const badgeLabel = installed ? (info.onPath ? 'On PATH' : 'Installed') : '';
+        const statusLabel = installed ? 'Ready' : (t.manual ? 'Manual' : 'Not installed');
+        card.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${t.svg}</svg>
+          <div class="info">
+            <h4>${t.label}</h4>
+            <p>${t.desc}</p>
+          </div>
+          ${installed ? `<span class="badge-installed">${badgeLabel}</span>` : ''}
+          <span class="status ${installed ? 'bundled' : t.manual ? 'manual' : 'missing'}">${statusLabel}</span>
+        `;
+        if (!t.manual) {
+          card.onclick = () => handleTunnelClick(t);
+        }
+        grid.appendChild(card);
+      });
+      const st = document.getElementById('tunnelStatus');
+      if (st) {
+        const count = TUNNELS.filter(t => tunnelInstalled[t.id] || t.manual).length;
+        st.textContent = count > 1 ? `${count} tunnels ready.` : 'Click a tunnel above to download or get install instructions.';
+      }
+    }
+
+    const INSTALL_CMDS = {
+      cloudflared: {
+        linux:  'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" -o ~/.config/Nearcade/bin/cloudflared && chmod +x ~/.config/Nearcade/bin/cloudflared',
+        win32:  'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\cloudflared.exe"',
+        darwin: 'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64" -o ~/.config/Nearcade/bin/cloudflared && chmod +x ~/.config/Nearcade/bin/cloudflared',
+      },
+      zrok: {
+        linux:  'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_linux_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
+        win32:  null,
+        darwin: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_darwin_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
+      },
+      playit: {
+        linux:  'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-cli-linux-amd64" -o ~/.config/Nearcade/bin/playit && chmod +x ~/.config/Nearcade/bin/playit',
+        win32:  'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x86_64-signed.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\playit.exe"',
+        darwin: null,
+      },
+    };
+
+    function _plat() {
+      if (navigator.platform.toLowerCase().includes('win')) return 'win32';
+      if (navigator.platform.toLowerCase().includes('mac')) return 'darwin';
+      return 'linux';
+    }
+
+    async function handleTunnelClick(t) {
+      if (tunnelInstalled[t.id]) return;
+      const card = document.querySelector(`.tunnel-card:nth-child(${TUNNELS.indexOf(t) + 1})`);
+      const statusEl = card ? card.querySelector('.status') : null;
+      if (statusEl) { statusEl.className = 'status downloading'; statusEl.textContent = 'Opening...'; }
+
+      const cmdEl = document.getElementById('tunnelInstallCmd');
+      const plat = _plat();
+
+      // Show shell install command
+      const platCmds = INSTALL_CMDS[t.id];
+      const cmd = platCmds ? platCmds[plat] : null;
+      if (cmd) {
+        cmdEl.textContent = cmd;
+        cmdEl.style.display = 'block';
+      }
+
+      if (window.electronAPI && t.url) {
+        window.electronAPI.openExternal(t.url);
+      } else if (t.url) {
+        window.open(t.url, '_blank');
+      }
+
+      // Auto-download for supported tunnels
+      if (window.electronAPI && t.dlUrl) {
+        const binName = t.dlUrl[plat];
+        if (binName) {
+          const urls = {
+            cloudflared: `https://github.com/cloudflare/cloudflared/releases/latest/download/${binName}`,
+            zrok: `https://github.com/openziti/zrok/releases/latest/download/${binName}`,
+            playit: `https://github.com/playit-cloud/playit-agent/releases/latest/download/${binName}`,
+          };
+          const dlUrl = urls[t.id];
+          if (dlUrl) {
+            if (statusEl) { statusEl.textContent = 'Downloading...'; }
+            const result = await window.electronAPI.downloadTunnel(t.id, dlUrl);
+            if (result.success) {
+              tunnelInstalled[t.id] = true;
+              localStorage.setItem('ns_tunnel_' + t.id, '1');
+              cmdEl.style.display = 'none';
+              renderTunnels();
+              return;
+            }
+          }
+        }
+      }
+
+      if (cmd) {
+        if (statusEl) { statusEl.textContent = 'Copy the command below and run it in your terminal.'; }
+      } else if (statusEl) {
+        if (statusEl) { statusEl.textContent = 'Download manually from the page that opened. Come back and click "Check Status" below.'; }
+      }
+      setTimeout(refreshTunnelStatus, 5000);
+    }
+
+    // Check tunnel status when stepping into tunnel step
+    const _origNextStep = nextStep;
+    const _origPrevStep = prevStep;
+    nextStep = function() {
+      if (currentStep === 1) refreshTunnelStatus();
+      _origNextStep();
+    };
+    prevStep = function() {
+      if (currentStep === 3) refreshTunnelStatus();
+      _origPrevStep();
+    };
+
+    updateUI();
   </script>
 </body>
 </html>

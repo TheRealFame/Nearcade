@@ -1,5 +1,5 @@
 /**
- * Cross-platform audio utility for NearsecTogether
+ * Cross-platform audio utility for Nearcade
  * Handles platform differences in sound playback:
  * - Linux: Uses play-sound (fallback to aplay)
  * - Windows: Uses play-sound or Windows Media Player (via PowerShell)

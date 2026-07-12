@@ -1,21 +1,21 @@
 <p align="left">
-  <img src="assets/NearsecTogetherTitle.png" width="400">
-<h1>NearsecTogether</h1>
+  <img src="assets/NearcadeTitle.png" width="400">
+<h1>Nearcade <a href="https://discord.gg/Yz3NeEBdPQ" target="_blank" title="Join our Discord"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 127.14 96.36" width="24" height="18" style="vertical-align:middle;fill:#5865F2;"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg></a></h1>
 
 [英語](README.md)\|[スペイン語](README.es.md)\|[フランス語](README.fr.md)\|[ドイツ語](README.de.md)\|[ポルトガル語](README.pt.md)\|[日本語](README.ja.md)
 
 ## スクリーンショット -- ダッシュボード、ビューア ページ、アーケード
 
 <div align="center">
-  <img src="assets/screenshots/nearsec-client-home.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-host.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-viewer.png" alt="Nearsec Viewer" width="45%">
-  <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
+  <img src="assets/screenshots/nearcade-client-home.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-host.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-viewer.png" alt="Nearcade Viewer" width="45%">
+  <img src="assets/screenshots/nearcade-arcade.png" alt="Nearcade Arcade" width="45%">
 </div>
 
 ## プロジェクトのミッション
 
-Nearsec Together は、友達とインターネット経由でローカル協力ゲームをプレイできるオープンソース プラットフォームです。自己ホスト型セットアップ用に構築されています。ピアツーピア接続とネイティブ オペレーティング システムのオーディオおよび入力ルーティングを使用して、入力遅延を低く抑えます。
+Nearcade は、友人とインターネット経由でローカル協力ゲームをプレイできるオープンソース プラットフォームです。自己ホスト型セットアップ用に構築されています。ピアツーピア接続とネイティブ オペレーティング システムのオーディオおよび入力ルーティングを使用して、入力遅延を低く抑えます。
 
 主な焦点はプライベート設定です。ホスト アプリには特別なネットワーク構成は必要ありません。視聴者は、デスクトップまたはモバイル デバイスの標準 Web ブラウザを通じて参加します。モバイル ビューア インターフェイスには、タッチ コントロールと仮想ジョイスティックが含まれています。ユーザーはプレイするために何もダウンロードする必要はありません。
 
@@ -72,10 +72,10 @@ sudo ./linux_setup.sh
 -   [APIとセットアップガイド](src/docs/API_AND_SETUP.md)
 -   [VPSサーバーのセットアップ](src/docs/VPS_SETUP.md)
 -   [高度なロジックのドキュメント](src/docs/ADVANCED_LOGIC.md)
--   [ニアセック アーケード情報](src/docs/NEARSEC_ARCADE.md)
+-   [ニアケード アーケード情報](src/docs/NEARCADE_ARCADE.md)
 
-## ニアセック アーケード
+## ニアケード アーケード
 
-このプラットフォームには、オプションのパブリック ロビー システムが含まれています。ホストは自分のセッションをアーケード グリッドにリストして、グローバル プレーヤーがローカルの協力ゲームを見つけて参加できるようにすることができます。公共ロビーは次の場所でご覧いただけます。<https://nearsec.cutefame.net/arcade>ブラウザから直接アクティブなセッションに参加できます。
+このプラットフォームには、オプションのパブリック ロビー システムが含まれています。ホストは自分のセッションをアーケード グリッドにリストして、グローバル プレーヤーがローカルの協力ゲームを見つけて参加できるようにすることができます。公共ロビーは次の場所でご覧いただけます。<https://nearcade.cutefame.net>ブラウザから直接アクティブなセッションに参加できます。
 
 このプロジェクトでは、コード生成と構造計画に人工知能の大規模言語モデルを使用します。

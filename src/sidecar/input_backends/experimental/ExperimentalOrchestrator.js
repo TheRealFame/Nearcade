@@ -13,7 +13,6 @@ function send(msg) {
     // We map the incoming WebSocket message type to the Python script name.
     const typeMap = {
         'tablet': 'backend_tablets.py',
-        'vr': 'backend_vr.py',
         'hotas': 'backend_hotas.py',
         'guitar': 'backend_guitars.py',
         'balanceboard': 'backend_balanceboard.py',

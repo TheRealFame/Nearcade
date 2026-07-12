@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>org.cutefame.Nearcade</id>
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>MIT</project_license> <name>Nearcade</name>
+    <summary>Low-latency co-op game streaming host</summary>
+    <description>
+        <p>Stream your local co-op games to friends via WebRTC with ultra-low latency.</p>
+    </description>
+    <launchable type="desktop-id">org.cutefame.Nearcade.desktop</launchable>
+    <screenshots>
+        <screenshot type="default">
+            <caption>The main dashboard.</caption>
+            <image>https://raw.githubusercontent.com/TheRealFame/Nearcade/main/assets/screenshot.png</image>
+        </screenshot>
+    </screenshots>
+    <url type="homepage">https://nearcade.cutefame.net</url>
+</component>

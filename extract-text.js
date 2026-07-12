@@ -8,7 +8,7 @@ const filesToScan = [
 'src/pages/index.html',
 'src/pages/host.html',
 'src/pages/dashboard.html',
-'website/nearsec-arcade.html',
+'website/nearcade-arcade.html',
 'src/scripts/audio-util.js',
 'src/scripts/server.js',
 'src/scripts/host.js',

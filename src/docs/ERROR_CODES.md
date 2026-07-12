@@ -1,6 +1,6 @@
-# NearsecTogether Error Codes
+# Nearcade Error Codes
 
-This document outlines the standardized error codes used across the NearsecTogether ecosystem, including their severity and how they are presented to the user.
+This document outlines the standardized error codes used across the Nearcade ecosystem, including their severity and how they are presented to the user.
 
 ## Error Severities
 - **Yellow (Warning):** Non-fatal issues that degraded the experience or require setup but don't prevent the app from running (e.g., Setup not run, minor cache corruption).

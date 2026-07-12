@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy.sh
-# NearsecTogether VPS deployment script
+# Nearcade VPS deployment script
 # Starts the Node.js application server on port 3001 and the Rust SFU router on port 3000.
 # Both processes run in the background and write logs to the vps directory.
 
@@ -14,7 +14,7 @@ VPS_DIR="$SCRIPT_DIR"
 NODE_VERSION="$(node -e "process.stdout.write(require('$PROJECT_ROOT/package.json').version)")"
 
 echo "========================================"
-echo "  NearsecTogether Deploy  v${NODE_VERSION}"
+echo "  Nearcade Deploy  v${NODE_VERSION}"
 echo "========================================"
 echo ""
 
@@ -30,7 +30,7 @@ echo "[2/5] Checking environment and TURN setup..."
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo "      Creating default .env file..."
     cat <<EOF > "$PROJECT_ROOT/.env"
-# Nearsec Together Configuration
+# Nearcade Configuration
 TUNNEL=vps
 
 # P2P TURN/STUN Configuration (Auto-populated if you install coturn)

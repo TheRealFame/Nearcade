@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# NearsecTogether - macOS Automated Setup
+# Nearcade - macOS Automated Setup
 echo "================================================"
-echo "   NearsecTogether macOS Setup Utility"
+echo "   Nearcade macOS Setup Utility"
 echo "================================================"
 echo "[WARNING] macOS Mode: Gamepad injection is NOT supported "
 echo "Keyboard/Mouse passthrough will be used instead."

@@ -1,6 +1,6 @@
-# NearsecTogether: High-Performance Decoding Architecture Roadmap
+# Nearcade: High-Performance Decoding Architecture Roadmap
 
-This document outlines the strategic plan for migrating NearsecTogether's video rendering pipeline away from standard browser `<video>` decoding algorithms and towards esports-grade, low-latency decoding architectures.
+This document outlines the strategic plan for migrating Nearcade's video rendering pipeline away from standard browser `<video>` decoding algorithms and towards esports-grade, low-latency decoding architectures.
 
 ## The Bottleneck: Standard WebRTC
 Currently, the client uses standard WebRTC which is heavily optimized for video conferencing, not cloud gaming. The HTML5 `<video autoplay>` tag operates as a "black box," injecting unavoidable latency through built-in jitter buffers, lip-syncing algorithms, and compositor buffering. 

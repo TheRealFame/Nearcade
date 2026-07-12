@@ -1,0 +1,98 @@
+name: build-hm-bridge
+
+on:
+  push:
+    paths:
+      - 'src/sidecar/input_backends/HmBridge/**'
+      - 'src/sidecar/hidmaestro/**'
+      - '.github/workflows/build-hm-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Windows Driver Kit (WDK)
+        shell: pwsh
+        run: |
+          winget install --source winget --exact --id Microsoft.WindowsWDK.10.0.26100 `
+            --log "$env:RUNNER_TEMP\wdk-install.log" --accept-package-agreements
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::WDK installation failed -- native driver build will be skipped"
+            "WDK_MISSING=true" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+
+      - name: Create placeholder files for SDK (WDK missing)
+        if: env.WDK_MISSING == 'true'
+        shell: pwsh
+        working-directory: src/sidecar/hidmaestro
+        run: |
+          Write-Host "WDK missing -- creating placeholder files for SDK compilation"
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          $files = @("HIDMaestro.dll", "HMXInput.dll", "hidmaestro.inf", "hidmaestro_xusb.inf")
+          foreach ($f in $files) { New-Item -Path "build\$f" -ItemType File -Force | Out-Null }
+          Write-Host "Placeholder files created in build\"
+
+      - name: Build HIDMaestro SDK only (WDK missing)
+        if: env.WDK_MISSING == 'true'
+        working-directory: src/sidecar/hidmaestro
+        run: |
+          echo "Building SDK only (no embedded driver -- gamepad disabled)"
+          dotnet build sdk\HIDMaestro.Core\HIDMaestro.Core.csproj -nologo -v minimal
+          dotnet build sdk\HIDMaestro.Core\HIDMaestro.Core.csproj -nologo -v minimal
+
+      - name: Build HIDMaestro native driver + SDK (WDK available)
+        if: env.WDK_MISSING != 'true'
+        shell: cmd
+        working-directory: src/sidecar/hidmaestro
+        run: |
+          call scripts\build_all.cmd
+          if errorlevel 1 (
+            echo HIDMaestro native build failed
+            exit /b 1
+          )
+
+      - name: Build HmBridge
+        working-directory: src/sidecar/input_backends/HmBridge
+        run: |
+          dotnet publish -c Release -r win-x64 --self-contained false
+
+      - name: Copy binary to source tree
+        shell: pwsh
+        run: |
+          $src = "src/sidecar/input_backends/HmBridge/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish/HmBridge.exe"
+          $dst = "src/sidecar/input_backends/HmBridge/HmBridge.exe"
+          if (Test-Path $src) {
+            Copy-Item -Force $src $dst
+            Write-Host "Copied HmBridge.exe to $dst"
+          } else {
+            Write-Host "::warning::HmBridge.exe not found at $src"
+            exit 1
+          }
+
+      - name: Commit binary
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f src/sidecar/input_backends/HmBridge/HmBridge.exe
+          if (git diff --cached --quiet) {
+            Write-Host "No changes to commit"
+          } else {
+            git commit -m "[auto] build HmBridge.exe"
+            git push origin HEAD:main
+          }

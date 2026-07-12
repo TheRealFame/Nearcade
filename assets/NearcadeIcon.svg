@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g1" x1="256" y1="0" x2="256" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E789FF"/>
+      <stop offset="1" stop-color="#FF6D2F"/>
+    </linearGradient>
+    <radialGradient id="ball-shine" cx="38%" cy="32%" r="55%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- shaft -->
+  <rect x="218" y="260" width="76" height="180" rx="38" fill="url(#g1)"/>
+
+  <!-- base plate -->
+  <rect x="120" y="400" width="272" height="60" rx="30" fill="url(#g1)"/>
+
+  <!-- ball -->
+  <circle cx="256" cy="200" r="120" fill="url(#g1)"/>
+  <!-- specular highlight -->
+  <circle cx="256" cy="200" r="120" fill="url(#ball-shine)"/>
+</svg>

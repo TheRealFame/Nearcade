@@ -1,6 +1,6 @@
 /**
  * bin/verify.js
- * Headless Integration Test Suite for NearsecTogether
+ * Headless Integration Test Suite for Nearcade
  * Automatically spins up the server, verifies endpoints, checks sidecars, and safely shuts down.
  */
 
@@ -8,7 +8,7 @@ const { spawn } = require('child_process');
 const http = require('http');
 const WebSocket = require('ws');
 
-console.log("\n Starting Nearsec Headless Verification Suite...\n");
+console.log("\n Starting Nearcade Headless Verification Suite...\n");
 
 // Inject ELECTRON_MODE to prevent the browser from opening automatically
 const env = Object.assign({}, process.env, { ELECTRON_MODE: 'true', TUNNEL: 'skip' });

@@ -1,6 +1,6 @@
 {
-  "name": "NearsecTogether",
-  "version": "3.0.1",
+  "name": "Nearcade",
+  "version": "3.0.2",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
   "main": "electron-main.js",
@@ -45,8 +45,8 @@
     "wrangler": "^4.90.0"
   },
   "build": {
-    "appId": "com.nearsectogether.app",
-    "productName": "NearsecTogether",
+    "appId": "com.nearcade.app",
+    "productName": "Nearcade",
     "publish": {
       "provider": "github",
       "releaseType": "release"
@@ -101,7 +101,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "assets/NearsecTogetherLogo.png",
+      "icon": "assets/NearcadeLogo.png",
       "requestedExecutionLevel": "requireAdministrator"
     },
     "portable": {
@@ -111,7 +111,7 @@
       "target": [
         "dmg"
       ],
-      "icon": "assets/NearsecTogetherLogo.png"
+      "icon": "assets/NearcadeLogo.png"
     },
     "linux": {
       "target": [
@@ -120,7 +120,7 @@
         "rpm",
         "pacman"
       ],
-      "icon": "assets/NearsecTogetherLogo.png",
+      "icon": "assets/NearcadeLogo.png",
       "category": "Game"
     }
   }

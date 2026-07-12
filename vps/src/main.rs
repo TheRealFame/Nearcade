@@ -1,5 +1,5 @@
 /*!
- * NearsecTogether VPS SFU — Dumb-Pipe WebSocket Router
+ * Nearcade VPS SFU — Dumb-Pipe WebSocket Router
  *
  * Waiting-room model:
  *   Viewers land in `unverified_viewers` until the Host sends viewer-authorized.

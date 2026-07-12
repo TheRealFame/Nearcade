@@ -1,6 +1,6 @@
 # Experimental Architecture Concept: Data Flow Pipeline
 
-If/when these experimental devices are implemented, the standard NearsecTogether input pipeline (which assumes an Xbox Controller shape) will need to be bypassed or augmented.
+If/when these experimental devices are implemented, the standard Nearcade input pipeline (which assumes an Xbox Controller shape) will need to be bypassed or augmented.
 
 This document outlines how the data will flow from the remote user's specialized hardware all the way into the Host's game engine.
 

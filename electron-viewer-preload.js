@@ -122,7 +122,7 @@ function injectBackOutOverlay() {
   // Back button
   const btn = document.createElement('button');
   btn.id = 'ns-backout-btn';
-  btn.title = 'Back to Nearsec Dashboard';
+  btn.title = 'Back to Nearcade Dashboard';
   btn.innerHTML = `
     <svg viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2.5"
          stroke-linecap="round" stroke-linejoin="round">

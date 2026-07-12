@@ -1,14 +1,14 @@
 /**
- * Nearsec Arcade Shared Logic
+ * Nearcade Arcade Shared Logic
  * Handles session fetching, latency pings, and grid rendering.
  */
 
-const API_URL = 'https://nearsec.cutefame.net/api/arcade/sessions';
+const API_URL = 'https://nearcade.cutefame.net/api/arcade/sessions';
 const WS_URL = (() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const host = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
     ? location.host
-    : 'nearsec.cutefame.net';
+    : 'nearcade.cutefame.net';
     return `${proto}://${host}/ws/arcade`;
 })();
 const POLL_INTERVAL = 4500;
@@ -21,6 +21,7 @@ const ARCADE_ALLOWED_DOMAINS = [
 'cutefame.net',
 'localhost.run',
 'serveo.net',
+'ts.net',
 ];
 
 // Inside your web i18n script's targetLang definition:
@@ -42,6 +43,25 @@ let activeSession = null;
 let latencyMap = {};
 let arcadeWS = null;
 let currentLiveSession = null;
+
+// ── Session Management ─────────────────────────────────────────────────
+async function fetchSessions() {
+    try {
+        const res = await fetch(API_URL);
+        if (res.ok) {
+            const data = await res.json();
+            sessions = data;
+            if (typeof filterCards === 'function') filterCards();
+            if (typeof updateLiveDot === 'function') updateLiveDot(sessions.length > 0);
+        }
+    } catch (e) {
+        console.error('[Arcade] Failed to fetch sessions:', e);
+    }
+}
+
+// Initial load
+fetchSessions();
+// ───────────────────────────────────────────────────────────────────
 
 const modal = document.getElementById('gamepadModal');
 
@@ -90,37 +110,55 @@ const pusher = new Pusher('a93f5405058cd9fc7967', {
 
 // We use a 'private-' channel to allow client-to-client events
 const arcadeChannel = pusher.subscribe('private-arcade-global');
+const reportedSessions = new Set();
 
 arcadeChannel.bind('client-session-ping', (data) => {
     console.log(`[Arcade Debug]  INCOMING PING | ID: ${data.id} | Game: ${data.game || data.gameTitle}`);
     console.debug('[Arcade Debug] Raw Payload:', JSON.stringify(data));
+
+    if (!data.version) {
+        console.warn(`[Arcade Debug]  REJECTED: Session from outdated client (no version field) -> ${data.id}`);
+        return;
+    }
 
     if (!isAllowedArcadeUrl(data.url)) {
         console.warn(`[Arcade Debug]  REJECTED: Unapproved tunnel domain -> ${data.url}`);
         return;
     }
 
+    // Ping server to maintain session in KV
+    fetch('/api/arcade/ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }).catch(e => console.error('[Arcade] Server ping failed:', e));
+
     const existing = sessions.find(s => s.id === data.id);
     if (existing) {
-        existing.lastSeen = Date.now(); // Update heartbeat
+        existing.lastSeen = Date.now();
+        if (data.os) existing.os = data.os;
+        if (data.codecType) existing.codecType = data.codecType;
+        if (data.codec) existing.codec = data.codec;
     } else {
-        // Normalize properties in case the host sends slightly different keys
         data.game = data.game || data.gameTitle;
         data.lastSeen = Date.now();
+        data.category = data.category || '';
+
+            sessions.unshift(data);
+
 
         sessions.unshift(data);
 
-        // Trigger your UI updates
         if (typeof updateLiveDot === 'function') updateLiveDot(true);
         if (typeof filterCards === 'function') filterCards();
 
-        // Fetch the thumbnail dynamically if it's missing
         fetchThumbnailForSession(data);
     }
 });
 
 arcadeChannel.bind('client-session-stop', (data) => {
     sessions = sessions.filter(s => s.id !== data.id);
+    saveSessionCache();
     if (typeof filterCards === 'function') filterCards();
 });
 
@@ -141,7 +179,6 @@ setInterval(() => {
     const now = Date.now();
     const initialCount = sessions.length;
 
-    // Log before pruning if we have active sessions
     if (initialCount > 0) {
         console.log(`[Arcade Debug]  Running heartbeat check on ${initialCount} active sessions...`);
     }
@@ -164,6 +201,10 @@ setInterval(() => {
 }, 5000);
 
 function addSessionToGrid(session) {
+    if (!session?.version) {
+        console.warn('[Arcade] Blocked session from outdated client (no version):', session?.id);
+        return;
+    }
     if (!isAllowedArcadeUrl(session?.url)) {
         console.warn('[Arcade] Blocked session with disallowed URL:', session?.url);
         return;
@@ -177,7 +218,8 @@ function addSessionToGrid(session) {
             hasPin: session.hasPin || session.requirePin,
             url: session.url || session.tunnelUrl,
             viewers: session.viewers || session.viewerCount || 0,
-            lastSeen: Date.now() // Ensure lastSeen is set for the pruning timer
+            category: session.category || '',
+            lastSeen: Date.now()
         };
 
         sessions.unshift(newSession);
@@ -263,7 +305,7 @@ async function pingSession(session) {
         
         if (!res.ok) throw new Error('Host returned error status');
         
-        // Verify it's a real Nearsec host by parsing the JSON
+        // Verify it's a real Nearcade host by parsing the JSON
         const data = await res.json();
         if (!data || !data.hostName) throw new Error('Invalid host data');
 
@@ -296,9 +338,13 @@ function updateLatencyTag(el, id) {
 function filterCards() {
     const searchInput = document.getElementById('searchInput');
     const q = (searchInput ? searchInput.value : '').toLowerCase();
-    filteredSessions = sessions.filter(s =>
-    !q || s.game.toLowerCase().includes(q) || (s.region || '').toLowerCase().includes(q)
-    );
+    const activePill = document.querySelector('.cat-pill.active');
+    const cat = activePill ? activePill.innerText.trim() : 'All Sessions';
+    filteredSessions = sessions.filter(s => {
+        const matchesSearch = !q || s.game.toLowerCase().includes(q) || (s.region || '').toLowerCase().includes(q);
+        const matchesCat = cat === 'All Sessions' || (s.category || '') === cat || (s.category || '') === cat.replace(' &amp; ', ' & ');
+        return matchesSearch && matchesCat;
+    });
     renderGrid();
 }
 
@@ -350,12 +396,21 @@ function buildCard(s, index) {
     const latClass = latency ? latency.color : 'pending';
     const latLabel = latency ? (latency.ms !== null ? latency.ms + 'ms' : '?') : '…';
 
+    const osIcons = {
+        'Windows': '<svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M0 0h11.37v11.37H0zM12.63 0H24v11.37H12.63zM0 12.63h11.37V24H0zM12.63 12.63H24V24H12.63z"/></svg>',
+        'macOS': '<svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M17.7 12.7c-.1-3.4 2.8-5 2.9-5.1-1.6-2.3-4-2.6-4.9-2.7-2.1-.2-4.1 1.2-5.1 1.2-1.1 0-2.7-1.2-4.5-1.2-2.3 0-4.5 1.4-5.7 3.5-2.5 4.3-.6 10.6 1.7 14.1 1.2 1.7 2.6 3.7 4.5 3.6 1.8-.1 2.5-1.2 4.7-1.2s2.8 1.2 4.7 1.1c1.9 0 3.2-1.8 4.4-3.5 1.4-2 1.9-3.9 2-4-.1 0-3.8-1.5-3.9-5.8zM14.8 4.1c1-.8 1.7-1.9 1.5-3.1-1.5.1-3.2.9-4.2 1.9-.9.9-1.7 2.1-1.5 3.3 1.6.1 3.2-.8 4.2-2.1z"/></svg>',
+        'Linux': '<svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>',
+        'Android': '<svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24c-2.86-1.21-6.08-1.21-8.94 0L5.65 5.67c-.19-.29-.58-.38-.87-.2-.28.18-.37.54-.22.83L6.4 9.48C3.32 11.11 1 14.38 1 18h22c0-3.62-2.32-6.89-5.4-8.52zM7 15.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm10 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>',
+    };
+    const osIcon = osIcons[s.os] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="32" height="32"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+
     const thumbHtml = s.thumbnail
     ? `<div class="thumb" style="background-image:url(${JSON.stringify(s.thumbnail)})">
     <div class="latency-tag ${latClass}" id="lat-${s.id}">${latLabel}</div>
     </div>`
-    : `<div class="thumb no-img">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    : `<div class="thumb no-img" style="display:flex;align-items:center;justify-content:center;gap:12px;">
+    ${osIcon}
+    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.6;"><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg>
     <div class="latency-tag ${latClass}" id="lat-${s.id}">${latLabel}</div>
     </div>`;
 
@@ -373,12 +428,20 @@ function buildCard(s, index) {
     const customTagsHtml = safeTags.map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
     // --------------------------------
 
+    const codecBadge = s.codecType === 'WebCodecs'
+    ? `<span class="tag" style="background:var(--accent-dim);color:var(--accent);border-color:var(--accent);">WC</span>`
+    : s.codecType
+    ? `<span class="tag" style="background:rgba(68,204,68,0.15);color:var(--green);border-color:var(--green);">RT</span>`
+    : '';
+
     card.innerHTML = thumbHtml + `
     <div class="card-body">
     <div class="card-title">${escHtml(s.game)}</div>
+    ${s.hostName ? `<div class="card-host">by ${escHtml(s.hostName)}</div>` : ''}
     <div class="card-info">
     ${s.hostRegion ? `<span class="tag"><span class="fi fi-${s.hostRegion.toLowerCase()}"></span> ${escHtml(s.hostRegion.toUpperCase())}</span>` : (s.region ? `<span class="tag"><span class="fi fi-${s.region.toLowerCase()}"></span> ${escHtml(s.region)}</span>` : '')}
     <span class="tag">${s.hasPin ? I18N.t('PIN Required') : I18N.t('Public')}</span>
+    ${codecBadge}
     ${customTagsHtml}
     </div>
     </div>`;
@@ -454,7 +517,7 @@ function showSecurityDisclaimer(onAccept) {
         <li>Leave immediately if asked to do anything suspicious.</li>
         </ul>
         <p style="font-size:10px;color:#555;margin-bottom:20px;">
-        Nearsec verifies that sessions use approved tunnel providers but cannot audit host behaviour.
+        Nearcade verifies that sessions use approved tunnel providers but cannot audit host behaviour.
         </p>
         <div style="display:flex;gap:10px;justify-content:flex-end;">
         <button id="arcadeSecDecline" style="padding:8px 20px;border-radius:6px;border:none;background:#383a40;color:#b5bac1;font-family:inherit;font-size:11px;cursor:pointer;">Cancel</button>

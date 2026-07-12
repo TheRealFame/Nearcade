@@ -1,0 +1,45 @@
+app-id: org.cutefame.Nearcade
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+base: io.atom.electron.BaseApp
+base-version: stable
+command: nearcade
+# The permissions needed for gaming and streaming
+finish-args:
+  - --share=ipc
+  - --share=network             # Required for WebRTC/Pusher
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri               # GPU acceleration for video
+  - --socket=pulseaudio        # Audio output
+  - --device=all               # Access to gamepads/controllers
+  - --filesystem=home:ro       # Optional: read-only access to home for configs
+
+modules:
+  - name: node
+    buildsystem: simple
+    build-commands:
+      - cp -r . /app/node
+      - ln -s /app/node/bin/node /app/bin/node
+      - ln -s /app/node/bin/npm /app/bin/npm
+      - ln -s /app/node/bin/npx /app/bin/npx
+    sources:
+      - type: archive
+        url: https://nodejs.org/dist/v22.14.0/node-v22.14.0-linux-x64.tar.xz
+        sha256: 69b09dba5c8dcb05c4e4273a4340db1005abeafe3927efda2bc5b249e80437ec
+
+  - name: nearcade
+    buildsystem: simple
+    build-commands:
+      - npm install --offline
+      - cp -r . /app/main
+      - install -Dm755 run.sh /app/bin/nearcade
+    sources:
+      - type: dir
+        path: ..
+      - generated-sources.json     # The dependencies you generated earlier
+      - type: script
+        dest-filename: run.sh
+        commands:
+          - exec /app/main/node_modules/.bin/electron /app/main/electron-main.js

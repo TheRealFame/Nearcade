@@ -1,7 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nearsec-together",
+  "name": "nearcade",
+  "main": "website/_worker.js",
   "compatibility_date": "2026-05-09",
+  "workers_dev": true,
   "observability": {
     "enabled": true
   },
@@ -10,5 +12,18 @@
   },
   "compatibility_flags": [
     "nodejs_compat"
+  ],
+  "routes": [
+    {
+      "pattern": "nearcade.cutefame.net",
+      "zone_name": "cutefame.net",
+      "custom_domain": true
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "BANS_KV",
+      "id": "5ff8b09104e249f188433ed0a2255bab"
+    }
   ]
 }

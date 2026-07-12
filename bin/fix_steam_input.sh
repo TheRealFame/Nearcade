@@ -1,5 +1,5 @@
 #!/bin/bash
-# NearsecTogether - Steam Input Conflict Fix
+# Nearcade - Steam Input Conflict Fix
 # This script creates a udev rule to ensure virtual controllers are 
 # accessible to the system but ignored by Steam's auto-configurator.
 

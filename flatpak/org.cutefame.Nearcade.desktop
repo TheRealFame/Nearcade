@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Nearcade
+Exec=nearcade
+Terminal=false
+Type=Application
+Icon=org.cutefame.Nearcade
+Categories=Network;Game;
+Comment=Browser-based low-latency game streaming host.

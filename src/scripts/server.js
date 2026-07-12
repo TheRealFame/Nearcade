@@ -59,13 +59,40 @@ let activePort = 3000;
 let hostWS = null;
 let tunnelUrl = null;
 let activeTunnelProc = null;
+
+// ── WiVRn lifecycle ──────────────────────────────────────────────────
+let wivrnVrActivityTimer = null;
+const WIVRN_VR_TIMEOUT_MS = 10000;
+
+function wivrnBumpVrActivity() {
+  if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
+  wivrnVrActivityTimer = setTimeout(() => {
+    console.log('[WiVRn] No VR data for 10s — shutting down WiVRn');
+    wivrnInt.stopServer();
+  }, WIVRN_VR_TIMEOUT_MS);
+}
+
+async function wivrnEnsureRunning() {
+  if (wivrnInt._isServerOnBus()) return true;
+  const result = await wivrnInt.startServer();
+  if (!result.ok) {
+    console.log('[WiVRn] Failed to start:', result.message);
+    return false;
+  }
+  console.log('[WiVRn] Server started on D-Bus');
+  return true;
+}
+const MAX_VIEWER_CONTROLLERS = 1;
 let uinputProc = null;
 let audioProc = null;
-let vidCount = 0;
 const viewers = new Map();
 const viewerNames = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
+const urlSpam = new Map();
+const webhookMessages = new Map();
+const reports = new Map();    // anonHash -> Array<{ timestamp, sessionId }>
+const bannedIps = new Map();  // anonHash -> { bannedAt, expiresAt, reason }
 
 const { Worker } = require('worker_threads');
 
@@ -74,6 +101,7 @@ const PusherRaw = require('pusher-js');
 const isPackaged = __dirname.includes('app.asar');
 const inputDriver = require('../sidecar/input_backends/InputOrchestrator.js');
 const experimentalDriver = require('../sidecar/input_backends/experimental/ExperimentalOrchestrator.js');
+const wivrnInt = require('../sidecar/wivrn-integration.js');
 // ══════════════════════════════════════════════════════════════════════════════
 // VIRTUAL AUDIO — delegated to audio_worker.js via worker_threads IPC
 // The main event loop never calls pactl directly; all blocking OS shell work
@@ -198,7 +226,7 @@ if (typeof PusherRaw === 'function') {
 
 const pusher = new Pusher('a93f5405058cd9fc7967', {
   cluster: 'us2',
-  authEndpoint: 'https://nearsec.cutefame.net/api/pusher-auth'
+  authEndpoint: 'https://nearcade.cutefame.net/api/pusher-auth'
 });
 
 const globalArcadeChannel = pusher.subscribe('private-arcade-global');
@@ -280,14 +308,16 @@ function normalizeGamepadMsg(msg) {
 
   // Axes arrive as int16 (-32767..+32767) — pass directly.
   // _validateGamepadMsg → _clampAxis handles range clamping.
-  const lx = Number(axes[0]) || 0;
-  const ly = Number(axes[1]) || 0;
-  const rx = Number(axes[2]) || 0;
-  const ry = Number(axes[3]) || 0;
+  let lx = Number(axes[0]); if (!isFinite(lx)) lx = 0;
+  let ly = Number(axes[1]); if (!isFinite(ly)) ly = 0;
+  let rx = Number(axes[2]); if (!isFinite(rx)) rx = 0;
+  let ry = Number(axes[3]); if (!isFinite(ry)) ry = 0;
 
   // Triggers: buttons[6]=LT, buttons[7]=RT (viewer encodes value 0-255)
-  const lt = (Number((btns[6] && btns[6].value) || 0)) / 255;
-  const rt = (Number((btns[7] && btns[7].value) || 0)) / 255;
+  let lt = (Number((btns[6] && btns[6].value) || 0)) / 255;
+  if (!isFinite(lt)) lt = 0;
+  let rt = (Number((btns[7] && btns[7].value) || 0)) / 255;
+  if (!isFinite(rt)) rt = 0;
 
   //  W3C Gamepad API index → JS viewer bitmask (correct per W3C spec)
   const W3C_TO_JS = [
@@ -328,9 +358,9 @@ const projectRoot = path.join(__dirname, '..', '..');
 function getSafeDataDir() {
   const home = os.homedir();
   let p;
-  if (process.platform === 'win32') p = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'NearsecTogether');
-  else if (process.platform === 'darwin') p = path.join(home, 'Library', 'Application Support', 'NearsecTogether');
-  else p = path.join(home, '.config', 'NearsecTogether');
+  if (process.platform === 'win32') p = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+  else if (process.platform === 'darwin') p = path.join(home, 'Library', 'Application Support', 'Nearcade');
+  else p = path.join(home, '.config', 'Nearcade');
 
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
   return p;
@@ -340,7 +370,7 @@ const dataDir = getSafeDataDir();
 const envFile = path.join(dataDir, '.env');
 
 // ── Convenience symlink for source-code devs ──────────────────────────────────
-// Creates config/nearsectogether.config.json → ~/.config/NearsecTogether/…
+// Creates config/nearcade.config.json → ~/.config/Nearcade/…
 // so you can always find/edit the live config right inside the project tree.
 // Windows symlinks require elevated privilege — skip on win32.
 (function ensureConfigSymlink() {
@@ -349,8 +379,8 @@ const envFile = path.join(dataDir, '.env');
     // Walk up from src/scripts to find the project root (two levels up)
     const projectRoot = path.resolve(__dirname, '..', '..');
     const configDir = path.join(projectRoot, 'config');
-    const symlinkPath = path.join(configDir, 'nearsectogether.config.json');
-    const realTarget = path.join(dataDir, 'nearsectogether.config.json');
+    const symlinkPath = path.join(configDir, 'nearcade.config.json');
+    const realTarget = path.join(dataDir, 'nearcade.config.json');
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     try {
       const existing = fs.lstatSync(symlinkPath);
@@ -364,7 +394,7 @@ const envFile = path.join(dataDir, '.env');
       }
     } catch (_) { /* doesn't exist yet — fall through to create */ }
     fs.symlinkSync(realTarget, symlinkPath);
-    console.log('[config] Symlink: config/nearsectogether.config.json → ' + realTarget);
+    console.log('[config] Symlink: config/nearcade.config.json → ' + realTarget);
   } catch (e) {
     // Non-fatal — just a convenience helper
     console.warn('[config] Could not create config symlink:', e.message);
@@ -444,7 +474,12 @@ const FALLBACK_PATHS = {
     path.join(os.homedir(), 'zrok', 'zrok.exe'),
     path.join(os.homedir(), 'bin', 'zrok.exe'),
     path.join(os.homedir(), 'zrok', 'zrok'),
-    path.join(os.homedir(), 'bin', 'zrok')
+    path.join(os.homedir(), 'bin', 'zrok'),
+    path.join(os.homedir(), 'bin', 'zrok2')
+  ],
+  zrok2: [
+    path.join(os.homedir(), 'zrok', 'zrok2'),
+    path.join(os.homedir(), 'bin', 'zrok2')
   ],
   playit: [
     path.join(os.homedir(), 'playit.exe'),
@@ -691,7 +726,9 @@ function startTunnelZrok(port, retries = 3) {
     const zrokPath = await findBinaryPath('zrok').then(p => p).catch(() => null)
       || await findBinaryPath('zrok2').then(p => p).catch(() => null)
       || (function () {
+        const cfgBin = path.join(os.homedir(), '.config', 'Nearcade', 'bin');
         const candidates = [
+          path.join(cfgBin, 'zrok2'), path.join(cfgBin, 'zrok'),
           '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
           path.join(os.homedir(), 'bin/zrok'), './zrok',
           path.join(os.homedir(), 'zrok', 'zrok.exe'),
@@ -774,12 +811,31 @@ async function startTunnel(port) {
 }
 
 function sanitize(str) {
-  return String(str).replace(/[<>&"']/g, c =>
-    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c])).slice(0, 300);
+  return String(str).replace(/[<>&"'`]/g, c =>
+    ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c])).slice(0, 300);
 }
 function makePin() { 
   return String(crypto.randomInt(1000, 10000));
 }
+
+// ── Simple in-memory rate limiter ──────────────────────────────────────────────
+const rateLimitStore = new Map();
+function rateLimit(key, maxRequests, windowMs) {
+  const now = Date.now();
+  let entry = rateLimitStore.get(key);
+  if (!entry || now - entry.windowStart > windowMs) {
+    entry = { count: 0, windowStart: now };
+    rateLimitStore.set(key, entry);
+  }
+  entry.count++;
+  return entry.count <= maxRequests;
+}
+setInterval(() => {
+  const cutoff = Date.now() - 60000;
+  for (const [key, entry] of rateLimitStore) {
+    if (entry.windowStart < cutoff) rateLimitStore.delete(key);
+  }
+}, 60000);
 
 // ── Arcade session registry ───────────────────────────────────────────────────
 const arcadeSessions = new Map();
@@ -807,20 +863,58 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_FILE = path.join(dataDir, 'nearsectogether.config.json');
+const CONFIG_VERSION = 1;
+const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
+
+function migrateConfig(cfg) {
+  let v = cfg.configVersion || 0;
+  if (v >= CONFIG_VERSION) return cfg;
+  // v0 → v1: rename legacy keys if present
+  if (v < 1) {
+    if (cfg.discordRPC === undefined && cfg.discord_rpc !== undefined) cfg.discordRPC = cfg.discord_rpc;
+    if (cfg.hostName === undefined && cfg.host_name !== undefined) cfg.hostName = cfg.host_name;
+    if (cfg.checkForUpdates === undefined && cfg.autoUpdate !== undefined) cfg.checkForUpdates = cfg.autoUpdate;
+    v = 1;
+  }
+  cfg.configVersion = CONFIG_VERSION;
+  return cfg;
+}
+
 function loadConfig() {
   try {
+    // Check for legacy config file locations
+    const legacyPaths = [];
+    if (dataDir.endsWith('Nearcade')) {
+      const parent = path.dirname(dataDir);
+      legacyPaths.push(path.join(parent, 'nearcade.config.json'));
+      legacyPaths.push(path.join(parent, 'nearcade.json'));
+    }
+    for (const lp of legacyPaths) {
+      if (lp !== CONFIG_FILE && fs.existsSync(lp)) {
+        try {
+          const oldData = JSON.parse(fs.readFileSync(lp, "utf8"));
+          if (oldData && typeof oldData === 'object') {
+            const migrated = migrateConfig(oldData);
+            saveConfig(migrated);
+            console.log("[config] Migrated from legacy config:", lp);
+            fs.renameSync(lp, lp + '.bak');
+          }
+        } catch (_) {}
+        break;
+      }
+    }
     const data = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
-    return data && typeof data === 'object' ? data : {};
+    return data && typeof data === 'object' ? migrateConfig(data) : {};
   } catch (e) { return {}; }
 }
+
 function saveConfig(updates) {
   try {
-    const cfg = { ...loadConfig(), ...updates };
+    const cfg = { ...loadConfig(), ...updates, configVersion: CONFIG_VERSION };
     const configDir = path.dirname(CONFIG_FILE);
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), { encoding: 'utf8', flag: 'w' });
-    console.log("[config] Saved tunnel preference:", cfg);
+    console.log("[config] Saved:", cfg);
     return cfg;
   } catch (e) {
     console.error("[config] Error saving config:", e.message);
@@ -864,7 +958,7 @@ async function main() {
   let PIN = sessionPassword ? sessionPassword : makePin();
   let pinEnabled = true;
 
-  console.log("\n  \x1b[1mNearsecTogether\x1b[0m");
+  console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
   console.log("  LAN URL   : http://***.***.***.***:" + PORT + "/");
   if (PUBLIC_IP) console.log("  Public IP : http://***.***.***.***:" + PORT + "/ (needs port forward)");
@@ -872,7 +966,28 @@ async function main() {
 
   const app = express();
   const server = http.createServer(app);
-  const wss = new WebSocket.Server({ server, perMessageDeflate: false });
+  const wss = new WebSocket.Server({
+    server,
+    perMessageDeflate: false,
+    maxPayload: 1048576,
+    verifyClient: (info, cb) => {
+      const origin = info.origin || info.req.headers['origin'] || '';
+      if (!origin || origin === 'null') { cb(true); return; }
+      try {
+        const u = new URL(origin);
+        const host = u.hostname;
+        if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') {
+          cb(true);
+        } else if (u.protocol === 'http:' || u.protocol === 'https:') {
+          cb(true);
+        } else {
+          cb(false, 403, 'Origin not allowed');
+        }
+      } catch {
+        cb(false, 403, 'Origin not allowed');
+      }
+    }
+  });
 
   app.use((req, res, next) => {
     res.setHeader("Permissions-Policy", "gamepad=*, display-capture=(self)");
@@ -902,7 +1017,7 @@ async function main() {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nwindow.NEARSEC_COMMIT = "${COMMIT_HASH}";\nconsole.log("[Nearsec] Version loaded:", window.NEARSEC_VERSION, window.NEARSEC_COMMIT ? "("+window.NEARSEC_COMMIT+")" : "");`);
+    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nwindow.NEARSEC_COMMIT = "${COMMIT_HASH}";\nconsole.log("[Nearcade] Version loaded:", window.NEARSEC_VERSION + (window.NEARSEC_COMMIT ? " ("+window.NEARSEC_COMMIT+")" : ""));`);
   });
 
   app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
@@ -924,8 +1039,8 @@ async function main() {
 
     // Inject the host name dynamically into the Discord tags
     const ogTitle = sess ? sess.game : `${hostName} is looking to play!`;
-    const ogDesc = sess ? `Join the live ${sess.game} session on Nearsec.` : `${hostName} is hosting a peer-to-peer gaming session on Nearsec.`;
-    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearsec.cutefame.net/assets/NearsecTogetherLogo.png";
+    const ogDesc = sess ? `Join the live ${sess.game} session on Nearcade.` : `${hostName} is hosting a peer-to-peer gaming session on Nearcade.`;
+    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearcade.cutefame.net/assets/NearcadeLogo.png";
 
     html = html
       .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)
@@ -934,6 +1049,7 @@ async function main() {
     res.type("html").send(html);
   });
   app.get("/dashboard", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
+  app.get("/setup", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "setup.html")); });
   app.get("/host", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
 
   app.get("/host-minimal", (req, res) => {
@@ -953,30 +1069,53 @@ async function main() {
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
   
   app.post("/api/save-custom-host", express.json({limit: '10mb'}), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ error: 'localhost only' });
+    }
     const htmlContent = req.body.html;
     if (typeof htmlContent !== 'string') return res.status(400).json({error: 'Invalid content'});
+    if (htmlContent.length > 10485760) return res.status(400).json({error: 'Content too large'});
     try {
-      fs.writeFileSync(path.join(pagesDir, "host-custom.html"), htmlContent);
+      const targetPath = path.join(pagesDir, "host-custom.html");
+      if (!targetPath.startsWith(pagesDir)) return res.status(403).json({error: 'Invalid path'});
+      fs.writeFileSync(targetPath, htmlContent);
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  app.get("/api/info", (req, res) => res.json({ lanIP: LAN_IP, port: PORT, pin: PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION }));
+  app.get("/api/info", (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION });
+  });
   app.post("/api/fe-log", express.json(), (req, res) => {
+    const clientIp = req.socket.remoteAddress || 'unknown';
+    if (!rateLimit('fe-log:' + clientIp, 30, 10000)) return res.status(429).json({ error: 'rate limited' });
     const { msg, src, line } = req.body || {};
-    console.error(`[renderer] ${msg} @ ${src}:${line}`);
+    if (typeof msg !== 'string' || typeof src !== 'string' || (line !== undefined && typeof line !== 'string' && typeof line !== 'number')) {
+      return res.status(400).json({ error: 'invalid payload' });
+    }
+    console.error(`[renderer] ${msg.slice(0, 500)} @ ${src.slice(0, 200)}:${String(line).slice(0, 20)}`);
     res.json({ ok: true });
   });
 
   app.get("/api/pin-required", (req, res) => {
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-    const hasTunnelHeader = !!req.headers['x-forwarded-for'] || !!req.headers['cf-connecting-ip'];
+    const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+    const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
   app.get("/api/config", (req, res) => res.json(loadConfig()));
   app.post("/api/config", express.json(), (req, res) => { res.json(saveConfig(req.body || {})); });
+  app.post("/api/system-chat", express.json(), (req, res) => {
+    const msg = (req.body?.msg || '').trim();
+    if (!msg) return res.status(400).json({ ok: false });
+    broadcast(JSON.stringify({ type: "chat", from: "Nearcade", msg }));
+    if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "chat", from: "Nearcade", msg }));
+    res.json({ ok: true });
+  });
 
   app.post('/api/set-session-password', express.json(), (req, res) => {
     const newPass = (req.body?.password || '').trim();
@@ -989,7 +1128,7 @@ async function main() {
   });
 
   app.get('/api/session-password-status', (req, res) => {
-    res.json({ hasPassword: !!sessionPassword, password: sessionPassword });
+    res.json({ hasPassword: !!sessionPassword });
   });
 
   app.get("/api/sysinfo", async (req, res) => {
@@ -1104,19 +1243,54 @@ async function main() {
   app.get("/api/arcade/sessions", (req, res) => {
     res.json([...arcadeSessions.values()]);
   });
+
+  app.post("/api/report", express.json(), (req, res) => {
+    const clientIp = req.socket.remoteAddress || 'unknown';
+    if (!rateLimit('report:' + clientIp, 5, 60000)) return res.status(429).json({ error: 'rate limited' });
+    const { viewerId, reason, sessionId } = req.body || {};
+    const anonHash = hashIp(clientIp);
+    const list = reports.get(anonHash) || [];
+    list.push({ timestamp: Date.now(), sessionId: sessionId || '?', viewerId: viewerId || null, reason: reason || 'unspecified' });
+    if (list.length > 100) list.splice(0, list.length - 100);
+    reports.set(anonHash, list);
+    console.log(`[report] Session ${sessionId || '?'} reported from ${anonHash.slice(0, 8)} reason: ${reason || 'unspecified'} (${list.length} total reports for this IP)`);
+    res.json({ ok: true });
+  });
+
   app.post("/api/open-terminal", express.json(), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ ok: false, reason: 'localhost only' });
+    }
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
     const { cmd, name } = req.body || {};
-    if (!cmd) return res.status(400).json({ ok: false });
-    const title = (name || "Auto-Host").replace(/"/g, "'");
-    const terms = [`gnome-terminal --title="${title}" -- bash -c "${cmd}; exec bash"`, `xterm -title "${title}" -e bash -c "${cmd}; exec bash"`, `konsole --title "${title}" -e bash -c "${cmd}; exec bash"`];
-    const { exec: _exec } = require("child_process");
-    let i = 0; (function t() { if (i >= terms.length) return res.json({ ok: false, reason: "no terminal found" }); _exec(terms[i++], err => { if (err) t(); else res.json({ ok: true }); }); })();
+    if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false });
+    if (cmd.length > 2000) return res.status(400).json({ ok: false, reason: 'command too long' });
+    const title = String(name || "Auto-Host").replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100);
+    const safeCmd = String(cmd).replace(/[^a-zA-Z0-9 _=\\/.:@%~#+$(){}[\]!^,|-]/g, '');
+    const terms = [
+      { cmd: 'gnome-terminal', args: ['--title', title, '--', 'bash', '-c', `${safeCmd}; exec bash`] },
+      { cmd: 'xterm', args: ['-title', title, '-e', 'bash', '-c', `${safeCmd}; exec bash`] },
+      { cmd: 'konsole', args: ['--title', title, '-e', 'bash', '-c', `${safeCmd}; exec bash`] }
+    ];
+    const { spawn } = require("child_process");
+    let i = 0;
+    (function t() {
+      if (i >= terms.length) return res.json({ ok: false, reason: "no terminal found" });
+      const term = terms[i++];
+      const proc = spawn(term.cmd, term.args, { stdio: 'ignore', detached: true });
+      proc.on('error', () => t());
+      proc.on('spawn', () => { proc.unref(); res.json({ ok: true }); });
+    })();
   });
 
   let activeGameProc = null;
 
   app.post("/api/force-route", express.json(), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ ok: false, reason: 'localhost only' });
+    }
     if (!pb) {
       console.warn("[Audio] PatchBay not ready.");
       return res.json({ success: false });
@@ -1155,6 +1329,10 @@ async function main() {
   });
 
   app.post("/api/restart-game", express.json(), (req, res) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
+      return res.status(403).json({ ok: false, reason: 'localhost only' });
+    }
     if (activeGameProc) {
       try { process.kill(-activeGameProc.pid); } catch (e) { }
       try { activeGameProc.kill(); } catch (e) { }
@@ -1164,6 +1342,15 @@ async function main() {
     if (req.body && req.body.command && req.body.command !== 'KILL_ONLY') {
       const parts = req.body.command.split(' ');
       const cmd = parts.shift();
+      if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false, reason: 'invalid command' });
+
+      const ALLOWED_GAMES = ['steam', 'Heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak', '.exe', '.AppImage', 'bash', 'sh'];
+      const allowMatch = (cmd) => ALLOWED_GAMES.some(a => cmd.includes(a) || cmd.endsWith(a));
+      if (!allowMatch(cmd)) {
+        console.warn(`[security] BLOCKED restart-game: "${cmd}" not in allowlist`);
+        return res.status(403).json({ ok: false, reason: 'game not in allowlist' });
+      }
+
       console.log("  \x1b[35m~\x1b[0m Launching game process:", req.body.command);
 
       // ── CRITICAL AUDIO ROUTING: Force game audio into the virtual sink ──
@@ -1257,6 +1444,13 @@ async function main() {
   // ── INPUT ORCHESTRATOR (Hybrid C++ / Python) ──
   const screenW = global.currentResW || 1920;
   const screenH = global.currentResH || 1080;
+
+  // HIDMaestro backend selection (from persistent config)
+  const _cfg = loadConfig();
+  if (_cfg.hidmaestro) {
+    inputDriver.setHidMaestroEnabled(true);
+    console.log('[input] HIDMaestro backend enabled by config');
+  }
 
   // This will try C++ first, and automatically fall back to Python if the .node file is missing
   const inputReady = inputDriver.init(screenW, screenH);
@@ -1578,6 +1772,20 @@ async function main() {
             return;
           }
 
+          if (msg.type === "report-viewer") {
+            const realId = msg.viewerId.split('_')[0];
+            const name = viewerNames.get(realId) || realId;
+            const anonHash = msg.anonHash || null;
+            console.log(`[host] Report for viewer ${realId} (${name})${anonHash ? ' hash=' + anonHash.slice(0, 8) : ''} reason: ${msg.reason || 'none'}`);
+            if (anonHash) {
+              const list = reports.get(anonHash) || [];
+              list.push({ timestamp: Date.now(), sessionId: msg.sessionId || '?' });
+              reports.set(anonHash, list);
+              console.log(`[host] Viewer ${name} reported (${list.length} total reports)`);
+            }
+            return;
+          }
+
           if (msg.type === "set-pin") { pinEnabled = !!msg.enabled; return; }
 
           if (msg.type === "set-input") {
@@ -1604,7 +1812,44 @@ async function main() {
             return;
           }
 
-          if (msg.type === "chat") { broadcast(JSON.stringify(msg)); return; }
+          if (msg.type === "chat") {
+            const text = String(msg.msg || '');
+            const urlRegex = /\b(?:https?:\/\/|www\.)[^\s]+\b/i;
+            const hasUrl = urlRegex.test(text);
+            const anonHash = hashIp(req.socket.remoteAddress || 'unknown');
+            if (hasUrl) {
+              const state = urlSpam.get(anonHash) || { count: 0, lockedUntil: 0 };
+              state.count += 1;
+              if (state.count > 3) {
+                state.lockedUntil = Date.now() + 2 * 60 * 1000;
+                urlSpam.set(anonHash, state);
+                console.log(`[viewer] ${id} kicked for URL spam (count=${state.count})`);
+                if (hostWS && hostWS.readyState === 1) {
+                  hostWS.send(JSON.stringify({ type: "viewer-kicked", viewerId: id, name: viewerNames.get(id) || id, reason: "URL spam" }));
+                }
+                try { ws.send(JSON.stringify({ type: "session-blocked", reason: "url-spam-timeout" })); } catch { }
+                ws.close(4003, "URL_SPAM_TIMEOUT");
+                return;
+              }
+              urlSpam.set(anonHash, state);
+              // Hide URLs from other viewers. Only the host dashboard sees that a URL was blocked.
+              if (hostWS && hostWS.readyState === 1) {
+                hostWS.send(JSON.stringify({ type: "chat", from: viewerNames.get(id) || msg.from || 'Guest', msg: '[URL hidden]', viewerId: id, urlHidden: true }));
+              }
+              try { ws.send(JSON.stringify({ type: "chat", from: "System", msg: "URLs are not shared in lobby chat. Your message was hidden from other viewers." })); } catch { }
+              return;
+            }
+            const payload = JSON.stringify(msg);
+            viewers.forEach((vws) => {
+              if (vws && vws.readyState === 1 && vws !== ws) {
+                vws.send(payload);
+              }
+            });
+            if (hostWS && hostWS.readyState === 1) {
+              hostWS.send(payload);
+            }
+            return;
+          }
 
           // FIX 1: Catch the direct profile change from the UI and send to Python
           if (msg.type === "set-ctrl-type") {
@@ -1685,58 +1930,11 @@ async function main() {
           }
 
           if (msg.type === "regen-pin") {
-            if (sessionPassword && arcadeSessions.size === 0) {
-              console.log("[host] Ignoring regen-pin because persistent PIN is set.");
-              return;
-            }
-            PIN = makePin();
-            console.log("[host] PIN regenerated: ****");
-            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
-            return;
-          }
-
-          if (msg.type === "arcade-session-start") {
-            if (sessionPassword) {
+            if (!sessionPassword) {
               PIN = makePin();
-              if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
+              console.log("[host] PIN regenerated: ****");
             }
-            
-            const arcadeUrl = msg.tunnelUrl || tunnelUrl;
-            if (!arcadeUrl) { /* error logic */ return; }
-
-            const cfg = loadConfig(); // Fetch live config
-            const sessionName = cfg.hostName || 'Host';
-            const sessionId = 'ns-' + Date.now() + '-' + (++arcadeHostId);
-            const session = {
-              id: sessionId,
-              game: msg.config?.title || 'Arcade Game',
-              thumbnail: msg.config?.thumbnail || null,
-              region: `${sessionName}'s Arcade`, // FIXED: Uses actual name for Rich Presence
-              hasPin: !!msg.config?.requirePin,
-              maxPlayers: parseInt(msg.config?.maxPlayers || 4),
-              url: arcadeUrl,
-              startedAt: Date.now(),
-              isStreaming: true,
-            };
-            arcadeSessions.set(sessionId, session);
-            console.log("[arcade] Session registered:", session.game, arcadeUrl);
-            broadcastToArcade({ type: 'arcade-session-active', session });
-            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: 'arcade-session-active', session }));
-            _arcadePost({ type: 'session-active', session });
-            return;
-          }
-
-          if (msg.type === "arcade-session-stop") {
-            if (sessionPassword) {
-              PIN = sessionPassword;
-              if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
-            }
-            for (const [id, s] of arcadeSessions) {
-              arcadeSessions.delete(id);
-              broadcastToArcade({ type: 'arcade-session-stopped', id });
-              console.log("[arcade] Session stopped:", s.game);
-              _arcadePost({ type: 'session-stopped', id });
-            }
+            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
             return;
           }
 
@@ -1872,7 +2070,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'vr', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
@@ -1900,10 +2098,27 @@ async function main() {
 
       // ── VIEWER ───────────────────────────────────────────────────────────────
     } else if (wsPath === "/ws/viewer") {
-      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-      const hasTunnelHeader = !!req.headers['x-forwarded-for'] || !!req.headers['cf-connecting-ip'];
+      const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+      const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];;
       const requirePin = shouldRequirePin(clientIp, hasTunnelHeader);
       const anonHash = hashIp(clientIp);
+      const spamState = urlSpam.get(anonHash) || { count: 0, lockedUntil: 0 };
+
+      if (spamState.lockedUntil && Date.now() < spamState.lockedUntil) {
+        try { ws.send(JSON.stringify({ type: "session-blocked", reason: "url-spam-timeout" })); } catch { }
+        ws.close(4005, "URL_SPAM_TIMEOUT");
+        console.log(`[viewer] rejected — URL spam timeout for ${clientIp}`);
+        return;
+      }
+
+      // Temporary ban check
+      const ban = bannedIps.get(anonHash);
+      if (ban && Date.now() < ban.expiresAt) {
+        try { ws.send(JSON.stringify({ type: "session-blocked", reason: "banned", banExpiresAt: ban.expiresAt })); } catch { }
+        ws.close(4006, "BANNED");
+        console.log(`[viewer] rejected — temporarily banned for ${ban.reason || 'reported'} (expires ${new Date(ban.expiresAt).toLocaleTimeString()})`);
+        return;
+      }
 
       if (pinEnabled && requirePin) {
         const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
@@ -1946,7 +2161,7 @@ async function main() {
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      let id = "v" + (++vidCount);
+      let id = "v" + crypto.randomUUID().slice(0, 8);
       const defaultName = "Guest" + (1000 + Math.floor(Math.random() * 9000));
 
       // ── Arcade viewer cap ─────────────────────────────────────────────────
@@ -1999,7 +2214,13 @@ async function main() {
           // This is the first message from the viewer after ws.onopen.
           // We update the name here, then fire viewer-joined to the host.
           if (msg.type === "join") {
-            const joinName = sanitize(String(msg.name || '')).slice(0, 20) || defaultName;
+            let joinName = sanitize(String(msg.name || '')).slice(0, 20) || defaultName;
+            const cfg = loadConfig();
+            const blacklist = (cfg.nameBlacklist || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+            if (blacklist.some(w => joinName.toLowerCase().includes(w))) {
+              console.log(`[viewer] blocked name "${joinName}" — matched blacklist`);
+              joinName = defaultName;
+            }
             viewerNames.set(id, joinName);
             console.log("[viewer]", id, "name resolved to:", joinName);
 
@@ -2011,7 +2232,9 @@ async function main() {
                 viewerRegion: msg.viewerRegion || null,
                 isDesktopApp: !!msg.isDesktopApp
               }));
-              // Include the saved host name so the viewer can display "HOST SESSION — Name"
+              const chatMsg = JSON.stringify({ type: "chat", from: "Nearcade", msg: joinName + ' joined' });
+              broadcast(chatMsg);
+              hostWS.send(chatMsg);
               const hCfg = loadConfig();
               ws.send(JSON.stringify({ type: "host-connected", hostName: hCfg.hostName || 'Host' }));
               ws.send(JSON.stringify({
@@ -2099,8 +2322,8 @@ async function main() {
               console.log("[viewer] global slot cap (16) reached, ignoring from", id);
               return;
             }
-            if ((viewerGamepads.get(id) || new Set()).size >= 4) {
-              console.log("[viewer] per-viewer cap (4) reached for", id);
+            if ((viewerGamepads.get(id) || new Set()).size >= MAX_VIEWER_CONTROLLERS) {
+              console.log("[viewer] per-viewer cap (" + MAX_VIEWER_CONTROLLERS + ") reached for", id);
               return;
             }
 
@@ -2133,8 +2356,11 @@ async function main() {
           if (msg.type === "chat") {
             msg.msg = sanitize(msg.msg);
             msg.from = sanitize(viewerNames.get(id) || msg.from || 'Guest').slice(0, 20);
-            broadcast(JSON.stringify(msg));
-            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
+            const payload = JSON.stringify(msg);
+            viewers.forEach((vws) => {
+              if (vws && vws.readyState === 1 && vws !== ws) vws.send(payload);
+            });
+            if (hostWS && hostWS.readyState === 1 && ws !== hostWS) hostWS.send(payload);
             return;
           }
 
@@ -2146,6 +2372,28 @@ async function main() {
             toUinput({ type: 'flush_neutral', viewer_id: rosterId });
             toUinput({ type: 'disconnect_viewer', viewer_id: rosterId });
             broadcastRoster();
+            return;
+          }
+
+          if (msg.type === "viewer-vr-active") {
+            console.log('[WiVRn] Viewer', id, 'entered VR mode');
+            wivrnEnsureRunning();
+            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
+            return;
+          }
+
+          if (msg.type === "vr") {
+            wivrnBumpVrActivity();
+            const h = msg.head, l = msg.left, r = msg.right;
+            if (h && l && r) {
+              wivrnInt.injectVirtualTracking(
+                { qx: h.qx||0, qy: h.qy||0, qz: h.qz||0, qw: h.qw||1, px: h.px||0, py: h.py||0, pz: h.pz||0 },
+                { qx: l.qx||0, qy: l.qy||0, qz: l.qz||0, qw: l.qw||1, px: l.px||0, py: l.py||0, pz: l.pz||0 },
+                { qx: r.qx||0, qy: r.qy||0, qz: r.qz||0, qw: r.qw||1, px: r.px||0, py: r.py||0, pz: r.pz||0 },
+                l.trigger ?? 0, l.grip ?? 0, r.trigger ?? 0, r.grip ?? 0,
+                l.buttons ?? 0, r.buttons ?? 0
+              ).catch(() => {});
+            }
             return;
           }
 
@@ -2237,7 +2485,11 @@ async function main() {
             toUinput({ type: 'disconnect_viewer', viewer_id: id });
           }
           broadcastRoster();
-          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: id, name: viewerNames.get(id) || id }));
+          const leftName = viewerNames.get(id) || id;
+          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: id, name: leftName }));
+          const leaveMsg = JSON.stringify({ type: "chat", from: "Nearcade", msg: leftName + ' left' });
+          broadcast(leaveMsg);
+          if (hostWS && hostWS.readyState === 1) hostWS.send(leaveMsg);
         }
         console.log("[viewer]", id, "left (" + viewers.size + " total, " + controllerViewerCount() + " with controllers)");
       });
@@ -2299,7 +2551,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'vr', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
@@ -2368,6 +2620,40 @@ async function main() {
     } else {
       console.log("  ~ Tunnel: waiting for host to choose provider...");
     }
+
+    // Auto-start WiVRn server on boot
+    console.log("[WiVRn] Auto-starting WiVRn server...");
+    wivrnEnsureRunning().then(running => {
+      if (running) console.log("[WiVRn] WiVRn server ready");
+    });
+
+    // Periodically fetch the global ban list from the arcade directory
+    if (cfg.modEndpoint) {
+      async function syncBans() {
+        try {
+          const modCfg = loadConfig();
+          if (!modCfg.modEndpoint || !modCfg.modSecret) return;
+          let endpoint = modCfg.modEndpoint;
+          if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://'))
+            endpoint = 'https://' + endpoint;
+          const res = await fetch(endpoint, {
+            headers: { 'Authorization': `Bearer ${modCfg.modSecret}` }
+          });
+          if (!res.ok) return;
+          const list = await res.json();
+          if (!Array.isArray(list)) return;
+          bannedIps.clear();
+          const now = Date.now();
+          for (const ip of list) {
+            const hash = hashIp(ip);
+            bannedIps.set(hash, { bannedAt: now, expiresAt: now + 86400000, reason: 'remote-ban' });
+          }
+          console.log(`[bans] Synced ${list.length} banned IP(s) from directory`);
+        } catch (_) {}
+      }
+      syncBans();
+      setInterval(syncBans, 300000); // every 5 minutes
+    }
   });
 }
 
@@ -2400,6 +2686,10 @@ function cleanup(isElectron = false) {
   if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
   if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
 
+  // Stop WiVRn
+  if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
+  try { wivrnInt.stopServer(); } catch {}
+
   // Cleanly destroy the input driver (whether it's using C++ or Python)
   try {
     inputDriver.destroy();
@@ -2411,15 +2701,18 @@ function cleanup(isElectron = false) {
   if (audioProc) { try { audioProc.kill(); } catch (_) { } }
 
   if (process.platform === 'linux') {
-    const { execSync } = require('child_process');
+    const { execSync, execFileSync } = require('child_process');
 
     // THE FIX: Unload loopback BEFORE the sink to prevent the audio buzz
     const unloadOrder = ['loopback', 'remap', 'sink', 'daemonHandle'];
     for (const key of unloadOrder) {
       const id = _vAudioModules[key];
       if (id) {
-        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
-        console.log(`[VirtualAudio] Cleaned up ${key} module ${id}`);
+        const moduleId = parseInt(id, 10);
+        if (!isNaN(moduleId)) {
+          try { execFileSync('pactl', ['unload-module', String(moduleId)], { stdio: 'ignore' }); } catch (_) { }
+          console.log(`[VirtualAudio] Cleaned up ${key} module ${moduleId}`);
+        }
       }
     }
 

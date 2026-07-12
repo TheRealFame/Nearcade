@@ -1,7 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Nearsec Arcade</string>
-    <string name="title_activity_main">Nearsec Arcade</string>
-    <string name="package_name">org.cutefame.nearsectogether</string>
-    <string name="custom_url_scheme">org.cutefame.nearsectogether</string>
+    <string name="app_name">Nearcade</string>
+    <string name="title_activity_main">Nearcade</string>
 </resources>

@@ -1,6 +1,6 @@
 # /etc/systemd/system/nearsec-router.service
 #
-# NearsecTogether VPS SFU Router — universal systemd unit
+# Nearcade VPS SFU Router — universal systemd unit
 #
 # DIRECTORY LAYOUT (set up once on the server):
 #
@@ -44,8 +44,8 @@
 # either approach works.
 
 [Unit]
-Description=NearsecTogether VPS SFU Dumb-Pipe Router
-Documentation=https://github.com/nearsec/NearsecTogether
+Description=Nearcade VPS SFU Dumb-Pipe Router
+Documentation=https://github.com/nearsec/Nearcade
 After=network-online.target
 Wants=network-online.target
 # StartLimitIntervalSec/Burst must be in [Unit] on systemd >= 230 (Ubuntu 22.04+).

@@ -1,4 +1,4 @@
-name: Build & Release NearsecTogether
+name: Build & Release Nearcade
 
 on:
   push:
@@ -32,9 +32,9 @@ jobs:
       - name: Remove broken launcher symlinks
         shell: bash
         run: |
-          rm -f NearsecTogether.cmd
-          rm -f NearsecTogether.bat
-          rm -f NearsecTogether.command
+          rm -f Nearcade.cmd
+          rm -f Nearcade.bat
+          rm -f Nearcade.command
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -56,9 +56,29 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
-            npx electron-builder --mac --universal --publish always
+            npx electron-builder --mac --universal
+          elif [ "$RUNNER_OS" == "Linux" ]; then
+            npx electron-builder --linux
           else
-            npm run dist
+            npx electron-builder --win
+          fi
+          
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            # Place HmBridge.exe alongside the Python backends
+            HM_SRC="src/sidecar/input_backends/HmBridge/HmBridge.exe"
+            if [ -f "$HM_SRC" ]; then
+              mkdir -p dist/win-unpacked/src/sidecar/input_backends/HmBridge/
+              cp "$HM_SRC" dist/win-unpacked/src/sidecar/input_backends/HmBridge/HmBridge.exe
+              echo "Packaged HmBridge.exe into release"
+            else
+              echo "::warning::HmBridge.exe not found at $HM_SRC — gamepad disabled"
+            fi
+            
+            for file in dist/*.exe; do
+              if [[ "$file" != *"Setup"* ]]; then
+                mv "$file" "dist/Nearcade-Portable.exe"
+              fi
+            done
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,7 +89,7 @@ jobs:
           if [ "$RUNNER_OS" == "Linux" ]; then
             APPIMAGE=$(find dist -maxdepth 1 -name "*.AppImage" | head -n 1)
             if [ -n "$APPIMAGE" ]; then
-              cp "$APPIMAGE" dist/NearsecTogether-latest.AppImage
+              cp "$APPIMAGE" dist/Nearcade-latest.AppImage
             fi
           fi
           
@@ -127,12 +147,12 @@ jobs:
 
       # ── FIX: Rename the APK before uploading ──
       - name: Rename APK
-        run: mv android/app/build/outputs/apk/release/app-release.apk "Nearsec Together (Android).apk"
+        run: mv android/app/build/outputs/apk/release/app-release.apk "Nearcade (Android).apk"
 
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "Nearsec Together (Android).apk"
+          files: "Nearcade (Android).apk"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -153,12 +173,13 @@ jobs:
       - name: Rename Assets for Itch.io
         run: |
           cd release-assets
-          for file in NearsecTogether-Setup-*.exe; do [ -f "$file" ] && mv "$file" "Nearsec Together (Windows).exe"; done
-          for file in NearsecTogether-*-universal.dmg; do [ -f "$file" ] && mv "$file" "Nearsec Together (Mac).dmg"; done
-          for file in NearsecTogether-*.AppImage; do [ -f "$file" ] && [[ "$file" != *latest.AppImage ]] && mv "$file" "Nearsec Together (Linux).AppImage"; done
-          for file in NearsecTogether_*.deb; do [ -f "$file" ] && mv "$file" "Nearsec Together (Debian).deb"; done
-          for file in NearsecTogether-*.rpm; do [ -f "$file" ] && mv "$file" "Nearsec Together (RedHat).rpm"; done
-          for file in *.apk; do [ -f "$file" ] && mv "$file" "Nearsec Together (Android).apk"; done
+          for file in Nearcade-Setup-*.exe; do [ -f "$file" ] && mv "$file" "Nearcade (Windows).exe"; done
+          for file in Nearcade-Portable.exe; do [ -f "$file" ] && mv "$file" "Nearcade (Portable).exe"; done
+          for file in Nearcade-*-universal.dmg; do [ -f "$file" ] && mv "$file" "Nearcade (Mac).dmg"; done
+          for file in Nearcade-*.AppImage; do [ -f "$file" ] && [[ "$file" != *latest.AppImage ]] && mv "$file" "Nearcade (Linux).AppImage"; done
+          for file in Nearcade_*.deb; do [ -f "$file" ] && mv "$file" "Nearcade (Debian).deb"; done
+          for file in Nearcade-*.rpm; do [ -f "$file" ] && mv "$file" "Nearcade (RedHat).rpm"; done
+          for file in *.apk; do [ -f "$file" ] && mv "$file" "Nearcade (Android).apk"; done
 
       - name: Wait for previous Itch.io processing (Rate Limit Bypass)
         run: sleep 45
@@ -168,51 +189,60 @@ jobs:
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: windows
-          ITCH_GAME: nearsectogether
+          ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearsec Together (Windows).exe"
+          PACKAGE: "release-assets/Nearcade (Windows).exe"
+
+      - name: Publish Windows Portable to Itch.io
+        uses: yeslayla/butler-publish-itchio-action@master
+        env:
+          BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
+          CHANNEL: windows-portable
+          ITCH_GAME: nearcade
+          ITCH_USER: cutefame
+          PACKAGE: "release-assets/Nearcade (Portable).exe"
 
       - name: Publish macOS to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: mac
-          ITCH_GAME: nearsectogether
+          ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearsec Together (Mac).dmg"
+          PACKAGE: "release-assets/Nearcade (Mac).dmg"
 
       - name: Publish Linux (AppImage) to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: linux
-          ITCH_GAME: nearsectogether
+          ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearsec Together (Linux).AppImage"
+          PACKAGE: "release-assets/Nearcade (Linux).AppImage"
 
       - name: Publish Linux (Debian) to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: linux-deb
-          ITCH_GAME: nearsectogether
+          ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearsec Together (Debian).deb"
+          PACKAGE: "release-assets/Nearcade (Debian).deb"
 
       - name: Publish Linux (RedHat) to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: linux-rpm
-          ITCH_GAME: nearsectogether
+          ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearsec Together (RedHat).rpm"
+          PACKAGE: "release-assets/Nearcade (RedHat).rpm"
 
       - name: Publish Android to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
         env:
           BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
           CHANNEL: android
-          ITCH_GAME: nearsectogether
+          ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearsec Together (Android).apk"
+          PACKAGE: "release-assets/Nearcade (Android).apk"

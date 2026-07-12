@@ -1,8 +1,8 @@
 # Legal Compliance and Setup Automation
 
-This document outlines the legal standing and licensing compliance of the automated setup scripts used by NearsecTogether (such as `windows_setup.ps1`). 
+This document outlines the legal standing and licensing compliance of the automated setup scripts used by Nearcade (such as `windows_setup.ps1`). 
 
-Occasionally, automated scripts that download and silently install dependencies are mischaracterized by individuals as "unauthorized" or "malware-like." However, NearsecTogether's setup approach is entirely legal, open-source compliant, and aligns perfectly with industry-standard DevOps practices.
+Occasionally, automated scripts that download and silently install dependencies are mischaracterized by individuals as "unauthorized" or "malware-like." However, Nearcade's setup approach is entirely legal, open-source compliant, and aligns perfectly with industry-standard DevOps practices.
 
 Here are the specific licenses and policies that explicitly permit this behavior:
 

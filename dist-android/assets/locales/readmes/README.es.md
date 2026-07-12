@@ -1,6 +1,6 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
-<h1>NearsecTogether</h1>
+  <img src="assets/NearcadeLogo.png" width="160" height="140">
+<h1>Nearcade</h1>
 
 [Inglés](README.md)\|[Español](assets/locales/readmes/README.es.md)\|[Francés](assets/locales/readmes/README.fr.md)\|[Alemán](assets/locales/readmes/README.de.md)\|[portugués](assets/locales/readmes/README.pt.md)\|[japonés](assets/locales/readmes/README.ja.md)
 
@@ -15,9 +15,9 @@
 
 ## Descripción del proyecto
 
-NearsecTogether es una plataforma de código abierto de baja latencia que te permite jugar juegos cooperativos locales a través de Internet con tus amigos. Al aprovechar WebRTC para transmisión UDP y codificadores de hardware de navegador integrados, NearsecTogether proporciona una latencia casi imperceptible que rivaliza con las plataformas comerciales de juegos en la nube, diseñada específicamente para instancias autohospedadas.
+Nearcade es una plataforma de código abierto de baja latencia que te permite jugar juegos cooperativos locales a través de Internet con tus amigos. Al aprovechar WebRTC para transmisión UDP y codificadores de hardware de navegador integrados, Nearcade proporciona una latencia casi imperceptible que rivaliza con las plataformas comerciales de juegos en la nube, diseñada específicamente para instancias autohospedadas.
 
-A diferencia de las soluciones tradicionales de juegos en la nube que dependían de enormes canales de centros de datos y codificadores de hardware QUIC/VP9 personalizados, NearsecTogether está optimizado para funcionar de manera elegante a través de una conexión a Internet doméstica estándar.
+A diferencia de las soluciones tradicionales de juegos en la nube que dependían de enormes canales de centros de datos y codificadores de hardware QUIC/VP9 personalizados, Nearcade está optimizado para funcionar de manera elegante a través de una conexión a Internet doméstica estándar.
 
 ## Pila de tecnología
 
@@ -31,18 +31,18 @@ A diferencia de las soluciones tradicionales de juegos en la nube que dependían
 
 | Característica               |      linux     |     ventanas     |       macos      |
 | ---------------------------- | :------------: | :--------------: | :--------------: |
-| **Transmisión WebRTC**       |        ✅       |         ✅        |         ✅        |
-| **Soporte para mandos**      |   ✅ Completo   |  ⚠️ Condicional¹ |     ❌ Ninguno    |
-| **Entrada de teclado/ratón** |   ✅ Completo   |    ⚠️ Limitado   |    ✅ Completo    |
-| **Controles de movimiento**  |        ✅       |         ❌        |         ❌        |
-| **Controlador múltiple**     |        ✅       |    ⚠️ Limitado   |         ❌        |
-| **Reproducción de audio**    |        ✅       |         ✅        |         ✅        |
-| **Captura de pantalla**      |        ✅       |         ✅        |         ✅        |
+| **Transmisión WebRTC**       |               |                 |                 |
+| **Soporte para mandos**      |    Completo   |  ⚠ Condicional¹ |      Ninguno    |
+| **Entrada de teclado/ratón** |    Completo   |    ⚠ Limitado   |     Completo    |
+| **Controles de movimiento**  |               |                 |                 |
+| **Controlador múltiple**     |               |    ⚠ Limitado   |                 |
+| **Reproducción de audio**    |               |                 |                 |
+| **Captura de pantalla**      |               |                 |                 |
 | **Estabilidad**              | **Producción** | **Experimental** | **Experimental** |
 
 ¹ El gamepad de Windows requiere[Controlador ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Guía detallada de configuración de la plataforma](PLATFORM_SETUP.md)**— Instrucciones paso a paso, solución de problemas y soluciones alternativas para cada plataforma.
+**[→ Guía detallada de configuración de la plataforma](PLATFORM_SETUP.md)**— Instrucciones paso a paso, solución de problemas y soluciones alternativas para cada plataforma.
 
 * * *
 

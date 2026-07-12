@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>NearsecTogether</title>
+  <title>Nearcade</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -15,8 +15,11 @@
       --accent-dim: rgba(192, 132, 252, 0.15);
       --text: #e8e8e8;
       --muted: #888;
+      --muted2: #666;
       --border: #222;
       --danger: #ff4444;
+      --green: #44cc44;
+      --warn: #ffaa00;
       --sidebar-width: 280px;
     }
 
@@ -36,6 +39,8 @@
 }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root { accent-color: var(--accent); }
 
     html, body {
       width: 100%; height: 100%;
@@ -77,33 +82,6 @@
       user-select: auto;
       -webkit-user-select: auto;
     }
-
-    #floating-setup-btn {
-      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
-      background: #eab308; color: #000; border: none; border-radius: 6px;
-      padding: 8px 14px;
-      font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 11px;
-      display: flex; align-items: center; gap: 6px; cursor: pointer;
-      box-shadow: 0 4px 15px rgba(234, 179, 8, 0.3); transition: all 0.2s;
-    }
-    #floating-setup-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(234, 179, 8, 0.5); }
-    #floating-setup-btn:active { transform: translateY(0); }
-
-    #floating-setup-btn.done {
-      background: #1a1e22; color: #666; box-shadow: none; border: 1px solid #333;
-    }
-    #floating-setup-btn.done:hover { color: #aaa; border-color: #555; background: #222; }
-    #floating-setup-btn svg { width: 14px; height: 14px; }
-
-    #setup-toast {
-      position: fixed; bottom: 85px; right: 24px; z-index: 9999;
-      background: #4ade80; color: #000; padding: 12px 24px; border-radius: 8px;
-      font-family: inherit; font-weight: 700; font-size: 13px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-      opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
-      transform: translateY(10px);
-    }
-    #setup-toast.show { opacity: 1; transform: translateY(0); }
-    #setup-toast.error { background: #f87171; color: #fff; }
 
     #titlebar {
       position: fixed; top: 0; left: 0; right: 0; height: 36px;
@@ -176,7 +154,7 @@
     .brand-wrap { display: flex; align-items: center; gap: 12px; opacity: 1; transition: opacity 0.2s; }
     #sidebar.collapsed .brand-wrap { opacity: 0; pointer-events: none; }
     .brand-logo { height: 32px; filter: drop-shadow(0 0 10px rgba(192, 132, 252, 0.4)); }
-    .brand-text { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; }
+    .brand-text { font-size: 13px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
 
     .nav-btn {
       width: 100%; text-align: left; background: transparent; border: 1px solid transparent;
@@ -309,19 +287,19 @@
   <div id="updateModal">
     <div class="modal-content">
       <h2>Update Available</h2>
-      <p>A new version of NearsecTogether (<span id="updateVersion"></span>) is available! You are currently on v<span id="currentVersionModal"></span>.</p>
+      <p>A new version of Nearcade (<span id="updateVersion"></span>) is available! You are currently on v<span id="currentVersionModal"></span>.</p>
       <div class="modal-actions">
         <button class="btn-secondary" onclick="document.getElementById('updateModal').style.display='none'">Dismiss</button>
-        <button class="btn-primary" onclick="if(window.electronAPI) window.electronAPI.openBrowser('https://github.com/TheRealFame/NearsecTogether/releases/latest'); document.getElementById('updateModal').style.display='none'">Download</button>
+        <button class="btn-primary" onclick="if(window.electronAPI) window.electronAPI.openBrowser('https://github.com/TheRealFame/Nearcade/releases/latest'); document.getElementById('updateModal').style.display='none'">Download</button>
       </div>
     </div>
   </div>
 
   <div id="ns-splash-screen">
-    <img src="../../assets/NearsecTogetherTitle.png" alt="Nearsec Logo">
+    <img src="../../assets/NearcadeTitle.png" alt="Nearcade Logo">
   </div>
 <div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex; gap: 8px;">
-    <button onclick="openAbout()" title="About Nearsec" style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; font-family: inherit;">
+    <button onclick="openAbout()" title="About Nearcade" style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; font-family: inherit;">
       <img src="../../assets/icons/info.svg" style="width: 20px; filter: invert(1);" onerror="this.style.display='none'; this.parentElement.textContent='?'" />
     </button>
     <button onclick="openDocs()" title="Documentation & Help" style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
@@ -330,7 +308,7 @@
   </div>
 
   <style>
-    /* Nearsec-style About Modal CSS */
+    /* Nearcade-style About Modal CSS */
     .ns-about-bg { background: var(--bg); color: var(--text); font-family: 'IBM Plex Mono', monospace; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; width: 750px; max-width: 95vw; height: 500px; max-height: 90vh; border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
     .ns-about-header { display: flex; align-items: center; padding: 24px 30px; background: var(--surface); gap: 24px; position: relative; border-bottom: 1px solid var(--border); }
     .ns-about-header img { width: 90px; height: 90px; filter: drop-shadow(0 0 20px rgba(192, 132, 252, 0.4)); }
@@ -360,9 +338,9 @@
     <div class="ns-about-bg">
       <div class="ns-about-header">
         <button class="ns-about-close" onclick="closeAbout()">×</button>
-        <img src="../../assets/NearsecTogetherLogo.png" alt="Logo">
+        <img src="../../assets/NearcadeLogo.png" alt="Logo">
         <div class="ns-about-header-text">
-          <h2>NEARSEC <span>Together</span></h2>
+          <h2>NEARCADE</h2>
           <p>© 2026 TheRealFame.</p>
           <p>Powered by WebRTC & Electron.</p>
         </div>
@@ -394,7 +372,7 @@
         <div id="about-tab-license" class="ns-about-section">
           <div class="ns-about-category">
             <h4>Software License</h4>
-            <div class="ns-about-box" style="white-space: pre-wrap;">Nearsec Together is provided "as-is", without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
+            <div class="ns-about-box" style="white-space: pre-wrap;">Nearcade is provided "as-is", without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
 
 Permission is granted to anyone to use this software for any purpose, subject to the enclosed license agreements.</div>
           </div>
@@ -410,7 +388,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
   <div id="docsModal" onclick="if(event.target === this) closeDocs()" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center;">
     <div style="background: var(--surface); border: 1px solid var(--border); width: 80%; max-width: 800px; height: 80vh; border-radius: 12px; display: flex; flex-direction: column;">
       <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; color: var(--accent);">Nearsec Documentation</h3>
+        <h3 style="margin: 0; color: var(--accent);">Nearcade Documentation</h3>
         <button class="ns-about-close" onclick="closeDocs()" style="position: relative; top: auto; right: auto;">×</button>
       </div>
       <div style="display: flex; flex: 1; overflow: hidden;">
@@ -419,7 +397,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
           <button onclick="loadDoc('HOST_USAGE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Host Usage</button>
           <button onclick="loadDoc('API_AND_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">API & Setup</button>
           <button onclick="loadDoc('VPS_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">VPS Setup</button>
-          <button onclick="loadDoc('NEARSEC_ARCADE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearsec Arcade</button>
+          <button onclick="loadDoc('NEARSEC_ARCADE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearcade</button>
           <button onclick="loadDoc('ERROR_CODES.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Error Codes</button>
           <button onclick="loadDoc('ADVANCED_LOGIC.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Advanced Logic</button>
           <button onclick="loadDoc('AUTOMATED_SETUP_LEGALITY.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Setup Legality</button>
@@ -444,8 +422,8 @@ Permission is granted to anyone to use this software for any purpose, subject to
           </svg>
         </button>
         <div class="brand-wrap">
-          <img src="../../assets/NearsecTogetherLogo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'">
-          <div class="brand-text">Nearsec Together</div>
+          <img src="../../assets/NearcadeLogo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'">
+          <div class="brand-text">Nearcade</div>
         </div>
       </div>
 
@@ -557,7 +535,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       </div>
 
       <div class="panel" id="panel-arcade">
-        <iframe src="https://nearsec.cutefame.net/arcade?electron=1" style="width:100%; height:100%; border:none; flex:1;" allow="gamepad"></iframe>
+        <iframe src="https://nearcade.cutefame.net/arcade?electron=1" style="width:100%; height:100%; border:none; flex:1;" allow="gamepad"></iframe>
       </div>
 
       <div class="panel" id="panel-containers">
@@ -630,19 +608,40 @@ Permission is granted to anyone to use this software for any purpose, subject to
               </div>
               <div class="toggle" id="settingTrackRumble"><div class="toggle-thumb"></div></div>
             </div>
+            <div class="setting-row" onclick="toggleAppSetting('useSystemAccent')">
+              <div class="setting-info">
+                <h4>Use System Accent Color <span id="sysAccentIndicator" style="display:none;font-size:9px;font-weight:400;color:var(--accent);background:var(--accent-dim);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span></h4>
+                <p>Follow your desktop's accent color instead of the default theme.</p>
+              </div>
+              <div class="toggle" id="settingTrackSystemAccent"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="setting-row" id="settingRowHidMaestro" style="display:none;" onclick="toggleHidMaestro()">
+              <div class="setting-info">
+                <h4>HIDMaestro Virtual Controller</h4>
+                <p>Experimental Windows backend. Uses HIDMaestro instead of ViGEmBus for virtual gamepads.<br><strong style="color:var(--warn);">Not compatible with Arcade mode.</strong></p>
+              </div>
+              <div class="toggle" id="settingTrackHidMaestro"><div class="toggle-thumb"></div></div>
+            </div>
             <div class="setting-row" id="settingRowDiscordRPC" onclick="toggleAppSetting('discordRPC')">
               <div class="setting-info">
                 <h4>Discord Rich Presence</h4>
-                <p>Show your friends what game you're playing on Nearsec Arcade.</p>
+                <p>Show your friends what game you're playing on Nearcade Arcade.</p>
               </div>
               <div class="toggle" id="settingTrackDiscordRPC"><div class="toggle-thumb"></div></div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('checkForUpdates')" id="settingRowUpdates">
               <div class="setting-info">
                 <h4>Check for Updates</h4>
-                <p>Automatically check for a new version of NearsecTogether on startup.</p>
+                <p>Automatically check for a new version of Nearcade on startup.</p>
               </div>
               <div class="toggle" id="settingTrackCheckForUpdates"><div class="toggle-thumb"></div></div>
+            </div>
+            <div class="setting-row" onclick="toggleAppSetting('tray')">
+              <div class="setting-info">
+                <h4>Minimize to Tray</h4>
+                <p>Closing the window hides to the system tray instead of quitting.</p>
+              </div>
+              <div class="toggle" id="settingTrackTray"><div class="toggle-thumb"></div></div>
             </div>
             <div class="setting-row" id="settingRowOpenLog" style="cursor:default;">
               <div class="setting-info">
@@ -653,6 +652,13 @@ Permission is granted to anyone to use this software for any purpose, subject to
                 <button style="padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text);" onclick="window.electronAPI.openLog()">Open Log</button>
                 <button style="padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text);" onclick="window.electronAPI.openInstallDir()">Open Folder</button>
               </div>
+            </div>
+            <div class="setting-row" id="settingRowSetupWizard" style="cursor:default;">
+              <div class="setting-info">
+                <h4>Setup Wizard</h4>
+                <p>Re-open the first-time setup wizard to install drivers or review options.</p>
+              </div>
+              <button onclick="window.location.href='/setup'" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Open Setup</button>
             </div>
           </div>
           <div class="setting-row" id="settingRowUISelect">
@@ -676,6 +682,59 @@ Permission is granted to anyone to use this software for any purpose, subject to
               <p>Skips this dashboard and jumps straight into hosting on startup.</p>
             </div>
             <div class="toggle" id="settingTrackAutoHost"><div class="toggle-thumb"></div></div>
+          </div>
+          <div class="settings-section">
+            <h2>Arcade Moderation</h2>
+            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
+              <div class="setting-info" style="flex:1;min-width:200px;">
+                <h4>Mod API Endpoint</h4>
+                <p>Your Cloudflare Worker URL for the arcade moderation API (e.g. https://your-worker.workers.dev/api/mod)</p>
+              </div>
+              <input type="url" id="settingModEndpoint" placeholder="https://your-worker.workers.dev/api/mod" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+            </div>
+            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
+              <div class="setting-info" style="flex:1;min-width:200px;">
+                <h4>Mod Secret Token</h4>
+                <p>The token generated by the mod console. Grants access to ban/unban API.</p>
+              </div>
+              <input type="password" id="settingModSecret" placeholder="64-char hex token" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+            </div>
+            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
+              <div class="setting-info" style="flex:1;min-width:200px;">
+                <h4>Discord Webhook</h4>
+                <p>Webhook URL for arcade session announcements (leave empty to disable).</p>
+              </div>
+              <input type="url" id="settingArcadeWebhook" placeholder="https://discord.com/api/webhooks/..." onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+            </div>
+            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
+              <div class="setting-info" style="flex:1;min-width:200px;">
+                <h4>Arcade Role ID</h4>
+                <p>Discord role ID to ping on session start (leave empty to not ping anyone).</p>
+              </div>
+              <input type="text" id="settingArcadeRoleId" placeholder="123456789012345678" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+            </div>
+            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
+              <div class="setting-info" style="flex:1;min-width:200px;">
+                <h4>Username Blacklist</h4>
+                <p>Comma-separated words. Viewers with matching names get a generic name instead.</p>
+              </div>
+              <input type="text" id="settingNameBlacklist" placeholder="word1, word2, word3" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+            </div>
+            <div class="setting-row" style="cursor:default; gap:8px;">
+              <button onclick="verifyModConnection()" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Verify Connection</button>
+              <span id="modConnectionStatus" style="font-size:12px;color:var(--muted2);"></span>
+            </div>
+            <div id="banManagementArea" style="display:none;margin-top:12px;">
+              <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <input type="text" id="banIPInput" placeholder="IP address to ban" style="flex:1;min-width:120px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+                <button onclick="executeBan()" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--danger);background:transparent;color:var(--danger);font-family:inherit;">Ban</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <button onclick="fetchBanList()" style="padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-family:inherit;">Refresh Ban List</button>
+                <span id="banStatus" style="font-size:12px;color:var(--muted);"></span>
+              </div>
+              <div id="banListContainer" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#000;"></div>
+            </div>
           </div>
           <div class="settings-section">
             <h2>Experimental (Requires App Restart)</h2>
@@ -740,11 +799,29 @@ Permission is granted to anyone to use this software for any purpose, subject to
     document.addEventListener('DOMContentLoaded', async () => {
       const vEl = document.getElementById('version-text');
       const cEl = document.getElementById('commit-hash');
+
+      await applySystemAccent();
+
+      // Random brand color: purple, orange, or white
+      const brandColors = [
+        { color: '#c084fc', stroke: 'rgba(192,132,252,0.3)', shadow: 'rgba(192,132,252,' },
+        { color: '#ff8a4c', stroke: 'rgba(255,138,76,0.3)', shadow: 'rgba(255,138,76,' },
+        { color: '#eef0ff', stroke: 'rgba(238,240,255,0.3)', shadow: 'rgba(238,240,255,' },
+      ];
+      const bc = brandColors[Math.floor(Math.random() * brandColors.length)];
+      const bt = document.querySelector('.brand-text');
+      if (bt) {
+        bt.style.color = bc.color;
+        bt.style.webkitTextStroke = `0.5px ${bc.stroke}`;
+        bt.style.textShadow = `0 0 12px ${bc.shadow}0.5), 0 0 30px ${bc.shadow}0.15)`;
+      }
+
       if (window.electronAPI) {
         const { version, commit } = await window.electronAPI.getVersion();
         window.NEARSEC_VERSION = version;
         vEl.innerHTML = `v${version} <span style="opacity:0.5; margin-left:4px;">${commit}</span>`;
         if (typeof checkForUpdates === 'function') checkForUpdates(version);
+        setTimeout(checkClientVersion, 1500);
         
         window.electronAPI.onUpdateReady((latestVersion) => {
           document.getElementById('updateVersion').textContent = latestVersion;
@@ -757,6 +834,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       } else {
         if (window.NEARSEC_VERSION && vEl) vEl.textContent = 'v' + window.NEARSEC_VERSION;
         if (window.NEARSEC_COMMIT && cEl) cEl.textContent = window.NEARSEC_COMMIT;
+        setTimeout(checkClientVersion, 1500);
       }
     });
 
@@ -770,7 +848,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       if (cfg.checkForUpdates === false) return;
 
       try {
-          const res = await fetch('https://api.github.com/repos/TheRealFame/NearsecTogether/releases/latest');
+          const res = await fetch('https://api.github.com/repos/TheRealFame/Nearcade/releases/latest');
           if (!res.ok) return;
           const data = await res.json();
           const latest = data.tag_name;
@@ -807,6 +885,40 @@ Permission is granted to anyone to use this software for any purpose, subject to
       }, 1500);
     }
 
+    function compareVersions(a, b) {
+      const pa = a.split('.').map(Number);
+      const pb = b.split('.').map(Number);
+      for (let i = 0; i < 3; i++) {
+        const na = pa[i] || 0, nb = pb[i] || 0;
+        if (na > nb) return 1;
+        if (na < nb) return -1;
+      }
+      return 0;
+    }
+
+    async function checkClientVersion() {
+      try {
+        const res = await fetch('https://nearcade.cutefame.net/api/client-version');
+        if (!res.ok) return;
+        const data = await res.json();
+        const minVer = data.minimum || '0.0.0';
+        if (compareVersions(window.NEARSEC_VERSION, minVer) < 0) {
+          const overlay = document.createElement('div');
+          overlay.id = 'clientVersionOverlay';
+          overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
+          overlay.innerHTML = '<div style="background:#121518;border:1px solid #ff5d3d;border-radius:12px;padding:40px;max-width:420px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">'
+            + '<h2 style="color:#ff5d3d;margin:0 0 12px 0;text-transform:uppercase;letter-spacing:1px;">Client Outdated</h2>'
+            + '<p style="color:#949ba4;font-size:14px;line-height:1.6;margin:0 0 16px 0;">'
+            + 'You are running <strong style="color:#f0f3f5;">Nearcade v' + window.NEARSEC_VERSION + '</strong>.<br>'
+            + 'The arcade directory requires at least <strong style="color:#f0f3f5;">v' + minVer + '</strong>.<br><br>'
+            + 'Please update to the latest version to continue hosting arcade sessions.</p>'
+            + '<a href="https://github.com/TheRealFame/Nearcade/releases/latest" target="_blank" style="display:inline-block;background:#ff5d3d;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Download Update</a>'
+            + '</div>';
+          document.body.appendChild(overlay);
+        }
+      } catch (_) {}
+    }
+
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 
     function switchTab(name) {
@@ -831,16 +943,124 @@ Permission is granted to anyone to use this software for any purpose, subject to
         versionDisplay.style.display = (name === 'arcade') ? 'none' : 'block';
       }
 
-      const setupBtn = document.getElementById('floating-setup-btn');
-      if (setupBtn && !window.IS_CLIENT_ONLY) {
-        setupBtn.style.display = (name === 'connect') ? 'flex' : 'none';
-      }
     }
 
     let appConfig = {};
 
+    const DEFAULT_ACCENT = '#c084fc';
+    const DEFAULT_ACCENT2 = '#c084fc';
+    const DEFAULT_ACCENT_DIM = 'rgba(192,132,252,0.15)';
+    const DEFAULT_ACCENT_GLOW = 'rgba(192,132,252,0.35)';
+
+    async function applySystemAccent() {
+      const useAccent = appConfig.useSystemAccent === true;
+      localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
+      const indicator = document.getElementById('sysAccentIndicator');
+      const root = document.documentElement;
+      if (!window.electronAPI || !useAccent) {
+        root.style.removeProperty('--accent');
+        root.style.removeProperty('--accent2');
+        root.style.removeProperty('--accent-dim');
+        root.style.removeProperty('--accent-glow');
+        if (indicator) indicator.style.display = 'none';
+        return;
+      }
+      try {
+        const accent = await window.electronAPI.getAccentColor();
+        if (!accent || accent === '#8b5cf6') {
+          root.style.removeProperty('--accent');
+          root.style.removeProperty('--accent2');
+          root.style.removeProperty('--accent-dim');
+          root.style.removeProperty('--accent-glow');
+          if (indicator) indicator.style.display = 'none';
+          return;
+        }
+        const r = parseInt(accent.slice(1,3), 16);
+        const g = parseInt(accent.slice(3,5), 16);
+        const b = parseInt(accent.slice(5,7), 16);
+        root.style.setProperty('--accent', accent);
+        root.style.setProperty('--accent2', accent);
+        root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+        root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+        if (indicator) indicator.style.display = 'inline-flex';
+      } catch (_) {
+        root.style.removeProperty('--accent');
+        root.style.removeProperty('--accent2');
+        root.style.removeProperty('--accent-dim');
+        root.style.removeProperty('--accent-glow');
+        if (indicator) indicator.style.display = 'none';
+      }
+    }
+
     function _getServerPort() {
       return new URLSearchParams(window.location.search).get('port') || '3000';
+    }
+
+    function toggleHidMaestro() {
+      const was = appConfig.hidmaestro;
+      const turningOn = !was;
+
+      if (turningOn) {
+        // Check if HmBridge.exe exists before enabling
+        (async () => {
+          let bridgeOk = false;
+          if (window.electronAPI && window.electronAPI.checkHmBridge) {
+            const result = await window.electronAPI.checkHmBridge();
+            bridgeOk = result.exists;
+          }
+          showHidMaestroDisclaimer(bridgeOk);
+        })();
+      } else {
+        appConfig.hidmaestro = false;
+        syncSettingsUI();
+        if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+        syncToNode();
+      }
+    }
+
+    function showHidMaestroDisclaimer(bridgeFound) {
+      const overlay = document.createElement('div');
+      overlay.id = 'hidmaestroDisclaimer';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
+
+      let bridgeWarning = '';
+      if (!bridgeFound) {
+        bridgeWarning = `<p style="color:var(--danger);font-size:13px;line-height:1.6;margin:0 0 16px 0;">
+          ⚠ HmBridge.exe not found. The HIDMaestro backend will not work until you
+          <a href="https://github.com/cutefame/Nearcade/releases" target="_blank" style="color:var(--accent);">download the latest release</a>
+          or build it from source:
+          <code style="display:block;background:#000;padding:8px;margin:8px 0;border-radius:4px;font-size:11px;">cd src/sidecar/input_backends/HmBridge && dotnet publish -c Release -r win-x64 --self-contained false</code>
+        </p>`;
+      }
+
+      overlay.innerHTML = `<div style="background:#121518;border:1px solid var(--warn);border-radius:12px;padding:32px;max-width:480px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">
+        <h2 style="color:var(--warn);margin:0 0 12px 0;font-size:16px;">HIDMaestro Integration Notice</h2>
+        <p style="color:#949ba4;font-size:13px;line-height:1.6;margin:0 0 16px 0;">
+          Nearcade includes support for HIDMaestro as an <strong>experimental</strong> virtual controller backend.
+          This feature uses the
+          <a href="https://github.com/hifihedgehog/HIDMaestro" target="_blank" style="color:var(--accent);">HIDMaestro</a>
+          open-source project.
+        </p>
+        <p style="color:#949ba4;font-size:13px;line-height:1.6;margin:0 0 16px 0;">
+          I (Nearcade) do not actively support the HIDMaestro developers or their project beyond
+          integrating it as an optional backend. I have no plans to provide financial or promotional
+          support to them. This is purely a technical integration of their open-source work.
+        </p>
+        ${bridgeWarning}
+        <p style="color:var(--warn);font-size:12px;line-height:1.5;margin:0 0 20px 0;">
+          ⚠ Experimental: Not compatible with Arcade mode. May cause instability. Use at your own risk.
+        </p>
+        <button onclick="enableHidMaestro()" style="padding:10px 28px;border-radius:6px;border:none;background:var(--accent);color:#000;font-weight:600;cursor:pointer;">${bridgeFound ? 'I Understand, Enable' : 'Enable Anyway'}</button>
+      </div>`;
+      document.body.appendChild(overlay);
+    }
+
+    function enableHidMaestro() {
+      appConfig.hidmaestro = true;
+      syncSettingsUI();
+      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      syncToNode();
+      document.getElementById('hidmaestroDisclaimer')?.remove();
     }
 
     function syncToNode() {
@@ -856,6 +1076,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       if (!window.electronAPI) return;
       appConfig = await window.electronAPI.getSettings();
       syncSettingsUI();
+      await applySystemAccent();
     }
 
     function syncSettingsUI() {
@@ -872,9 +1093,11 @@ Permission is granted to anyone to use this software for any purpose, subject to
       }
       
       document.getElementById('settingTrackRumble')?.classList.toggle('on', appConfig.rumble !== false);
+      document.getElementById('settingTrackHidMaestro')?.classList.toggle('on', !!appConfig.hidmaestro);
       document.getElementById('settingTrackTray')?.classList.toggle('on', appConfig.tray !== false);
       document.getElementById('settingTrackCheckForUpdates')?.classList.toggle('on', appConfig.checkForUpdates !== false);
       document.getElementById('settingTrackAlwaysOnTop')?.classList.toggle('on', !!appConfig.alwaysOnTop);
+       document.getElementById('settingTrackSystemAccent')?.classList.toggle('on', appConfig.useSystemAccent === true);
       document.getElementById('settingTrackBootHost')?.classList.toggle('on', !!appConfig.bootToHost);
       document.getElementById('settingTrackDiscordRPC')?.classList.toggle('on', appConfig.discordRPC !== false);
       document.getElementById('settingTrackHWDecode')?.classList.toggle('on', appConfig.hwDecode !== false);
@@ -883,6 +1106,22 @@ Permission is granted to anyone to use this software for any purpose, subject to
       document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
 
       renderAutoHosts();
+
+      if (document.getElementById('settingModEndpoint')) {
+        document.getElementById('settingModEndpoint').value = appConfig.modEndpoint || '';
+      }
+      if (document.getElementById('settingModSecret')) {
+        document.getElementById('settingModSecret').value = appConfig.modSecret || '';
+      }
+      if (document.getElementById('settingArcadeWebhook')) {
+        document.getElementById('settingArcadeWebhook').value = appConfig.arcadeWebhook || '';
+      }
+      if (document.getElementById('settingArcadeRoleId')) {
+        document.getElementById('settingArcadeRoleId').value = appConfig.arcadeRoleId || '';
+      }
+      if (document.getElementById('settingNameBlacklist')) {
+        document.getElementById('settingNameBlacklist').value = appConfig.nameBlacklist || '';
+      }
     }
 
     function saveLangAndReload(val) {
@@ -900,8 +1139,178 @@ Permission is granted to anyone to use this software for any purpose, subject to
       syncToNode();
     }
 
+    function saveModSettings() {
+      appConfig.modEndpoint = document.getElementById('settingModEndpoint').value.trim() || undefined;
+      appConfig.modSecret = document.getElementById('settingModSecret').value.trim() || undefined;
+      appConfig.arcadeWebhook = document.getElementById('settingArcadeWebhook').value.trim() || undefined;
+      appConfig.arcadeRoleId = document.getElementById('settingArcadeRoleId').value.trim() || undefined;
+      appConfig.nameBlacklist = document.getElementById('settingNameBlacklist').value.trim() || undefined;
+      document.getElementById('modConnectionStatus').textContent = '';
+      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      syncToNode();
+    }
+
+    async function verifyModConnection() {
+      let endpoint = document.getElementById('settingModEndpoint').value.trim();
+      const secret = document.getElementById('settingModSecret').value.trim();
+      const statusEl = document.getElementById('modConnectionStatus');
+      if (!endpoint || !secret) {
+        statusEl.textContent = 'Please fill in both fields first.';
+        statusEl.style.color = 'var(--warn)';
+        return;
+      }
+      // Normalize: auto-add https:// if protocol is missing
+      if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) {
+        endpoint = 'https://' + endpoint;
+      }
+      // Strip trailing slashes and /arcade path, then append /api/mod
+      endpoint = endpoint
+        .replace(/\/+$/, '')
+        .replace(/\/arcade\/?$/, '')
+        .replace(/\/api\/mod\/?$/, '');
+      endpoint += '/api/mod';
+      statusEl.textContent = 'Verifying...';
+      statusEl.style.color = 'var(--muted2)';
+      try {
+        const res = await fetch(endpoint, {
+          headers: { 'Authorization': 'Bearer ' + secret }
+        });
+        if (res.ok) {
+          statusEl.textContent = 'Connected — API is live';
+          statusEl.style.color = 'var(--green)';
+          document.getElementById('banManagementArea').style.display = 'block';
+          fetchBanList();
+        } else if (res.status === 401) {
+          statusEl.textContent = 'Unauthorized — check your token';
+          statusEl.style.color = 'var(--danger)';
+        } else {
+          statusEl.textContent = 'Error ' + res.status + ' — check your endpoint URL';
+          statusEl.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        if (e.message?.includes('Failed to fetch') || e instanceof TypeError) {
+          statusEl.textContent = 'CORS blocked — disable Browser Integrity Check in Cloudflare dashboard, or add WAF bypass rule for OPTIONS /api/*';
+        } else {
+          statusEl.textContent = 'Could not reach endpoint — ' + e.message;
+        }
+        statusEl.style.color = 'var(--danger)';
+      }
+    }
+
+    function getModCreds() {
+      let endpoint = document.getElementById('settingModEndpoint').value.trim();
+      const secret = document.getElementById('settingModSecret').value.trim();
+      if (!endpoint || !secret) return null;
+      if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://'))
+        endpoint = 'https://' + endpoint;
+      endpoint = endpoint.replace(/\/+$/, '').replace(/\/arcade\/?$/, '').replace(/\/api\/mod\/?$/, '') + '/api/mod';
+      return { endpoint, secret };
+    }
+
+    async function fetchBanList() {
+      const creds = getModCreds();
+      const statusEl = document.getElementById('banStatus');
+      const container = document.getElementById('banListContainer');
+      if (!creds) { statusEl.textContent = 'Configure endpoint and secret first.'; return; }
+      statusEl.textContent = 'Loading...';
+      try {
+        const res = await fetch(creds.endpoint, { headers: { 'Authorization': 'Bearer ' + creds.secret } });
+        if (!res.ok) { statusEl.textContent = 'Error ' + res.status; return; }
+        const list = await res.json();
+        if (!Array.isArray(list) || list.length === 0) {
+          container.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:13px;">No banned IPs.</div>';
+          statusEl.textContent = list.length + ' bans';
+          return;
+        }
+        container.innerHTML = list.map(ip =>
+          '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;border-bottom:1px solid var(--border);font-size:13px;">' +
+          '<span style="color:var(--text);font-family:monospace;">' + ip + '</span>' +
+          '<button onclick="executeUnban(\'' + ip + '\')" style="padding:4px 10px;border-radius:4px;cursor:pointer;font-weight:600;border:1px solid var(--danger);background:transparent;color:var(--danger);font-size:11px;font-family:inherit;">Unban</button>' +
+          '</div>'
+        ).join('');
+        statusEl.textContent = list.length + ' ban' + (list.length !== 1 ? 's' : '');
+      } catch (e) {
+        statusEl.textContent = 'Failed to fetch ban list';
+        container.innerHTML = '';
+      }
+    }
+
+    async function executeBan() {
+      const creds = getModCreds();
+      const ip = document.getElementById('banIPInput').value.trim();
+      const statusEl = document.getElementById('banStatus');
+      if (!creds) { statusEl.textContent = 'Configure endpoint and secret first.'; return; }
+      if (!ip) { statusEl.textContent = 'Enter an IP address.'; return; }
+      statusEl.textContent = 'Banning ' + ip + '...';
+      try {
+        const res = await fetch(creds.endpoint, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + creds.secret, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'ban', ipToBan: ip })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          statusEl.textContent = 'Banned ' + ip;
+          statusEl.style.color = 'var(--green)';
+          document.getElementById('banIPInput').value = '';
+          fetchBanList();
+          showBanPopup(ip);
+          fetch(`http://localhost:${_getServerPort()}/api/system-chat`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg: '⚠ A viewer was banned from the session.' })
+          }).catch(()=>{});
+        } else {
+          statusEl.textContent = data.message || 'Ban failed';
+          statusEl.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Request failed';
+        statusEl.style.color = 'var(--danger)';
+      }
+    }
+
+    function showBanPopup(ip) {
+      const existing = document.getElementById('banPopup');
+      if (existing) existing.remove();
+      const popup = document.createElement('div');
+      popup.id = 'banPopup';
+      popup.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;background:#1a1a1a;border:1px solid var(--danger);border-radius:10px;padding:16px 20px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.6);animation:fadeIn 0.3s;font-family:inherit;';
+      popup.innerHTML = '<div style="color:var(--danger);font-weight:700;font-size:14px;margin-bottom:4px;">⚠ IP Banned</div>' +
+        '<div style="color:var(--text);font-size:13px;margin-bottom:8px;font-family:monospace;">' + ip + '</div>' +
+        '<div style="color:var(--muted);font-size:12px;">A chat warning has been sent to all viewers.</div>' +
+        '<button onclick="this.parentElement.remove()" style="margin-top:8px;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;">Dismiss</button>';
+      document.body.appendChild(popup);
+      setTimeout(() => { const p = document.getElementById('banPopup'); if (p) p.remove(); }, 8000);
+    }
+
+    async function executeUnban(ip) {
+      const creds = getModCreds();
+      const statusEl = document.getElementById('banStatus');
+      if (!creds) return;
+      statusEl.textContent = 'Unbanning ' + ip + '...';
+      try {
+        const res = await fetch(creds.endpoint, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + creds.secret, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'unban', ipToUnban: ip })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          statusEl.textContent = 'Unbanned ' + ip;
+          statusEl.style.color = 'var(--green)';
+          fetchBanList();
+        } else {
+          statusEl.textContent = data.message || 'Unban failed';
+          statusEl.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Request failed';
+        statusEl.style.color = 'var(--danger)';
+      }
+    }
+
     function toggleAppSetting(key) {
-      if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates'].includes(key)) {
+      if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent'].includes(key)) {
         appConfig[key] = appConfig[key] === false ? true : false;
       } else {
         appConfig[key] = !appConfig[key];
@@ -910,6 +1319,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       if (window.electronAPI) {
         window.electronAPI.saveSettings(appConfig);
         if (key === 'alwaysOnTop') window.electronAPI.toggleAlwaysOnTop();
+        if (key === 'useSystemAccent') applySystemAccent();
       }
       syncToNode();
     }
@@ -968,7 +1378,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
     }
 
     window.addEventListener('message', (event) => {
-      if (event.origin.includes('nearsec.cutefame.net') && event.data?.type === 'JOIN_SESSION') {
+      if (event.origin.includes('nearcade.cutefame.net') && event.data?.type === 'JOIN_SESSION') {
         if (window.electronAPI) window.electronAPI.joinSession(event.data.url, { game: event.data.game });
       }
     });
@@ -1003,60 +1413,17 @@ Permission is granted to anyone to use this software for any purpose, subject to
     window.addEventListener('gamepadconnected', () => requestAnimationFrame(updateGamepad));
 
     async function checkFirstRun() {
-      // NEW: Client-only flag strips the driver button entirely
-      if (window.IS_CLIENT_ONLY || window.Capacitor) {
-          const btn = document.getElementById('floating-setup-btn');
-          if (btn) btn.style.display = 'none';
-          document.body.classList.add('client-only'); // Also hide other host UI
+      if (window.Capacitor || window.IS_CLIENT_ONLY) {
+          document.body.classList.add('client-only');
           return;
       }
 
       if (!window.electronAPI) return;
-      const cfg = await window.electronAPI.getSettings();
-      const btn = document.getElementById('floating-setup-btn');
-      const txt = document.getElementById('setup-btn-text');
 
-      if (cfg.firstRunComplete === true && btn) {
-        btn.classList.add('done');
-        txt.textContent = 'Drivers Installed';
+      const result = await window.electronAPI.checkSystemSetup();
+      if (!result || result.needsSetup) {
+        window.location.href = '/setup';
       }
-    }
-
-    function showSetupToast(msg, isError = false) {
-      const toast = document.getElementById('setup-toast');
-      toast.textContent = msg;
-      toast.className = isError ? 'error show' : 'show';
-      setTimeout(() => toast.classList.remove('show'), 4000);
-    }
-
-    async function runInAppSetup() {
-      const btn = document.getElementById('floating-setup-btn');
-      const txt = document.getElementById('setup-btn-text');
-      if (!window.electronAPI) return;
-
-      txt.textContent = 'Installing...';
-      btn.style.pointerEvents = 'none';
-      btn.style.opacity = '0.7';
-
-      window.electronAPI.runSetup();
-
-      window.electronAPI.onSetupSuccess(() => {
-        showSetupToast('✓ Finished! Drivers installed.');
-        txt.textContent = 'Drivers Installed';
-        btn.classList.add('done');
-        btn.style.pointerEvents = 'auto';
-        btn.style.opacity = '1';
-
-        appConfig.firstRunComplete = true;
-        window.electronAPI.saveSettings(appConfig);
-      });
-
-      window.electronAPI.onSetupFailed(() => {
-        showSetupToast('✗ Setup failed or was cancelled.', true);
-        txt.textContent = 'Install Drivers';
-        btn.style.pointerEvents = 'auto';
-        btn.style.opacity = '1';
-      });
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -1081,7 +1448,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       const port = _getServerPort();
       const arcadeFrame = document.querySelector('#panel-arcade iframe');
       if (arcadeFrame) {
-        arcadeFrame.src = `https://nearsec.cutefame.net/arcade?electron=1&lang=${savedLang}`;
+        arcadeFrame.src = `https://nearcade.cutefame.net/arcade?electron=1&lang=${savedLang}`;
       }
 
       loadAndSyncSettings();
@@ -1205,7 +1572,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
     // 1. Hide PC-only elements if running on Android / Capacitor
     const isMobile = window.Capacitor || navigator.userAgent.includes('Android');
     if (isMobile) {
-        ['floating-setup-btn', 'docsFloatBtn'].forEach(id => {
+        ['docsFloatBtn', 'settingRowSetupWizard'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.setProperty('display', 'none', 'important');
         });
@@ -1216,6 +1583,12 @@ Permission is granted to anyone to use this software for any purpose, subject to
             const el = document.getElementById(id);
             if (el) el.style.setProperty('display', 'none', 'important');
         });
+    }
+
+    // Show HIDMaestro setting only on Windows (desktop Electron)
+    const hmRow = document.getElementById('settingRowHidMaestro');
+    if (hmRow) {
+        hmRow.style.display = (window.electronAPI && navigator.platform.includes('Win')) ? 'flex' : 'none';
     }
 
     // 2. Restore UI version toggle
@@ -1244,7 +1617,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
     const port = _getServerPort();
     const arcadeFrame = document.querySelector('#panel-arcade iframe');
     if (arcadeFrame) {
-        arcadeFrame.src = `https://nearsec.cutefame.net/arcade?electron=1&lang=${savedLang}`;
+        arcadeFrame.src = `https://nearcade.cutefame.net/arcade?electron=1&lang=${savedLang}`;
     }
 
     loadAndSyncSettings();
@@ -1360,16 +1733,6 @@ Permission is granted to anyone to use this software for any purpose, subject to
     }
   </script>
 
-  <button id="floating-setup-btn" onclick="runInAppSetup()" title="Install System Drivers">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-      <polyline points="7 10 12 15 17 10"></polyline>
-      <line x1="12" y1="15" x2="12" y2="3"></line>
-    </svg>
-    <span id="setup-btn-text">Install Drivers</span>
-  </button>
-
-  <div id="setup-toast">Finished!</div>
 <script>
     function toggleUIVersion() {
       const current = localStorage.getItem('ns_ui_version') || 'new';

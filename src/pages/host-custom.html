@@ -5,7 +5,8 @@
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   <link rel="icon" type="image/x-icon" href="../favicon.ico">
   <meta charset="utf-8">
-  <title>NearsecTogether</title>
+  <meta name="robots" content="noindex, nofollow">
+  <title>Nearcade</title>
   <link rel="stylesheet" href="/css/host.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,7 +22,7 @@
 
     <aside class="left-rail glass">
       <div class="rail-logo">
-        <img src="/assets/NearsecTogetherLogo.png" alt="Logo">
+        <img src="/assets/NearcadeLogo.png" alt="Logo">
       </div>
 
       <div class="rail-btn-group">
@@ -99,7 +100,7 @@
 
       <header class="topbar glass">
         <div class="host-meta">
-          <img src="/assets/NearsecTogetherTitle.png" alt="NearsecTogether" style="height: 32px; width: auto; flex-shrink: 0; object-fit: contain; filter: drop-shadow(0 0 6px var(--accent-glow)); margin-right: 8px;">
+          <img src="/assets/NearcadeTitle.png" alt="Nearcade" style="height: 32px; width: auto; flex-shrink: 0; object-fit: contain; filter: drop-shadow(0 0 6px var(--accent-glow)); margin-right: 8px;">
           <div>
             <div class="host-eyebrow" style="margin-bottom: 2px;">Host Session</div>
             <div class="host-name">Connected as: <span id="displayHostName"
@@ -181,7 +182,7 @@
         <div class="dock-card">
           <div class="dock-label" style="display:flex;justify-content:space-between;align-items:center;">
             <span>Viewer URL</span>
-            <span class="tunnel-link" onclick="showTunnelModal()">change tunnel</span>
+            <span class="tunnel-link" onclick="showTunnelModal(true)">change tunnel</span>
           </div>
           <div class="url-card-inner">
             <div id="urlList"></div>
@@ -208,32 +209,26 @@
         <div class="dock-card">
           <div class="dock-label">Volume Mixer</div>
           <div style="flex:1; display:flex; flex-direction:column; gap:8px; justify-content:center; padding-top:4px;">
-            <div class="dock-slider-row" style="display:flex; align-items:center; gap:8px;">
-              <span class="dock-slider-label"
-                style="width:90px; flex-shrink:0; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Desktop</span>
-              <input type="range" id="desktopVolSlider" class="dock-slider" style="flex:1; min-width:60px; height:4px;"
+            <div class="dock-slider-row">
+              <span class="dock-slider-label">Desktop</span>
+              <input type="range" id="desktopVolSlider" class="dock-slider"
                 min="0" max="100" value="100"
                 oninput="document.getElementById('desktopVolVal').textContent = this.value; setDesktopVolume(this.value)">
-              <span class="dock-slider-val" id="desktopVolVal"
-                style="width:24px; text-align:right; flex-shrink:0; font-size:10px; font-family:var(--mono); color:var(--text);">100</span>
+              <span class="dock-slider-val" id="desktopVolVal">100</span>
             </div>
-            <div class="dock-slider-row" style="display:flex; align-items:center; gap:8px;">
-              <span class="dock-slider-label"
-                style="width:90px; flex-shrink:0; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Mic</span>
-              <input type="range" id="hostMicSlider" class="dock-slider" style="flex:1; min-width:60px; height:4px;"
+            <div class="dock-slider-row">
+              <span class="dock-slider-label">Mic</span>
+              <input type="range" id="hostMicSlider" class="dock-slider"
                 min="0" max="100" value="100"
                 oninput="document.getElementById('hostMicVal').textContent = this.value; setHostMicGain(this.value)">
-              <span class="dock-slider-val" id="hostMicVal"
-                style="width:24px; text-align:right; flex-shrink:0; font-size:10px; font-family:var(--mono); color:var(--text);">100</span>
+              <span class="dock-slider-val" id="hostMicVal">100</span>
             </div>
-            <div class="dock-slider-row" style="display:flex; align-items:center; gap:8px;">
-              <span class="dock-slider-label"
-                style="width:90px; flex-shrink:0; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Viewers</span>
+            <div class="dock-slider-row">
+              <span class="dock-slider-label">Viewers</span>
               <input type="range" id="globalViewerVolSlider" class="dock-slider"
-                style="flex:1; min-width:60px; height:4px;" min="0" max="100" value="100"
+                min="0" max="100" value="100"
                 oninput="document.getElementById('globalViewerVolVal').textContent = this.value; setGlobalViewerVolume(this.value)">
-              <span class="dock-slider-val" id="globalViewerVolVal"
-                style="width:24px; text-align:right; flex-shrink:0; font-size:10px; font-family:var(--mono); color:var(--text);">100</span>
+              <span class="dock-slider-val" id="globalViewerVolVal">100</span>
             </div>
           </div>
         </div>
@@ -337,6 +332,23 @@
       }
     });
 
+    _whenReady(async () => {
+      if (window.electronAPI && localStorage.getItem('ns_use_system_accent') !== 'false') {
+        try {
+          const c = await window.electronAPI.getAccentColor();
+          if (c && c !== '#8b5cf6') {
+            const r = parseInt(c.slice(1,3), 16);
+            const g = parseInt(c.slice(3,5), 16);
+            const b = parseInt(c.slice(5,7), 16);
+            const root = document.documentElement;
+            root.style.setProperty('--accent', c);
+            root.style.setProperty('--accent2', c);
+            root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+            root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+          }
+        } catch (_) {}
+      }
+    });
     _whenReady(() => {
       const dv = localStorage.getItem('ns_host_desktop_vol') ?? '100';
       const mv = localStorage.getItem('ns_host_mic_gain') ?? '100';
@@ -428,6 +440,19 @@
     });
   </script>
 
+  <script>
+    document.querySelectorAll('#desktopVolSlider, #hostMicSlider, #globalViewerVolSlider, #volDesktop, #volMic, #globalViewerVol').forEach(slider => {
+      slider.addEventListener('wheel', e => {
+        e.preventDefault();
+        const step = parseFloat(slider.getAttribute('step')) || 1;
+        const dir = e.deltaY < 0 ? 1 : -1;
+        let val = parseFloat(slider.value) + dir * step;
+        val = Math.max(parseFloat(slider.min || 0), Math.min(parseFloat(slider.max || 100), val));
+        slider.value = val;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    });
+  </script>
 
 </body>
 

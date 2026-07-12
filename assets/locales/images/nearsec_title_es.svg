@@ -1,41 +1,48 @@
-<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-        <linearGradient id="nt-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="50" x2="0" y2="350">
-            <stop offset="0%" stop-color="#F472F6" />
-            <stop offset="100%" stop-color="#FF5A36" />
-        </linearGradient>
-        
-        <style>
-            .font-base {
-                font-family: 'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif;
-                font-weight: 900;
-                font-style: italic;
-            }
-            .monogram {
-                font-size: 210px;
-                fill: url(#nt-gradient);
-                stroke: #FFFFFF;
-                stroke-width: 6px;
-                paint-order: stroke fill; 
-                stroke-linejoin: round;
-            }
-            .main-text {
-                font-size: 135px;
-                letter-spacing: -3px;
-                stroke: none; 
-            }
-        </style>
-    </defs>
+<svg width="100%" height="100%" viewBox="0 0 1200 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E789FF" stroke-width="1" stroke-opacity="0.10"/>
+    </pattern>
 
-    <text x="220" y="210" class="font-base">
-        <tspan class="monogram">C</tspan>
-        <tspan class="main-text" fill="#FFFFFF" dx="26">ERCA</tspan>
-        <tspan class="main-text" fill="#FF5A36" dx="0">SEG</tspan>
-    </text>
+    <filter id="neon-glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1200" height="300">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur1" />
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+      </feMerge>
+    </filter>
 
-    <text x="250" y="315" class="font-base">
-        <tspan class="monogram">J</tspan>
-        <tspan class="main-text" fill="#FFFFFF" dx="20">UNTOS</tspan>
-    </text>
+    <linearGradient id="cade-grad" x1="80.0" y1="0" x2="1120.0" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E789FF"/>
+      <stop offset="100%" stop-color="#FF6D2F"/>
+    </linearGradient>
+    
+    <linearGradient id="first-letter-grad" x1="0" y1="98.4" x2="0" y2="220.0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E789FF"/>
+      <stop offset="100%" stop-color="#FF6D2F"/>
+    </linearGradient>
+  </defs>
 
+  <rect width="100%" height="100%" fill="url(#grid)" />
+
+  <text x="80.0" y="220" text-anchor="start"
+        font-family="'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif" font-weight="900" font-style="italic"
+        font-size="162.1px" letter-spacing="-2.4px"
+        filter="url(#neon-glow)" opacity="0.45">
+    <tspan fill="url(#first-letter-grad)">C</tspan><tspan fill="#FFFFFF">ERCA</tspan><tspan fill="url(#cade-grad)">CADE</tspan>
+  </text>
+  
+  <text x="80.0" y="220" text-anchor="start"
+        font-family="'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif" font-weight="900" font-style="italic"
+        font-size="162.1px" letter-spacing="-2.4px"
+        stroke="#F2E4E4" stroke-width="6" stroke-linejoin="bevel" fill="#F2E4E4">
+    C
+  </text>
+
+  <text x="80.0" y="220" text-anchor="start"
+        font-family="'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif" font-weight="900" font-style="italic"
+        font-size="162.1px" letter-spacing="-2.4px">
+    <tspan fill="url(#first-letter-grad)">C</tspan><tspan fill="#FFFFFF">ERCA</tspan><tspan fill="url(#cade-grad)">CADE</tspan>
+  </text>
 </svg>

@@ -1,6 +1,6 @@
 <p align="left">
-  <img src="assets/NearsecTogether.png" width="160" height="140">
-<h1>NearsecTogether</h1>
+  <img src="assets/NearcadeLogo.png" width="160" height="140">
+<h1>Nearcade</h1>
 
 [Englisch](README.md)\|[Spanisch](assets/locales/readmes/README.es.md)\|[Französisch](assets/locales/readmes/README.fr.md)\|[Deutsch](assets/locales/readmes/README.de.md)\|[Portugiesisch](assets/locales/readmes/README.pt.md)\|[japanisch](assets/locales/readmes/README.ja.md)
 
@@ -15,9 +15,9 @@
 
 ## Projektbeschreibung
 
-NearsecTogether ist eine Open-Source-Plattform mit geringer Latenz, die es Ihnen ermöglicht, mit Ihren Freunden lokale Koop-Spiele über das Internet zu spielen. Durch die Nutzung von WebRTC für UDP-First-Streaming und integrierten Browser-Hardware-Encodern bietet NearsecTogether eine nahezu nicht wahrnehmbare Latenz, die mit kommerziellen Cloud-Gaming-Plattformen mithalten kann – speziell zugeschnitten auf selbst gehostete Instanzen.
+Nearcade ist eine Open-Source-Plattform mit geringer Latenz, die es Ihnen ermöglicht, mit Ihren Freunden lokale Koop-Spiele über das Internet zu spielen. Durch die Nutzung von WebRTC für UDP-First-Streaming und integrierten Browser-Hardware-Encodern bietet Nearcade eine nahezu nicht wahrnehmbare Latenz, die mit kommerziellen Cloud-Gaming-Plattformen mithalten kann – speziell zugeschnitten auf selbst gehostete Instanzen.
 
-Im Gegensatz zu herkömmlichen Cloud-Gaming-Lösungen, die auf riesigen Rechenzentrumsleitungen und benutzerdefinierten QUIC/VP9-Hardware-Encodern basieren, ist NearsecTogether für den eleganten Betrieb über eine Standard-Internetverbindung zu Hause optimiert.
+Im Gegensatz zu herkömmlichen Cloud-Gaming-Lösungen, die auf riesigen Rechenzentrumsleitungen und benutzerdefinierten QUIC/VP9-Hardware-Encodern basieren, ist Nearcade für den eleganten Betrieb über eine Standard-Internetverbindung zu Hause optimiert.
 
 ## Technologie-Stack
 
@@ -31,18 +31,18 @@ Im Gegensatz zu herkömmlichen Cloud-Gaming-Lösungen, die auf riesigen Rechenze
 
 | Besonderheit              |      Linux     |      Windows     |       macOS      |
 | ------------------------- | :------------: | :--------------: | :--------------: |
-| **WebRTC-Streaming**      |        ✅       |         ✅        |         ✅        |
-| **Gamepad-Unterstützung** |     ✅ Voll     |    ⚠️ Bedingt¹   |      ❌ Keine     |
-| **Tastatur-/Mauseingabe** |     ✅ Voll     |    ⚠️ Begrenzt   |      ✅ Voll      |
-| **Bewegungssteuerung**    |        ✅       |         ❌        |         ❌        |
-| **Multi-Controller**      |        ✅       |    ⚠️ Begrenzt   |         ❌        |
-| **Audiowiedergabe**       |        ✅       |         ✅        |         ✅        |
-| **Erfassung anzeigen**    |        ✅       |         ✅        |         ✅        |
+| **WebRTC-Streaming**      |               |                 |                 |
+| **Gamepad-Unterstützung** |      Voll     |    ⚠ Bedingt¹   |       Keine     |
+| **Tastatur-/Mauseingabe** |      Voll     |    ⚠ Begrenzt   |       Voll      |
+| **Bewegungssteuerung**    |               |                 |                 |
+| **Multi-Controller**      |               |    ⚠ Begrenzt   |                 |
+| **Audiowiedergabe**       |               |                 |                 |
+| **Erfassung anzeigen**    |               |                 |                 |
 | **Stabilität**            | **Produktion** | **Experimental** | **Experimental** |
 
 ¹ Windows-Gamepad erforderlich[ViGEmBus-Treiber](https://github.com/nefarius/ViGEmBus/releases)
 
-📖**[→ Detaillierte Plattform-Setup-Anleitung](PLATFORM_SETUP.md)**— Schritt-für-Schritt-Anleitungen, Fehlerbehebung und Problemumgehungen für jede Plattform.
+**[→ Detaillierte Plattform-Setup-Anleitung](PLATFORM_SETUP.md)**— Schritt-für-Schritt-Anleitungen, Fehlerbehebung und Problemumgehungen für jede Plattform.
 
 * * *
 

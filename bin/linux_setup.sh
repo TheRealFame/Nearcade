@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NearsecTogether — Linux Setup Script
+# Nearcade — Linux Setup Script
 # Installs udev rules for virtual controllers, loads uinput, copies the app
 # icon, and verifies/installs audio/Python dependencies automatically.
 
@@ -19,7 +19,7 @@ fail() { echo "${RED}✗${RESET} $*"; }
 info() { echo "  $*"; }
 
 echo ""
-echo "${BOLD}NearsecTogether — Linux Setup${RESET}"
+echo "${BOLD}Nearcade — Linux Setup${RESET}"
 echo "────────────────────────────────────────"
 
 # ── Require root ────────────────────────────────────
@@ -36,9 +36,9 @@ fi
 
 # ── Copy app icon ─────────────────────────────────────────────────────────────
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
-if [ -f "/tmp/NearsecTogetherLogo.png" ] && cp "/tmp/NearsecTogetherLogo.png" /usr/share/pixmaps/NearsecTogetherLogo.png 2>/dev/null; then
+if [ -f "/tmp/NearcadeLogo.png" ] && cp "/tmp/NearcadeLogo.png" /usr/share/pixmaps/NearcadeLogo.png 2>/dev/null; then
   ok "App icon copied to /usr/share/pixmaps/"
-elif cp "$SCRIPT_DIR/../assets/NearsecTogetherLogo.png" /usr/share/pixmaps/NearsecTogetherLogo.png 2>/dev/null; then
+elif cp "$SCRIPT_DIR/../assets/NearcadeLogo.png" /usr/share/pixmaps/NearcadeLogo.png 2>/dev/null; then
   ok "App icon copied to /usr/share/pixmaps/"
 else
   warn "Could not copy icon (non-fatal)"
@@ -142,7 +142,7 @@ echo "${BOLD}Writing udev rules for virtual controllers...${RESET}"
 RULE_FILE="/etc/udev/rules.d/99-nearsec-input.rules"
 
 cat > "$RULE_FILE" << 'RULES'
-# NearsecTogether — virtual controller udev rules
+# Nearcade — virtual controller udev rules
 # Ensure uinput itself is accessible without root
 KERNEL=="uinput", MODE="0666", GROUP="input", OPTIONS+="static_node=uinput"
 

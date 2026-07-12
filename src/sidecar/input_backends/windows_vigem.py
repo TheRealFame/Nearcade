@@ -1,5 +1,5 @@
 """
-NearsecTogether — Windows ViGEmBus backend
+Nearcade — Windows ViGEmBus backend
 Virtual controller + KBM injection via vgamepad and pyautogui.
 
 All errors are emitted as JSON to stdout so the Node.js orchestrator

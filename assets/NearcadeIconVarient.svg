@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="256" y1="60" x2="256" y2="460" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E789FF"/>
+      <stop offset="1" stop-color="#FF6D2F"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="36%" cy="30%" r="52%" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- badge -->
+  <rect x="0" y="0" width="512" height="512" rx="110" fill="#1A0A2E"/>
+  <!-- shaft — filled + stroke -->
+  <rect x="220" y="270" width="72" height="170" rx="36" fill="#1A0A2E" stroke="url(#g)" stroke-width="8"/>
+  <!-- base — filled + stroke -->
+  <rect x="118" y="406" width="276" height="58" rx="29" fill="#1A0A2E" stroke="url(#g)" stroke-width="8"/>
+  <!-- ball — hollow with gradient stroke, inner shine -->
+  <circle cx="256" cy="196" r="114" fill="#1A0A2E" stroke="url(#g)" stroke-width="8"/>
+  <circle cx="256" cy="196" r="114" fill="url(#shine)"/>
+</svg>

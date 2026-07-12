@@ -1,6 +1,6 @@
-# NearsecTogether VPS Deployment Guide
+# Nearcade VPS Deployment Guide
 
-This guide covers everything needed to deploy NearsecTogether on a Linux VPS using the provided automation script and Caddy as the TLS reverse proxy.
+This guide covers everything needed to deploy Nearcade on a Linux VPS using the provided automation script and Caddy as the TLS reverse proxy.
 
 ---
 
@@ -37,7 +37,7 @@ The `deploy.sh` script is the single command needed to bring the VPS deployment 
 From the project root on your VPS:
 
 ```bash
-cd /home/ubuntu/NearsecTogether/vps
+cd /home/ubuntu/Nearcade/vps
 bash deploy.sh
 ```
 
@@ -84,7 +84,7 @@ Caddy runs as its own system user. Grant it read access to the project directory
 ```bash
 sudo chmod +x /home
 sudo chmod +x /home/ubuntu
-sudo chmod -R 755 /home/ubuntu/NearsecTogether
+sudo chmod -R 755 /home/ubuntu/Nearcade
 ```
 
 For production deployments it is safer to serve from `/var/www/` rather than a home directory.

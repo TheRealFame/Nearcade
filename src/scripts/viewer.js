@@ -101,6 +101,22 @@ let _autoJoinedVps = false;
 // which is perfectly fine. If we are on the VPS, it connects and instantly checks state.
 const urlParamsGlobal = new URLSearchParams(window.location.search);
 const standbyWs = new WebSocket(`${proto}://${host}/vps?standby=true`);
+
+// ?preview=1 opens standalone lobby preview window
+if (urlParamsGlobal.has('preview')) {
+    import('./lobby.js').then(m => {
+        const w = window.open('', 'lobbyPreview', 'width=960,height=540,left=100,top=100,resizable=yes');
+        if (w) {
+            w.document.title = 'Nearcade Lobby Preview';
+            w.document.body.style.margin = '0'; w.document.body.style.background = '#000';
+            w.document.body.style.overflow = 'hidden';
+            const c = w.document.createElement('canvas');
+            c.width = 960; c.height = 540; c.style.cssText = 'width:100%;height:100%;display:block;';
+            w.document.body.appendChild(c);
+            m.runDesktopPreview(c);
+        }
+    });
+}
 standbyWs.onmessage = (e) => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
@@ -174,9 +190,19 @@ function recoverWebCodecsDecoder() {
 let sysAudioCtx = null;
 let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
-let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
-document.getElementById('nameInput').value = myName;
+let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || '';
+document.getElementById('nameInput').value = myName || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
 if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
+// Fall back to server config name so arcade/in-app viewers see their dashboard name
+if (!localStorage.getItem('ns_name')) {
+  fetch('/api/config').then(r => r.json()).then(cfg => {
+    if (cfg && cfg.hostName) {
+      myName = cfg.hostName;
+      document.getElementById('nameInput').value = myName;
+      localStorage.setItem('ns_name', myName);
+    }
+  }).catch(() => {});
+}
 let enteredPin = '', enteredPassword = '', audioMuted = false;
 let kbEnabled = false;
 
@@ -238,6 +264,16 @@ function _setupWebGL(gl) {
 }
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
 const CLIENT_VERSION = window.NEARSEC_VERSION || '1.0.0';
+function semverGte(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na > nb) return true;
+    if (na < nb) return false;
+  }
+  return true;
+}
 
 // Tracks whether an active host stream session exists in this browser tab.
 // Used to gate the standby screen so it only appears on the pin screen
@@ -828,7 +864,7 @@ function preferReceiverCodec(transceiver, preferredMime) {
     try { transceiver.setCodecPreferences(sorted); return sorted[0]?.mimeType || null; } catch { return null; }
 }
 
-function sysChat(text) { console.log("[Nearsec System]:", text); }
+function sysChat(text) { console.log("[Nearcade System]:", text); }
 
 const video = document.getElementById('video');
 const frameCanvas = document.getElementById('frameCanvas');
@@ -1252,12 +1288,13 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
     window.electronAPI.startNativeGamepadCapture();
 }
 
-window.currentInputMode = 'gamepad';
+window.currentInputMode = localStorage.getItem('ns_input_mode') || 'gamepad';
 let eyeTrackerCam = null;
 let eyeTrackerFaceMesh = null;
 
 window.updateInputMode = function(val) { 
     window.currentInputMode = val; 
+    localStorage.setItem('ns_input_mode', val);
     console.log('[InputMode] Switched to:', val);
     
     if (val === 'eyetracking') {
@@ -1597,7 +1634,7 @@ function connectInputWS() {
     if (inputWs && inputWs.readyState <= 1) return;
 
     const urlParams = new URLSearchParams(window.location.search);
-    const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
     if (useVps) return; // In VPS mode, all inputs flow cleanly over the main /vps WebSocket
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1687,7 +1724,7 @@ async function connect() {
         stopReconnect = false;
     } else {
         // Always use /vps for the public domain or if v3 is forced
-        const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+        const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
         let wsUrl = useVps
             ? `${proto}://${host}/vps`
             : `${proto}://${host}/ws/viewer`;
@@ -1700,7 +1737,8 @@ async function connect() {
 
         // ── EXPERIMENTAL WEBTRANSPORT CLIENT ──────────────────────────────────────
         const wtRequested = urlParams.get('wt') === '1' || urlParams.get('pipeline') === 'webtransport';
-        if (useVps && wtRequested && 'WebTransport' in window) {
+        if (useVps && wtRequested) {
+          if ('WebTransport' in window) {
             try {
                 const wtUrl = `https://${host}:4433/wt`;
                 const wt = new WebTransport(wtUrl);
@@ -1715,6 +1753,9 @@ async function connect() {
             } catch (e) {
                 console.warn('[WebTransport] Setup error:', e);
             }
+          } else {
+            console.info('[WebTransport] Not supported in this browser — falling back to WebSocket input path.');
+          }
         }
     }
 
@@ -1842,11 +1883,11 @@ async function connect() {
                 const overlayEl = document.getElementById('sessionHostName');
                 if (overlayEl) { overlayEl.textContent = 'HOST SESSION — ' + msg.hostName; overlayEl.style.display = 'block'; }
                 const topEl = document.getElementById('topHostName');
-                const flagHtml = msg.hostRegion ? `<span class="fi fi-${msg.hostRegion}"></span> ` : '';
-                if (topEl) topEl.innerHTML = flagHtml + msg.hostName;
+                const safeHostName = String(msg.hostName).replace(/[<>"'&]/g, '');
+                if (topEl) topEl.innerHTML = (msg.hostRegion ? `<span class="fi fi-${msg.hostRegion.replace(/[^a-z]/gi,'')}"></span> ` : '') + safeHostName;
                 const pillEl = document.getElementById('hostNamePill');
                 if (pillEl) pillEl.style.display = '';
-                document.title = 'Nearsec — ' + msg.hostName;
+                document.title = 'Nearcade — ' + msg.hostName.replace(/[<>"'&]/g, '');
             }
             // CRITICAL FIX: Do NOT send request-offer unconditionally here.
             // The Host already automatically sends an offer when 'viewer-joined' is received.
@@ -2068,7 +2109,7 @@ async function connect() {
             if (msg.expDevices) {
                 const select = document.getElementById('inputModeSelect');
                 if (select) {
-                    const currentVal = select.value;
+                    const currentVal = select.value || window.currentInputMode;
                     let html = '<option value="gamepad">Standard Gamepad</option>';
                     const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
@@ -2125,10 +2166,10 @@ async function connect() {
         if (msg.type === 'host-voice-cmd' && msg.targetViewerId === myId) {
             if (msg.action === 'mute') {
                 forceMutedByHost = true; disableMic(); updateMicButton();
-                appendChat('Nearsec', 'The host has muted your microphone.', false);
+                appendChat('Nearcade', 'The host has muted your microphone.', false);
             } else {
                 forceMutedByHost = false; updateMicButton();
-                appendChat('Nearsec', 'The host unmuted you.', false);
+                appendChat('Nearcade', 'The host unmuted you.', false);
             }
             return;
         }
@@ -2143,9 +2184,18 @@ async function connect() {
                     const baseId = v.id.split('_')[0];
                     if (!seen.has(baseId)) {
                         seen.add(baseId);
-                        if (!hostAdded) { listEl.innerHTML += `<div class="roster-item"><span> Host</span><span class="roster-badge">Streaming</span></div>`; hostAdded = true; }
+                        if (!hostAdded) {
+                            const hostItem = document.createElement('div');
+                            hostItem.className = 'roster-item';
+                            hostItem.innerHTML = '<span> Host</span><span class="roster-badge">Streaming</span>';
+                            listEl.appendChild(hostItem);
+                            hostAdded = true;
+                        }
                         const isMe = baseId === myId;
-                        listEl.innerHTML += `<div class="roster-item${isMe ? ' roster-me' : ''}">${v.name.replace(/ \d+$/, '')} ${isMe ? '(You)' : ''}</div>`;
+                        const viewerItem = document.createElement('div');
+                        viewerItem.className = 'roster-item' + (isMe ? ' roster-me' : '');
+                        viewerItem.textContent = (v.name || '').replace(/ \d+$/, '') + (isMe ? ' (You)' : '');
+                        listEl.appendChild(viewerItem);
                     }
                 });
             }
@@ -2184,7 +2234,7 @@ async function connect() {
 // For local (non-VPS) servers, check the HTTP API on load.
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
-    const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
     if (!useVps) {
         safeApiJson('/api/pin-required', { required: true }).then(d => {
             pinRequired = d.required !== false;
@@ -2209,7 +2259,13 @@ function submitPin() {
     document.getElementById('pinErr').textContent = '';
     document.getElementById('pinScreen').classList.add('gone');
     safeApiJson('/api/info', {}).then(d => {
-        if (d.version && d.version !== CLIENT_VERSION) alert(`Version mismatch: Host v${d.version}, You v${CLIENT_VERSION}`);
+        if (d.version) {
+          const vA = String(CLIENT_VERSION).split('.')[0];
+          const vB = String(d.version).split('.')[0];
+          if (vA !== vB) {
+            alert(`Version mismatch: Host v${d.version}, You v${CLIENT_VERSION}. Please update to match.`);
+          }
+        }
     }).finally(() => {
         connect();
         if (!gpPolling) activateGamepad();
@@ -2248,7 +2304,11 @@ function appendChat(name, text, isMe) {
     }
     const d = document.createElement('div');
     d.className = 'cmsg';
-    d.innerHTML = `<span class="cname${isMe ? ' me' : ''}">${name}</span>${text}`;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'cname' + (isMe ? ' me' : '');
+    nameSpan.textContent = name;
+    d.appendChild(nameSpan);
+    d.appendChild(document.createTextNode(text));
     el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
 function sendChat() {
@@ -2570,7 +2630,7 @@ function initWebCodecsViewer(config) {
             screen.height === 800);
 
     if (isSteamDeck) {
-        console.log('[Nearsec] Steam Deck detected — auto-entering immersive mode');
+        console.log('[Nearcade] Steam Deck detected — auto-entering immersive mode');
         document.documentElement.requestFullscreen().then(landscape).catch(() => { });
         const immBtn = document.getElementById('immersiveBtn');
         if (immBtn) immBtn.style.display = 'none';
@@ -2694,6 +2754,13 @@ window.startNetStats = function() {
 // ── WEBXR (VR) INPUT POLLING ──────────────────────────────────────────────────
 let xrSession = null;
 let xrRefSpace = null;
+let xrVideoTex = null;
+let xrVideoPanelVAO = null;
+let xrVideoProgram = null;
+let xrVideoUniforms = {};
+let lobbyGL = null;
+let lobbyLayer = null;
+let lobbyActive = false;
 let lastVrSend = 0;
 
 function maybeShowVRButton() {
@@ -2721,7 +2788,7 @@ function maybeShowVRButton() {
 
 function startVRSession() {
     if (!navigator.xr) return;
-    navigator.xr.requestSession('immersive-vr').then(session => {
+    navigator.xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] }).then(session => {
         xrSession = session;
         const btn = document.getElementById('btnEnterVR');
         if (btn) btn.style.display = 'none';
@@ -2729,16 +2796,25 @@ function startVRSession() {
         if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'viewer-vr-active', viewerId: myId }));
 
         const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl', { xrCompatible: true });
-        session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+        const gl = canvas.getContext('webgl2', { xrCompatible: true });
+        const layer = new XRWebGLLayer(session, gl);
+        session.updateRenderState({ baseLayer: layer });
 
-        session.requestReferenceSpace('local').then(refSpace => {
+        // Initialize lobby renderer
+        if (lobbyInit(gl)) {
+            lobbyActive = true;
+            lobbyGL = gl;
+            lobbyLayer = layer;
+        }
+
+        session.requestReferenceSpace('local-floor').then(refSpace => {
             xrRefSpace = refSpace;
             session.requestAnimationFrame(onXRFrame);
         });
 
         session.addEventListener('end', () => {
             xrSession = null;
+            lobbyDestroy();
             if (window.hostAllowVR) maybeShowVRButton();
         });
     }).catch(err => {
@@ -2751,11 +2827,28 @@ function onXRFrame(time, frame) {
     if (!xrSession) return;
     xrSession.requestAnimationFrame(onXRFrame);
 
-    const now = Date.now();
-    if (now - lastVrSend < 16) return;
-    
     const pose = frame.getViewerPose(xrRefSpace);
     if (!pose) return;
+
+    const gl = lobbyGL;
+    if (gl && lobbyLayer) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, lobbyLayer.framebuffer);
+
+        const videoEl = document.getElementById('video');
+        const videoReady = videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0;
+        const hostStreaming = typeof window.hostStreamingActive !== 'undefined' && window.hostStreamingActive;
+
+        if ((hostStreaming || videoReady) && xrVideoTex) {
+            gl.clearColor(0.01, 0.01, 0.04, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            xrRenderVideoPanel(gl, videoEl);
+        } else if (lobbyActive) {
+            lobbyRender(gl, frame, xrRefSpace);
+        }
+    }
+
+    const now = Date.now();
+    if (now - lastVrSend < 16) return;
 
     let changed = false;
     const vrState = {
@@ -2781,33 +2874,19 @@ function onXRFrame(time, frame) {
             if (gp) {
                 if (gp.buttons.length > 0) trigger = gp.buttons[0].value;
                 if (gp.buttons.length > 1) grip = gp.buttons[1].value;
-                
-                // Construct a 4-bit mask for the VR backend:
-                // bit0 = A/X (button 4), bit1 = B/Y (button 5)
-                // bit2 = menu (button 6?), bit3 = thumbstick click (button 3)
+
                 if (gp.buttons.length > 4 && gp.buttons[4].pressed) buttons |= 1;
                 if (gp.buttons.length > 5 && gp.buttons[5].pressed) buttons |= 2;
                 if (gp.buttons.length > 3 && gp.buttons[3].pressed) buttons |= 8;
-                // Just as a generic mapping for whatever WebXR defines as menu
                 if (gp.buttons.length > 6 && gp.buttons[6].pressed) buttons |= 4;
 
-                if (gp.axes.length >= 4) {
-                    ax = gp.axes[2];
-                    ay = gp.axes[3];
-                } else if (gp.axes.length >= 2) {
-                    ax = gp.axes[0];
-                    ay = gp.axes[1];
-                }
+                if (gp.axes.length >= 4) { ax = gp.axes[2]; ay = gp.axes[3]; }
+                else if (gp.axes.length >= 2) { ax = gp.axes[0]; ay = gp.axes[1]; }
             }
 
             vrState[source.handedness] = {
-                px: cp.transform.position.x,
-                py: cp.transform.position.y,
-                pz: cp.transform.position.z,
-                qw: cp.transform.orientation.w,
-                qx: cp.transform.orientation.x,
-                qy: cp.transform.orientation.y,
-                qz: cp.transform.orientation.z,
+                px: cp.transform.position.x, py: cp.transform.position.y, pz: cp.transform.position.z,
+                qw: cp.transform.orientation.w, qx: cp.transform.orientation.x, qy: cp.transform.orientation.y, qz: cp.transform.orientation.z,
                 trigger, grip, buttons, ax, ay
             };
         }

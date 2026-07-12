@@ -14,28 +14,28 @@ class P2PSignaler {
         this.onMessageCallback = onMessageCallback;
         this.isActive = true;
         
-        const [send, get] = this.room.makeAction('signal');
-        this.sendAction = send;
+        const action = this.room.makeAction('signal');
+        this.sendAction = (msg, peerId) => action.send(msg, { target: peerId });
 
-        this.room.onPeerJoin(peerId => {
+        this.room.onPeerJoin = peerId => {
             console.log('[P2P] Viewer joined:', peerId);
             this.peers.add(peerId);
-        });
+        };
         
-        this.room.onPeerLeave(peerId => {
+        this.room.onPeerLeave = peerId => {
             console.log('[P2P] Viewer left:', peerId);
             this.peers.delete(peerId);
             if (this.onMessageCallback) {
                 this.onMessageCallback({ type: 'viewer-left', viewer_id: peerId });
             }
-        });
+        };
 
-        get((data, peerId) => {
+        action.onMessage = (data, meta) => {
             if (this.onMessageCallback) {
-                data.viewer_id = peerId; // inject peerId as viewer_id
+                data.viewer_id = meta.peerId; // inject peerId as viewer_id
                 this.onMessageCallback(data);
             }
-        });
+        };
     }
 
     initViewer(roomCode, onMessageCallback, onReady) {
@@ -43,23 +43,23 @@ class P2PSignaler {
         this.onMessageCallback = onMessageCallback;
         this.isActive = true;
         
-        const [send, get] = this.room.makeAction('signal');
-        this.sendAction = send;
+        const action = this.room.makeAction('signal');
+        this.sendAction = (msg, peerId) => action.send(msg, { target: peerId });
 
-        this.room.onPeerJoin(peerId => {
+        this.room.onPeerJoin = peerId => {
             console.log('[P2P] Host discovered:', peerId);
             this.peers.add(peerId);
             if (onReady) {
                 onReady();
                 onReady = null; // Only fire once
             }
-        });
+        };
 
-        get((data, peerId) => {
+        action.onMessage = (data) => {
             if (this.onMessageCallback) {
                 this.onMessageCallback(data);
             }
-        });
+        };
     }
 
     isPeer(viewerId) {

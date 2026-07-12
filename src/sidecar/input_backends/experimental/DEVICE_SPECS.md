@@ -27,10 +27,11 @@ This document outlines the theoretical web APIs and host-side injection methods 
 - **Host Injection**: Virtual joystick, FreeTrack, or OpenTrack UDP protocols.
 - **Complexity**: High. Must translate absolute web coordinates into FreeTrack/TrackIR protocol packets so games (like MSFS) pick them up natively.
 
-## 6. VR Headsets (`backend_vr.py`)
+## 6. VR Headsets (WiVRn)
 - **Web API**: `WebXR API` (HTML5). Provides 6-DOF (Position + Rotation) for Headset and Controllers at 90hz+.
-- **Host Injection**: Custom C++ SteamVR (OpenVR) Driver.
-- **Complexity**: Extreme. Python receives UDP coordinates and forwards them via IPC to a compiled `.dll`/`.so` SteamVR driver. Relies on Asynchronous Timewarp (ATW) on the viewer's browser to mitigate motion-to-photon latency.
+- **Host Injection**: WiVRn server handles headset tracking natively; no driver injection needed. The standalone headset sends its own tracking data over the WiVRn OpenXR protocol.
+- **Complexity**: Low (for headset users). WiVRn server runs on the host PC; Nearcade captures compositor output via PipeWire/X11 for WebRTC relay to browser viewers.
+- **Note**: The previous `steamvr_driver/`, `monado_runtime/`, and `backend_vr.py` paths have been removed in favor of WiVRn's direct OpenXR streaming architecture.
 
 ## 7. Light Guns (`backend_lightguns.py`)
 - **Web API**: `PointerEvent` / `MouseEvent` (if acting as a mouse) or Gamepad API.

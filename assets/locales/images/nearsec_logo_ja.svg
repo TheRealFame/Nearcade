@@ -1,33 +1,48 @@
-<svg width="400" height="450" viewBox="0 0 400 450" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-        <linearGradient id="nt-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="50" x2="0" y2="350">
-            <stop offset="0%" stop-color="#F472F6" />
-            <stop offset="100%" stop-color="#FF5A36" />
-        </linearGradient>
-        
-        <style>
-            .font-base {
-                font-family: 'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif;
-                font-weight: 900;
-                font-style: italic;
-            }
-            .monogram {
-                font-size: 280px;
-                fill: url(#nt-gradient);
-                stroke: #FFFFFF;
-                stroke-width: 8px;
-                paint-order: stroke fill; 
-                stroke-linejoin: round;
-            }
-        </style>
-    </defs>
+<svg width="100%" height="100%" viewBox="0 0 1200 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E789FF" stroke-width="1" stroke-opacity="0.10"/>
+    </pattern>
 
-    <text x="60" y="240" class="font-base">
-        <tspan class="monogram">近</tspan>
-    </text>
+    <filter id="neon-glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1200" height="300">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur1" />
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+      </feMerge>
+    </filter>
 
-    <text x="140" y="420" class="font-base">
-        <tspan class="monogram">一</tspan>
-    </text>
+    <linearGradient id="cade-grad" x1="243.8" y1="0" x2="956.2" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E789FF"/>
+      <stop offset="100%" stop-color="#FF6D2F"/>
+    </linearGradient>
+    
+    <linearGradient id="first-letter-grad" x1="0" y1="77.5" x2="0" y2="220.0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E789FF"/>
+      <stop offset="100%" stop-color="#FF6D2F"/>
+    </linearGradient>
+  </defs>
 
+  <rect width="100%" height="100%" fill="url(#grid)" />
+
+  <text x="243.8" y="220" text-anchor="start"
+        font-family="'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif" font-weight="900" font-style="italic"
+        font-size="190.0px" letter-spacing="-2.9px"
+        filter="url(#neon-glow)" opacity="0.45">
+    <tspan fill="url(#first-letter-grad)">ニ</tspan><tspan fill="#FFFFFF">ア</tspan><tspan fill="url(#cade-grad)">ケード</tspan>
+  </text>
+  
+  <text x="243.8" y="220" text-anchor="start"
+        font-family="'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif" font-weight="900" font-style="italic"
+        font-size="190.0px" letter-spacing="-2.9px"
+        stroke="#F2E4E4" stroke-width="6" stroke-linejoin="bevel" fill="#F2E4E4">
+    ニ
+  </text>
+
+  <text x="243.8" y="220" text-anchor="start"
+        font-family="'Arial', 'Helvetica', 'Meiryo', 'Hiragino Kaku Gothic ProN', sans-serif" font-weight="900" font-style="italic"
+        font-size="190.0px" letter-spacing="-2.9px">
+    <tspan fill="url(#first-letter-grad)">ニ</tspan><tspan fill="#FFFFFF">ア</tspan><tspan fill="url(#cade-grad)">ケード</tspan>
+  </text>
 </svg>

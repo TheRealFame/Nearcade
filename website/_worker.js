@@ -1,169 +1,229 @@
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" };
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", ...CORS } });
+}
+
+function isUrl(v) {
+  return typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"));
+}
+
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    const clientIP = request.headers.get('cf-connecting-ip') || 'unknown';
+    try {
+      const url = new URL(request.url);
+      const clientIP = request.headers.get("cf-connecting-ip") || "unknown";
 
-    // ==========================================
-    // CORS HEADERS (Moved to the top!)
-    // ==========================================
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
+      if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
-    console.log(`[Worker]  Request: ${request.method} ${url.pathname}`);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
-
-    // ==========================================
-    // THE BOUNCER: Check the Ban List
-    // ==========================================
-    if (env.BANS_KV && clientIP !== 'unknown') {
-      if (url.pathname === '/' || url.pathname.includes('/arcade') || url.pathname.startsWith('/api/')) {
-        const isBanned = await env.BANS_KV.get(clientIP);
-
-        if (isBanned) {
-          console.log(`[Worker]  Blocked banned IP: ${clientIP}`);
-
-          // FOR HOSTS/API CALLS: Return clean JSON with CORS so the app can read the 403 status
-          if (url.pathname.startsWith('/api/')) {
-            return new Response(JSON.stringify({ error: "BANNED", message: "Your IP is banned." }), {
-              status: 403,
-              headers: { "Content-Type": "application/json", ...corsHeaders }
-            });
-          }
-
-          // FOR WEB VIEWERS: Return a slick, dark-themed HTML popup
-          return new Response(`
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-          <meta charset="UTF-8">
-          <title>Access Denied - Nearsec Arcade</title>
-          <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&display=swap" rel="stylesheet">
-          <style>
-          body { background: #0b0d0f; margin: 0; height: 100vh; display: flex; justify-content: center; align-items: center; font-family: 'Outfit', sans-serif; color: #f0f3f5; }
-          .modal { background: #121518; border: 1px solid #ff5d3d; border-radius: 12px; padding: 40px; text-align: center; max-width: 400px; box-shadow: 0 16px 48px rgba(0,0,0,0.8); }
-          .modal h2 { color: #ff5d3d; margin: 0 0 15px 0; letter-spacing: 1px; text-transform: uppercase; }
-          .modal p { color: #949ba4; font-size: 14px; line-height: 1.6; margin: 0; }
-          </style>
-          </head>
-          <body>
-          <div class="modal">
-          <h2>Access Denied</h2>
-          <p>Your connection has been blocked. This IP address is banned from the Nearsec Arcade network.</p>
-          </div>
-          </body>
-          </html>
-          `, { status: 403, headers: { "Content-Type": "text/html", ...corsHeaders } });
-        }
-      }
-    }
-
-    // ==========================================
-    // ROUTE 2.5: Pusher Private Channel Auth
-    // ==========================================
-    if (url.pathname === "/api/pusher-auth") {
-      if (request.method !== "POST") {
-        return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+      // Health
+      if (url.pathname === "/api/health") {
+        return json({ status: "ok", ip: clientIP });
       }
 
-      try {
-        // Pusher authentication sends raw form-urlencoded data: socket_id=XXXX&channel_name=XXXX
-        const formData = await request.formData();
-        const socketId = formData.get("socket_id");
-        const channelName = formData.get("channel_name");
-
-        if (!socketId || !channelName) {
-          return new Response("Bad Request", { status: 400, headers: corsHeaders });
-        }
-
-        // Generate the HMAC SHA-256 signature required by Pusher
-        const stringToSign = `${socketId}:${channelName}`;
-        const encoder = new TextEncoder();
-        const cryptoKey = await crypto.subtle.importKey(
-          "raw",
-          encoder.encode(env.PUSHER_SECRET), // Make sure PUSHER_SECRET is set in Worker env variables
-                                                        { name: "HMAC", hash: "SHA-256" },
-                                                        false,
-                                                        ["sign"]
-        );
-
-        const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(stringToSign));
-        const signatureHex = Array.from(new Uint8Array(signatureBuffer))
-        .map(b => b.toString(16).padStart(2, "0"))
-        .join("");
-
-        const authResponse = {
-          auth: `${env.PUSHER_KEY}:${signatureHex}` // Make sure PUSHER_KEY matches your Pusher App Key
-        };
-
-        return new Response(JSON.stringify(authResponse), {
-          status: 200,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: "Auth Failed", details: e.message }), { status: 500, headers: corsHeaders });
-      }
-    }
-
-    // ==========================================
-    // ROUTE 3: Arcade Moderation API
-    // ==========================================
-    if (url.pathname.includes("/api/mod")) {
-      // 1. Verify the Secret Token
-      const authHeader = request.headers.get('Authorization');
-      if (!authHeader || authHeader !== `Bearer ${env.MOD_SECRET_TOKEN}`) {
-        return new Response(JSON.stringify({ message: 'Unauthorized' }), { status: 401, headers: corsHeaders });
-      }
-
-      // Handle GET: List all bans
-      if (request.method === 'GET') {
-        const list = await env.BANS_KV.list();
-        // Return just the keys (the IP addresses)
-        const bannedIPs = list.keys.map(k => k.name);
-        return new Response(JSON.stringify(bannedIPs), { headers: { 'Content-Type': 'application/json', ...corsHeaders }});
-      }
-
-      // Handle POST: Ban or Unban
-      if (request.method === 'POST') {
+      // Ban check for all requests
+      if (env.BANS_KV && clientIP !== "unknown") {
         try {
-          const body = await request.json();
+          const isBanned = await env.BANS_KV.get(`ban_${clientIP}`);
+          if (isBanned) return json({ error: "BANNED" }, 403);
+        } catch (_) {}
+      }
 
-          if (body.action === 'ban' && body.ipToBan) {
-            // Store the IP in KV. Value doesn't matter, just the key.
-            await env.BANS_KV.put(body.ipToBan, JSON.stringify({ date: Date.now(), reason: 'CLI Ban' }));
-            return new Response(JSON.stringify({ success: true, message: `Banned ${body.ipToBan}` }), { headers: corsHeaders });
-          }
+      // Pusher Auth
+      if (url.pathname === "/api/pusher-auth") {
+        if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: CORS });
+        if (!env.PUSHER_SECRET || !env.PUSHER_KEY) return json({ error: "Server config error: Pusher secrets missing" }, 500);
+        try {
+          const text = await request.text();
+          const params = new URLSearchParams(text);
+          const socketId = params.get("socket_id");
+          const channelName = params.get("channel_name");
+          if (!socketId || !channelName) return new Response("Missing socket_id/channel_name", { status: 400, headers: CORS });
 
-          if (body.action === 'unban' && body.ipToUnban) {
-            await env.BANS_KV.delete(body.ipToUnban);
-            return new Response(JSON.stringify({ success: true, message: `Unbanned ${body.ipToUnban}` }), { headers: corsHeaders });
-          }
-
-          return new Response(JSON.stringify({ message: 'Invalid action' }), { status: 400, headers: corsHeaders });
+          const encoder = new TextEncoder();
+          const key = await crypto.subtle.importKey("raw", encoder.encode(env.PUSHER_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+          const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(`${socketId}:${channelName}`));
+          const sigHex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+          return json({ auth: `${env.PUSHER_KEY}:${sigHex}` });
         } catch (e) {
-          return new Response(JSON.stringify({ message: 'Bad request payload' }), { status: 400, headers: corsHeaders });
+          console.error("[Worker] Pusher Auth Error:", e.message);
+          return json({ error: e.message }, 500);
         }
       }
 
-      return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
-    }
+      // Arcade Ping (session start from host)
+      if (url.pathname === "/api/arcade/ping") {
+        if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: CORS });
+        try {
+          const session = await request.json();
+          if (!session?.id) return new Response("Missing session ID", { status: 400, headers: CORS });
 
-    // ==========================================
-    // FALLBACK: Graceful Routing Pass-Through
-    // ==========================================
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
+          if (env.BANS_KV) {
+            // Dedup old sessions from same host (tunnel URL)
+            if (session.url) {
+              const oldId = await env.BANS_KV.get(`host_sess_${session.url}`);
+              if (oldId && oldId !== session.id) {
+                await env.BANS_KV.delete(`sess_${oldId}`);
+                await env.BANS_KV.delete(`webhook_rep_${oldId}`);
+              }
+              await env.BANS_KV.put(`host_sess_${session.url}`, session.id, { expirationTtl: 86400 });
+            }
+            await env.BANS_KV.put(`sess_${session.id}`, JSON.stringify(session), { expirationTtl: 120 });
 
-    // Redirect or return a clean index message instead of a fatal 500 crash
-    return new Response(JSON.stringify({ status: "online", service: "Nearsec Arcade Gateway" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json", ...corsHeaders }
-    });
+            // Deduplicate webhook (only send once per session)
+            const already = await env.BANS_KV.get(`webhook_rep_${session.id}`);
+            if (!already && env.ARCADE_WEBHOOK) {
+              const roleId = env.ARCADE_ROLE_ID || "";
+              const thumbnail = isUrl(session.thumbnail) ? { url: session.thumbnail } : undefined;
+              const gameTitle = (session.game && !session.game.match(/^(Unknown Game|Arcade Game|Game)$/i)) ? session.game : "🎮 Game";
+              const embed = {
+                title: gameTitle,
+                url: session.url,
+                color: 0x00ff00,
+                description: `**Host:** ${session.hostName || "Unknown"}\n**Region:** ${session.hostRegion || "?"}\n**Players:** ${session.region || "?"}`,
+                fields: [
+                  { name: "OS", value: session.os || "?", inline: true },
+                  { name: "Codec", value: `${session.codec || "?"} (${session.codecType || "WebRTC"})`, inline: true },
+                  { name: "Category", value: session.category || "General", inline: true }
+                ],
+                thumbnail,
+                footer: { text: `Nearcade v${session.version || "3.0.2"}` },
+                timestamp: new Date().toISOString()
+              };
+              const payload = roleId
+                ? { content: `<@&${roleId}>`, embeds: [embed], username: "Nearcade Arcade", avatar_url: "https://nearcade.cutefame.net/favicon.ico" }
+                : { embeds: [embed], username: "Nearcade Arcade", avatar_url: "https://nearcade.cutefame.net/favicon.ico" };
+              await fetch(env.ARCADE_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+              await env.BANS_KV.put(`webhook_rep_${session.id}`, "1", { expirationTtl: 3600 });
+            }
+          }
+          return json({ success: true });
+        } catch (e) {
+          console.error("[Worker] Arcade Ping Error:", e.message);
+          return json({ error: e.message }, 500);
+        }
+      }
+
+      // List active sessions
+      if (url.pathname === "/api/arcade/sessions") {
+        const sessions = [];
+        if (env.BANS_KV) {
+          const list = await env.BANS_KV.list({ prefix: "sess_" });
+          for (const key of list.keys) {
+            try {
+              const val = await env.BANS_KV.get(key.name);
+              if (val) sessions.push(JSON.parse(val));
+            } catch (_) {}
+          }
+        }
+        return json(sessions);
+      }
+
+      // Arcade Stop (session end from host)
+      if (url.pathname === "/api/arcade/stop") {
+        if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: CORS });
+        try {
+          const { id } = await request.json();
+          if (!id) return new Response("Missing session ID", { status: 400, headers: CORS });
+          if (env.BANS_KV) {
+            // Clean up host mapping too
+            const existing = await env.BANS_KV.get(`sess_${id}`);
+            if (existing) {
+              const old = JSON.parse(existing);
+              if (old.url) await env.BANS_KV.delete(`host_sess_${old.url}`);
+            }
+            await env.BANS_KV.delete(`sess_${id}`);
+            await env.BANS_KV.delete(`webhook_rep_${id}`);
+          }
+          return json({ success: true });
+        } catch (e) {
+          return json({ error: e.message }, 500);
+        }
+      }
+
+      // Mod API (ban/unban/list with auth)
+      if (url.pathname === "/api/mod") {
+        const auth = request.headers.get("Authorization") || "";
+        if (auth !== `Bearer ${env.MOD_SECRET_TOKEN}`) return json({ message: "Unauthorized" }, 401);
+
+        if (request.method === "GET") {
+          // List all banned IPs
+          const bans = [];
+          if (env.BANS_KV) {
+            const list = await env.BANS_KV.list({ prefix: "ban_" });
+            for (const key of list.keys) {
+              try {
+                const val = await env.BANS_KV.get(key.name);
+                if (val) bans.push({ ip: key.name.slice(4), ...JSON.parse(val) });
+              } catch (_) {}
+            }
+          }
+          return json(bans);
+        }
+
+        if (request.method === "POST") {
+          const body = await request.json().catch(() => ({}));
+          const { action, ipToBan, ipToUnban } = body;
+
+          if (action === "ban") {
+            if (!ipToBan) return json({ message: "Missing ipToBan" }, 400);
+            const record = { bannedAt: Date.now(), bannedBy: "mod" };
+            await env.BANS_KV.put(`ban_${ipToBan}`, JSON.stringify(record));
+            // Send ban webhook to MOD_WEBHOOK
+            if (env.MOD_WEBHOOK) {
+              const payload = {
+                embeds: [{
+                  title: "🚫 IP Banned",
+                  color: 0xff0000,
+                  description: `**IP:** \`${ipToBan}\`\n**Banned by:** mod`,
+                  footer: { text: `Nearcade • ${new Date().toLocaleString()}` }
+                }],
+                username: "Nearcade Moderation"
+              };
+              await fetch(env.MOD_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+            }
+            return json({ success: true, message: `Banned ${ipToBan}` });
+          }
+
+          if (action === "unban") {
+            if (!ipToUnban) return json({ message: "Missing ipToUnban" }, 400);
+            await env.BANS_KV.delete(`ban_${ipToUnban}`);
+            // Send unban webhook to MOD_WEBHOOK
+            if (env.MOD_WEBHOOK) {
+              const payload = {
+                embeds: [{
+                  title: "✅ IP Unbanned",
+                  color: 0x00ff00,
+                  description: `**IP:** \`${ipToUnban}\`\n**Unbanned by:** mod`,
+                  footer: { text: `Nearcade • ${new Date().toLocaleString()}` }
+                }],
+                username: "Nearcade Moderation"
+              };
+              await fetch(env.MOD_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+            }
+            return json({ success: true, message: `Unbanned ${ipToUnban}` });
+          }
+
+          return json({ message: "Unknown action" }, 400);
+        }
+
+        return new Response("Method Not Allowed", { status: 405, headers: CORS });
+      }
+
+      // Home page
+      if (url.pathname === "/" || url.pathname === "/home") {
+        if (env.ASSETS) {
+          const asset = await env.ASSETS.fetch(new Request("https://nearcade.cutefame.net/nearsec-home.html", request));
+          if (asset.status === 200) return asset;
+        }
+      }
+
+      // Static assets
+      if (env.ASSETS) return env.ASSETS.fetch(request);
+      return new Response("OK", { status: 200, headers: CORS });
+    } catch (e) {
+      console.error("[Worker] Global Error:", e.message);
+      return json({ error: e.message }, 500);
+    }
   }
 };

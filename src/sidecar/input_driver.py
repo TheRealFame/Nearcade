@@ -1,5 +1,5 @@
 """
-NearsecTogether Input Driver Dispatcher
+Nearcade Input Driver Dispatcher
 
 Thin dispatcher: detects the OS at startup and loads the appropriate backend
 module for virtual controller injection.

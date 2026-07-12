@@ -4,14 +4,15 @@
 <head>
   <link rel="icon" type="image/x-icon" href="../favicon.ico">
   <meta charset="utf-8">
+  <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <meta name="description" content="NearsecTogether">
-  <title>NearsecTogether</title>
+  <meta name="description" content="Nearcade">
+  <title>Nearcade</title>
 
-  <meta property="og:site_name" content="Nearsec Arcade" />
+  <meta property="og:site_name" content="Nearcade" />
   <meta property="og:title" content="Join the Session!" />
-  <meta property="og:description" content="Connect instantly to this remote play session via Nearsec Arcade." />
-  <meta property="og:image" content="https://nearsec.cutefame.net/assets/NearsecTogetherLogo.png" />
+  <meta property="og:description" content="Connect instantly to this remote play session via Nearcade." />
+  <meta property="og:image" content="https://nearcade.cutefame.net/assets/NearcadeLogo.png" />
   <meta name="theme-color" content="#8b5cf6" />
   <meta name="twitter:card" content="summary" />
 
@@ -25,6 +26,7 @@
   <style>
     /* ─── DESIGN TOKENS (matches host) ─────────────────────────────────── */
     :root {
+      accent-color: #8b5cf6;
       --bg: #090a0e;
       --surface: #0f111a;
       --card: rgba(15, 17, 26, 0.92);
@@ -201,12 +203,14 @@
       font-size: 14px;
       padding: 10px 14px;
       width: 100%;
-      outline: none;
       transition: border-color 0.15s;
     }
 
     .pin-input:focus {
       border-color: var(--accent);
+      outline: 2px auto Highlight;
+      outline: 2px auto -webkit-focus-ring-color;
+      outline-offset: 0;
     }
 
     .pin-input::placeholder {
@@ -1506,6 +1510,21 @@
     }
   </style>
   <script>
+    (async function(){
+      if (window.electronAPI && localStorage.getItem('ns_use_system_accent') !== 'false') try {
+        const c = await window.electronAPI.getAccentColor();
+        if (c && c !== '#8b5cf6') {
+          const r = parseInt(c.slice(1,3), 16);
+          const g = parseInt(c.slice(3,5), 16);
+          const b = parseInt(c.slice(5,7), 16);
+          const root = document.documentElement;
+          root.style.setProperty('--accent', c);
+          root.style.setProperty('--accent2', c);
+          root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.14)`);
+          root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+        }
+      } catch(_){}
+    })();
     // ── CLIENT-ONLY BUILD FLAG ────────────────────────────────────────────────────
     // Set window.IS_CLIENT_ONLY = true before this script, or add ?client=1 to URL,
     // to strip all host-specific UI. Used for the Capacitor mobile/TV build.
@@ -1575,8 +1594,8 @@
   <!-- ════ PIN / JOIN SCREEN ════ -->
   <div id="pinScreen">
     <div class="brand-wrap">
-      <img src="/assets/NearsecTogetherLogo.png" alt="NearsecTogether" class="brand-img">
-      <div class="brand-name">NearsecTogether</div>
+      <img src="/assets/NearcadeLogo.png" alt="Nearcade" class="brand-img">
+      <div class="brand-name">Nearcade</div>
       <div class="brand-sub">peer-to-peer remote play</div>
     </div>
 
@@ -1619,8 +1638,8 @@
   <!-- ════ CONNECTING OVERLAY ════ -->
   <div id="overlay">
     <div class="brand-wrap">
-      <img src="/assets/NearsecTogetherLogo.png" alt="" class="brand-img" style="height:52px;">
-      <div class="brand-name" style="font-size:11px;">NearsecTogether</div>
+      <img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;">
+      <div class="brand-name" style="font-size:11px;">Nearcade</div>
     </div>
     <div id="sessionHostName"
       style="font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted2);font-family:var(--mono);display:none;">

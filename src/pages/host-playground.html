@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="robots" content="noindex, nofollow">
   <title>Host Concept - Stadia Inspired</title>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   
@@ -279,10 +280,64 @@
       background: var(--bg);
       border-color: var(--accent);
     }
-    
+
+    /* Playground-only URL styling */
+    #urlList {
+      display: grid;
+      gap: 6px;
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(10, 12, 18, 0.95);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.4;
+      min-height: 54px;
+      max-height: 72px;
+      max-width: 100%;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      white-space: normal;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+      margin-top: 10px;
+    }
+    #urlList:not(:has(.url-row)) {
+      color: var(--muted);
+    }
+    .url-row {
+      display: block;
+      width: 100%;
+      padding: 8px 10px;
+      margin: 0;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(30, 28, 46, 0.95);
+      color: rgba(196, 182, 255, 0.96);
+      word-break: break-word;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      line-height: 1.3;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+      max-width: 100%;
+    }
+    .url-row + .url-row { margin-top: 6px; }
+    .url-row:hover {
+      background: rgba(75, 35, 135, 0.22);
+      color: #fff !important;
+    }
+    .url-label {
+      font-size: 10px;
+      color: rgba(255,255,255,0.72);
+      margin: 0 0 6px;
+      display: block;
+      white-space: normal;
+    }
   </style>
 </head>
-<body>
+<body data-playground-host="1">
 
   <!-- DASHBOARD BACK BUTTON -->
   <button onclick="if(window.electronAPI) window.electronAPI.backToDashboard(); else window.location.href='/dashboard';" 
@@ -300,7 +355,7 @@
       <div class="preview-container">
         <video id="preview" autoplay playsinline muted disablePictureInPicture style="position:absolute; width:100%; height:100%; object-fit:contain; z-index:1;"></video>
         <div class="preview-header">
-          <div class="brand">NearsecTogether</div>
+          <div class="brand">Nearcade</div>
           <div class="status-pill">
             <span class="dot" id="capDot"></span>
             <span id="capStatus">Offline</span>
@@ -312,19 +367,19 @@
             <rect x="2" y="3" width="20" height="14" rx="2"/>
             <polygon points="10 8 16 12 10 16 10 8"/>
           </svg>
-          Select a Source to Start Playing
+          <span style="display:block; font-size:18px; font-weight:600; letter-spacing:0.02em;">Select a source to start streaming</span>
         </div>
       </div>
 
       <!-- Quick Action Tiles (Stadia Style OS Tiles) -->
       <div class="action-row">
-        <button class="action-tile primary" id="btnStart" onclick="showSourceSelectionModal()">
-          <span class="tile-title">Start Session</span>
-          <span class="tile-subtitle">Broadcast your screen</span>
+        <button class="action-tile primary" id="btnStart" onclick="showSourceSelectionModal()" style="background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%); color:#fff; box-shadow: 0 18px 30px rgba(139,92,246,0.18); border: 1px solid rgba(255,255,255,0.12);">
+          <span class="tile-title">Start Stream</span>
+          <span class="tile-subtitle">Broadcast your gameplay</span>
         </button>
-        <button class="action-tile danger" id="btnStop" onclick="stopCapture()" style="display:none; background:#ff4444; color:#fff;">
-          <span class="tile-title">Stop</span>
-          <span class="tile-subtitle">End Broadcast</span>
+        <button class="action-tile danger" id="btnStop" onclick="stopCapture()" style="display:none; background: linear-gradient(135deg, #fb7185 0%, #f97316 100%); color:#fff; box-shadow: 0 18px 30px rgba(248,113,113,0.18); border: 1px solid rgba(255,255,255,0.12);">
+          <span class="tile-title">Stop Stream</span>
+          <span class="tile-subtitle">End broadcast</span>
         </button>
         <button class="action-tile" onclick="showSettingsModal('audio')">
           <span class="tile-title">Mixer</span>

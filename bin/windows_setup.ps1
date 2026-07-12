@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Continue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-Write-Host '--- Nearsec Automated Setup ---' -ForegroundColor Cyan
+Write-Host '--- Nearcade Automated Setup ---' -ForegroundColor Cyan
 
 # Force the script to know exactly what folder it is running from
 $ScriptPath = $PSScriptRoot

@@ -2,8 +2,8 @@
 name        = "nearsec-router"
 version     = "1.0.0"
 edition     = "2021"
-description = "NearsecTogether VPS SFU — dumb-pipe WebSocket router"
-authors     = ["NearsecTogether"]
+description = "Nearcade VPS SFU — dumb-pipe WebSocket router"
+authors     = ["Nearcade"]
 
 [[bin]]
 name = "nearsec-router"

@@ -4,14 +4,15 @@
 <head>
   <link rel="icon" type="image/x-icon" href="../favicon.ico">
   <meta charset="utf-8">
+  <meta name="robots" content="noindex, nofollow">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <meta name="description" content="NearsecTogether">
-  <title>NearsecTogether</title>
+  <meta name="description" content="Nearcade">
+  <title>Nearcade</title>
 
-  <meta property="og:site_name" content="Nearsec Arcade" />
-  <meta property="og:title" content="A player is looking to play!" />
-  <meta property="og:description" content="A player is hosting a peer-to-peer gaming session on Nearsec." />
-  <meta property="og:image" content="https://nearsec.cutefame.netassets/NearsecTogether.png" />
+  <meta property="og:site_name" content="Nearcade" />
+  <meta property="og:title" content="Join the Session!" />
+  <meta property="og:description" content="Connect instantly to this remote play session via Nearcade." />
+  <meta property="og:image" content="https://nearcade.cutefame.netassets/NearcadeLogo.png" />
   <meta name="theme-color" content="#8b5cf6" />
   <meta name="twitter:card" content="summary" />
 
@@ -1523,18 +1524,60 @@
         // The connect flow goes straight to the direct link or arcade
         document.body.classList.add('client-only');
         console.log('[Build] Client-only mode active — host UI hidden');
+        
+        initArcadeUI();
       });
     }
+
+    function initArcadeUI() {
+      if (new URLSearchParams(location.search).get('arcade') === '1') {
+        const touchRight = document.querySelector('.controls-right');
+        if (touchRight) touchRight.style.display = 'none';
+      }
+    }
   </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 </head>
 
 <body>
 
+  <!-- Error / Warning Popup Overlay -->
+  <div id="ns-error-popup" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
+    <span id="ns-error-text">Critical Error occurred.</span>
+    <button onclick="this.parentElement.style.display='none'" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
+  </div>
+  
+  <script>
+    window.showError = function(msg, severity = 'red') {
+      const popup = document.getElementById('ns-error-popup');
+      const text = document.getElementById('ns-error-text');
+      if (!popup || !text) return;
+      
+      popup.style.background = severity === 'yellow' ? '#f59e0b' : '#d32f2f';
+      popup.style.color = severity === 'yellow' ? '#000' : '#fff';
+      text.innerText = msg;
+      popup.style.display = 'flex';
+      
+      // Auto-hide warnings after 10s, keep reds until closed
+      if (severity === 'yellow') {
+        setTimeout(() => { popup.style.display = 'none'; }, 10000);
+      }
+    };
+    
+    if (window.electronAPI && window.electronAPI.onAppError) {
+      window.electronAPI.onAppError((msg, severity) => {
+        if (window.showError) window.showError(msg, severity);
+      });
+    }
+  </script>
+
+
   <!-- ════ PIN / JOIN SCREEN ════ -->
   <div id="pinScreen">
     <div class="brand-wrap">
-      <img src="assets/NearsecTogether.png" alt="NearsecTogether" class="brand-img">
-      <div class="brand-name">NearsecTogether</div>
+      <img src="assets/NearcadeLogo.png" alt="Nearcade" class="brand-img">
+      <div class="brand-name">Nearcade</div>
       <div class="brand-sub">peer-to-peer remote play</div>
     </div>
 
@@ -1550,8 +1593,7 @@
 
       <div id="pinWrap">
         <div class="pin-field-label" style="margin-top:4px;">PIN Code</div>
-        <input id="pinInput" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0000" maxlength="4" class="pin-input"
-          oninput="this.value=this.value.replace(/[^0-9]/g, '').slice(0,4)"
+        <input id="pinInput" type="text" autocomplete="off" placeholder="0000" maxlength="32" class="pin-input"
           onkeydown="if(event.key==='Enter')submitPin()">
       </div>
 
@@ -1563,7 +1605,7 @@
       </div>
 
       <button class="pin-submit-btn" onclick="submitPin()">Join Stream →</button>
-      <button class="pin-submit-btn client-only-btn" style="display:none;background:var(--surface);color:var(--text);border:1px solid var(--border);margin-top:8px;" onclick="window.location.href='index.html'">← Cancel & Go Back</button>
+      <button class="pin-submit-btn client-only-btn" style="display:none;background:var(--surface);color:var(--text);border:1px solid var(--border);margin-top:8px;" onclick="window.electronAPI ? window.electronAPI.backToDashboard() : window.location.href='/'">← Cancel & Go Back</button>
       <div id="pinErr"></div>
     </div>
   </div>
@@ -1578,8 +1620,8 @@
   <!-- ════ CONNECTING OVERLAY ════ -->
   <div id="overlay">
     <div class="brand-wrap">
-      <img src="assets/NearsecTogether.png" alt="" class="brand-img" style="height:52px;">
-      <div class="brand-name" style="font-size:11px;">NearsecTogether</div>
+      <img src="assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;">
+      <div class="brand-name" style="font-size:11px;">Nearcade</div>
     </div>
     <div id="sessionHostName"
       style="font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted2);font-family:var(--mono);display:none;">
@@ -1671,6 +1713,12 @@
       </button>
 
       <div class="ns-bar-divider"></div>
+      <div class="ns-bar-section">Device API</div>
+      <select id="inputModeSelect" class="ns-bar-btn" style="background:var(--bg);border-color:var(--border2);appearance:none;padding:7px 10px;" onchange="window.updateInputMode && window.updateInputMode(this.value)">
+        <option value="gamepad">Standard Gamepad</option>
+      </select>
+
+      <div class="ns-bar-divider"></div>
       <div class="ns-bar-section">Stream Quality</div>
       <div style="display:flex;gap:4px;padding:0 2px;">
         <button class="ns-bar-btn ns-btn-active" data-bw="auto" onclick="setBandwidthProfile('auto')"
@@ -1683,7 +1731,7 @@
       <button class="ns-bar-btn" onclick="toggleNetStats()" style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Toggle Net Stats
       </button>
-      <button class="ns-bar-btn" onclick="if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }))" style="margin-top: 4px; justify-content: center; font-size: 10px;">
+      <button class="ns-bar-btn" onclick="if(typeof forceReloadStream === 'function') forceReloadStream(); else if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }));" style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Force Reload Stream
       </button>
 
@@ -1698,7 +1746,7 @@
         </button>
         <span id="chatBadge"></span>
       </div>
-      <button class="ns-bar-btn" style="color:var(--danger);font-weight:bold;margin-top:8px;" onclick="window.location.href='index.html'">
+      <button class="ns-bar-btn" style="color:var(--danger);font-weight:bold;margin-top:8px;" onclick="window.electronAPI ? window.electronAPI.backToDashboard() : window.location.href='/'">
         Disconnect
       </button>
 
@@ -1844,14 +1892,18 @@
       border: 1px solid var(--border); border-radius: 8px;
       padding: 10px 14px; z-index: 200; pointer-events: none;
       font-family: var(--mono); font-size: 10px; color: var(--text);
-      display: flex; flex-direction: column; gap: 4px; width: 140px;
+      display: flex; flex-direction: column; gap: 4px; width: 170px;
     }
     #netStatsOverlay.gone { display: none !important; }
   </style>
   <div id="netStatsOverlay" class="gone">
     <div style="font-weight:700; margin-bottom:4px; font-size:11px; color:var(--accent); font-family:var(--sans);">NET STATS</div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Codec:</span> <span id="nsCodec">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Resolution:</span> <span id="nsRes">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">FPS:</span> <span id="nsFps">--</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Ping:</span> <span id="nsPing">-- ms</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bitrate:</span> <span id="nsBitrate">-- kbps</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bandwidth:</span> <span id="nsBitrate">-- kbps</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Decode Lat:</span> <span id="nsDecode">-- ms</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span id="nsLoss">-- %</span></div>
     <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span id="nsJitter">-- ms</span></div>
   </div>
@@ -1860,7 +1912,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/version.js"></script>
   <script type="module" src="/js/p2p-signaler.js"></script>
-  <script src="/js/viewer.js?v=8"></script>
+  <script src="/js/viewer.js?v=9"></script>
 
   <!-- Post-load patches — run after viewer.js is fully parsed -->
   <script>
@@ -1896,6 +1948,16 @@
       if (dy < -2 || e.clientY < 60) {
         showTopBar(3000);
       }
+      
+      // Desktop mouse-to-right-edge to open nsBar
+      if (e.clientX >= window.innerWidth - 10) {
+        const nsBar = document.getElementById('nsBar');
+        if (nsBar && nsBar.style.display !== 'none') {
+          nsBar.classList.add('open');
+          if (typeof resetNsBarTimeout === 'function') resetNsBarTimeout();
+        }
+      }
+      
       _lastMouseY = e.clientY;
     }, { passive: true });
 

@@ -75,6 +75,7 @@ async function _applyBwProfile(targetPc) {
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 const host = location.host;
 let ws, pc, myId = sessionStorage.getItem('ns_viewer_id');
+let _reconnectTimer = null;
 let viewerRegion = '';
 let smartDb = {};
 window.smartDb = smartDb;
@@ -100,6 +101,22 @@ let _autoJoinedVps = false;
 // which is perfectly fine. If we are on the VPS, it connects and instantly checks state.
 const urlParamsGlobal = new URLSearchParams(window.location.search);
 const standbyWs = new WebSocket(`${proto}://${host}/vps?standby=true`);
+
+// ?preview=1 opens standalone lobby preview window
+if (urlParamsGlobal.has('preview')) {
+    import('./lobby.js').then(m => {
+        const w = window.open('', 'lobbyPreview', 'width=960,height=540,left=100,top=100,resizable=yes');
+        if (w) {
+            w.document.title = 'Nearsec Lobby Preview';
+            w.document.body.style.margin = '0'; w.document.body.style.background = '#000';
+            w.document.body.style.overflow = 'hidden';
+            const c = w.document.createElement('canvas');
+            c.width = 960; c.height = 540; c.style.cssText = 'width:100%;height:100%;display:block;';
+            w.document.body.appendChild(c);
+            m.runDesktopPreview(c);
+        }
+    });
+}
 standbyWs.onmessage = (e) => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
@@ -150,6 +167,20 @@ function requestKeyframeFromHost() {
     if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-keyframe', viewerId: typeof myId !== 'undefined' ? myId : null }));
 }
 
+window.forceReloadStream = function() {
+    if (!ws || ws.readyState !== 1) return;
+    if (window.wcDecoder) {
+        // In VPS SFU / WebCodecs mode, request a fresh IDR keyframe
+        window.nsWaitKey = true;
+        requestKeyframeFromHost();
+        console.log('[Viewer] Forced WebCodecs keyframe request.');
+    } else {
+        // In WebRTC mode, trigger a full SDP renegotiation
+        ws.send(JSON.stringify({ type: 'request-offer' }));
+        console.log('[Viewer] Forced WebRTC offer request.');
+    }
+};
+
 function recoverWebCodecsDecoder() {
     window.nsWaitKey = true;
     requestKeyframeFromHost();
@@ -162,7 +193,7 @@ let nextAudioTime = 0;
 let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
 document.getElementById('nameInput').value = myName;
 if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
-let enteredPin = '', audioMuted = false;
+let enteredPin = '', enteredPassword = '', audioMuted = false;
 let kbEnabled = false;
 
 // ── VOICE CHAT STATE ──────────────────────────────────────────────────────────
@@ -182,18 +213,45 @@ let vadTalkingTimer = null;
 let vadIsTalking = false;
 // ─────────────────────────────────────────────────────────────────────────────
 // ── WebCodecs Globals ──
-// USE_WEBCODECS: true when launched with --webcodecs flag (?wc=1 in URL).
+// USE_WEBCODECS: true when launched with --webcodecs flag (?wc=1 or ?wc=2 in URL).
 // In this mode the DataChannel pipeline is the primary renderer; the WebRTC
 // video track is still received (for timing / signalling parity) but is
 // immediately muted and never shown.
-const USE_WEBCODECS = new URLSearchParams(location.search).get('wc') === '1';
+const _wcFlag = new URLSearchParams(location.search).get('wc');
+const USE_WEBCODECS = _wcFlag === '1' || _wcFlag === '2';
+const CUSTOM_WEBCODECS = _wcFlag === '2';
 
 let wcDecoder = null;
 // Pre-wire to the canvas already in index.html so initWebCodecsViewer never
 // creates a duplicate element.
 let wcCanvas = document.getElementById('webcodecs-canvas') || null;
-let wcCtx = wcCanvas ? wcCanvas.getContext('2d', { alpha: false }) : null;
-
+let wcCtx = null;
+let wcGlTexture = null;
+function _setupWebGL(gl) {
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, 'attribute vec2 p; attribute vec2 t; varying vec2 v; void main(){gl_Position=vec4(p,0,1);v=t;}');
+    gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, 'precision mediump float; uniform sampler2D s; varying vec2 v; void main(){gl_FragColor=texture2D(s,v);}');
+    gl.compileShader(fs);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,0,1, 1,-1,1,1, -1,1,0,0, 1,1,1,0]), gl.STATIC_DRAW);
+    const pLoc = gl.getAttribLocation(prog, 'p'), tLoc = gl.getAttribLocation(prog, 't');
+    gl.enableVertexAttribArray(pLoc); gl.enableVertexAttribArray(tLoc);
+    gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(tLoc, 2, gl.FLOAT, false, 16, 8);
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    return tex;
+}
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
 const CLIENT_VERSION = window.NEARSEC_VERSION || '1.0.0';
 
@@ -220,6 +278,7 @@ function acknowledgeControllerGuide() {
 function maybeShowControllerGuide() {
     if (!_nsHostConnected) return;
     if (sessionStorage.getItem(CONTROLLER_GUIDE_STORAGE_KEY)) return;
+    if (knownNativePads.length > 0) return; // Native controllers are auto-mapped and bypass browser Gamepad API
 
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let needsCalib = false;
@@ -281,7 +340,16 @@ async function createPC() {
 
     pc.onconnectionstatechange = () => {
         console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
-        if (pc.connectionState === 'failed') setStatus('Connection failed. Retrying...');
+        if (pc.connectionState === 'failed') {
+            console.warn('[WebRTC] Connection failed — requesting fresh offer in 1s...');
+            setStatus('Connection failed. Retrying...');
+            clearTimeout(_reconnectTimer);
+            _reconnectTimer = setTimeout(() => {
+                if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
+                    ws.send(JSON.stringify({ type: 'request-offer' }));
+                }
+            }, 1000);
+        }
         if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
     };
     pc.oniceconnectionstatechange = () => console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
@@ -304,8 +372,7 @@ async function createPC() {
                 // the WebRTC engine happy (RTCP feedback, etc.) — never shown.
                 const sink = document.getElementById('video');
                 if (sink) {
-                    if (!sink.srcObject) sink.srcObject = new MediaStream();
-                    sink.srcObject.addTrack(e.track);
+                    sink.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
                     sink.style.display = 'none';
                 }
                 // Show the WebCodecs canvas layer; decoder will be configured
@@ -320,8 +387,8 @@ async function createPC() {
             const videoEl = document.getElementById('video');
             if (videoEl) {
                 videoEl.muted = true; // Required by Chrome/Safari to allow dynamic autoplay
-                if (!videoEl.srcObject) videoEl.srcObject = new MediaStream();
-                videoEl.srcObject.addTrack(e.track);
+                videoEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                videoEl.play().catch(err => console.warn('[WebRTC] video.play() exception:', err));
                 videoEl.onplaying = () => {
                     if (typeof showOverlay === 'function') showOverlay(false);
                     setStatus('');
@@ -343,8 +410,8 @@ async function createPC() {
                 audioEl.autoplay = true;
                 document.body.appendChild(audioEl);
             }
-            if (!audioEl.srcObject) audioEl.srcObject = new MediaStream();
-            audioEl.srcObject.addTrack(e.track);
+            audioEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+            audioEl.play().catch(e => console.warn('[WebRTC] Audio blocked:', e));
             audioEl.muted = (typeof audioMuted !== 'undefined' ? audioMuted : false);
             audioEl.volume = (typeof _audioPrefs !== 'undefined' && _audioPrefs.streamVol !== undefined) ? _audioPrefs.streamVol : 1.0;
             console.log('[WebRTC] Audio stream attached to dedicated #remote-audio element');
@@ -744,13 +811,36 @@ function refreshTalkingOverlayVisibility() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CODEC_PRIORITY = ['video/H264', 'video/VP8'];
-function preferReceiverCodec(transceiver) {
+function preferReceiverCodec(transceiver, preferredMime) {
     const caps = RTCRtpReceiver.getCapabilities?.('video');
     if (!caps || !transceiver) return null;
-    const sorted = [
-        ...CODEC_PRIORITY.flatMap(mime => caps.codecs.filter(c => c.mimeType === mime)),
-        ...caps.codecs.filter(c => !CODEC_PRIORITY.includes(c.mimeType))
-    ];
+    let priority = CODEC_PRIORITY;
+    if (preferredMime) {
+        priority = [preferredMime, ...CODEC_PRIORITY.filter(c => c.toLowerCase() !== preferredMime.toLowerCase())];
+    }
+    
+    let codecs = [...caps.codecs];
+    let reordered = [];
+    
+    // We iterate through our priority list and splice out the matching codec (and its RTX payload if present)
+    // to build our strictly compliant preferred list, keeping the remaining codecs in their exact original order.
+    for (const mime of priority) {
+        let targetIdx = -1;
+        if (mime.toLowerCase() === 'video/h264') {
+            targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === 'video/h264' && c.sdpFmtpLine && c.sdpFmtpLine.includes('42e01f'));
+        }
+        if (targetIdx === -1) {
+            targetIdx = codecs.findIndex(c => c.mimeType.toLowerCase() === mime.toLowerCase());
+        }
+        
+        if (targetIdx !== -1) {
+            let count = 1;
+            if (codecs[targetIdx + 1] && codecs[targetIdx + 1].mimeType.toLowerCase() === 'video/rtx') count = 2;
+            reordered.push(...codecs.splice(targetIdx, count));
+        }
+    }
+
+    const sorted = [...reordered, ...codecs];
     try { transceiver.setCodecPreferences(sorted); return sorted[0]?.mimeType || null; } catch { return null; }
 }
 
@@ -842,25 +932,26 @@ const mouseMap = { 0: 'BTN_LEFT', 1: 'BTN_MIDDLE', 2: 'BTN_RIGHT' };
 // ── Fast-Lane Input Dispatcher ────────────────────────────────────────────────
 // Tries WebRTC DataChannel first (zero-latency), falls back to inputWs, then ws.
 function sendInputData(data) {
-    const str = typeof data === 'string' ? data : JSON.stringify(data);
+    const isBin = data instanceof Uint8Array || data instanceof ArrayBuffer;
+    const str = isBin ? null : (typeof data === 'string' ? data : JSON.stringify(data));
     
     // 1. WebTransport Unreliable Datagrams (VPS Fast Lane)
     if (window.wtInputWriter) {
         try {
-            window.wtInputWriter.write(new TextEncoder().encode(str));
+            window.wtInputWriter.write(isBin ? data : new TextEncoder().encode(str));
             return;
         } catch (_) { }
     }
 
     // 2. WebRTC DataChannel (P2P Fast Lane)
     if (window._fastLaneChannel && window._fastLaneChannel.readyState === 'open') {
-        try { window._fastLaneChannel.send(str); return; } catch (_) { }
+        try { window._fastLaneChannel.send(isBin ? data : str); return; } catch (_) { }
     }
     if (inputWs && inputWs.readyState === 1) {
-        inputWs.send(str); return;
+        inputWs.send(isBin ? data : str); return;
     }
     if (ws && ws.readyState === 1) {
-        ws.send(str);
+        ws.send(isBin ? data : str);
     }
 }
 
@@ -900,6 +991,41 @@ document.addEventListener('keyup', e => { if (!document.pointerLockElement) retu
 document.addEventListener('mousemove', e => { if (!document.pointerLockElement) return; sendKbm({ event: 'mousemove', dx: e.movementX, dy: e.movementY }); });
 document.addEventListener('mousedown', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keydown', key: mouseMap[e.button] }); });
 document.addEventListener('mouseup', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keyup', key: mouseMap[e.button] }); });
+
+// ── EXPERIMENTAL TABLET SUPPORT ───────────────────────────────────────────────
+function handleTabletEvent(e) {
+    if (e.pointerType !== 'pen') return;
+    
+    let targetEl = (typeof wcCanvas !== 'undefined' && wcCanvas.style.display !== 'none') ? wcCanvas : 
+                   (typeof video !== 'undefined' && video.style.display !== 'none') ? video : 
+                   (typeof frameCanvas !== 'undefined' ? frameCanvas : null);
+                   
+    if (!targetEl) return;
+    const bounds = targetEl.getBoundingClientRect();
+    
+    // Normalize coordinates (0.0 to 1.0) relative to the video frame
+    const nx = (e.clientX - bounds.left) / bounds.width;
+    const ny = (e.clientY - bounds.top) / bounds.height;
+    
+    // Clamp so the pen doesn't draw way off screen
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+    
+    e.preventDefault(); // Stop standard mouse click emulation
+    sendInputData(JSON.stringify({
+        type: 'tablet',
+        x: nx,
+        y: ny,
+        pressure: e.pressure,
+        tiltX: e.tiltX || 0,
+        tiltY: e.tiltY || 0
+    }));
+}
+// Use passive: false so we can e.preventDefault() to stop normal mouse panning
+document.addEventListener('pointerdown', handleTabletEvent, { passive: false });
+document.addEventListener('pointermove', handleTabletEvent, { passive: false });
+document.addEventListener('pointerup', handleTabletEvent, { passive: false });
+
+
 
 // ── TOUCH ─────────────────────────────────────────────────────────────────────
 let touchMode = false, useGyro = false;
@@ -1102,7 +1228,7 @@ function applyCalibration(gp, state) {
 }
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
-let gpPolling = false, lastGpSend = {};
+let gpPolling = false, lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
 let gpDeadzones = {};
 let sentGpid = new Set();
@@ -1112,8 +1238,8 @@ function activateGamepad() {
     gpPolling = true;
     const pmt = document.getElementById('gpPrompt');
     if (pmt) { pmt.classList.add('active'); pmt.textContent = 'Grab A Gamepad!'; }
-    // 4ms interval (250 Hz) for maximum competitive fighting game precision
-    setInterval(pollGamepad, 4);
+    // 1ms interval (1000 Hz) for maximum competitive precision / lowest input latency
+    setInterval(pollGamepad, 1);
 }
 
 let knownNativePads = [];
@@ -1130,7 +1256,7 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
             maybeShowControllerGuide();
         } else if (msg.type === 'gamepad_state') {
             const vIndex = msg.index + 100;
-            const state = { type: 'gamepad', padIndex: vIndex, axes: msg.state.axes, buttons: msg.state.buttons };
+            const state = { type: 'gamepad', viewerId: myId, pad_id: myId + '_' + vIndex, padIndex: vIndex, axes: msg.state.axes, buttons: msg.state.buttons };
             const str = JSON.stringify(state);
             const now = Date.now();
             const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
@@ -1142,9 +1268,112 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
     window.electronAPI.startNativeGamepadCapture();
 }
 
+window.currentInputMode = 'gamepad';
+let eyeTrackerCam = null;
+let eyeTrackerFaceMesh = null;
+
+window.updateInputMode = function(val) { 
+    window.currentInputMode = val; 
+    console.log('[InputMode] Switched to:', val);
+    
+    if (val === 'eyetracking') {
+        startEyeTracking();
+    } else {
+        stopEyeTracking();
+    }
+};
+
+function startEyeTracking() {
+    if (eyeTrackerCam) return;
+    console.log('[EyeTrack] Starting MediaPipe FaceMesh...');
+    
+    const videoElement = document.createElement('video');
+    videoElement.style.display = 'none';
+    videoElement.setAttribute('autoplay', '');
+    videoElement.setAttribute('playsinline', '');
+    document.body.appendChild(videoElement);
+
+    if (typeof FaceMesh === 'undefined') {
+        alert("FaceMesh library is not loaded. Ensure you have an internet connection.");
+        return;
+    }
+
+    eyeTrackerFaceMesh = new FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+    
+    eyeTrackerFaceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    
+    eyeTrackerFaceMesh.onResults(onFaceMeshResults);
+
+    eyeTrackerCam = new Camera(videoElement, {
+        onFrame: async () => {
+            if (eyeTrackerFaceMesh) {
+                await eyeTrackerFaceMesh.send({image: videoElement});
+            }
+        },
+        width: 640,
+        height: 480
+    });
+    eyeTrackerCam.start();
+    eyeTrackerCam.videoElement = videoElement;
+}
+
+function stopEyeTracking() {
+    if (eyeTrackerCam) {
+        console.log('[EyeTrack] Stopping MediaPipe FaceMesh...');
+        eyeTrackerCam.stop();
+        if (eyeTrackerCam.videoElement) {
+            eyeTrackerCam.videoElement.srcObject?.getTracks().forEach(t => t.stop());
+            eyeTrackerCam.videoElement.remove();
+        }
+        eyeTrackerCam = null;
+    }
+    if (eyeTrackerFaceMesh) {
+        eyeTrackerFaceMesh.close();
+        eyeTrackerFaceMesh = null;
+    }
+}
+
+function onFaceMeshResults(results) {
+    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+    
+    const landmarks = results.multiFaceLandmarks[0];
+    const nose = landmarks[1];
+    const leftEye = landmarks[33];
+    const rightEye = landmarks[263];
+    const chin = landmarks[152];
+    
+    const px = (nose.x - 0.5) * 200;
+    const py = (nose.y - 0.5) * 200;
+    const pz = nose.z * -1000;
+    
+    const yaw = Math.atan2(rightEye.z - leftEye.z, rightEye.x - leftEye.x) * (180/Math.PI);
+    const pitch = Math.atan2(chin.z - nose.z, chin.y - nose.y) * (180/Math.PI) - 15;
+    const roll = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * (180/Math.PI);
+
+    const eyeState = {
+        type: 'eyetracking',
+        viewerId: myId,
+        x: px, y: py, z: pz,
+        yaw: yaw, pitch: pitch, roll: roll
+    };
+    
+    sendInputData(JSON.stringify(eyeState));
+}
+
 function pollGamepad() {
     if (!gpPolling) return;
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    
+    // If native Python backends are supplying inputs, ignore browser Gamepad API to prevent ghost inputs
+    if (knownNativePads.length > 0) pads = [];
+
     const now = Date.now();
     
     // 1. Find the best device (Standard Gamepad > Any Gamepad > Touch)
@@ -1227,11 +1456,101 @@ function pollGamepad() {
         changed = true; // Gyro is continuously sending
     }
 
+    if (window.currentInputMode === 'guitar') {
+        const guitarState = {
+            type: 'guitar',
+            viewerId: myId,
+            pad_id: myId + '_' + vIndex,
+            frets: [
+                state.buttons[0].pressed ? 1 : 0,
+                state.buttons[1].pressed ? 1 : 0,
+                state.buttons[3].pressed ? 1 : 0,
+                state.buttons[2].pressed ? 1 : 0,
+                state.buttons[4].pressed ? 1 : 0
+            ],
+            strum: (state.buttons[12].pressed || state.axes[1] < -16000) ? 1 : ((state.buttons[13].pressed || state.axes[1] > 16000) ? -1 : 0),
+            whammy: 0,
+            star: state.buttons[5].pressed ? 1 : 0,
+            start: state.buttons[9].pressed ? 1 : 0,
+            select: state.buttons[8].pressed ? 1 : 0
+        };
+        
+        if (state.buttons[6].value > 0) {
+            guitarState.whammy = state.buttons[6].value / 255.0;
+        } else if (state.buttons[7].value > 0) {
+            guitarState.whammy = state.buttons[7].value / 255.0;
+        } else if (Math.abs(state.axes[2]) > 4000) {
+            guitarState.whammy = (state.axes[2] + 32767) / 65534.0;
+        } else if (Math.abs(state.axes[3]) > 4000) {
+            guitarState.whammy = (state.axes[3] + 32767) / 65534.0;
+        }
+
+        const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
+        if (changed || forceHb) {
+            lastGpSend[vIndex] = now;
+            sendInputData(JSON.stringify(guitarState));
+        }
+        return;
+    }
+
+    if (window.currentInputMode === 'hotas') {
+        const hotasState = {
+            type: 'hotas',
+            viewerId: myId,
+            pad_id: myId + '_' + vIndex,
+            axes: state.axes.map(a => Math.max(-1.0, Math.min(1.0, a / 32767.0))),
+            buttons: state.buttons.map(b => (b.pressed || b.value > 127) ? 1 : 0),
+            hatX: (state.buttons[15]?.pressed ? 1 : (state.buttons[14]?.pressed ? -1 : 0)),
+            hatY: (state.buttons[13]?.pressed ? 1 : (state.buttons[12]?.pressed ? -1 : 0))
+        };
+        const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
+        if (changed || forceHb) {
+            lastGpSend[vIndex] = now;
+            sendInputData(JSON.stringify(hotasState));
+        }
+        return;
+    }
+
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
     if (changed || forceHb) {
         lastGpSend[vIndex] = now;
-        sendInputData(JSON.stringify(state));
+        sendInputData(_packGamepadBinary(vIndex, state));
     }
+}
+
+function _packGamepadBinary(vIndex, state) {
+    const buf = new Uint8Array(14);
+    const view = new DataView(buf.buffer);
+    buf[0] = 0x01; // PKT::GAMEPAD
+    buf[1] = vIndex;
+    
+    let btnMask = 0;
+    if (state.buttons[0]?.pressed) btnMask |= 0x0001;
+    if (state.buttons[1]?.pressed) btnMask |= 0x0002;
+    if (state.buttons[2]?.pressed) btnMask |= 0x0004;
+    if (state.buttons[3]?.pressed) btnMask |= 0x0008;
+    if (state.buttons[4]?.pressed) btnMask |= 0x0100;
+    if (state.buttons[5]?.pressed) btnMask |= 0x0200;
+    if (state.buttons[8]?.pressed) btnMask |= 0x2000;
+    if (state.buttons[9]?.pressed) btnMask |= 0x1000;
+    if (state.buttons[10]?.pressed) btnMask |= 0x0400;
+    if (state.buttons[11]?.pressed) btnMask |= 0x0800;
+    if (state.buttons[12]?.pressed) btnMask |= 0x0010;
+    if (state.buttons[13]?.pressed) btnMask |= 0x0020;
+    if (state.buttons[14]?.pressed) btnMask |= 0x0040;
+    if (state.buttons[15]?.pressed) btnMask |= 0x0080;
+    if (state.buttons[16]?.pressed) btnMask |= 0x4000;
+
+    view.setUint16(2, btnMask, true);
+    view.setInt16(4, state.axes[0] || 0, true);
+    view.setInt16(6, state.axes[1] || 0, true);
+    view.setInt16(8, state.axes[2] || 0, true);
+    view.setInt16(10, state.axes[3] || 0, true);
+    
+    buf[12] = state.buttons[6]?.value || 0;
+    buf[13] = state.buttons[7]?.value || 0;
+    
+    return buf;
 }
 
 ['click', 'touchstart', 'keydown'].forEach(ev => document.addEventListener(ev, () => { if (!gpPolling) activateGamepad(); }, { once: true, passive: true }));
@@ -1294,7 +1613,7 @@ function connectInputWS() {
     if (inputWs && inputWs.readyState <= 1) return;
 
     const urlParams = new URLSearchParams(window.location.search);
-    const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
     if (useVps) return; // In VPS mode, all inputs flow cleanly over the main /vps WebSocket
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1327,6 +1646,24 @@ async function connect() {
         const roomCode = hostParam.replace('p2p://', '');
         console.log('[P2P] Initializing serverless connection to room:', roomCode);
         
+        if (typeof setStatus === 'function') setStatus('Discovering host via P2P network...');
+        if (document.getElementById('spinner')) document.getElementById('spinner').style.display = 'block';
+        if (typeof showOverlay === 'function') showOverlay(true);
+        
+        // Provide progressive feedback for long P2P discovery times
+        window._p2pProgression1 = setTimeout(() => {
+            const current = document.getElementById('status')?.innerText || '';
+            if (current.includes('Discovering') && typeof setStatus === 'function') {
+                setStatus('Scanning trackers for host session...');
+            }
+        }, 7000);
+        window._p2pProgression2 = setTimeout(() => {
+            const current = document.getElementById('status')?.innerText || '';
+            if (current.includes('Scanning') && typeof setStatus === 'function') {
+                setStatus('Still searching, please wait...');
+            }
+        }, 14000);
+        
         // Emulate WebSocket interface for P2PManager
         ws = {
             readyState: 1,
@@ -1340,8 +1677,14 @@ async function connect() {
                     window.P2PManager.sendToHost(msg);
                 }
             },
-            close: () => {
-                console.log('[P2P] Disconnecting from room');
+            close: function(code = 1000, reason = '') {
+                console.log(`[P2P] Disconnecting from room (${code})`);
+                if (window.P2PManager && window.P2PManager.room) {
+                    try { window.P2PManager.room.leave(); } catch (e) { }
+                }
+                if (typeof this.onclose === 'function') {
+                    this.onclose({ code, reason });
+                }
             }
         };
 
@@ -1351,40 +1694,43 @@ async function connect() {
                     ws.onmessage({ data: JSON.stringify(msg) });
                 }
             }, () => {
+                clearTimeout(window._p2pProgression1);
+                clearTimeout(window._p2pProgression2);
+                if (typeof setStatus === 'function') setStatus('Host found, negotiating P2P connection...');
                 if (typeof ws.onopen === 'function') ws.onopen();
             });
         }
         stopReconnect = false;
-        return;
-    }
+    } else {
+        // Always use /vps for the public domain or if v3 is forced
+        const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+        let wsUrl = useVps
+            ? `${proto}://${host}/vps`
+            : `${proto}://${host}/ws/viewer`;
 
-    // Always use /vps for the public domain or if v3 is forced
-    const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
-    let wsUrl = useVps
-        ? `${proto}://${host}/vps`
-        : `${proto}://${host}/ws/viewer`;
+        if (enteredPin) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `pin=${encodeURIComponent(enteredPin)}`;
+        if (enteredPassword) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `password=${encodeURIComponent(enteredPassword)}`;
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
+        stopReconnect = false;
 
-    if (enteredPin) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `pin=${encodeURIComponent(enteredPin)}`;
-    ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    stopReconnect = false;
-
-    // ── EXPERIMENTAL WEBTRANSPORT CLIENT ──────────────────────────────────────
-    const wtRequested = urlParams.get('wt') === '1' || urlParams.get('pipeline') === 'webtransport';
-    if (useVps && wtRequested && 'WebTransport' in window) {
-        try {
-            const wtUrl = `https://${host}:4433/wt`;
-            const wt = new WebTransport(wtUrl);
-            wt.ready.then(() => {
-                console.log('[WebTransport] Connected to UDP datagram router.');
-                window.wtInputWriter = wt.datagrams.writable.getWriter();
-            }).catch(e => console.warn('[WebTransport] Handshake failed, falling back to WS:', e));
-            wt.closed.then(() => { 
-                window.wtInputWriter = null; 
-                console.log('[WebTransport] Session closed.'); 
-            }).catch(()=>{});
-        } catch (e) {
-            console.warn('[WebTransport] Setup error:', e);
+        // ── EXPERIMENTAL WEBTRANSPORT CLIENT ──────────────────────────────────────
+        const wtRequested = urlParams.get('wt') === '1' || urlParams.get('pipeline') === 'webtransport';
+        if (useVps && wtRequested && 'WebTransport' in window) {
+            try {
+                const wtUrl = `https://${host}:4433/wt`;
+                const wt = new WebTransport(wtUrl);
+                wt.ready.then(() => {
+                    console.log('[WebTransport] Connected to UDP datagram router.');
+                    window.wtInputWriter = wt.datagrams.writable.getWriter();
+                }).catch(e => console.warn('[WebTransport] Handshake failed, falling back to WS:', e));
+                wt.closed.then(() => { 
+                    window.wtInputWriter = null; 
+                    console.log('[WebTransport] Session closed.'); 
+                }).catch(()=>{});
+            } catch (e) {
+                console.warn('[WebTransport] Setup error:', e);
+            }
         }
     }
 
@@ -1518,25 +1864,55 @@ async function connect() {
                 if (pillEl) pillEl.style.display = '';
                 document.title = 'Nearsec — ' + msg.hostName;
             }
-            setTimeout(() => ws?.readyState === 1 && ws.send(JSON.stringify({ type: 'request-offer' })), 800);
+            // CRITICAL FIX: Do NOT send request-offer unconditionally here.
+            // The Host already automatically sends an offer when 'viewer-joined' is received.
+            // Sending request-offer causes a duplicate 'viewer-joined' trigger on the Host,
+            // which forces the Host to destroy the active RTCPeerConnection and start over,
+            // resulting in 'User-Initiated Abort' / DataChannel disconnect loops!
             return;
         }
         if (msg.type === 'tunnel-url') return;
 
         if (msg.type === 'offer') {
+            clearTimeout(_reconnectTimer);
             if (pc) { try { pc.close(); } catch { } pc = null; }
             await createPC();
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                 pc._remoteSet = true;
+
+                // Apply receiver codec preferences AFTER remote description is set
+                // so transceivers already exist. We prioritize the host's requested codec.
+                pc.getTransceivers().forEach(t => {
+                    if (t.receiver?.track?.kind === 'video') {
+                        let preferredMime = null;
+                        if (msg.codec === 'av1') preferredMime = 'video/AV1';
+                        else if (msg.codec === 'hevc' || msg.codec === 'h265') preferredMime = 'video/H265';
+                        else if (msg.codec === 'vp8') preferredMime = 'video/VP8';
+                        else if (msg.codec === 'vp9') preferredMime = 'video/VP9';
+                        else if (msg.codec === 'h264') preferredMime = 'video/H264';
+                        preferReceiverCodec(t, preferredMime);
+                    }
+                });
+
                 for (const c of (pc._iceBuf || [])) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { } }
                 pc._iceBuf = [];
                 const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
+                // ── LOW-LATENCY SDP MUNGING (answer side) ──
+                let ansSdp = answer.sdp;
+                ansSdp = ansSdp.replace(/(a=rtpmap:\d+ opus\/48000\/2)/g, '$1\na=ptime:1\na=maxptime:1');
+                await pc.setLocalDescription({ type: answer.type, sdp: ansSdp });
                 ws.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription }));
                 // Apply bandwidth profile now that transceivers are negotiated
                 _applyBwProfile(pc);
-            } catch (err) { console.error('[webrtc] offer error:', err.message); try { pc.close(); } catch { } pc = null; }
+            } catch (err) {
+                console.error('[webrtc] offer error:', err.message, '— SDP snippet:', msg.sdp?.sdp?.slice(0, 300));
+                try { pc.close(); } catch { } pc = null;
+                // Retry with a fresh request-offer in case it was a transient failure
+                setTimeout(() => {
+                    if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
+                }, 2000);
+            }
             return;
         }
         if (msg.type === 'ice-host' && msg.candidate) {
@@ -1549,7 +1925,7 @@ async function connect() {
         if (msg.type === 'pin-rejected' || msg.type === 'kick') {
             stopReconnect = true;
             if (pc) { try { pc.close(); } catch {} pc = null; }
-            ws.close();
+            ws.close(msg.type === 'kick' ? 4003 : 4001, msg.type.toUpperCase());
             
             if (msg.reason === 'kicked' || msg.type === 'kick') {
                 alert('You have been kicked by the Host.');
@@ -1557,7 +1933,7 @@ async function connect() {
                 document.body.innerHTML = '<div style="color:white;text-align:center;margin-top:20vh;font-family:sans-serif;"><h2>Disconnected</h2><p>You have been kicked by the host.</p></div>';
             } else {
                 document.getElementById('pinScreen').classList.remove('gone');
-                document.getElementById('pinErr').textContent = 'Incorrect PIN.';
+                document.getElementById('pinErr').textContent = enteredPin ? 'Incorrect PIN.' : 'PIN Required.';
                 document.getElementById('pinInput').value = '';
             }
             return;
@@ -1702,6 +2078,31 @@ async function connect() {
         }
         if (msg.type === 'ctrl-settings') {
             hostMotionEnabled = msg.enableMotion;
+            window.hostAllowVR = msg.expDevices && msg.expDevices.some(d => d.enabled && d.val === 'vr');
+            if (typeof maybeShowVRButton === 'function') maybeShowVRButton();
+            
+            if (msg.expDevices) {
+                const select = document.getElementById('inputModeSelect');
+                if (select) {
+                    const currentVal = select.value;
+                    let html = '<option value="gamepad">Standard Gamepad</option>';
+                    const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
+                    if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
+                    if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
+                    if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
+                    if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
+                    
+                    select.innerHTML = html;
+                    
+                    if (Array.from(select.options).some(o => o.value === currentVal)) {
+                        select.value = currentVal;
+                    } else {
+                        select.value = 'gamepad';
+                        if (window.updateInputMode) window.updateInputMode('gamepad');
+                    }
+                }
+            }
+            
             const hBtn = document.getElementById('hidBtn');
             if (hBtn) hBtn.style.display = hostMotionEnabled ? 'block' : 'none';
             if (msg.touchLayout) {
@@ -1758,9 +2159,18 @@ async function connect() {
                     const baseId = v.id.split('_')[0];
                     if (!seen.has(baseId)) {
                         seen.add(baseId);
-                        if (!hostAdded) { listEl.innerHTML += `<div class="roster-item"><span>👑 Host</span><span class="roster-badge">Streaming</span></div>`; hostAdded = true; }
+                        if (!hostAdded) {
+                            const hostItem = document.createElement('div');
+                            hostItem.className = 'roster-item';
+                            hostItem.innerHTML = '<span> Host</span><span class="roster-badge">Streaming</span>';
+                            listEl.appendChild(hostItem);
+                            hostAdded = true;
+                        }
                         const isMe = baseId === myId;
-                        listEl.innerHTML += `<div class="roster-item${isMe ? ' roster-me' : ''}">${v.name.replace(/ \d+$/, '')} ${isMe ? '(You)' : ''}</div>`;
+                        const viewerItem = document.createElement('div');
+                        viewerItem.className = 'roster-item' + (isMe ? ' roster-me' : '');
+                        viewerItem.textContent = (v.name || '').replace(/ \d+$/, '') + (isMe ? ' (You)' : '');
+                        listEl.appendChild(viewerItem);
                     }
                 });
             }
@@ -1768,24 +2178,38 @@ async function connect() {
         }
     };
 
-    ws.onclose = event => {
-        const AUTH_CODES = new Set([4001, 4002, 4003]);
-        if (AUTH_CODES.has(event.code) || stopReconnect) {
-            document.getElementById('pinScreen').classList.remove('gone');
-            const errEl = document.getElementById('pinErr');
-            if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
-            document.getElementById('pinInput').value = '';
-            enteredPin = ''; stopReconnect = false; return;
-        }
-        setTimeout(connect, 2000);
-    };
+    ws.onclose = (function(thisWs) {
+        return function(event) {
+            // If this socket is no longer the active one (connect() already replaced it),
+            // do NOT schedule another reconnect — that's what causes the cascade loop.
+            if (ws !== thisWs) return;
+
+            const AUTH_CODES = new Set([4001, 4002, 4003, 4004]);
+            if (AUTH_CODES.has(event.code) || stopReconnect) {
+                if (event.code === 4004) {
+                    // Wrong session password — show the password input, not the PIN screen
+                    const pwScreen = document.getElementById('passwordScreen');
+                    const pwErr = document.getElementById('passwordErr');
+                    if (pwScreen) pwScreen.classList.remove('gone');
+                    if (pwErr) pwErr.textContent = 'Incorrect session password.';
+                } else {
+                    document.getElementById('pinScreen').classList.remove('gone');
+                    const errEl = document.getElementById('pinErr');
+                    if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
+                    document.getElementById('pinInput').value = '';
+                }
+                enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
+            }
+            setTimeout(connect, 2000);
+        };
+    })(ws);
 }
 
 // pinRequired is declared early at the top of the file.
 // For local (non-VPS) servers, check the HTTP API on load.
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
-    const useVps = location.hostname === 'publicnearsec.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
     if (!useVps) {
         safeApiJson('/api/pin-required', { required: true }).then(d => {
             pinRequired = d.required !== false;
@@ -1802,11 +2226,8 @@ function submitPin() {
     const nameVal = document.getElementById('nameInput').value.trim();
     if (nameVal) { myName = nameVal; localStorage.setItem('ns_name', myName); }
     const val = document.getElementById('pinInput').value.trim();
-    if (pinRequired && val.length !== 4) {
-        document.getElementById('pinErr').textContent = 'Enter 4 digits';
-        return;
-    } else if (!pinRequired && val.length > 0 && val.length !== 4) {
-        document.getElementById('pinErr').textContent = 'Enter 4 digits';
+    if (pinRequired && val.length === 0) {
+        document.getElementById('pinErr').textContent = 'PIN / Password required';
         return;
     }
     enteredPin = val;
@@ -1836,11 +2257,8 @@ function submitSessionPassword() {
     if (errEl) errEl.textContent = '';
     document.getElementById('pinScreen')?.classList.add('gone');
 
-    // Reconnect with password as query param
-    const sep = (typeof wsUrl !== 'undefined' && wsUrl.includes('?')) ? '&' : '?';
-    if (typeof wsUrl !== 'undefined') {
-        wsUrl = wsUrl.replace(/[?&]password=[^&]*/g, '') + sep + 'password=' + encodeURIComponent(pw);
-    }
+    // Reconnect with password
+    enteredPassword = pw;
     setTimeout(connect, 200);
 }
 
@@ -1855,7 +2273,11 @@ function appendChat(name, text, isMe) {
     }
     const d = document.createElement('div');
     d.className = 'cmsg';
-    d.innerHTML = `<span class="cname${isMe ? ' me' : ''}">${name}</span>${text}`;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'cname' + (isMe ? ' me' : '');
+    nameSpan.textContent = name;
+    d.appendChild(nameSpan);
+    d.appendChild(document.createTextNode(text));
     el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
 function sendChat() {
@@ -1946,7 +2368,47 @@ async function updateStats() {
         }
     } catch { }
 }
-setInterval(updateStats, 2000);
+setInterval(updateStats, 500);
+
+// ── LOW-LATENCY ENFORCEMENT: Proactive buffer drain ──
+// Runs every 500ms. Uses jitterBufferTarget + playoutDelayHint to force the
+// browser's WebRTC stack to minimize the jitter buffer. playbackRate acts as
+// a secondary mechanism when the browser ignores the hints.
+let _prevJitterBufMs = 0;
+setInterval(async () => {
+    if (!pc || pc.connectionState !== 'connected') return;
+    // Force minimum jitter buffer on all video receivers
+    pc.getReceivers().forEach(r => {
+        if (r.track?.kind !== 'video') return;
+        try {
+            if ('playoutDelayHint' in r) r.playoutDelayHint = 0;
+            if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
+        } catch (_) {}
+    });
+    // Measure buffer and adjust playback rate as secondary drain mechanism
+    try {
+        const stats = await pc.getStats();
+        for (const r of stats.values()) {
+            if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                const emitted = r.jitterBufferEmittedCount || 1;
+                const delay = r.jitterBufferDelay || 0;
+                const bufMs = (delay / emitted) * 1000;
+                const videoEl = document.getElementById('video');
+                if (videoEl && !videoEl.paused) {
+                    if (bufMs < 5) videoEl.playbackRate = 1.0;
+                    else if (bufMs < 15) videoEl.playbackRate = 1.02;
+                    else if (bufMs < 30) videoEl.playbackRate = 1.08;
+                    else if (bufMs < 50) videoEl.playbackRate = 1.15;
+                    else videoEl.playbackRate = 1.25;
+                }
+                if (bufMs > 40 && bufMs > _prevJitterBufMs + 5) {
+                    requestKeyframeFromHost();
+                }
+                _prevJitterBufMs = bufMs;
+            }
+        }
+    } catch (_) {}
+}, 500);
 
 // ── FULLSCREEN ────────────────────────────────────────────────────────────────
 function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
@@ -2002,7 +2464,20 @@ function initWebCodecsViewer(config) {
         // Add CSS so the stream scales to fit the viewport instead of overflowing
         wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10; display: block; overflow: hidden;';
         document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
-        wcCtx = wcCanvas.getContext('2d', { alpha: false });
+        
+        if (CUSTOM_WEBCODECS) {
+            wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+            if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+        } else {
+            wcCtx = null;
+        }
+
+        if (wcCtx) {
+            wcGlTexture = _setupWebGL(wcCtx);
+        } else {
+            wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            wcGlTexture = null;
+        }
         
         // Ensure KBM pointer lock works on the experimental WebCodecs canvas
         if (typeof requestPointerLock === 'function') {
@@ -2029,7 +2504,16 @@ function initWebCodecsViewer(config) {
     window._wcResizeHandler();
 
     if (!wcCtx) {
-        wcCtx = wcCanvas.getContext('2d', { alpha: false });
+        if (CUSTOM_WEBCODECS) {
+            wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+            if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+        }
+        if (wcCtx) {
+            wcGlTexture = _setupWebGL(wcCtx);
+        } else {
+            wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            wcGlTexture = null;
+        }
     }
 
     // Clean up any existing decoder before creating a new one.
@@ -2054,9 +2538,16 @@ function initWebCodecsViewer(config) {
             if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
                 wcCanvas.width = frame.codedWidth;
                 wcCanvas.height = frame.codedHeight;
-                wcCtx = wcCanvas.getContext('2d', { alpha: false });
+                if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
             }
-            if (wcCtx) wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+            if (wcCtx && wcGlTexture) {
+                wcCtx.activeTexture(wcCtx.TEXTURE0);
+                wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
+                wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
+                wcCtx.drawArrays(wcCtx.TRIANGLE_STRIP, 0, 4);
+            } else if (wcCtx) {
+                wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+            }
             frame.close();
 
             if (_wcFirstFrame) {
@@ -2080,11 +2571,17 @@ function initWebCodecsViewer(config) {
     const decoderConfig = {
         codec: config.codec,
         codedWidth: config.codedWidth,
-        codedHeight: config.codedHeight
+        codedHeight: config.codedHeight,
+        optimizeForLatency: true
     };
 
     if (config.description) decoderConfig.description = new Uint8Array(config.description);
-    wcDecoder.configure(decoderConfig);
+    try {
+        wcDecoder.configure(decoderConfig);
+    } catch (_) {
+        delete decoderConfig.optimizeForLatency;
+        wcDecoder.configure(decoderConfig);
+    }
     console.log('[WebCodecs] Hardware Decoder Ready!');
 }
 
@@ -2158,9 +2655,18 @@ window.startNetStats = function() {
     clearInterval(netStatsInterval);
     let lastBytes = 0;
     let lastTime = 0;
+    let lastDecodeTime = 0;
+    let lastFramesDecoded = 0;
     netStatsInterval = setInterval(async () => {
         if (!pc) return;
         const stats = await pc.getStats();
+        let codecName = '--';
+        stats.forEach(report => {
+            if (report.type === 'codec' && report.mimeType && report.mimeType.startsWith('video/')) {
+                codecName = report.mimeType.split('/')[1];
+            }
+        });
+        
         stats.forEach(report => {
             if (report.type === 'inbound-rtp' && report.kind === 'video') {
                 if (lastTime && report.bytesReceived > lastBytes) {
@@ -2169,6 +2675,32 @@ window.startNetStats = function() {
                     if(el) el.textContent = kbps + ' kbps';
                 }
                 lastBytes = report.bytesReceived;
+                
+                const elCodec = document.getElementById('nsCodec');
+                if(elCodec) elCodec.textContent = codecName;
+                
+                if (report.frameWidth && report.frameHeight) {
+                    const elRes = document.getElementById('nsRes');
+                    if(elRes) elRes.textContent = `${report.frameWidth}x${report.frameHeight}`;
+                }
+                
+                if (report.framesPerSecond != null) {
+                    const elFps = document.getElementById('nsFps');
+                    if(elFps) elFps.textContent = report.framesPerSecond.toFixed(0);
+                }
+                
+                if (report.totalDecodeTime != null && report.framesDecoded != null) {
+                    if (lastFramesDecoded && report.framesDecoded > lastFramesDecoded) {
+                        const decodeDelta = report.totalDecodeTime - lastDecodeTime;
+                        const framesDelta = report.framesDecoded - lastFramesDecoded;
+                        const decodeLatencyMs = (decodeDelta / framesDelta) * 1000;
+                        const elDecode = document.getElementById('nsDecode');
+                        if (elDecode) elDecode.textContent = decodeLatencyMs.toFixed(1) + ' ms';
+                    }
+                    lastDecodeTime = report.totalDecodeTime;
+                    lastFramesDecoded = report.framesDecoded;
+                }
+                
                 lastTime = report.timestamp;
                 if (report.packetsLost != null && report.packetsReceived != null) {
                     const total = report.packetsLost + report.packetsReceived;
@@ -2187,3 +2719,150 @@ window.startNetStats = function() {
         });
     }, 1000);
 };
+
+// ── WEBXR (VR) INPUT POLLING ──────────────────────────────────────────────────
+let xrSession = null;
+let xrRefSpace = null;
+let xrVideoTex = null;
+let xrVideoPanelVAO = null;
+let xrVideoProgram = null;
+let xrVideoUniforms = {};
+let lobbyGL = null;
+let lobbyLayer = null;
+let lobbyActive = false;
+let lastVrSend = 0;
+
+function maybeShowVRButton() {
+    if (!window.hostAllowVR || !navigator.xr) {
+        const btn = document.getElementById('btnEnterVR');
+        if (btn) btn.style.display = 'none';
+        return;
+    }
+
+    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+        if (!supported) return;
+
+        let btn = document.getElementById('btnEnterVR');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'btnEnterVR';
+            btn.textContent = 'Enter VR Mode';
+            btn.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:9999; padding:12px 24px; font-weight:bold; background:var(--accent); color:#000; border:none; border-radius:8px; cursor:pointer; box-shadow:0 4px 15px rgba(192,132,252,0.4); font-family:sans-serif;';
+            btn.onclick = startVRSession;
+            document.body.appendChild(btn);
+        }
+        btn.style.display = 'block';
+    });
+}
+
+function startVRSession() {
+    if (!navigator.xr) return;
+    navigator.xr.requestSession('immersive-vr', { requiredFeatures: ['local-floor'] }).then(session => {
+        xrSession = session;
+        const btn = document.getElementById('btnEnterVR');
+        if (btn) btn.style.display = 'none';
+
+        if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'viewer-vr-active', viewerId: myId }));
+
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl2', { xrCompatible: true });
+        const layer = new XRWebGLLayer(session, gl);
+        session.updateRenderState({ baseLayer: layer });
+
+        // Initialize lobby renderer
+        if (lobbyInit(gl)) {
+            lobbyActive = true;
+            lobbyGL = gl;
+            lobbyLayer = layer;
+        }
+
+        session.requestReferenceSpace('local-floor').then(refSpace => {
+            xrRefSpace = refSpace;
+            session.requestAnimationFrame(onXRFrame);
+        });
+
+        session.addEventListener('end', () => {
+            xrSession = null;
+            lobbyDestroy();
+            if (window.hostAllowVR) maybeShowVRButton();
+        });
+    }).catch(err => {
+        console.error('[WebXR] Failed to start session:', err);
+        alert('Failed to enter VR: ' + err.message);
+    });
+}
+
+function onXRFrame(time, frame) {
+    if (!xrSession) return;
+    xrSession.requestAnimationFrame(onXRFrame);
+
+    const pose = frame.getViewerPose(xrRefSpace);
+    if (!pose) return;
+
+    const gl = lobbyGL;
+    if (gl && lobbyLayer) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, lobbyLayer.framebuffer);
+
+        const videoEl = document.getElementById('video');
+        const videoReady = videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0;
+        const hostStreaming = typeof window.hostStreamingActive !== 'undefined' && window.hostStreamingActive;
+
+        if ((hostStreaming || videoReady) && xrVideoTex) {
+            gl.clearColor(0.01, 0.01, 0.04, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            xrRenderVideoPanel(gl, videoEl);
+        } else if (lobbyActive) {
+            lobbyRender(gl, frame, xrRefSpace);
+        }
+    }
+
+    const now = Date.now();
+    if (now - lastVrSend < 16) return;
+
+    let changed = false;
+    const vrState = {
+        type: 'vr',
+        viewerId: myId,
+        head: null,
+    };
+
+    const hmdPos = pose.transform.position;
+    const hmdOri = pose.transform.orientation;
+    vrState.head = {
+        px: hmdPos.x, py: hmdPos.y, pz: hmdPos.z,
+        qw: hmdOri.w, qx: hmdOri.x, qy: hmdOri.y, qz: hmdOri.z
+    };
+    changed = true;
+
+    for (const source of xrSession.inputSources) {
+        if (!source.gripSpace || (source.handedness !== 'left' && source.handedness !== 'right')) continue;
+        const cp = frame.getPose(source.gripSpace, xrRefSpace);
+        if (cp) {
+            let trigger = 0, grip = 0, buttons = 0, ax = 0, ay = 0;
+            const gp = source.gamepad;
+            if (gp) {
+                if (gp.buttons.length > 0) trigger = gp.buttons[0].value;
+                if (gp.buttons.length > 1) grip = gp.buttons[1].value;
+
+                if (gp.buttons.length > 4 && gp.buttons[4].pressed) buttons |= 1;
+                if (gp.buttons.length > 5 && gp.buttons[5].pressed) buttons |= 2;
+                if (gp.buttons.length > 3 && gp.buttons[3].pressed) buttons |= 8;
+                if (gp.buttons.length > 6 && gp.buttons[6].pressed) buttons |= 4;
+
+                if (gp.axes.length >= 4) { ax = gp.axes[2]; ay = gp.axes[3]; }
+                else if (gp.axes.length >= 2) { ax = gp.axes[0]; ay = gp.axes[1]; }
+            }
+
+            vrState[source.handedness] = {
+                px: cp.transform.position.x, py: cp.transform.position.y, pz: cp.transform.position.z,
+                qw: cp.transform.orientation.w, qx: cp.transform.orientation.x, qy: cp.transform.orientation.y, qz: cp.transform.orientation.z,
+                trigger, grip, buttons, ax, ay
+            };
+        }
+    }
+
+    if (changed) {
+        lastVrSend = now;
+        sendInputData(JSON.stringify(vrState));
+    }
+}

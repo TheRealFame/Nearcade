@@ -1,5 +1,5 @@
 #!/bin/bash
-# Nearsec Together - VPS High-Performance Signaling Setup
+# Nearcade - VPS High-Performance Signaling Setup
 
 # 1. Firewall Setup for WebRTC and Signaling
 sudo ufw allow 22/tcp

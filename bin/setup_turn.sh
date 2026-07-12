@@ -1,5 +1,5 @@
 #!/bin/bash
-# Nearsec Together - Automated TURN Server Setup for VPS
+# Nearcade - Automated TURN Server Setup for VPS
 # This script installs and configures coturn for WebRTC P2P fallback.
 # It includes cross-platform support for various Linux distributions.
 
@@ -60,7 +60,7 @@ EOF
     echo "=========================================================="
     echo "✅ TURN Server is now live on your VPS!"
     echo "=========================================================="
-    echo "To use this in Nearsec Together, add this to your .env file on your HOME PC:"
+    echo "To use this in Nearcade, add this to your .env file on your HOME PC:"
     echo ""
     echo "STUN_URL=stun:YOUR_VPS_IP:3478"
     echo "TURN_URL=turn:YOUR_VPS_IP:3478"

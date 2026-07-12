@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pingSession: (url)              => ipcRenderer.invoke('ping-session', url),
   getServerInfo: ()               => ipcRenderer.invoke('get-server-info'),
   getVersion:    ()               => ipcRenderer.invoke('get-app-version'),
+  getAccentColor: ()              => ipcRenderer.invoke('get-accent-color'),
   // FIX #7: openHost now accepts an optional version string ('new' | 'old')
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   openLog:     ()                 => ipcRenderer.send('open-log'),
@@ -54,6 +55,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Setup Hooks ──
   runSetup:                       () => ipcRenderer.send('run-setup'),
+  continueBoot:                   () => ipcRenderer.send('continue-boot'),
+  checkSystemSetup:               () => ipcRenderer.invoke('check-system-setup'),
+  downloadTunnel:                 (name, url) => ipcRenderer.invoke('download-tunnel', { name, url }),
+  checkTunnelInstalled:           (name) => ipcRenderer.invoke('check-tunnel-installed', name),
+  checkHmBridge:                  () => ipcRenderer.invoke('check-hm-bridge'),
+  openExternal:                   (url) => ipcRenderer.invoke('open-external', url),
   onSetupSuccess:                 (cb) => ipcRenderer.on('setup-success', () => cb()),
   onSetupFailed:                  (cb) => ipcRenderer.on('setup-failed', (_e, err) => cb(err)),
 

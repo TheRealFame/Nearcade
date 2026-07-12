@@ -8,14 +8,14 @@ Linux requires root privileges to inject virtual controllers directly into the k
 
 Terminal 1 for the Input Driver:
 ```bash
-cd NearsecTogether
+cd Nearcade
 pip3 install -r bin/requirements-linux.txt
 sudo python3 src/sidecar/input_driver.py
 ```
 
 Terminal 2 for the Web Server:
 ```bash
-cd NearsecTogether
+cd Nearcade
 npm install
 npm run electron
 ```
@@ -27,14 +27,14 @@ Windows requires the ViGEmBus driver to emulate controllers.
 
 Terminal 1 for the Input Driver:
 ```powershell
-cd NearsecTogether
+cd Nearcade
 pip install -r bin/requirements-windows.txt
 python src/sidecar/input_driver.py
 ```
 
 Terminal 2 for the Web Server:
 ```powershell
-cd NearsecTogether
+cd Nearcade
 npm install
 npm run electron
 ```

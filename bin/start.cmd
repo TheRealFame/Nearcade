@@ -38,7 +38,7 @@ cleanup() {
 trap cleanup 2 15
 
 echo "  ┌─────────────────────────────────────┐"
-echo "  │      Nearsec Together Launcher      │"
+echo "  │      Nearcade Launcher      │"
 echo "  └─────────────────────────────────────┘"
 
 # OS Detection & Environment Logic
@@ -79,7 +79,7 @@ setlocal enabledelayedexpansion
 chcp 65001 > nul 2>&1
 
 :: Set window title
-title NearsecTogether
+title Nearcade
 
 cd /d "%~dp0.."
 
@@ -103,7 +103,7 @@ if not exist .env (
 
 echo.
 echo ========================================
-echo  NearsecTogether Launcher (Windows)
+echo  Nearcade Launcher (Windows)
 echo ========================================
 echo.
 echo  Gamepad support requires ViGEmBus driver:

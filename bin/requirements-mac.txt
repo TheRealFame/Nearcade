@@ -1,4 +1,4 @@
-# NearsecTogether macOS Requirements
+# Nearcade macOS Requirements
 #
 # MANDATORY:
 #   - Node.js (v18+): https://nodejs.org/
@@ -17,13 +17,13 @@
 # SETUP INSTRUCTIONS:
 #   1. Install Node.js and Python 3 (e.g., via Homebrew or direct download)
 #      brew install node python@3.11
-#   2. Extract NearsecTogether to a folder
-#   3. Open Terminal in the NearsecTogether folder
+#   2. Extract Nearcade to a folder
+#   3. Open Terminal in the Nearcade folder
 #   4. Run: pip3 install -r bin/requirements-mac.txt
 #   5. Run: npm install
 #   6. Grant Accessibility permission:
 #      → System Settings → Security & Privacy → Accessibility
-#      → Add the NearsecTogether app to the list
+#      → Add the Nearcade app to the list
 #   7. Run: ./bin/start.cmd  OR  npm run electron
 #
 # KNOWN LIMITATIONS:

@@ -2,22 +2,22 @@
 <html lang="en">
 <head>
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Nearsec Arcade - Play Local Co-op Anywhere">
-  <meta property="og:description" content="Connect to high-performance gaming hosts globally. Play local co-op titles in your browser with ultra-low latency via NearsecTogether.">
-  <meta property="og:url" content="https://nearsec.cutefame.net/arcade">
-  <meta property="og:image" content="https://nearsec.cutefame.net/arcade">
-  <meta property="og:site_name" content="Nearsec Arcade">
+  <meta property="og:title" content="Nearcade Arcade - Play Local Co-op Anywhere">
+  <meta property="og:description" content="Connect to high-performance gaming hosts globally. Play local co-op titles in your browser with ultra-low latency via Nearcade.">
+  <meta property="og:url" content="https://nearcade.cutefame.net/arcade">
+  <meta property="og:image" content="https://nearcade.cutefame.net/arcade">
+  <meta property="og:site_name" content="Nearcade Arcade">
 
   <meta name="theme-color" content="#ff5d3d">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Nearsec Arcade">
+  <meta name="twitter:title" content="Nearcade Arcade">
   <meta name="twitter:description" content="Low latency community-driven local co-op streaming.">
-  <link rel="icon" type="image/png" href="/assets/NearsecTogetherLogo.png">
+  <link rel="icon" type="image/png" href="/assets/NearcadeLogo.png">
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Browse Arcade — Nearsec Together</title>
+  <title>Browse Arcade — Nearcade</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.2.3/css/flag-icons.min.css"/>
@@ -223,6 +223,7 @@
 
     .card-body { padding: 16px 4px 0; }
     .card-title { font-size: 18px; font-weight: 800; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-host { font-size: 13px; color: var(--text-sec); margin-bottom: 6px; font-weight: 500; }
     .card-info { font-size: 13px; color: var(--text-sec); display: flex; gap: 8px; flex-wrap: wrap; font-weight: 500; }
     .tag { background: var(--surface); padding: 4px 10px; border-radius: 6px; display: flex; align-items: center; gap: 6px;}
 
@@ -296,6 +297,22 @@
       .main-grid { padding: 16px; }
       .hero-inner { padding: 24px; }
       .hero-inner h1 { font-size: 32px; }
+    }
+
+    @media (orientation: portrait) {
+      .top-bar { padding: 0 16px; height: 64px; }
+      .logo img { height: 22px; }
+      .hero-inner { padding: 24px 20px; text-align: center; }
+      .hero-inner h1 { font-size: 28px; }
+      .hero-inner p { max-width: 100%; }
+      .main-grid { grid-template-columns: 1fr; padding: 12px 16px 32px; gap: 16px; }
+      .category-nav { padding: 0 16px; gap: 8px; }
+      .cat-pill { padding: 8px 16px; font-size: 13px; }
+      .nav-controls { gap: 10px; }
+      .icon-btn { width: 36px; height: 36px; }
+      .live-badge { padding: 6px 12px; font-size: 12px; }
+      .lang-switcher .globe-icon { width: 16px; height: 16px; }
+      #langSelect { font-size: 12px; }
     }
   /* ─── CONTROLLER GUIDE MODAL ───────────────────────── */
 
@@ -416,7 +433,7 @@
 
   <nav class="top-bar">
     <div class="logo" style="display:flex; align-items:center; gap:8px;">
-      <img src="/assets/NearsecTogetherTitle.png" alt="NearsecTogether" style="height:28px;" onerror="this.style.display='none'">
+      <img src="/assets/NearcadeTitle.png" alt="Nearcade" style="height:28px;" onerror="this.style.display='none'">
       <span style="font-weight:400; opacity:.7; font-size:12px; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Arcade</span>
     </div>
 
@@ -428,8 +445,11 @@
     </div>
 
     <div class="nav-controls">
-      <button class="icon-btn" onclick="openArcadeInfo()" title="About Nearsec Arcade">
+      <button class="icon-btn" onclick="openArcadeInfo()" title="About Nearcade Arcade">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      </button>
+      <button class="icon-btn" onclick="openDiscord()" title="Join our Discord" style="color:#5865F2;">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0116-.1277c.1258-.0943.2517-.1923.3718-.2914a.0741.0741 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0106.1277 7.3737 7.3737 0 01-1.8722.8923.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z"/></svg>
       </button>
       <button class="icon-btn" id="globalMicBtn" title="Microphone Settings" onclick="toggleGlobalMic(this)">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -476,7 +496,7 @@
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
       <div style="font-size: 18px; font-weight: 800; color: var(--text);">No sessions currently live</div>
-      <div style="margin-top: 4px;">Host a game from the Nearsec client to appear here.</div>
+      <div style="margin-top: 4px;">Host a game from the Nearcade client to appear here.</div>
     </div>
   </div>
 
@@ -566,6 +586,7 @@
     </button>
   </div>
 </div>
+  <script src="https://cdn.jsdelivr.net/npm/@widgetbot/html-embed"></script>
   <script src="./js/i18n.js" onerror="
     if (!window.I18N) {
       window.I18N = {
@@ -596,13 +617,23 @@
       const modal = document.getElementById('infoModal');
       if (modal) modal.classList.remove('open');
   }
+  function openDiscord() {
+    const w = 840, h = 660;
+    const left = (screen.width - w) / 2;
+    const top = (screen.height - h) / 2;
+    const popup = window.open('', 'Discord', `width=${w},height=${h},left=${left},top=${top},resizable=yes,scrollbars=no`);
+    if (popup) {
+      popup.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Discord — Nearcade</title><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}body{background:#090a0c;color:#fff;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;height:100vh;overflow:hidden}.bar{width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;flex-shrink:0}.bar h3{font-size:13px;font-weight:700;color:#9ba1a6;letter-spacing:.05em;text-transform:uppercase}.bar button{background:#2a2e35;border:none;color:#fff;padding:6px 16px;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s}.bar button:hover{background:#3a3e45}widgetbot{flex:1;width:800px;max-width:100%;border-radius:0;overflow:hidden}@media(max-width:840px){widgetbot{width:100%}}</style></head><body><div class="bar"><h3>Nearcade Community</h3><button onclick="window.close()">Close</button></div><widgetbot server="1523838043969028096" channel="1523838046359912571" width="800" height="600"></widgetbot><script src="https://cdn.jsdelivr.net/npm/@widgetbot/html-embed"><\/script></body></html>`);
+      popup.document.close();
+    }
+  }
   </script>
   
   <div class="modal-bg" id="infoModal" onclick="if(event.target===this)closeArcadeInfo()">
     <div class="modal-content" style="padding: 32px; background: var(--surface);">
-      <h2 style="color:var(--text); margin-bottom: 16px; font-weight: 800; font-size: 24px;">Nearsec Arcade</h2>
+      <h2 style="color:var(--text); margin-bottom: 16px; font-weight: 800; font-size: 24px;">Nearcade Arcade</h2>
       <p style="color:var(--text-sec); font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
-        Nearsec Arcade is a decentralized, community-driven platform for discovering local multiplayer games hosted by players worldwide.
+        Nearcade Arcade is a decentralized, community-driven platform for discovering local multiplayer games hosted by players worldwide.
       </p>
       <p style="color:var(--text-sec); font-size: 15px; line-height: 1.6; margin-bottom: 32px;">
         All sessions are hosted directly from the host's computer via high-speed WebRTC tunnels. Gameplay data flows peer-to-peer and is not routed through our servers.

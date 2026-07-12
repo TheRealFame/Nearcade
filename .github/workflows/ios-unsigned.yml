@@ -62,12 +62,12 @@ jobs:
         run: |
           mkdir -p Payload
           cp -r build/Release-iphoneos/App.app Payload/
-          zip -qr NearsecTogetherExperimental.ipa Payload
+          zip -qr NearcadeExperimental.ipa Payload
 
       - name: Upload Unsigned IPA to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: "./ios/App/NearsecTogetherExperimental.ipa"
+          files: "./ios/App/NearcadeExperimental.ipa"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

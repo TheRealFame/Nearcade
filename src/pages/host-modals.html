@@ -18,16 +18,6 @@
           style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
           App Behavior</div>
 
-        <div class="ctrl-modal-row" id="settingRowTray" onclick="toggleAppSetting('tray')">
-          <div class="ctrl-toggle-track" id="settingTrackTray">
-            <div class="ctrl-toggle-thumb"></div>
-          </div>
-          <div class="ctrl-row-text">
-            <div class="ctrl-row-label">Minimize to Tray</div>
-            <div class="ctrl-row-desc">Closing the window hides to the system tray instead of quitting.</div>
-          </div>
-        </div>
-
         <div class="ctrl-modal-row" id="settingRowAlwaysOnTop" onclick="toggleAppSetting('alwaysOnTop')"
           style="margin-top:8px;">
           <div class="ctrl-toggle-track" id="settingTrackAlwaysOnTop">
@@ -35,7 +25,7 @@
           </div>
           <div class="ctrl-row-text">
             <div class="ctrl-row-label">Always on Top</div>
-            <div class="ctrl-row-desc">Keep the NearsecTogether window above all other windows.</div>
+            <div class="ctrl-row-desc">Keep the Nearcade window above all other windows.</div>
           </div>
         </div>
 
@@ -96,8 +86,8 @@
             <strong style="color:var(--muted);">How to capture a specific app:</strong><br>
             1. Click the green button above.<br>
             2. Open your sound settings (or <code style="font-family:var(--mono);">pavucontrol</code>).<br>
-            3. Set your game's output to <strong style="color:var(--text);">"Nearsec_App_Audio"</strong>.<br>
-            4. Select <strong style="color:var(--text);">"Monitor of Nearsec_App_Audio"</strong> above.
+            3. Set your game's output to <strong style="color:var(--text);">"Nearcade_App_Audio"</strong>.<br>
+            4. Select <strong style="color:var(--text);">"Monitor of Nearcade_App_Audio"</strong> above.
           </div>
         </div>
 
@@ -106,7 +96,7 @@
           Network</div>
         <button
           style="width:100%;padding:10px;margin-bottom:8px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,0.04);border:1px solid var(--border2);color:var(--text);font-family:inherit;font-size:12px;"
-          onclick="closeAppSettings(); showTunnelModal();">
+          onclick="closeAppSettings(); showTunnelModal(true);">
           Tunnel Settings →
         </button>
 
@@ -168,10 +158,10 @@
           </svg>
           Arcade Mode Configuration
         </h3>
-        <p>Configure your arcade session for Nearsec Arcade.</p>
+        <p>Configure your session for Nearcade.</p>
         <p style="margin-top: 6px; font-size: 11px; color: var(--muted2);">Check your live listing at: <a
-            href="https://nearsec.cutefame.net/arcade" target="_blank"
-            style="color: var(--accent); text-decoration: none;">nearsec.cutefame.net/arcade</a></p>
+            href="https://nearcade.cutefame.net" target="_blank"
+            style="color: var(--accent); text-decoration: none;">nearcade.cutefame.net</a></p>
       </div>
       <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
         <div style="display:flex;flex-direction:column;gap:6px;">
@@ -185,6 +175,23 @@
             style="width:100%;padding:8px 10px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:11px;font-family:inherit;resize:vertical;min-height:60px;max-height:100px;outline:none;"></textarea>
         </div>
         <input type="hidden" id="arcadeThumbnail">
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="font-size:11px;font-weight:600;color:var(--text);">Category</label>
+          <select id="arcadeCategory" style="width:100%;padding:8px 10px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:11px;font-family:inherit;outline:none;">
+            <option value="">None</option>
+            <option value="Fighting">Fighting</option>
+            <option value="Party Games">Party Games</option>
+            <option value="Retro">Retro &amp; Emulation</option>
+            <option value="Co-op">Co-op Campaigns</option>
+            <option value="Casual">Casual</option>
+            <option value="Survival">Survival</option>
+            <option value="RPG">RPG</option>
+            <option value="Anime">Anime</option>
+            <option value="Tournament">Tournament</option>
+            <option value="Modded">Modded</option>
+            <option value="Story-Rich">Story-Rich</option>
+          </select>
+        </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
           <div style="display:flex; justify-content:space-between; width:100%;">
             <label style="font-size:11px;font-weight:600;color:var(--text);">Max Players</label>
@@ -225,11 +232,11 @@
           </svg>
           Choose a Tunnel Provider
         </h3>
-        <p>The tunnel carries webpage + WebSocket signaling only — WebRTC video goes UDP peer-to-peer.<br>All listed
-          options are <strong style="color:var(--green)">free</strong>.</p>
+        <p>The tunnel carries webpage + WebSocket signaling; video and inputs can use peer-to-peer,<br>SFU routing,
+          or other transports.</p>
       </div>
       <div style="padding:16px;">
-        <div class="provider-grid">
+        <div class="provider-grid" autocomplete="off">
           <label class="provider-card selected">
             <input type="radio" name="provider" value="cloudflared" checked>
             <div style="display:flex;gap:12px;align-items:center;">
@@ -287,21 +294,21 @@
             <input type="radio" name="provider" value="playit">
             <div style="display:flex;gap:12px;align-items:center;">
               <div class="prov-emoji"><img src="/assets/icons/gamepad.svg" style="width:24px;filter:invert(1)"></div>
-              <div class="prov-name">playit.gg <span class="pill-hard">Paid</span></div>
+              <div class="prov-name">playit.gg <span class="pill-warn">Paid</span></div>
             </div>
             <div class="prov-desc">Requires paid plan for HTTP/TCP signaling.</div>
             <div class="prov-install" style="flex-direction:column;gap:8px;">
               <div style="color:var(--muted);font-size:10px;line-height:1.4;">Get from: <a href="https://playit.gg"
                   target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer;">playit.gg</a>
               </div>
-              <div style="color:#e08888;font-size:10px;line-height:1.4;">Premium required</div>
+              <div style="color:var(--warn);font-size:10px;line-height:1.4;">Premium required</div>
             </div>
           </label>
           <label class="provider-card">
             <input type="radio" name="provider" value="vps">
             <div style="display:flex;gap:12px;align-items:center;">
               <div class="prov-emoji"><img src="/assets/icons/server.svg" style="width:24px;filter:invert(1)"></div>
-              <div class="prov-name">Custom VPS (SSH) <span class="pill-hard">Advanced</span></div>
+              <div class="prov-name">Custom VPS (SSH) <span class="pill-hard">Advanced</span> <span class="pill-warn">Paid</span></div>
             </div>
             <div class="prov-desc">Tunnel to your own server using Reverse SSH.</div>
             <div class="prov-install" style="flex-direction:column;gap:8px;">
@@ -324,7 +331,7 @@
             <input type="radio" name="provider" value="vps-sfu">
             <div style="display:flex;gap:12px;align-items:center;">
               <div class="prov-emoji"><img src="/assets/icons/server.svg" style="width:24px;filter:invert(1)"></div>
-              <div class="prov-name">Dedicated VPS (SFU) <span class="pill-star">Ultra</span></div>
+              <div class="prov-name">Dedicated VPS (SFU) <span class="pill-star">Ultra</span> <span class="pill-warn">Paid</span></div>
             </div>
             <div class="prov-desc">Routes all video and inputs through a custom Rust server for massive scalability.
             </div>
@@ -348,7 +355,7 @@
                 onclick="event.stopPropagation()">
               <div style="font-size:9px;color:var(--muted2);line-height:1.5;margin-top:4px;">
                 Copy this key to <code style="font-family:var(--mono);">MASTER_KEY</code> in <code
-                  style="font-family:var(--mono);">nearsectogether.config.json</code> on your VPS.
+                  style="font-family:var(--mono);">nearcade.config.json</code> on your VPS.
               </div>
             </div>
           </label>
@@ -479,12 +486,12 @@
             </select>
           </div>
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:8px;">
-            <div style="display:flex; gap:8px;">
-              <button id="codecBenchBtnSpeed" onclick="runBenchmark('speed')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:10px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer; font-family:inherit; transition:all 0.2s;" onmouseover="if(!this.disabled){this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';}" onmouseleave="if(!this.disabled){this.style.borderColor='var(--border)';this.style.background='var(--surface)';}">
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <button id="codecBenchBtnSpeed" onclick="runBenchmark('speed')" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:10px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer; font-family:inherit; transition:all 0.2s;" onmouseover="if(!this.disabled){this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';}" onmouseleave="if(!this.disabled){this.style.borderColor='var(--border)';this.style.background='var(--surface)';}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--green);"><polyline points="13 2 13 9 22 9 11 22 11 15 2 15 13 2"></polyline></svg>
                 Speed Test
               </button>
-              <button id="codecBenchBtnQuality" onclick="runBenchmark('quality')" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:10px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer; font-family:inherit; transition:all 0.2s;" onmouseover="if(!this.disabled){this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';}" onmouseleave="if(!this.disabled){this.style.borderColor='var(--border)';this.style.background='var(--surface)';}">
+              <button id="codecBenchBtnQuality" onclick="runBenchmark('quality')" style="width:100%; display:flex; align-items:center; justify-content:center; gap:6px; font-size:11px; font-weight:600; padding:10px; background:var(--surface); border:1px solid var(--border); border-radius:8px; color:var(--text); cursor:pointer; font-family:inherit; transition:all 0.2s;" onmouseover="if(!this.disabled){this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';}" onmouseleave="if(!this.disabled){this.style.borderColor='var(--border)';this.style.background='var(--surface)';}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:var(--warn);"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
                 Quality Test
               </button>

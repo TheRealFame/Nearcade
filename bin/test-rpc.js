@@ -1,5 +1,5 @@
 const DiscordRPC = require('discord-rpc');
-const clientId = '1241907722765324391'; // NearsecTogether Client ID
+const clientId = '1241907722765324391'; // Nearcade Client ID
 
 DiscordRPC.register(clientId);
 
@@ -12,7 +12,7 @@ rpc.on('ready', () => {
         state: 'Isolating the issue',
         startTimestamp: Date.now(),
         largeImageKey: 'nearsec_logo',
-        largeImageText: 'NearsecTogether Test'
+        largeImageText: 'Nearcade Test'
     }).then(() => {
         console.log('[Discord RPC Test] Activity set successfully!');
         setTimeout(() => process.exit(0), 2000);

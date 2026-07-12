@@ -39,7 +39,7 @@ loadConfig();
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: '\x1b[35mNearsec Mod> \x1b[0m'
+    prompt: '\x1b[35mNearcade Mod> \x1b[0m'
 });
 
 async function sendModRequest(method, payload = null) {
@@ -72,7 +72,7 @@ async function sendModRequest(method, payload = null) {
 
 // ── 5. Command Router ─────────────────────────────────────────────────────────
 console.clear();
-writeLog('SYSTEM', 'Nearsec Arcade Moderator Console Initialized');
+writeLog('SYSTEM', 'Nearcade Arcade Moderator Console Initialized');
 if (!config.endpointUrl) writeLog('INFO', 'Type "setup" to configure your remote endpoint and token.');
 
 rl.prompt();
@@ -118,8 +118,11 @@ rl.on('line', async (line) => {
                 console.log('ACTION REQUIRED:');
                 console.log('1. Go to your Cloudflare Dashboard -> Workers & Pages');
                 console.log('2. Select your Arcade worker -> Settings -> Variables and Secrets');
-                console.log('3. Add a new secret named \x1b[1mMOD_SECRET_TOKEN\x1b[0m');
-                console.log('4. Paste the exact blue string above into the value and save.');
+                console.log('3. Add new secrets named \x1b[1mMOD_SECRET_TOKEN\x1b[0m (the token above),');
+                console.log('   \x1b[1mMOD_WEBHOOK\x1b[0m (Discord webhook URL for moderation actions),');
+                console.log('   and \x1b[1mARCADE_WEBHOOK\x1b[0m (Discord webhook for session listings).');
+                console.log('4. Paste the exact blue string below into MOD_SECRET_TOKEN and save.');
+                console.log('5. For the webhook URLs, use the full Discord webhook URL.');
                 console.log('=============================================================\n');
 
                 rl.prompt();

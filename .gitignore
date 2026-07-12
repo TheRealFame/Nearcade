@@ -1,6 +1,6 @@
 electron-main.js
-nearsectogether.config.json
-config/nearsectogether.config.json
+nearcade.config.json
+config/nearcade.config.json
 *.log
 node_modules/
 .env
@@ -20,3 +20,29 @@ dist/
 # Native addon build artifacts
 vps/target/
 drafts/
+
+# WiVRn compiled binaries (produced by bin/build_wivrn.sh)
+bin/wivrn-server
+bin/wivrnctl
+bin/wivrnctl.new
+
+# WiVRn build output directories (produced by bin/build_wivrn.sh)
+bin/bin/
+bin/lib/
+bin/share/
+lib/
+
+# WiVRn / Monado source build directories
+src/tools/wivrn-src/build/
+src/tools/wivrn-src/build-*/
+
+# Stale Docker-generated output (root-owned, clean up with sudo)
+share/
+
+# Personal session / user-specific data
+latest.log
+/home/
+*.rgba
+frame.rgba
+nearsec_layer.log
+

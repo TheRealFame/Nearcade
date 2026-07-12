@@ -1,7 +1,7 @@
 # NearsecVR SteamVR Driver
 
 This folder contains the source code for the experimental NearsecVR SteamVR C++ driver. 
-When compiled and placed into your SteamVR drivers folder, it spawns a virtual VR Headset and controllers in SteamVR that mirror the movements sent by remote viewers connecting to NearsecTogether via a WebXR-compatible browser.
+When compiled and placed into your SteamVR drivers folder, it spawns a virtual VR Headset and controllers in SteamVR that mirror the movements sent by remote viewers connecting to Nearcade via a WebXR-compatible browser.
 
 ## Requirements
 

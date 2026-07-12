@@ -104,6 +104,8 @@
   <script src="/js/i18n.js"></script>
   <script>
     const STORAGE_PREFIX = 'nearsec_map_';
+    const MAX_VISIBLE_CONTROLLERS = 1;
+    const PARENT_ORIGIN = (() => { try { return new URL(document.referrer).origin; } catch { return '*'; } })();
     let smartDb = {};
 
     window.addEventListener('message', e => {
@@ -172,7 +174,7 @@
 
     function broadcastConfigExternally(hardwareId, configMap) {
       try {
-        window.parent.postMessage({ type: 'NEARSEC_CONFIG_UPDATE', hardwareId, map: configMap }, '*');
+        window.parent.postMessage({ type: 'NEARSEC_CONFIG_UPDATE', hardwareId, map: configMap }, PARENT_ORIGIN);
       } catch (e) {}
     }
 
@@ -242,12 +244,13 @@
 
     function updateDeadzone(idx, val) {
         document.getElementById(`c${idx}-dz-val`).textContent = Math.round(val * 100) + '%';
-        try { window.parent.postMessage({ type: 'NEARSEC_DEADZONE', index: idx, value: parseFloat(val) }, '*'); } catch (e) {}
+        try { window.parent.postMessage({ type: 'NEARSEC_DEADZONE', index: idx, value: parseFloat(val) }, PARENT_ORIGIN); } catch (e) {}
     }
 
     // ── Register a new controller ─────────────────────────────────────────────
     function addController(gp) {
       if (gpStates.has(gp.index)) return;
+      if (gpStates.size >= MAX_VISIBLE_CONTROLLERS) return;
 
       const card = buildWidget(gp.index);
       document.body.insertBefore(card, document.getElementById('empty-state'));
@@ -286,7 +289,7 @@
           type: 'SAVE_CONTROLLER_CALIB',
           hardwareId: safeId,
           map: savedMap
-        }, '*');
+        }, PARENT_ORIGIN);
       } else {
         document.getElementById(`c${gp.index}-calib`)?.classList.add('active');
         updatePrompt(gp.index);
@@ -363,7 +366,7 @@
             type: 'SAVE_CONTROLLER_CALIB',
             hardwareId: safeId,
             map: state.mapCache
-        }, '*');
+        }, PARENT_ORIGIN);
 
         document.getElementById(`c${gp.index}-calib`)?.classList.remove('active');
         

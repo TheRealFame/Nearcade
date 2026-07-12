@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 echo =================================================
-echo  NearsecTogether Experimental Device Setup       
+echo  Nearcade Experimental Device Setup       
 echo =================================================
 echo 1) VR Headset (SteamVR driver installation)
 echo 0) Install everything

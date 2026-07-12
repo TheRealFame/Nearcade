@@ -1,4 +1,4 @@
-publicnearsec.cutefame.net {
+publicnearcade.cutefame.net {
     encode gzip
 
     @inputWs {
@@ -27,7 +27,7 @@ publicnearsec.cutefame.net {
     reverse_proxy /js/version.js localhost:3001
 
     # Static file rewrites
-    root * /home/ubuntu/NearsecTogether
+    root * /home/ubuntu/Nearcade
 
     rewrite /               /src/pages/index.html
     rewrite /viewer.html    /src/pages/viewer.html

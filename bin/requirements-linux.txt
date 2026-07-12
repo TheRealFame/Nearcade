@@ -1,4 +1,4 @@
-# NearsecTogether Linux Requirements (STABLE & PRIMARY TARGET)
+# Nearcade Linux Requirements (STABLE & PRIMARY TARGET)
 #
 # MANDATORY:
 #   - Node.js (v18+): https://nodejs.org/
@@ -14,8 +14,8 @@
 #   1. Install Node.js (if not present)
 #      sudo apt install nodejs npm  # Debian/Ubuntu
 #      sudo dnf install nodejs npm  # Fedora/RHEL
-#   2. Extract NearsecTogether to a folder
-#   3. cd NearsecTogether
+#   2. Extract Nearcade to a folder
+#   3. cd Nearcade
 #   4. pip3 install -r bin/requirements-linux.txt
 #   5. npm install
 #   6. ./bin/start.cmd  # Will auto-load uinput module and set permissions

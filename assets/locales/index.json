@@ -1,5 +1,5 @@
 {
-  "en": { "name": "English", "logo": "NearsecTogetherLogo.png", "title": "NearsecTogetherTitle.png" },
+  "en": { "name": "English", "logo": "NearcadeLogo.png", "title": "NearcadeTitle.png" },
   "es": { "name": "Español", "logo": "locales/images/nearsec_logo_es.png", "title": "locales/images/nearsec_title_es.png" },
   "fr": { "name": "Français", "logo": "locales/images/nearsec_logo_fr.png", "title": "locales/images/nearsec_title_fr.png" },
   "de": { "name": "Deutsch", "logo": "locales/images/nearsec_logo_de.png", "title": "locales/images/nearsec_title_de.png" },

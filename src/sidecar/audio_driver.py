@@ -1,5 +1,5 @@
 """
-NearsecTogether — Cross-platform audio capture sidecar
+Nearcade — Cross-platform audio capture sidecar
 Global Mirror architecture: dynamically discovers the Default Sink Monitor
 via `pactl get-default-sink` and bridges it into NearsecAppAudio via
 module-loopback. This survives Bluetooth device reconnections because

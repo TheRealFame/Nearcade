@@ -1,6 +1,6 @@
 <p align="left">
-  <img src="assets/NearsecTogetherLogo.png" width="160" height="140">
-<h1>NearsecTogether</h1>
+  <img src="assets/NearcadeLogo.png" width="160" height="140">
+<h1>Nearcade</h1>
 
 [英語](README.md)\|[スペイン語](assets/locales/readmes/README.es.md)\|[フランス語](assets/locales/readmes/README.fr.md)\|[ドイツ語](assets/locales/readmes/README.de.md)\|[ポルトガル語](assets/locales/readmes/README.pt.md)\|[日本語](assets/locales/readmes/README.ja.md)
 
@@ -15,9 +15,9 @@
 
 ## プロジェクトの説明
 
-NearsecTogether は、インターネット経由で友達とローカル協力ゲームをプレイできる、低遅延のオープンソース プラットフォームです。 NearsecTogether は、UDP ファースト ストリーミングと組み込みブラウザ ハードウェア エンコーダに WebRTC を活用することで、商用クラウド ゲーム プラットフォームに匹敵するほぼ知覚できないレイテンシを提供し、セルフホスト インスタンス向けに特別に調整されています。
+Nearcade は、インターネット経由で友達とローカル協力ゲームをプレイできる、低遅延のオープンソース プラットフォームです。 Nearcade は、UDP ファースト ストリーミングと組み込みブラウザ ハードウェア エンコーダに WebRTC を活用することで、商用クラウド ゲーム プラットフォームに匹敵するほぼ知覚できないレイテンシを提供し、セルフホスト インスタンス向けに特別に調整されています。
 
-大規模なデータセンター パイプやカスタム QUIC/VP9 ハードウェア エンコーダに依存した従来のクラウド ゲーム ソリューションとは異なり、NearsecTogether は標準の家庭用インターネット接続上でエレガントに動作するように最適化されています。
+大規模なデータセンター パイプやカスタム QUIC/VP9 ハードウェア エンコーダに依存した従来のクラウド ゲーム ソリューションとは異なり、Nearcade は標準の家庭用インターネット接続上でエレガントに動作するように最適化されています。
 
 ## テクノロジースタック
 

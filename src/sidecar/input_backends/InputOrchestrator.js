@@ -92,6 +92,12 @@ let _pythonProc = null;
 let _udpSocket = null;
 let _pythonUdpPort = 0;
 
+// HIDMaestro backend toggle — set before init()
+let _hidmaestroEnabled = false;
+function setHidMaestroEnabled(enabled) {
+    _hidmaestroEnabled = !!enabled;
+}
+
 let GAME_PROFILES = {};
 let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 
@@ -155,7 +161,7 @@ function init(screenWidth, screenHeight) {
             _bridge = null;
         }
     } else if (isWin) {
-        console.log('[input] Windows detected — skipping uinputBridge, using Python/ViGEmBus sidecar.');
+        console.log('[input] Windows detected — skipping uinputBridge, using Python/' + (_hidmaestroEnabled ? 'HIDMaestro' : 'ViGEmBus') + ' sidecar.');
     } else {
         console.log('[input] macOS detected — skipping uinputBridge, using Python/pynput sidecar.');
     }
@@ -168,7 +174,7 @@ function init(screenWidth, screenHeight) {
 
     // 2. Python Sidecar — platform-aware script selection
     let scriptName;
-    if (isWin) scriptName = 'windows_vigem.py';
+    if (isWin) scriptName = _hidmaestroEnabled ? 'windows_hidmaestro.py' : 'windows_vigem.py';
     else if (isMac) scriptName = 'mac_gamepad_bridge.py';
     else scriptName = 'linux_uinput.py';
     // __dirname is already .../input_backends
@@ -824,4 +830,4 @@ function getViewerForSlot(slot) {
     return slotViewers.get(Number(slot)) || null;
 }
 
-module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, get _bridge() { return _bridge; } };
+module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, get _bridge() { return _bridge; } };

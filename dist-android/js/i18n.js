@@ -31,8 +31,9 @@ const I18N = {
         // Render the cache, or render a safe default so the UI never physically breaks
         if (cachedLangs) {
             this.populateDropdown(cachedLangs);
+            this.swapLogos(cachedLangs);
         } else {
-            this.populateDropdown({ 'en': 'English', [this.targetLang]: this.targetLang.toUpperCase() });
+            this.populateDropdown({ 'en': { name: 'English', logo: 'NearcadeLogo.png', title: 'NearcadeTitle.png' } });
         }
 
         // 2. BACKGROUND SYNC
@@ -44,6 +45,7 @@ const I18N = {
                 // Save the fresh, valid list to memory
                 localStorage.setItem('ns_lang_list', JSON.stringify(availableLangs));
                 this.populateDropdown(availableLangs);
+                this.swapLogos(availableLangs);
             } else {
                 throw new Error(`HTTP Error: ${indexRes.status}`);
             }
@@ -89,7 +91,8 @@ const I18N = {
 
         select.innerHTML = ''; // Wipe any existing hardcoded HTML
 
-        for (const [code, name] of Object.entries(langs)) {
+        for (const [code, info] of Object.entries(langs)) {
+            const name = typeof info === 'string' ? info : info.name;
             const opt = document.createElement('option');
             opt.value = code;
             opt.textContent = name;
@@ -98,6 +101,21 @@ const I18N = {
 
         // Ensure the dropdown shows the correct currently selected language
         select.value = this.targetLang;
+    },
+
+    swapLogos(langs) {
+        document.querySelectorAll('img').forEach(img => {
+            const src = img.getAttribute('src');
+            if (src && src.includes('NearcadeLogo.png')) {
+                img.setAttribute('src', src.replace(/[^/]*$/, 'NearcadeLogo.png'));
+            } else if (src && src.includes('NearcadeTitle.png')) {
+                img.setAttribute('src', src.replace(/[^/]*$/, 'NearcadeTitle.png'));
+            }
+        });
+        
+        if (window.electronAPI && window.electronAPI.updateTrayIcon) {
+            window.electronAPI.updateTrayIcon('NearcadeLogo.png');
+        }
     },
 
     autoTranslateDOM() {
@@ -118,6 +136,25 @@ const I18N = {
             if (this.translationMap[originalText]) {
                 el.setAttribute('placeholder', this.translationMap[originalText]);
             }
+        });
+
+        document.querySelectorAll('[title]').forEach(el => {
+            const originalText = el.getAttribute('title');
+            if (this.translationMap[originalText]) {
+                el.setAttribute('title', this.translationMap[originalText]);
+            }
+        });
+        
+        // Rewrite Documentation Links
+        document.querySelectorAll('a[href^="/docs/"]').forEach(a => {
+            let href = a.getAttribute('href');
+            // Strip any existing language tag (e.g. _es, _fr) before appending the current one
+            href = href.replace(/_[a-z]{2}\.md$/, '.md');
+            
+            if (this.targetLang !== 'en') {
+                href = href.replace('.md', `_${this.targetLang}.md`);
+            }
+            a.setAttribute('href', href);
         });
     },
 
