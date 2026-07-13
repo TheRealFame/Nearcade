@@ -175,12 +175,12 @@ jobs:
         run: |
           cd release-assets
           for file in Nearcade-Setup-*.exe; do [ -f "$file" ] && mv "$file" "Nearcade-Windows.exe"; done
-          for file in Nearcade-Portable.exe; do [ -f "$file" ] && mv "$file" "Nearcade-Portable.exe"; done
+          for file in Nearcade-Portable.exe; do [ -f "$file" ] && [ "$file" != "Nearcade-Portable.exe" ] && mv "$file" "Nearcade-Portable.exe"; done
           for file in Nearcade-*-universal.dmg; do [ -f "$file" ] && mv "$file" "Nearcade-Mac.dmg"; done
-          for file in Nearcade-*.AppImage; do [ -f "$file" ] && [[ "$file" != *latest.AppImage ]] && mv "$file" "Nearcade-Linux.AppImage"; done
-          for file in Nearcade_*.deb; do [ -f "$file" ] && mv "$file" "Nearcade-Debian.deb"; done
-          for file in Nearcade-*.rpm; do [ -f "$file" ] && mv "$file" "Nearcade-RedHat.rpm"; done
-          for file in *.apk; do [ -f "$file" ] && mv "$file" "Nearcade-Android.apk"; done
+          for file in Nearcade-*.AppImage; do [ -f "$file" ] && [[ "$file" != *latest* ]] && [[ "$file" != "Nearcade-Linux.AppImage" ]] && mv "$file" "Nearcade-Linux.AppImage"; done
+          for file in Nearcade_*.deb; do [ -f "$file" ] && [ "$file" != "Nearcade-Debian.deb" ] && mv "$file" "Nearcade-Debian.deb"; done
+          for file in Nearcade-*.rpm; do [ -f "$file" ] && [ "$file" != "Nearcade-RedHat.rpm" ] && mv "$file" "Nearcade-RedHat.rpm"; done
+          for file in *.apk; do [ -f "$file" ] && [ "$file" != "Nearcade-Android.apk" ] && mv "$file" "Nearcade-Android.apk"; done
 
       - name: Wait for previous Itch.io processing (Rate Limit Bypass)
         run: sleep 45
