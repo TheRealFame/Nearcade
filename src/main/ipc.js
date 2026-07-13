@@ -34,6 +34,9 @@ function registerIpcHandlers(ctx) {
   ipcMain.on('start-native-gamepad', (event) => {
     if (gamepadProc) return;
     let basePath = ROOT_DIR;
+    if (basePath.includes('app.asar')) {
+      basePath = basePath.replace('app.asar', 'app.asar.unpacked');
+    }
     const pyScript = path.join(basePath, 'src', 'sidecar', 'input_backends', 'read_gamepads.py');
     const pyExec = process.platform === 'win32' ? path.join(basePath, 'bin', 'python', 'python.exe') : 'python3';
     const actualExec = (process.platform === 'win32' && !fs.existsSync(pyExec)) ? 'python' : pyExec;
@@ -126,6 +129,9 @@ function registerIpcHandlers(ctx) {
   ipcMain.on('run-setup', (event) => {
     if (os.platform() === 'win32') {
       let scriptPath = path.join(ROOT_DIR, 'bin', 'windows_setup.ps1');
+      if (__dirname.includes('app.asar')) {
+        scriptPath = path.join(process.resourcesPath, 'bin', 'windows_setup.ps1');
+      }
       if (!fs.existsSync(scriptPath)) {
         console.error('[Setup] windows_setup.ps1 not found at', scriptPath);
         event.reply('setup-failed', 'Setup script not found: ' + scriptPath);
@@ -143,6 +149,10 @@ function registerIpcHandlers(ctx) {
     } else if (os.platform() === 'linux') {
       let scriptPath = path.join(ROOT_DIR, 'bin', 'linux_setup.sh');
       let iconPath = path.join(ROOT_DIR, 'assets', 'NearcadeLogo.png');
+      if (__dirname.includes('app.asar')) {
+        scriptPath = path.join(process.resourcesPath, 'bin', 'linux_setup.sh');
+        iconPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'NearcadeLogo.png');
+      }
       try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
 
       const wrapperPath = path.join(os.tmpdir(), 'nearsec_setup_wrapper.sh');
@@ -199,7 +209,7 @@ function registerIpcHandlers(ctx) {
           'org.freedesktop.portal.Settings.ReadOne',
           'string:org.freedesktop.appearance',
           'string:accent-color',
-        ], { timeout: 3000, encoding: 'utf-8' });
+        ], { timeout: 3000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
         const doubles = [...out.matchAll(/double\s+([\d.]+)/g)];
         if (doubles.length >= 3) {
           const r = Math.round(parseFloat(doubles[0][1]) * 255).toString(16).padStart(2, '0');

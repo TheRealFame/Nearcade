@@ -305,7 +305,12 @@ async function createWindow() {
     const tunnelProv = getCliArg('--game-tunnel') || 'cloudflared';
     win.loadURL(`http://localhost:${port}/host?auto=1&title=${encodeURIComponent(gameName)}&tunnel=${encodeURIComponent(tunnelProv)}`);
   } else {
-    win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
+    // Show setup wizard on first run instead of dashboard
+    if (!settings.firstRunComplete && !settings.neverBotherSetup) {
+      win.loadURL(`http://localhost:${port}/setup`);
+    } else {
+      win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
+    }
   }
 
   win.webContents.on('console-message', (event, level, message, line, sourceId) => {
@@ -320,6 +325,7 @@ async function createWindow() {
     console.error('[electron] failed to load:', code, desc);
     setTimeout(() => {
       if (isArcadeWorker) win.loadURL(`http://localhost:${port}/host?auto=1`);
+      else if (!settings.firstRunComplete && !settings.neverBotherSetup) win.loadURL(`http://localhost:${port}/setup`);
       else win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
     }, 1000);
   });

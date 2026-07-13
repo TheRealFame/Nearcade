@@ -1420,9 +1420,13 @@ Permission is granted to anyone to use this software for any purpose, subject to
 
       if (!window.electronAPI) return;
 
-      const result = await window.electronAPI.checkSystemSetup();
-      if (!result || result.needsSetup) {
-        window.location.href = '/setup';
+      try {
+        const result = await window.electronAPI.checkSystemSetup();
+        if (!result || result.needsSetup) {
+          window.location.href = '/setup';
+        }
+      } catch (e) {
+        console.warn('[checkFirstRun] error:', e);
       }
     }
 

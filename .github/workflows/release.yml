@@ -89,11 +89,12 @@ jobs:
           if [ "$RUNNER_OS" == "Linux" ]; then
             APPIMAGE=$(find dist -maxdepth 1 -name "*.AppImage" | head -n 1)
             if [ -n "$APPIMAGE" ]; then
-              cp "$APPIMAGE" dist/Nearcade-latest.AppImage
+              mv "$APPIMAGE" dist/Nearcade-Linux.AppImage
+              cp dist/Nearcade-Linux.AppImage dist/Nearcade-latest.AppImage
             fi
           fi
           
-          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm; do
+          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.yml dist/*.yaml; do
             if [ -f "$file" ]; then
               echo "Uploading $file..."
               gh release upload ${{ github.ref_name }} "$file" --clobber || true
@@ -147,12 +148,12 @@ jobs:
 
       # ── FIX: Rename the APK before uploading ──
       - name: Rename APK
-        run: mv android/app/build/outputs/apk/release/app-release.apk "Nearcade (Android).apk"
+        run: mv android/app/build/outputs/apk/release/app-release.apk "Nearcade-Android.apk"
 
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "Nearcade (Android).apk"
+          files: "Nearcade-Android.apk"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -173,13 +174,13 @@ jobs:
       - name: Rename Assets for Itch.io
         run: |
           cd release-assets
-          for file in Nearcade-Setup-*.exe; do [ -f "$file" ] && mv "$file" "Nearcade (Windows).exe"; done
-          for file in Nearcade-Portable.exe; do [ -f "$file" ] && mv "$file" "Nearcade (Portable).exe"; done
-          for file in Nearcade-*-universal.dmg; do [ -f "$file" ] && mv "$file" "Nearcade (Mac).dmg"; done
-          for file in Nearcade-*.AppImage; do [ -f "$file" ] && [[ "$file" != *latest.AppImage ]] && mv "$file" "Nearcade (Linux).AppImage"; done
-          for file in Nearcade_*.deb; do [ -f "$file" ] && mv "$file" "Nearcade (Debian).deb"; done
-          for file in Nearcade-*.rpm; do [ -f "$file" ] && mv "$file" "Nearcade (RedHat).rpm"; done
-          for file in *.apk; do [ -f "$file" ] && mv "$file" "Nearcade (Android).apk"; done
+          for file in Nearcade-Setup-*.exe; do [ -f "$file" ] && mv "$file" "Nearcade-Windows.exe"; done
+          for file in Nearcade-Portable.exe; do [ -f "$file" ] && mv "$file" "Nearcade-Portable.exe"; done
+          for file in Nearcade-*-universal.dmg; do [ -f "$file" ] && mv "$file" "Nearcade-Mac.dmg"; done
+          for file in Nearcade-*.AppImage; do [ -f "$file" ] && [[ "$file" != *latest.AppImage ]] && mv "$file" "Nearcade-Linux.AppImage"; done
+          for file in Nearcade_*.deb; do [ -f "$file" ] && mv "$file" "Nearcade-Debian.deb"; done
+          for file in Nearcade-*.rpm; do [ -f "$file" ] && mv "$file" "Nearcade-RedHat.rpm"; done
+          for file in *.apk; do [ -f "$file" ] && mv "$file" "Nearcade-Android.apk"; done
 
       - name: Wait for previous Itch.io processing (Rate Limit Bypass)
         run: sleep 45
@@ -191,7 +192,7 @@ jobs:
           CHANNEL: windows
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (Windows).exe"
+          PACKAGE: "release-assets/Nearcade-Windows.exe"
 
       - name: Publish Windows Portable to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
@@ -200,7 +201,7 @@ jobs:
           CHANNEL: windows-portable
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (Portable).exe"
+          PACKAGE: "release-assets/Nearcade-Portable.exe"
 
       - name: Publish macOS to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
@@ -209,7 +210,7 @@ jobs:
           CHANNEL: mac
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (Mac).dmg"
+          PACKAGE: "release-assets/Nearcade-Mac.dmg"
 
       - name: Publish Linux (AppImage) to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
@@ -218,7 +219,7 @@ jobs:
           CHANNEL: linux
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (Linux).AppImage"
+          PACKAGE: "release-assets/Nearcade-Linux.AppImage"
 
       - name: Publish Linux (Debian) to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
@@ -227,7 +228,7 @@ jobs:
           CHANNEL: linux-deb
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (Debian).deb"
+          PACKAGE: "release-assets/Nearcade-Debian.deb"
 
       - name: Publish Linux (RedHat) to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
@@ -236,7 +237,7 @@ jobs:
           CHANNEL: linux-rpm
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (RedHat).rpm"
+          PACKAGE: "release-assets/Nearcade-RedHat.rpm"
 
       - name: Publish Android to Itch.io
         uses: yeslayla/butler-publish-itchio-action@master
@@ -245,4 +246,4 @@ jobs:
           CHANNEL: android
           ITCH_GAME: nearcade
           ITCH_USER: cutefame
-          PACKAGE: "release-assets/Nearcade (Android).apk"
+          PACKAGE: "release-assets/Nearcade-Android.apk"
