@@ -2089,6 +2089,14 @@ async function hotSwapCapture() {
         oldVideoTrack.stop();
         currentStream.addTrack(newVideoTrack);
 
+        // 5. Restart WebCodecs pipeline if active (the old track stop kills the reader)
+        const urlParams = new URLSearchParams(window.location.search);
+        const pipelineVal = document.getElementById('pipelineSelect')?.value;
+        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+        if (forceWc) {
+            startWebCodecsNetworkPipeline(newVideoTrack);
+        }
+
         const prev = document.getElementById('preview');
         if (prev && !previewHidden) prev.srcObject = currentStream;
 
@@ -3275,7 +3283,7 @@ function saveCaptureMethod(method) {
     const urlParams = new URLSearchParams(window.location.search);
     let activeMethod = 'native';
     if (urlParams.get('wc') === '1') activeMethod = 'webcodecs';
-    if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
+    else if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
     else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
     
     if (window.electronAPI && window.electronAPI.saveSettings) {
@@ -4441,7 +4449,7 @@ if (window.electronAPI?.hydrateSettings) {
         ctrlSetting_ctrlType:      localStorage.getItem('ns_ctrl_ctrlType')         || 'xbox360',
         // quality / capture
         captureMethod: localStorage.getItem('ns_captureMethod') || undefined,
-        quality_codec:     localStorage.getItem('ns_quality_codec')    || undefined,
+        quality_codec:     localStorage.getItem('ns_codec')           || undefined,
         quality_res:       localStorage.getItem('ns_quality_res')      || undefined,
         quality_fps:       localStorage.getItem('ns_quality_fps')      || undefined,
         quality_bitrate:   localStorage.getItem('ns_quality_bitrate')  || undefined,
