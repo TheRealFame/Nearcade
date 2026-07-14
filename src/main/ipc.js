@@ -224,7 +224,7 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-accent-color', () => {
     try {
-      const accent = require('../../drafts/accent-color');
+      const accent = require('../../packages/accent-color');
       const c = accent.get();
       if (c && c.hex) return c.hex;
     } catch (_) { }

@@ -23,4 +23,4 @@ jobs:
 
       - name: Publish to npm with provenance
         run: npm publish --access public --provenance
-        working-directory: drafts/accent-color
+        working-directory: packages/accent-color
