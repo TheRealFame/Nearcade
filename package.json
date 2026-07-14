@@ -1,6 +1,6 @@
 {
   "name": "Nearcade",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
   "main": "electron-main.js",
@@ -30,6 +30,7 @@
     "express": "^4.18.0",
     "jsdom": "^29.1.1",
     "kill-port": "^2.0.1",
+    "node-datachannel": "^0.12.0",
     "open": "^10.1.0",
     "pusher-js": "^8.5.0",
     "systeminformation": "^5.31.7",

@@ -74,5 +74,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onNativeGamepadEvent: (cb) => ipcRenderer.on('native-gamepad-event', (_e, msg) => cb(msg)),
   sendNativeRumble: (padIndex, strong, weak, duration) => ipcRenderer.send('native-gamepad-rumble', { padIndex, strong, weak, duration }),
 
+  // #1: Direct input forwarding — bypasses local WS relay
+  forwardInput: (msg) => ipcRenderer.send('forward-input', msg),
+  forwardInputBinary: (viewerId, buf) => ipcRenderer.send('forward-input-binary', viewerId, buf),
+
   isElectron: true,
 });

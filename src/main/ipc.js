@@ -9,6 +9,17 @@ const {
 const { CONFIG_DIR, CONFIG_FILE, LOG_FILE, ROOT_DIR } = require('./config');
 const { loadControllers, saveSettings } = require('./config');
 
+// #1: Direct input forwarding — bypass local WS relay
+// Lazy-require InputOrchestrator so it's available after init()
+let _inputDriver = null;
+function _getInputDriver() {
+    if (!_inputDriver) {
+        try { _inputDriver = require('../sidecar/input_backends/InputOrchestrator'); }
+        catch (_) { _inputDriver = null; }
+    }
+    return _inputDriver;
+}
+
 let selectedSourceId = null;
 
 function registerIpcHandlers(ctx) {
@@ -62,6 +73,24 @@ function registerIpcHandlers(ctx) {
         gamepadProc.stdin.write(JSON.stringify({ type: 'rumble', ...data }) + '\n');
       } catch (err) {
         console.error('[native-gamepad] Failed to write rumble data:', err.message);
+      }
+    }
+  });
+
+  // #1 + #8: Direct input forwarding — bypasses the local WebSocket relay
+  ipcMain.on('forward-input', (_event, msg) => {
+    const driver = _getInputDriver();
+    if (driver && driver.send) {
+      try { driver.send(msg); } catch (e) {
+        console.error('[ipc] forward-input error:', e.message);
+      }
+    }
+  });
+  ipcMain.on('forward-input-binary', (_event, viewerId, buf) => {
+    const driver = _getInputDriver();
+    if (driver && driver.sendBinary) {
+      try { driver.sendBinary(viewerId, new Uint8Array(buf)); } catch (e) {
+        console.error('[ipc] forward-input-binary error:', e.message);
       }
     }
   });
