@@ -224,27 +224,16 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-accent-color', () => {
     try {
+      const accent = require('../../drafts/accent-color');
+      const c = accent.get();
+      if (c && c.hex) return c.hex;
+    } catch (_) { }
+
+    try {
       if (process.platform === 'win32' || process.platform === 'darwin') {
         if (typeof systemPreferences.getAccentColor === 'function') {
           const color = systemPreferences.getAccentColor();
           if (color) return '#' + color.slice(0, 6);
-        }
-      }
-      if (process.platform === 'linux') {
-        const out = execFileSync('dbus-send', [
-          '--session', '--print-reply',
-          '--dest=org.freedesktop.portal.Desktop',
-          '/org/freedesktop/portal/desktop',
-          'org.freedesktop.portal.Settings.ReadOne',
-          'string:org.freedesktop.appearance',
-          'string:accent-color',
-        ], { timeout: 3000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
-        const doubles = [...out.matchAll(/double\s+([\d.]+)/g)];
-        if (doubles.length >= 3) {
-          const r = Math.round(parseFloat(doubles[0][1]) * 255).toString(16).padStart(2, '0');
-          const g = Math.round(parseFloat(doubles[1][1]) * 255).toString(16).padStart(2, '0');
-          const b = Math.round(parseFloat(doubles[2][1]) * 255).toString(16).padStart(2, '0');
-          return `#${r}${g}${b}`;
         }
       }
     } catch (_) { }
