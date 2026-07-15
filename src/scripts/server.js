@@ -57,6 +57,7 @@ const killPort = require("kill-port");
 const captureManager = require('../sidecar/CaptureManager.js');
 let activePort = 3000;
 let hostWS = null;
+let hostRegion = '';
 let tunnelUrl = null;
 let activeTunnelProc = null;
 
@@ -87,10 +88,11 @@ let uinputProc = null;
 let audioProc = null;
 const viewers = new Map();
 const viewerNames = new Map();
+const viewerColors = new Map();
+const viewerPlatforms = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
 const urlSpam = new Map();
-const webhookMessages = new Map();
 const reports = new Map();    // anonHash -> Array<{ timestamp, sessionId }>
 const bannedIps = new Map();  // anonHash -> { bannedAt, expiresAt, reason }
 
@@ -224,12 +226,18 @@ if (typeof PusherRaw === 'function') {
   };
 }
 
-const pusher = new Pusher('a93f5405058cd9fc7967', {
-  cluster: 'us2',
-  authEndpoint: 'https://nearcade.cutefame.net/api/pusher-auth'
-});
+let pusher = null;
+let globalArcadeChannel = null;
 
-const globalArcadeChannel = pusher.subscribe('private-arcade-global');
+function initPusher(cfg) {
+  if (pusher) return;
+  const arcadeUrl = cfg.arcadeUrl || DEFAULT_ARCADE_URL;
+  pusher = new Pusher('a93f5405058cd9fc7967', {
+    cluster: 'us2',
+    authEndpoint: arcadeUrl + '/api/pusher-auth'
+  });
+  globalArcadeChannel = pusher.subscribe('private-arcade-global');
+}
 
 // ── Arcade Heartbeat Worker ───────────────────────────────────────────────────
 // All arcadePingInterval / Pusher sync loops run in a dedicated thread so they
@@ -272,8 +280,15 @@ function _arcadePost(msg) {
   if (_arcadeWorker) _arcadeWorker.postMessage(msg);
 }
 
-// Boot the worker immediately (it idles quietly until a session goes active)
-spawnArcadeHeartbeatWorker();
+// Boot the arcade heartbeat (Pusher + worker) after config is available
+function initArcadeHeartbeat(cfg) {
+  if (cfg.tournamentMode) {
+    console.log('[Tournament] Arcade heartbeat & Pusher disabled');
+    return;
+  }
+  initPusher(cfg);
+  spawnArcadeHeartbeatWorker();
+}
 
 function toUinput(msg) {
   // The Orchestrator handles routing to either the native binary or the Python stdin
@@ -376,7 +391,6 @@ const envFile = path.join(dataDir, '.env');
 (function ensureConfigSymlink() {
   if (process.platform === 'win32' || isPackaged) return;
   try {
-    // Walk up from src/scripts to find the project root (two levels up)
     const projectRoot = path.resolve(__dirname, '..', '..');
     const configDir = path.join(projectRoot, 'config');
     const symlinkPath = path.join(configDir, 'nearcade.config.json');
@@ -384,7 +398,6 @@ const envFile = path.join(dataDir, '.env');
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     try {
       const existing = fs.lstatSync(symlinkPath);
-      // Remove stale symlinks or wrong files before re-creating
       if (existing.isSymbolicLink() && fs.realpathSync(symlinkPath) !== realTarget) {
         fs.unlinkSync(symlinkPath);
       } else if (!existing.isSymbolicLink()) {
@@ -396,7 +409,6 @@ const envFile = path.join(dataDir, '.env');
     fs.symlinkSync(realTarget, symlinkPath);
     console.log('[config] Symlink: config/nearcade.config.json → ' + realTarget);
   } catch (e) {
-    // Non-fatal — just a convenience helper
     console.warn('[config] Could not create config symlink:', e.message);
   }
 })();
@@ -863,8 +875,9 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_VERSION = 1;
+const CONFIG_VERSION = 2;
 const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
+const DEFAULT_ARCADE_URL = 'https://nearcade.cutefame.net';
 
 function migrateConfig(cfg) {
   let v = cfg.configVersion || 0;
@@ -875,6 +888,11 @@ function migrateConfig(cfg) {
     if (cfg.hostName === undefined && cfg.host_name !== undefined) cfg.hostName = cfg.host_name;
     if (cfg.checkForUpdates === undefined && cfg.autoUpdate !== undefined) cfg.checkForUpdates = cfg.autoUpdate;
     v = 1;
+  }
+  // v1 → v2: seed arcadeUrl default
+  if (v < 2) {
+    if (!cfg.arcadeUrl) cfg.arcadeUrl = DEFAULT_ARCADE_URL;
+    v = 2;
   }
   cfg.configVersion = CONFIG_VERSION;
   return cfg;
@@ -947,6 +965,11 @@ async function main() {
   } else if (process.platform === 'linux') {
     console.log("✓ Linux - Fully supported (stable)");
   }
+  try {
+    const { protectSelf } = require('@nearcade/launcher-detect');
+    protectSelf();
+    console.log("  PRIORITY: Boosting Nearcade process priority & OOM protection");
+  } catch {}
   console.log("");
 
   activePort = await findFreePort(3000);
@@ -954,6 +977,7 @@ async function main() {
   const LAN_IP = getLanIP();
   const PUBLIC_IP = await getPublicIP();
   const initialCfg = loadConfig();
+  initArcadeHeartbeat(initialCfg);
   let sessionPassword = initialCfg.persistentPassword || '';
   let PIN = sessionPassword ? sessionPassword : makePin();
   let pinEnabled = true;
@@ -1017,7 +1041,9 @@ async function main() {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nwindow.NEARSEC_COMMIT = "${COMMIT_HASH}";\nconsole.log("[Nearcade] Version loaded:", window.NEARSEC_VERSION + (window.NEARSEC_COMMIT ? " ("+window.NEARSEC_COMMIT+")" : ""));`);
+    const cfg = loadConfig();
+    const arcadeUrl = cfg.arcadeUrl || 'https://nearcade.cutefame.net';
+    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nwindow.NEARSEC_COMMIT = "${COMMIT_HASH}";\nwindow.NEARSEC_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.NEARSEC_VERSION + (window.NEARSEC_COMMIT ? " ("+window.NEARSEC_COMMIT+")" : ""));`);
   });
 
   app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
@@ -1040,7 +1066,8 @@ async function main() {
     // Inject the host name dynamically into the Discord tags
     const ogTitle = sess ? sess.game : `${hostName} is looking to play!`;
     const ogDesc = sess ? `Join the live ${sess.game} session on Nearcade.` : `${hostName} is hosting a peer-to-peer gaming session on Nearcade.`;
-    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : "https://nearcade.cutefame.net/assets/NearcadeLogo.png";
+    const cfgOg = loadConfig();
+    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : (cfgOg.arcadeUrl || 'https://nearcade.cutefame.net') + '/assets/NearcadeLogo.png';
 
     html = html
       .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)
@@ -1065,6 +1092,7 @@ async function main() {
     res.sendFile(path.join(pagesDir, "host-custom.html"));
   });
   app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
+  app.get("/games-picker.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
   
@@ -1089,7 +1117,8 @@ async function main() {
   app.get("/api/info", (req, res) => {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
-    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION });
+    const infoCfg = loadConfig();
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
   app.post("/api/fe-log", express.json(), (req, res) => {
     const clientIp = req.socket.remoteAddress || 'unknown';
@@ -1108,7 +1137,19 @@ async function main() {
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
   app.get("/api/config", (req, res) => res.json(loadConfig()));
-  app.post("/api/config", express.json(), (req, res) => { res.json(saveConfig(req.body || {})); });
+  app.post("/api/config", express.json(), (req, res) => {
+    const newCfg = saveConfig(req.body || {});
+    if (newCfg.tournamentMode && pusher) {
+      try { pusher.disconnect(); } catch (_) {}
+      pusher = null;
+      if (_arcadeWorker) {
+        try { _arcadeWorker.terminate(); } catch (_) {}
+        _arcadeWorker = null;
+      }
+      console.log('[Tournament] Pusher disconnected & heartbeat worker terminated via config endpoint');
+    }
+    res.json(newCfg);
+  });
   app.post("/api/system-chat", express.json(), (req, res) => {
     const msg = (req.body?.msg || '').trim();
     if (!msg) return res.status(400).json({ ok: false });
@@ -1185,6 +1226,71 @@ async function main() {
     if (iceServers.length === 0) return res.json(null);
     res.json(iceServers.length === 1 ? iceServers[0] : iceServers);
   });
+
+  app.get("/api/launchers", (_req, res) => {
+    const { detect } = require('@nearcade/launcher-detect');
+    res.json({ launchers: detect() });
+  });
+
+  app.get("/api/games", (_req, res) => {
+    try {
+      const { detectGames } = require('@nearcade/launcher-detect');
+      const games = detectGames();
+      res.json({ games });
+    } catch (e) {
+      console.error('[api/games] Error detecting games:', e.message);
+      console.error(e.stack);
+      res.status(500).json({ error: e.message, games: [] });
+    }
+  });
+
+  const gameArtCacheDir = path.join(os.homedir(), '.cache', 'Nearcade', 'game-art');
+  app.get("/api/game-art/:appId", (req, res) => {
+    const { appId } = req.params;
+    if (!/^\d+$/.test(appId)) return res.status(400).end();
+    fs.mkdirSync(gameArtCacheDir, { recursive: true });
+    const cachePath = path.join(gameArtCacheDir, appId + '.jpg');
+    if (fs.existsSync(cachePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.sendFile(cachePath);
+    }
+    const urls = [
+      `https://shared.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
+      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
+      `https://steamcdn-a.akamaihd.net/steam/apps/${appId}/header.jpg`,
+    ];
+    let idx = 0;
+    function tryFetch() {
+      if (idx >= urls.length) return res.status(404).end();
+      const url = urls[idx++];
+      https.get(url, (resp) => {
+        if (resp.statusCode !== 200) { resp.resume(); return tryFetch(); }
+        const chunks = [];
+        resp.on('data', c => chunks.push(c));
+        resp.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          fs.writeFileSync(cachePath, buf);
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          res.sendFile(cachePath);
+        });
+      }).on('error', tryFetch);
+    }
+    tryFetch();
+  });
+
+  app.post("/api/launch-game", express.json(), (req, res) => {
+    const { launch } = require('@nearcade/launcher-detect');
+    const { launcher, gameId } = req.body || {};
+    if (!launcher || !gameId) return res.status(400).json({ error: 'Missing launcher or gameId' });
+    try {
+      launch(launcher, String(gameId));
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+
 
   app.get("/api/status", (req, res) => {
     res.json({
@@ -1641,7 +1747,8 @@ async function main() {
     if (wsPath === "/ws/host") {
       console.log("[host] connected");
       hostWS = ws;
-      broadcast(JSON.stringify({ type: "host-connected" }));
+      const hCfgAtConnect = loadConfig();
+      broadcast(JSON.stringify({ type: "host-connected", hostName: hCfgAtConnect.hostName || 'Host', hostRegion }));
 
       // Start audio routing as soon as the host session opens
       if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
@@ -1705,6 +1812,11 @@ async function main() {
               audioProc.kill();
               audioProc = null;
             }
+            return;
+          }
+
+          if (msg.type === "host-region" && msg.region) {
+            hostRegion = String(msg.region).toLowerCase().slice(0, 2);
             return;
           }
 
@@ -2076,6 +2188,7 @@ async function main() {
             return;
           }
 
+          if (msg.type === 'chat') msg.isHost = true;
           broadcast(JSON.stringify(msg));
 
         } catch (err) {
@@ -2215,13 +2328,11 @@ async function main() {
           // We update the name here, then fire viewer-joined to the host.
           if (msg.type === "join") {
             let joinName = sanitize(String(msg.name || '')).slice(0, 20) || defaultName;
-            const cfg = loadConfig();
-            const blacklist = (cfg.nameBlacklist || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-            if (blacklist.some(w => joinName.toLowerCase().includes(w))) {
-              console.log(`[viewer] blocked name "${joinName}" — matched blacklist`);
-              joinName = defaultName;
-            }
             viewerNames.set(id, joinName);
+            const viewerColor = msg.color || '';
+            const viewerPlatform = msg.platform || '';
+            if (viewerColor) viewerColors.set(id, viewerColor);
+            if (viewerPlatform) viewerPlatforms.set(id, viewerPlatform);
             console.log("[viewer]", id, "name resolved to:", joinName);
 
             // Always acknowledge the viewer immediately so it can transition
@@ -2234,14 +2345,16 @@ async function main() {
                 viewerId: id,
                 name: joinName,
                 viewerRegion: msg.viewerRegion || null,
-                isDesktopApp: !!msg.isDesktopApp
+                isDesktopApp: !!msg.isDesktopApp,
+                platform: viewerPlatform,
+                color: viewerColor
               }));
             }
 
             // Send host info to viewer unconditionally — it's needed for the UI
             // even if the host reconnects moments later.
             const hCfg = loadConfig();
-            ws.send(JSON.stringify({ type: "host-connected", hostName: hCfg.hostName || 'Host' }));
+            ws.send(JSON.stringify({ type: "host-connected", hostName: hCfg.hostName || 'Host', hostRegion }));
             ws.send(JSON.stringify({
               type: "ctrl-settings",
               enableMotion: !!global.enableMotion,
@@ -2257,6 +2370,11 @@ async function main() {
             broadcast(chatMsg);
 
             broadcastRoster();
+            return;
+          }
+
+          if (msg.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
             return;
           }
 
@@ -2527,6 +2645,8 @@ async function main() {
       // ── DEDICATED INPUT CHANNEL ───────────────────────────────────────────────
     } else if (wsPath === "/ws/input") {
       let myId = null;
+      // Track input sequence per viewer for ack-based loss detection
+      let _inputSeq = 0;
       ws.on("message", raw => {
         try {
           const msg = JSON.parse(raw);
@@ -2539,7 +2659,12 @@ async function main() {
             if (!myId) return;
             const perms = inputPerms.get(msg.pad_id) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
             if (!perms.gp) return;
+            const seq = msg._seq || 0;
+            if (seq > _inputSeq) _inputSeq = seq;
             toUinput(normalizeGamepadMsg(msg));
+            if (seq > 0 && seq % 10 === 0) {
+              try { ws.send(JSON.stringify({ type: 'input-ack', seq: _inputSeq })); } catch (_) {}
+            }
             return;
           }
 
