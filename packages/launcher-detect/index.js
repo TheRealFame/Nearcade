@@ -262,13 +262,14 @@ function detectGames() {
           const list = data[src.key];
           if (list) {
             for (const app of list) {
-              if (app.app_name && app.title && !seenIds.has('heroic_' + app.app_name)) {
+              if (app.app_name && app.title && !seenIds.has('heroic_' + app.app_name) && app.is_installed !== false) {
                 seenIds.add('heroic_' + app.app_name);
                 games.push({
                   id: app.app_name,
                   name: app.title,
                   launcher: 'heroic',
                   lastPlayed: app.last_played ? parseInt(app.last_played) * 1000 : 0,
+                  artCover: app.art_cover || '',
                 });
               }
             }
