@@ -1227,14 +1227,20 @@ async function main() {
     res.json(iceServers.length === 1 ? iceServers[0] : iceServers);
   });
 
+  function freshLauncherDetect() {
+    const modPath = require.resolve('@nearcade/launcher-detect');
+    delete require.cache[modPath];
+    return require('@nearcade/launcher-detect');
+  }
+
   app.get("/api/launchers", (_req, res) => {
-    const { detect } = require('@nearcade/launcher-detect');
+    const { detect } = freshLauncherDetect();
     res.json({ launchers: detect() });
   });
 
   app.get("/api/games", (_req, res) => {
     try {
-      const { detectGames } = require('@nearcade/launcher-detect');
+      const { detectGames } = freshLauncherDetect();
       const games = detectGames();
       res.json({ games });
     } catch (e) {
@@ -1279,7 +1285,7 @@ async function main() {
   });
 
   app.post("/api/launch-game", express.json(), (req, res) => {
-    const { launch } = require('@nearcade/launcher-detect');
+    const { launch } = freshLauncherDetect();
     const { launcher, gameId } = req.body || {};
     if (!launcher || !gameId) return res.status(400).json({ error: 'Missing launcher or gameId' });
     try {

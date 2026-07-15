@@ -238,11 +238,15 @@ let audioSettings = {
 
 Pusher.logToConsole = false;
 const arcadeUrl = window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net';
-const pusher = new Pusher('a93f5405058cd9fc7967', {
-    cluster: 'us2',
-    authEndpoint: arcadeUrl + '/api/pusher-auth'
-});
-const arcadeChannel = pusher.subscribe('private-arcade-global');
+let pusher = null;
+let arcadeChannel = null;
+if (!appSettings.tournamentMode) {
+    pusher = new Pusher('a93f5405058cd9fc7967', {
+        cluster: 'us2',
+        authEndpoint: arcadeUrl + '/api/pusher-auth'
+    });
+    arcadeChannel = pusher.subscribe('private-arcade-global');
+}
 
 // ── NEW: Catch the Ban 403 error and alert the Host ──
 arcadeChannel.bind('pusher:subscription_error', (status) => {
@@ -1224,7 +1228,7 @@ function stopArcadeOnly() {
     if (arcadePingInterval) {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
-        arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
+        if (arcadeChannel) arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
         fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: hostSessionId })
@@ -2903,7 +2907,7 @@ function stopCapture() {
     if (arcadePingInterval) {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
-        arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
+        if (arcadeChannel) arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
         fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: hostSessionId })
@@ -4658,18 +4662,23 @@ function toggleAppSetting(key) {
     if (key === 'alwaysOnTop' && window.electronAPI?.toggleAlwaysOnTop) {
         window.electronAPI.toggleAlwaysOnTop();
     }
+    if (key === 'tournamentMode') {
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tournamentMode: appSettings[key] })
+        }).catch(() => {});
+        if (appSettings[key] && pusher) {
+            try { pusher.disconnect(); } catch (_) {}
+            pusher = null;
+            arcadeChannel = null;
+        }
+    }
     if (window.electronAPI?.saveSettings) {
         if (key === 'tray') window.electronAPI.saveSettings({ tray: appSettings[key] });
         if (key === 'discordRPC') window.electronAPI.saveSettings({ discordRPC: appSettings[key] });
         if (key === 'rumble') window.electronAPI.saveSettings({ rumble: appSettings[key] });
-            if (key === 'tournamentMode') {
-            window.electronAPI.saveSettings({ tournamentMode: appSettings[key] });
-            fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tournamentMode: appSettings[key] })
-            }).catch(() => {});
-        }
+        if (key === 'tournamentMode') window.electronAPI.saveSettings({ tournamentMode: appSettings[key] });
     }
     log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
