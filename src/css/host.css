@@ -643,14 +643,29 @@ gap: 4px;
     color: var(--muted);
     word-break: break-word;
 }
+.cmsg-mentioned {
+    background: rgba(250,204,21,0.12);
+    border-left: 3px solid #facc15;
+    padding-left: 8px;
+    border-radius: 0 4px 4px 0;
+}
 
 .cname {
     color: var(--accent2);
     font-weight: 700;
-    margin-right: 5px;
+    margin-right: 8px;
 }
 
 .cname.me { color: var(--warn); }
+
+.plat-badge {
+    font-size: 11px;
+    opacity: 0.5;
+    margin-left: 2px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    letter-spacing: 0.5px;
+}
 
 .chat-input-row {
     display: flex;
@@ -1336,6 +1351,14 @@ body.client-only .host-only { display: none !important; }
     border-bottom-color: var(--accent);
 }
 .stab-content { padding-bottom: 8px; }
+
+/* ── Tournament Mode ────────────────────────────────────────────── */
+.app-shell.tournament-mode {
+    grid-template-columns: 68px 1fr;
+}
+.app-shell.tournament-mode .right-panel {
+    display: none;
+}
 
 /* ── Mobile Responsive ──────────────────────────────────────────── */
 @media (max-width: 800px) {

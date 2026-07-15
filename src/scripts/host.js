@@ -27,6 +27,7 @@ const appSettings = {
     alwaysOnTop:       localStorage.getItem('ns_app_alwaysOnTop') === 'true',
     hidePreviewOnStart:localStorage.getItem('ns_app_hidePreview') === 'true',
     captureMic:        localStorage.getItem('ns_app_captureMic') === 'true',
+    tournamentMode:    localStorage.getItem('ns_app_tournamentMode') === 'true',
 };
 let selectedMicDeviceId    = localStorage.getItem('ns_audio_input')  || 'default';
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
@@ -195,7 +196,12 @@ function handleVpsJoin(viewerId, inner) {
 
 fetch('https://get.geojs.io/v1/ip/country.json')
     .then(r => r.json())
-    .then(d => { hostRegion = String(d.country || '').toLowerCase().slice(0, 2); })
+    .then(d => {
+        hostRegion = String(d.country || '').toLowerCase().slice(0, 2);
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'host-region', region: hostRegion }));
+        }
+    })
     .catch(() => {});
 
 if (window.electronAPI?.getControllers) {
@@ -231,9 +237,10 @@ let audioSettings = {
 };
 
 Pusher.logToConsole = false;
+const arcadeUrl = window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net';
 const pusher = new Pusher('a93f5405058cd9fc7967', {
     cluster: 'us2',
-    authEndpoint: 'https://nearcade.cutefame.net/api/pusher-auth'
+    authEndpoint: arcadeUrl + '/api/pusher-auth'
 });
 const arcadeChannel = pusher.subscribe('private-arcade-global');
 
@@ -275,7 +282,7 @@ function compareVersions(a, b) {
 
 async function _checkClientVersion() {
     try {
-        const res = await fetch('https://nearcade.cutefame.net/api/client-version');
+        const res = await fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/client-version');
         if (!res.ok) return;
         const data = await res.json();
         const minVer = data.minimum || '0.0.0';
@@ -407,6 +414,7 @@ const congestionControl = {
 
 async function monitorCongestion(pc, viewerId) {
     if (!congestionControl.enabled) return;
+    if (appSettings.tournamentMode) { console.log('[Tournament] Congestion monitoring disabled'); return; }
 
     const poll = async () => {
         try { // <--- OUTER TRY STARTS HERE
@@ -564,7 +572,7 @@ function toggleStreamState() {
 
 async function fetchGameThumbnail(gameTitle) {
     try {
-        const res = await fetch(`https://nearcade.cutefame.net/api/game-art?title=${encodeURIComponent(gameTitle)}`);
+        const res = await fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/game-art?title=' + encodeURIComponent(gameTitle));
         const data = await res.json();
         return data.thumbnail || '';
     } catch (e) {
@@ -916,7 +924,7 @@ function log(msg, cls) {
     if (mini) { mini.textContent = I18N.t(msg); mini.style.color = cls === 'ok' ? 'var(--accent)' : cls === 'err' ? 'var(--danger)' : cls === 'warn' ? 'var(--warn)' : '#333'; }
 }
 
-function appendChat(name, text, isMe) {
+function appendChat(name, text, isMe, platform, color) {
     const fingerprint = makeChatFingerprint(name, text);
     const now = Date.now();
     if (fingerprint === _lastChatFingerprint && now - _lastChatTimestamp < CHAT_DEDUP_WINDOW_MS) {
@@ -928,9 +936,28 @@ function appendChat(name, text, isMe) {
     const el = document.getElementById('chatLog');
     const d = document.createElement('div');
     d.className = 'cmsg';
+    if (!isMe) {
+        const hostName = (document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'Host').trim();
+        if (hostName && new RegExp('@' + hostName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)) {
+            d.classList.add('cmsg-mentioned');
+        }
+    }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'cname' + (isMe ? ' me' : '');
-    nameSpan.textContent = name;
+    nameSpan.textContent = name + ' ';
+    if (color) nameSpan.style.color = color;
+    if (platform) {
+        const platBadge = document.createElement('span');
+        platBadge.className = 'plat-badge';
+        platBadge.innerHTML = platIcon(platform) || platform;
+        nameSpan.appendChild(platBadge);
+    }
+    if (isMe) {
+        const hostBadge = document.createElement('span');
+        hostBadge.textContent = 'HOST';
+        hostBadge.style.cssText = 'font-size:8px;font-weight:700;letter-spacing:0.1em;color:var(--accent);opacity:0.7;margin-left:4px;vertical-align:middle;';
+        nameSpan.appendChild(hostBadge);
+    }
     d.appendChild(nameSpan);
     d.appendChild(document.createTextNode(text));
     if (el) {
@@ -941,16 +968,64 @@ function appendChat(name, text, isMe) {
 
 const chatHistory = [];
 let chatHistoryIndex = -1;
-function sendChat() {
-    const inp = document.getElementById('chatMsg');
-    const msg = inp.value.trim(); if (!msg || !ws || ws.readyState !== 1) return;
-    ws.send(JSON.stringify({ type: 'chat', from: 'Host', msg }));
-    appendChat('Host', msg, true);
-    chatHistory.push(msg);
-    chatHistoryIndex = chatHistory.length;
-    inp.value = '';
+
+function platIcon(name) {
+    const map = {
+        'Mobile':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>',
+        'Steam Deck':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152L2 17a1 1 0 0 0 1 1h2.128a1 1 0 0 0 .958-.71l.635-2.115C7.14 14.155 8.13 13.5 9.25 13.5h5.5c1.12 0 2.11.655 2.529 1.675l.635 2.115a1 1 0 0 0 .958.71H21a1 1 0 0 0 1-1l-.685-8.258A4 4 0 0 0 17.32 5z"/></svg>',
+        'Windows':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        'macOS':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        'Linux':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        'PC':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+    };
+    return map[name] || '';
 }
+
+const _hostPlatform = (() => {
+    const ua = navigator.userAgent;
+    if (/Mobile|Android/i.test(ua)) return 'Mobile';
+    if (/Linux/i.test(ua) && !/Android/i.test(ua)) return 'Linux';
+    if (/Windows/i.test(ua)) return 'Windows';
+    if (/Mac/i.test(ua)) return 'macOS';
+    return 'PC';
+})();
+let _mentionData = { viewers: [], idx: -1 };
+function _showMentionDropdown(inp) {
+    const val = inp.value;
+    const cursor = inp.selectionStart;
+    const before = val.slice(0, cursor);
+    const atIdx = before.lastIndexOf('@');
+    if (atIdx === -1 || (atIdx > 0 && val[atIdx - 1] !== ' ' && val[atIdx - 1] !== '\n')) { _hideMentionDropdown(); return; }
+    const partial = before.slice(atIdx + 1).toLowerCase();
+    // Build viewer list from knownViewers + Host
+    const known = [...knownViewers].map(id => ({ id, name: viewerNames.get(id) || id })).filter(v => v.name.toLowerCase().includes(partial));
+    if (partial === '' && known.length === 0 && 'host'.startsWith('')) known.push({ id: 'HOST', name: 'Host' });
+    if (known.length === 0 || partial.length > 0 && known.every(v => !v.name.toLowerCase().startsWith(partial))) { _hideMentionDropdown(); return; }
+    _mentionData.viewers = known;
+    _mentionData.idx = 0;
+    let dd = document.getElementById('mentionDD');
+    if (!dd) {
+        dd = document.createElement('div');
+        dd.id = 'mentionDD';
+        dd.style.cssText = 'position:absolute;bottom:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:99999;max-height:140px;overflow-y:auto;min-width:120px';
+        const wrapper = document.querySelector('.chat-input-row') || inp.parentElement;
+        if (wrapper) wrapper.style.position = 'relative';
+        wrapper?.appendChild(dd);
+    }
+    dd.innerHTML = known.map((v, i) =>
+        `<div class="m-item" data-idx="${i}" style="padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;${i === 0 ? 'background:var(--accent-dim);color:var(--accent);' : 'color:var(--text);'}" onmouseover="document.querySelectorAll('.m-item').forEach(e=>e.style.background='');this.style.background='var(--accent-dim)';this.style.color='var(--accent)';_mentionData.idx=${i}" onclick="const inp=document.getElementById('chatMsg');const v=inp.value;const cs=inp.selectionStart;const bf=v.slice(0,v.lastIndexOf('@',cs));const af=v.slice(cs);const mention='@${v.name} ';const nv=bf+mention+af;inp.value=nv;inp.selectionStart=inp.selectionEnd=bf.length+mention.length;inp.focus();document.getElementById('mentionDD')?.remove();">${v.name}</div>`
+    ).join('');
+    dd.style.display = 'block';
+}
+function _hideMentionDropdown() { const dd = document.getElementById('mentionDD'); if (dd) dd.style.display = 'none'; _mentionData.idx = -1; }
 document.addEventListener('keydown', e => {
+    const dd = document.getElementById('mentionDD');
+    if (dd && dd.style.display !== 'none') {
+        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.viewers.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="'+_mentionData.idx+'"]'); if (sel) sel.click(); return; }
+        if (e.key === 'Escape') { _hideMentionDropdown(); return; }
+    }
     if (e.target.id !== 'chatMsg') return;
     const inp = e.target;
     if (e.key === 'ArrowUp') {
@@ -961,9 +1036,217 @@ document.addEventListener('keydown', e => {
     } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         chatHistoryIndex = Math.min(chatHistory.length, chatHistoryIndex + 1);
-        inp.value = chatHistoryIndex < chatHistory.length ? chatHistory[chatHistoryIndex] : '';
+        inp.value = chatHistory[chatHistoryIndex];
     }
 });
+// Show mention dropdown on keyup (after user types)
+document.addEventListener('keyup', e => {
+    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+});
+document.addEventListener('input', e => {
+    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+});
+
+function sendChat() {
+    if (appSettings.tournamentMode) { console.log('[Tournament] Chat disabled'); return; }
+    const inp = document.getElementById('chatMsg');
+    const msg = inp.value.trim(); if (!msg || !ws || ws.readyState !== 1) return;
+    const _chatClr = localStorage.getItem('ns_chat_color') || '';
+    const hostName = document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'Host';
+    ws.send(JSON.stringify({ type: 'chat', from: hostName, msg, platform: _hostPlatform, color: _chatClr }));
+    appendChat(hostName, msg, true, _hostPlatform, _chatClr);
+    chatHistory.push(msg);
+    chatHistoryIndex = chatHistory.length;
+    inp.value = '';
+    _hideMentionDropdown();
+}
+
+const EMOJI_CATS = (window.EMOJI_DATA || []).length ? window.EMOJI_DATA : [];
+function injectEmojiPicker() {
+    const chatRow = document.querySelector('.chat-input-row');
+    if (!chatRow || document.getElementById('emojiPicker')) return;
+    const style = document.createElement('style');
+    style.textContent = '#emojiPicker{display:none}#emojiPicker.show{display:flex;flex-direction:column}#emojiPicker .picker-body{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}#emojiPicker .picker-body::-webkit-scrollbar{display:none}#emojiPicker .cat-tabs{display:flex;gap:2px;padding:4px 2px 2px;flex-shrink:0;border-top:1px solid var(--border);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none}#emojiPicker .cat-tabs::-webkit-scrollbar{display:none}#emojiPicker .cat-tab{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;line-height:1;flex-shrink:0;opacity:0.4;transition:opacity 0.15s;display:flex;align-items:center}#emojiPicker .cat-tab.active{opacity:1;background:var(--accent-dim)}#emojiPicker .cat-tab:hover{opacity:0.8}#emojiPicker .cat-page{display:none;flex-wrap:wrap;gap:2px;padding:4px 2px}#emojiPicker .cat-page.active{display:flex}#emojiPicker button:not(.cat-tab){background:none;border:none;cursor:pointer;font-size:20px;padding:2px 4px;border-radius:4px;line-height:1}#emojiPicker button:not(.cat-tab):hover{background:var(--accent-dim);transform:scale(1.15)}';
+    document.head.appendChild(style);
+    const pickerBtn = document.createElement('button');
+    pickerBtn.id = 'emojiPickerBtn';
+    const faceEmojis = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😒','🙃','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥴','😵','🤯','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😤','😡','😠','🤬'];
+    pickerBtn.textContent = faceEmojis[Math.floor(Math.random() * faceEmojis.length)];
+    pickerBtn.type = 'button';
+    pickerBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:18px;padding:4px 6px;line-height:1;opacity:0.5;transition:opacity 0.15s';
+    pickerBtn.title = 'Insert emoji';
+    pickerBtn.onmouseenter = () => pickerBtn.style.opacity = '1';
+    pickerBtn.onmouseleave = () => { if (!picker.classList.contains('show')) pickerBtn.style.opacity = '0.5'; };
+    const picker = document.createElement('div');
+    picker.id = 'emojiPicker';
+    picker.className = 'show';
+    picker.style.cssText = 'position:absolute;bottom:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;width:300px;max-height:260px;z-index:9999';
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'picker-body';
+    picker.appendChild(bodyDiv);
+    const tabsDiv = document.createElement('div');
+    tabsDiv.className = 'cat-tabs';
+    picker.appendChild(tabsDiv);
+    EMOJI_CATS.forEach((cat, ci) => {
+        const tab = document.createElement('button');
+        tab.className = 'cat-tab' + (ci === 0 ? ' active' : '');
+        tab.textContent = cat.label;
+        tab.type = 'button';
+        tab.title = cat.name;
+        const page = document.createElement('div');
+        page.className = 'cat-page' + (ci === 0 ? ' active' : '');
+        cat.items.forEach(e => {
+            const btn = document.createElement('button');
+            btn.textContent = e; btn.type = 'button';
+            btn.onclick = () => {
+                const inp = document.getElementById('chatMsg');
+                if (inp) { inp.value += e; inp.focus(); }
+                picker.className = 'show';
+            };
+            page.appendChild(btn);
+        });
+        tab.onclick = () => {
+            tabsDiv.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            bodyDiv.querySelectorAll('.cat-page').forEach(p => p.classList.remove('active'));
+            page.classList.add('active');
+        };
+        tabsDiv.appendChild(tab);
+        bodyDiv.appendChild(page);
+    });
+    pickerBtn.onclick = () => {
+        const isOpen = picker.classList.contains('show');
+        picker.className = isOpen ? '' : 'show';
+    };
+    document.addEventListener('click', (ev) => {
+        if (!picker.contains(ev.target) && ev.target !== pickerBtn) picker.className = '';
+    });
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;display:inline-flex';
+    wrapper.appendChild(pickerBtn);
+    wrapper.appendChild(picker);
+    chatRow.insertBefore(wrapper, chatRow.firstChild);
+    picker.className = ''; // start hidden
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectEmojiPicker);
+    document.addEventListener('DOMContentLoaded', injectGameLauncher);
+} else {
+    injectEmojiPicker();
+    injectGameLauncher();
+}
+
+function injectGameLauncher() {
+    if (document.getElementById('gameLauncherWrap')) return;
+    const style = document.createElement('style');
+    style.textContent = '#gameLauncherBtn{background:none;border:none;cursor:pointer;font-size:16px;padding:4px 6px;line-height:1;opacity:0.7}#gameLauncherBtn:hover{opacity:1}#gameLauncherPop{display:none;position:absolute;bottom:100%;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;z-index:9999;width:220px}#gameLauncherPop.show{display:block}#gameLauncherPop input{width:100%;box-sizing:border-box;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:4px;padding:6px 8px;color:var(--text);font-family:inherit;font-size:12px;margin-bottom:6px}#gameLauncherPop .launcher-grid{display:flex;flex-wrap:wrap;gap:4px}#gameLauncherPop .launcher-btn{padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:rgba(0,0,0,0.2);color:var(--text);font-size:10px;cursor:pointer;font-family:inherit;flex:1;min-width:60px;text-align:center}#gameLauncherPop .launcher-btn:hover{background:var(--accent-dim);border-color:var(--accent)}#gameLauncherPop .no-launchers{font-size:11px;color:var(--muted);text-align:center;padding:8px 0}';
+    document.head.appendChild(style);
+
+    // Find a good toolbar to attach to — the bottom control bar
+    const controls = document.querySelector('.ctrl-bar, .stream-controls, #streamControls, .bottom-bar');
+    if (!controls) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'gameLauncherWrap';
+    wrap.style.cssText = 'position:relative;display:inline-flex';
+
+    const btn = document.createElement('button');
+    btn.id = 'gameLauncherBtn';
+    btn.textContent = '🎮';
+    btn.title = 'Launch Game';
+    btn.type = 'button';
+    wrap.appendChild(btn);
+
+    const pop = document.createElement('div');
+    pop.id = 'gameLauncherPop';
+    pop.innerHTML = '<input id="launcherGameId" placeholder="Game ID (e.g. 730 for CS2)" maxlength="40"><div class="launcher-grid" id="launcherGrid"></div>';
+    wrap.appendChild(pop);
+
+    const ALL_LAUNCHERS = [
+      { id: 'steam',  label: 'Steam' },
+      { id: 'heroic', label: 'Heroic' },
+      { id: 'lutris', label: 'Lutris' },
+      { id: 'epic',   label: 'Epic' },
+      { id: 'uplay',  label: 'Ubisoft' },
+      { id: 'origin', label: 'Origin' },
+      { id: 'bnet',   label: 'Battle.net' }
+    ];
+
+    function renderLaunchers(installed) {
+      const grid = document.getElementById('launcherGrid');
+      if (!grid) return;
+      let html = '';
+      const shown = installed ? ALL_LAUNCHERS.filter(l => installed.includes(l.id)) : ALL_LAUNCHERS;
+      for (const l of shown) {
+        html += `<button class="launcher-btn" data-proto="${l.id}" onclick="window._launchGame('${l.id}')">${l.label}</button>`;
+      }
+      grid.innerHTML = html || '<div class="no-launchers">No launchers detected</div>';
+    }
+
+    fetch('/api/launchers').then(r => r.json()).then(d => {
+      renderLaunchers(d.launchers);
+    }).catch(() => {
+      renderLaunchers(null);
+    });
+
+    btn.onclick = () => pop.classList.toggle('show');
+    document.addEventListener('click', (ev) => {
+        if (!wrap.contains(ev.target)) pop.classList.remove('show');
+    });
+
+    controls.appendChild(wrap);
+}
+
+window._launchGame = function(launcher) {
+    const id = document.getElementById('launcherGameId')?.value?.trim();
+    if (!id) { document.getElementById('launcherGameId')?.focus(); return; }
+    const protoMap = {
+        steam: 'steam://rungameid/',
+        heroic: 'heroic://launch/',
+        lutris: 'lutris://rungame/',
+        epic: 'com.epicgames.launcher://apps/',
+        uplay: 'uplay://launch/',
+        origin: 'origin://launchgame/',
+        bnet: 'battlenet://'
+    };
+    const url = (protoMap[launcher] || '') + id;
+    if (window.electronAPI?.openExternal) {
+        window.electronAPI.openExternal(url);
+    } else {
+        window.open(url);
+    }
+    document.getElementById('gameLauncherPop')?.classList.remove('show');
+};
+
+function stopArcadeOnly() {
+    if (!isArcade) return;
+    isArcade = false;
+    if (arcadePingInterval) {
+        clearInterval(arcadePingInterval);
+        arcadePingInterval = null;
+        arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
+        fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: hostSessionId })
+        }).catch(() => {});
+        log(I18N.t('Arcade Mode: Session ended on Arcade'), 'warn');
+        const btnArcade = document.getElementById('btnArcade');
+        if (btnArcade) {
+            btnArcade.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+        }
+    }
+    const pinToggle = document.getElementById('pinToggle');
+    if (pinToggle) { pinToggle.disabled = false; pinToggle.style.opacity = ''; pinToggle.style.cursor = ''; }
+    if (arcadeOverrodePin) {
+        arcadeOverrodePin = false;
+        pinEnabled = true;
+        if (pinToggle) { pinToggle.textContent = 'ON'; pinToggle.className = 'pin-toggle-btn on'; }
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: true }));
+        log(I18N.t('PIN re-enabled after Arcade session'), 'ok');
+    }
+    log(I18N.t('Arcade Mode: Stopped — stream continues'), 'warn');
+    sysChat('Arcade session ended. Stream still active.');
+}
 
 function setCapDot(state) {
     const d = document.getElementById('capDot');
@@ -1413,7 +1696,34 @@ function savePersistentPassword(val) {
 }
 
 function connectWS() {
-    ws = new WebSocket(proto + '://' + location.host + '/ws/host');
+    const sig = new Signaling();
+    let _sigOnOpen, _sigOnMessage, _sigOnClose, _sigOnError;
+    ws = {
+        get readyState() { return sig.readyState; },
+        set onopen(fn) { _sigOnOpen = fn; },
+        get onopen() { return _sigOnOpen; },
+        set onmessage(fn) { _sigOnMessage = fn; },
+        get onmessage() { return _sigOnMessage; },
+        set onclose(fn) { _sigOnClose = fn; },
+        get onclose() { return _sigOnClose; },
+        set onerror(fn) { _sigOnError = fn; },
+        get onerror() { return _sigOnError; },
+        send: (data) => sig.send(data),
+        close: (c, r) => sig.disconnect(c, r),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        _sig: sig,
+    };
+    sig.on('connected', () => { if (_sigOnOpen) _sigOnOpen({}); });
+    sig.on('disconnected', (d) => {
+        if (_sigOnClose) _sigOnClose({ code: d.code || 1000, reason: d.reason || '' });
+    });
+    sig.on('error', (d) => { if (_sigOnError) _sigOnError(d || {}); });
+    sig.on('*', (type, msg) => {
+        if (_sigOnMessage && !{connected:1,disconnected:1,error:1,binary:1}[type])
+            _sigOnMessage({ data: JSON.stringify(msg) });
+    });
+    sig.connect(proto + '://' + location.host + '/ws/host');
     ws.onopen = () => {
         log(I18N.t('Connected to server'), 'ok');
 
@@ -1439,6 +1749,9 @@ function connectWS() {
                 sendCtrlSettings();
             });
             checkTunnelOnConnect();
+            if (hostRegion) {
+                ws.send(JSON.stringify({ type: 'host-region', region: hostRegion }));
+            }
     };
     ws.onmessage = async (e) => {
         const msg = JSON.parse(e.data);
@@ -1581,8 +1894,8 @@ function connectWS() {
             return;
         }
         if (msg.type === 'chat') {
-            const isMe = msg.from === 'Host';
-            appendChat(msg.from, msg.msg, isMe);
+            if (appSettings.tournamentMode) return;
+            appendChat(msg.from, msg.msg, false, msg.platform, msg.color);
         }
         if (msg.type === 'viewer-gpid') log(I18N.t('Controller:') + ' ' + msg.id, 'ok');
         if (msg.type === 'arcade-session-active') log(I18N.t('Arcade session is LIVE on Nearcade Arcade!'), 'ok');
@@ -1645,7 +1958,15 @@ async function sendOfferToViewer(viewerId) {
         'stun:stun.miwifi.com:3478',
     ];
     iceServers.push({ urls: fallbackPool.sort(() => 0.5 - Math.random())[0] });
-    if (_turnCredentials) iceServers.push(_turnCredentials);
+    if (_turnCredentials) {
+        iceServers.push(_turnCredentials);
+    } else {
+        iceServers.push({
+            urls: 'turn:openrelayproject.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        });
+    }
 
     const pc = new RTCPeerConnection({
         iceServers: iceServers,
@@ -1698,6 +2019,10 @@ async function sendOfferToViewer(viewerId) {
 
         try {
             const inner = JSON.parse(e.data);
+            if (inner.type === 'ping') {
+                pc.inputChannel.send(JSON.stringify({ type: 'pong' }));
+                return;
+            }
             inner.viewerId = viewerId;
             inner.viewer_id = viewerId;
             if (inner.type === 'gamepad' && !inner.pad_id) inner.pad_id = viewerId + '_0';
@@ -1753,12 +2078,18 @@ async function sendOfferToViewer(viewerId) {
         if (codec && cb) cb.textContent = codec.split('/')[1];
     }
 
+    const viewerRetries = (peerConnections._retries = peerConnections._retries || {});
+    viewerRetries[viewerId] = (viewerRetries[viewerId] || 0) + 1;
     let connectTimeout = setTimeout(() => {
         if (pc.connectionState !== 'connected' && peerConnections[viewerId] === pc) {
+            if (viewerRetries[viewerId] >= 3) {
+                log(I18N.t('Handshake timeout for') + ' ' + viewerId + ' — giving up after 3 retries', 'err');
+                return;
+            }
             log(I18N.t('Handshake timeout for') + ' ' + viewerId + ', fast retrying...', 'warn');
             sendOfferToViewer(viewerId);
         }
-    }, 12000);
+    }, 20000);
 
     pc.onicecandidate = (e) => {
         if (e.candidate && e.candidate.candidate) {
@@ -1964,7 +2295,9 @@ function closeSourceModal() {
 }
 
 async function confirmSource() {
+    const pendingId = selectedSourceId;
     closeSourceModal();
+    selectedSourceId = pendingId;
     await startCapture();
 }
 
@@ -2412,7 +2745,7 @@ async function startCapture() {
             
             // WebRTC HW Encoding Diagnostics
             const pcList = Object.values(peerConnections);
-            if (pcList.length > 0 && pcList[0]) {
+            if (pcList.length > 0 && typeof pcList[0]?.getStats === 'function') {
                 pcList[0].getStats().then(stats => {
                     let isHw = false;
                     let hwStr = '';
@@ -2571,7 +2904,7 @@ function stopCapture() {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
         arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
-        fetch('https://nearcade.cutefame.net/api/arcade/stop', {
+        fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: hostSessionId })
         }).catch(() => {});
@@ -3867,7 +4200,7 @@ function _updateStatsHud() {
     // Pull RTT and outgoing bitrate from the first active peer connection.
     // peerConnections is a plain object keyed by viewerId.
     const pcList = Object.values(peerConnections);
-    if (!pcList.length) { _elText('hudRtt', '—'); _elText('hudBitrate', '—'); return; }
+    if (!pcList.length || typeof pcList[0]?.getStats !== 'function') { _elText('hudRtt', '—'); _elText('hudBitrate', '—'); return; }
 
     pcList[0].getStats().then(stats => {
         let bestPair      = null;
@@ -4226,25 +4559,31 @@ function _doArcadeRegister() {
             };
         };
 
-        arcadeChannel.trigger('client-session-ping', getPingData());
+        if (!appSettings.tournamentMode) {
+            arcadeChannel.trigger('client-session-ping', getPingData());
 
-        // Ping server to maintain session and trigger webhook
-        fetch('https://nearcade.cutefame.net/api/arcade/ping', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(getPingData())
-        }).catch(e => console.error('[Arcade] Server ping failed:', e));
+            // Ping server to maintain session and trigger webhook
+            fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(getPingData())
+            }).catch(e => console.error('[Arcade] Server ping failed:', e));
+        } else {
+            console.log('[Tournament] Arcade pings disabled');
+        }
 
         sysChat(I18N.t('Arcade Mode started:') + ' ' + arcadeConfig.title);
         document.getElementById('btnArcade').innerHTML = '<span style="color:var(--green); font-weight:bold; font-size: 10px;">ARCADE<br>LIVE</span>';
 
         if (arcadePingInterval) clearInterval(arcadePingInterval);
-        arcadePingInterval = setInterval(() => {
-            arcadeChannel.trigger('client-session-ping', getPingData());
-        }, 10000);
+        if (!appSettings.tournamentMode) {
+            arcadePingInterval = setInterval(() => {
+                arcadeChannel.trigger('client-session-ping', getPingData());
+            }, 10000);
+        }
 
         isArcade = true;
-        _updateDiscordRPC();
+        if (!appSettings.tournamentMode) _updateDiscordRPC();
 
     }).catch(() => log(I18N.t('Arcade: Could not read server info'), 'err'));
 }
@@ -4297,6 +4636,7 @@ function applyAppSettingsUI() {
         ['tray',              'settingTrackTray',        'settingRowTray'],
         ['alwaysOnTop',       'settingTrackAlwaysOnTop', 'settingRowAlwaysOnTop'],
         ['hidePreviewOnStart','settingTrackHidePreview', 'settingRowHidePreview'],
+        ['tournamentMode',    'settingTrackTournamentMode','settingRowTournamentMode'],
         ['captureMic',        'settingTrackMic',         'settingRowMic'],
     ];
     pairs.forEach(([key, trackId, rowId]) => {
@@ -4307,6 +4647,7 @@ function applyAppSettingsUI() {
     });
         const micRow = document.getElementById('micDeviceRow');
         if (micRow) micRow.style.display = appSettings.captureMic ? 'block' : 'none';
+    document.querySelector('.app-shell')?.classList.toggle('tournament-mode', !!appSettings.tournamentMode);
 }
 
 function toggleAppSetting(key) {
@@ -4321,6 +4662,7 @@ function toggleAppSetting(key) {
         if (key === 'tray') window.electronAPI.saveSettings({ tray: appSettings[key] });
         if (key === 'discordRPC') window.electronAPI.saveSettings({ discordRPC: appSettings[key] });
         if (key === 'rumble') window.electronAPI.saveSettings({ rumble: appSettings[key] });
+        if (key === 'tournamentMode') window.electronAPI.saveSettings({ tournamentMode: appSettings[key] });
     }
     log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
@@ -4387,7 +4729,7 @@ async function enumerateAudioDevices() {
 }
 
 function sysChat(text) {
-    if (!ws || ws.readyState !== 1) return;
+    if (!ws || ws.readyState !== 1 || appSettings.tournamentMode) return;
     ws.send(JSON.stringify({ type: 'chat', from: 'Nearcade', msg: text }));
     appendChat('Nearcade', text, false);
 }
@@ -4594,6 +4936,7 @@ if (document.readyState === 'loading') {
 let _discordStartTime = null;
 
 function _updateDiscordRPC() {
+    if (appSettings.tournamentMode) return;
     console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
     if (!window.electronAPI || typeof window.electronAPI.discordSetActivity !== 'function') {
         console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
