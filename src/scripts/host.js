@@ -4823,6 +4823,20 @@ if (window.electronAPI?.hydrateSettings) {
 
 connectWS();
 
+// ── Auto-capture on game launch ───────────────────────────────────────────────
+const launchGameData = (() => {
+  try { return JSON.parse(sessionStorage.getItem('ns_launch_game') || 'null'); } catch { return null; }
+})();
+if (launchGameData) {
+  sessionStorage.removeItem('ns_launch_game');
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      const badge = document.getElementById('capStatus');
+      if (badge) badge.textContent = 'Launching ' + (launchGameData.name || 'game') + '...';
+      setTimeout(showSourceSelectionModal, 300);
+    }, 500);
+  });
+}
 
 // ── AUTOMATED HEADLESS BOOT (Arcade Worker) ───────────────────────────
 const urlParams = new URLSearchParams(window.location.search);

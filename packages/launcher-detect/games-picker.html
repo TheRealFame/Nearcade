@@ -140,6 +140,15 @@ html, body {
   font-size: 12px; color: var(--muted);
   text-align: center; padding: 48px 0;
 }
+.go-loading::after {
+  content: ''; display: block; margin: 12px auto 0;
+  width: 24px; height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: go-spin 0.8s linear infinite;
+}
+@keyframes go-spin { to { transform: rotate(360deg); } }
 
 </style>
 </head>
@@ -209,6 +218,7 @@ function toggleView() {
 function loadGames() {
   currentView = lsGet('ns_game_view', 'grid');
   document.getElementById('goViewToggle').textContent = currentView === 'grid' ? '≡' : '▦';
+  document.getElementById('goBody').innerHTML = '<div class="go-loading">Scanning installed games...</div>';
   fetch('/api/games')
     .then(r => r.json())
     .then(d => {

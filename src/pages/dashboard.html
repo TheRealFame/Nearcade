@@ -249,6 +249,59 @@
     #virtual-cursor { position: fixed; width: 20px; height: 20px; background: rgba(192,132,252,0.6); border: 2px solid #fff; border-radius: 50%; z-index: 999999; pointer-events: none; display: none; box-shadow: 0 0 15px #c084fc; transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
     #virtual-cursor.clicking { transform: scale(0.6); background: #fff; }
     body.client-only .host-only { display: none !important; }
+  /* ═══ GAMES RIBBON (arrow tab, middle-right) ═══ */
+    #gamesTab {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 22px;
+      height: 160px;
+      background: var(--surface, #141414);
+      border: 1px solid var(--border, #222);
+      border-right: none;
+      border-radius: 8px 0 0 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      z-index: 500;
+      color: var(--muted2, #666);
+      user-select: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    #gamesTab:hover { background: var(--accent-dim, rgba(192,132,252,0.15)); color: var(--accent, #c084fc); }
+
+    /* ── Games Overlay (Full Collection) ── */
+    #gamesOverlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(8,8,8,0.55);
+      backdrop-filter: blur(4px);
+      z-index: 1100;
+    }
+    #gamesOverlay.open { display: block; }
+    #gamesOverlay .go-panel {
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      width: 80%;
+      max-width: 900px;
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 40px rgba(0,0,0,0.5);
+      animation: goSlideIn 0.2s ease-out;
+    }
+    @keyframes goSlideIn {
+      from { transform: translateX(40px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    #gamesOverlay .go-panel iframe {
+      width: 100%; height: 100%;
+      border: none;
+    }
+
   /* Mobile UI Overrides & Notch Protection */
     @media screen and (max-width: 900px) {
     .modal, .modal-content, #controllerGuideCard {
@@ -372,9 +425,11 @@
         <div id="about-tab-license" class="ns-about-section">
           <div class="ns-about-category">
             <h4>Software License</h4>
-            <div class="ns-about-box" style="white-space: pre-wrap;">Nearcade is provided "as-is", without any express or implied warranty. In no event will the authors be held liable for any damages arising from the use of this software.
+            <div class="ns-about-box" style="white-space: pre-wrap;">Nearcade is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-Permission is granted to anyone to use this software for any purpose, subject to the enclosed license agreements.</div>
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.</div>
           </div>
         </div>
       </div>
@@ -535,7 +590,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       </div>
 
       <div class="panel" id="panel-arcade">
-        <iframe src="https://nearcade.cutefame.net/arcade?electron=1" style="width:100%; height:100%; border:none; flex:1;" allow="gamepad"></iframe>
+        <iframe id="arcadeIframe" src="" style="width:100%; height:100%; border:none; flex:1;" allow="gamepad"></iframe>
       </div>
 
       <div class="panel" id="panel-containers">
@@ -705,20 +760,6 @@ Permission is granted to anyone to use this software for any purpose, subject to
                 <p>Webhook URL for arcade session announcements (leave empty to disable).</p>
               </div>
               <input type="url" id="settingArcadeWebhook" placeholder="https://discord.com/api/webhooks/..." onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
-            </div>
-            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
-              <div class="setting-info" style="flex:1;min-width:200px;">
-                <h4>Arcade Role ID</h4>
-                <p>Discord role ID to ping on session start (leave empty to not ping anyone).</p>
-              </div>
-              <input type="text" id="settingArcadeRoleId" placeholder="123456789012345678" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
-            </div>
-            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
-              <div class="setting-info" style="flex:1;min-width:200px;">
-                <h4>Username Blacklist</h4>
-                <p>Comma-separated words. Viewers with matching names get a generic name instead.</p>
-              </div>
-              <input type="text" id="settingNameBlacklist" placeholder="word1, word2, word3" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
             </div>
             <div class="setting-row" style="cursor:default; gap:8px;">
               <button onclick="verifyModConnection()" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Verify Connection</button>
@@ -898,7 +939,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
 
     async function checkClientVersion() {
       try {
-        const res = await fetch('https://nearcade.cutefame.net/api/client-version');
+        const res = await fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/client-version');
         if (!res.ok) return;
         const data = await res.json();
         const minVer = data.minimum || '0.0.0';
@@ -1143,8 +1184,6 @@ Permission is granted to anyone to use this software for any purpose, subject to
       appConfig.modEndpoint = document.getElementById('settingModEndpoint').value.trim() || undefined;
       appConfig.modSecret = document.getElementById('settingModSecret').value.trim() || undefined;
       appConfig.arcadeWebhook = document.getElementById('settingArcadeWebhook').value.trim() || undefined;
-      appConfig.arcadeRoleId = document.getElementById('settingArcadeRoleId').value.trim() || undefined;
-      appConfig.nameBlacklist = document.getElementById('settingNameBlacklist').value.trim() || undefined;
       document.getElementById('modConnectionStatus').textContent = '';
       if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
       syncToNode();
@@ -1378,7 +1417,8 @@ Permission is granted to anyone to use this software for any purpose, subject to
     }
 
     window.addEventListener('message', (event) => {
-      if (event.origin.includes('nearcade.cutefame.net') && event.data?.type === 'JOIN_SESSION') {
+      const _arcadeOrigin = (window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net');
+      if (event.origin.includes(new URL(_arcadeOrigin).hostname) && event.data?.type === 'JOIN_SESSION') {
         if (window.electronAPI) window.electronAPI.joinSession(event.data.url, { game: event.data.game });
       }
     });
@@ -1452,7 +1492,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
       const port = _getServerPort();
       const arcadeFrame = document.querySelector('#panel-arcade iframe');
       if (arcadeFrame) {
-        arcadeFrame.src = `https://nearcade.cutefame.net/arcade?electron=1&lang=${savedLang}`;
+        arcadeFrame.src = (window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&lang=' + savedLang;
       }
 
       loadAndSyncSettings();
@@ -1621,7 +1661,7 @@ Permission is granted to anyone to use this software for any purpose, subject to
     const port = _getServerPort();
     const arcadeFrame = document.querySelector('#panel-arcade iframe');
     if (arcadeFrame) {
-        arcadeFrame.src = `https://nearcade.cutefame.net/arcade?electron=1&lang=${savedLang}`;
+        arcadeFrame.src = (window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&lang=' + savedLang;
     }
 
     loadAndSyncSettings();
@@ -1830,6 +1870,65 @@ Permission is granted to anyone to use this software for any purpose, subject to
         if (window.showError) window.showError(msg, severity);
       });
     }
+  </script>
+  <!-- ═══ GAMES RIBBON ═══ -->
+  <div id="gamesTab" onclick="openGamesOverlay()" title="Games">‹</div>
+
+  <div id="gamesOverlay" onclick="if(event.target===this) closeGamesOverlay()">
+    <div class="go-panel">
+      <iframe id="gamesFrame" src="/games-picker.html"></iframe>
+    </div>
+  </div>
+
+  <script>
+    // ── Games Launcher ──
+    (function initGamesLauncher() {
+      window.openGamesOverlay = function() {
+        const panel = document.querySelector('#gamesOverlay .go-panel');
+        const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'c084fc';
+        const src = '/games-picker.html?accent=' + encodeURIComponent(accent);
+        if (!panel.querySelector('iframe')) {
+          panel.innerHTML = '<iframe src="' + src + '"></iframe>';
+        } else {
+          panel.querySelector('iframe').src = src;
+        }
+        document.getElementById('gamesOverlay').classList.add('open');
+      };
+
+      window.closeGamesOverlay = function() {
+        document.getElementById('gamesOverlay').classList.remove('open');
+      };
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeGamesOverlay();
+      });
+
+      window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'close-games') {
+          closeGamesOverlay();
+          return;
+        }
+        if (e.data && e.data.type === 'launch-game') {
+          const overlay = document.getElementById('gamesOverlay');
+          const panel = overlay.querySelector('.go-panel');
+          panel.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:13px;">Launching ' + (e.data.name || '').replace(/[<>"&]/g, '') + '...</div>';
+          sessionStorage.setItem('ns_launch_game', JSON.stringify({
+            launcher: e.data.launcher,
+            gameId: e.data.gameId,
+            name: (e.data.name || '').replace(/[<>"&]/g, '')
+          }));
+          fetch('/api/launch-game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ launcher: e.data.launcher, gameId: e.data.gameId })
+          }).then(() => {
+            window.location.href = '/host?launch=1';
+          }).catch(() => {
+            window.location.href = '/host?launch=1';
+          });
+        }
+      });
+    })();
   </script>
   </body>
 </html>
