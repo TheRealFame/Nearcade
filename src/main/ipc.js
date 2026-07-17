@@ -257,8 +257,9 @@ function registerIpcHandlers(ctx) {
     else if (version === 'custom') route = '/host-custom';
 
     const captureParams = [];
-    if (ctx.isWebCodecs) captureParams.push('wc=1');
-    if (ctx.isFFmpegCapture) captureParams.push('ffmpeg=1');
+    if (ctx.settings.captureMethod === 'custom_webcodecs') captureParams.push('wc=2');
+    else if (ctx.settings.captureMethod === 'webcodecs' || ctx.isWebCodecs) captureParams.push('wc=1');
+    if (ctx.settings.captureMethod === 'ffmpeg' || ctx.isFFmpegCapture) captureParams.push('ffmpeg=1');
     const qs = captureParams.length ? '?' + captureParams.join('&') : '';
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.loadURL(`http://localhost:${ctx.serverPort}${route}${qs}`);
   });

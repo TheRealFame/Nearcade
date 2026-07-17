@@ -128,7 +128,7 @@ try {
       const rawConfig = fs.readFileSync(configFile, 'utf8');
       const parsedConfig = JSON.parse(rawConfig);
       if (!process.argv.includes('--webcodecs') && !process.argv.includes('--ffmpeg') && !process.argv.includes('--webrtc')) {
-        if (parsedConfig.captureMethod === 'webcodecs') isWebCodecs = true;
+        if (parsedConfig.captureMethod === 'webcodecs' || parsedConfig.captureMethod === 'custom_webcodecs') isWebCodecs = true;
         if (parsedConfig.captureMethod === 'ffmpeg') isFFmpegCapture = true;
         console.log(`[Main] Loaded capture method from config: ${parsedConfig.captureMethod || 'native'}`);
       } else {

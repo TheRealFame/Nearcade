@@ -31,7 +31,12 @@ function _startVADBroadcast() {
     for (const [vid, vad] of Object.entries(_viewerVADs)) {
       const level = _getRMS(vad.analyser);
       const speaking = level > VAD_THRESHOLD;
-      if (speaking && !vad.talking) { vad.talking = true; vad.silenceStart = 0; }
+      if (speaking && !vad.talking) { 
+        vad.talking = true; vad.silenceStart = 0; 
+        const audio = new Audio('../../assets/voice-active.wav');
+        audio.volume = 0.2;
+        audio.play().catch(() => {}); // Fails silently if no placeholder file exists yet
+      }
       else if (!speaking && vad.talking) {
         if (!vad.silenceStart) vad.silenceStart = Date.now();
         else if (Date.now() - vad.silenceStart > VAD_HOLD_MS) vad.talking = false;
@@ -41,6 +46,17 @@ function _startVADBroadcast() {
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'voice-activity', activeSpeakers: active }));
     }
+    document.querySelectorAll('.rcard').forEach(card => {
+      const vid = card.dataset.id;
+      if (vid && active.includes(vid)) {
+        card.style.boxShadow = '0 0 10px rgba(139, 92, 246, 0.6)';
+        card.style.borderColor = 'var(--accent)';
+        card.style.transition = 'box-shadow 0.1s, border-color 0.1s';
+      } else {
+        card.style.boxShadow = '';
+        card.style.borderColor = '';
+      }
+    });
   }, 500);
 }
 
@@ -1226,7 +1242,11 @@ function injectGameLauncher() {
       { id: 'epic',   label: 'Epic' },
       { id: 'uplay',  label: 'Ubisoft' },
       { id: 'origin', label: 'Origin' },
-      { id: 'bnet',   label: 'Battle.net' }
+      { id: 'bnet',   label: 'Battle.net' },
+      { id: 'gog',    label: 'GOG Galaxy' },
+      { id: 'itch',   label: 'itch.io' },
+      { id: 'ea',     label: 'EA App' },
+      { id: 'amazon', label: 'Amazon Games' }
     ];
 
     function renderLaunchers(installed) {
@@ -1264,7 +1284,11 @@ window._launchGame = function(launcher) {
         epic: 'com.epicgames.launcher://apps/',
         uplay: 'uplay://launch/',
         origin: 'origin://launchgame/',
-        bnet: 'battlenet://'
+        bnet: 'battlenet://',
+        gog: 'goggalaxy://openGameView/',
+        itch: 'itch://',
+        ea: 'ea://launchgame/',
+        amazon: 'amazon-games://play/'
     };
     const url = (protoMap[launcher] || '') + id;
     if (window.electronAPI?.openExternal) {
@@ -3855,6 +3879,8 @@ function hydratePipelineSelect() {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('wc') === '1') {
         pSelect.value = 'webcodecs';
+    } else if (urlParams.get('wc') === '2') {
+        pSelect.value = 'custom_webcodecs';
     } else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) {
         pSelect.value = 'ffmpeg';
     } else {
