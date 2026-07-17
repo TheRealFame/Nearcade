@@ -1,0 +1,1 @@
+cmd_Release/capture_linux.node := ln -f "Release/obj.target/capture_linux.node" "Release/capture_linux.node" 2>/dev/null || (rm -rf "Release/capture_linux.node" && cp -af "Release/obj.target/capture_linux.node" "Release/capture_linux.node")

@@ -1,0 +1,26 @@
+# Maintainer: Fame <support@cutefame.net>
+# Contributor: Fame <support@cutefame.net>
+
+pkgname=nearcade
+pkgver=3.0.3
+pkgrel=1
+pkgdesc="Browser-based game streaming host — low-latency remote play"
+arch=('x86_64')
+url="https://nearcade.cutefame.net"
+license=('GPL3')
+depends=('electron' 'pipewire' 'pipewire-pulse' 'wireplumber' 'portaudio' 'python' 'python-pip')
+optdepends=('python-uinput: virtual gamepad support')
+source=("https://github.com/TheRealFame/Nearcade/releases/download/v${pkgver}/Nearcade-${pkgver}.pacman")
+sha256sums=('SKIP')
+provides=("${pkgname}")
+conflicts=("${pkgname}")
+
+package() {
+  bsdtar -xpf "${srcdir}/Nearcade-${pkgver}.pacman" -C "${pkgdir}"
+}
+
+# Auto-update: checks GitHub releases for latest tag
+pkgver() {
+  curl -sL "https://api.github.com/repos/TheRealFame/Nearcade/releases/latest" | \
+    python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))"
+}

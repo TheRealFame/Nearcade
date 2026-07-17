@@ -9,6 +9,59 @@ let pinEnabled = true, currentPin = '----';
 let kbmPanicActive = false;
 const viewerAudioStates = {}; // Tracks { volume: 100, state: 0 } per viewer
 
+// ── VOICE ACTIVITY DETECTION (Host-side VAD) ──────────────────────────
+const VAD_THRESHOLD = 22; // RMS energy threshold (0-255)
+const VAD_HOLD_MS = 800;  // silence before untalking
+const _viewerVADs = {};   // viewerId → { audioCtx, source, analyser, talking, silenceStart }
+let _vadInterval = null;
+
+function _getRMS(analyser) {
+  if (!analyser) return 0;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteTimeDomainData(data);
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) { const v = data[i] - 128; sum += v * v; }
+  return Math.sqrt(sum / data.length);
+}
+
+function _startVADBroadcast() {
+  if (_vadInterval) return;
+  _vadInterval = setInterval(() => {
+    const active = [];
+    for (const [vid, vad] of Object.entries(_viewerVADs)) {
+      const level = _getRMS(vad.analyser);
+      const speaking = level > VAD_THRESHOLD;
+      if (speaking && !vad.talking) { vad.talking = true; vad.silenceStart = 0; }
+      else if (!speaking && vad.talking) {
+        if (!vad.silenceStart) vad.silenceStart = Date.now();
+        else if (Date.now() - vad.silenceStart > VAD_HOLD_MS) vad.talking = false;
+      } else if (speaking) { vad.silenceStart = 0; }
+      if (vad.talking) active.push(vid);
+    }
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'voice-activity', activeSpeakers: active }));
+    }
+  }, 500);
+}
+
+function _setupViewerVAD(viewerId, stream) {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    _viewerVADs[viewerId] = { audioCtx, source, analyser, talking: false, silenceStart: 0 };
+    _startVADBroadcast();
+  } catch (e) { console.warn('[VAD] Failed to setup for', viewerId, e); }
+}
+
+function _removeViewerVAD(viewerId) {
+  const vad = _viewerVADs[viewerId];
+  if (vad) { try { vad.audioCtx.close(); } catch (_) {} delete _viewerVADs[viewerId]; }
+}
+
 // ── HOISTED CONFIG — declared here to prevent TDZ ReferenceErrors ─────────────
 // These are `const`/`let` — not hoisted like `var`. Any onclick or early function
 // that runs before the bottom of the file would throw "Cannot access before init".
@@ -50,7 +103,7 @@ const PPS_LIMIT  = 300;
 const PPS_WINDOW = 1000;        // ms
 
 // ── Latency tuning constants ────────────────────────────────────────────────────
-const KEYFRAME_INTERVAL_MS = 500;   // was 2000
+const KEYFRAME_INTERVAL_MS = 200;   // was 500
 const CONGESTION_KEYFRAME_THRESHOLD_MS = 20; // was 40
 
 function _checkPps(viewerId) {
@@ -411,8 +464,8 @@ const congestionControl = {
     minRttMs: 40,
     maxRttMs: 120,
     packetLossThreshold: 5,
-    statsPollInterval: 2000,   // FIX: Prevents the 0ms infinite loop!
-    recoveryTimeout: 5000,     // FIX: Prevents NaN math errors during bandwidth recovery
+    statsPollInterval: 500,    // was 2000
+    recoveryTimeout: 2500,     // was 5000
     lastAdjustment: {}         // FIX: Stores individual viewer states
 };
 
@@ -1282,10 +1335,9 @@ async function renderUrls(d) {
     // 2. Append it to the tunnel URL
     let finalTunnelUrl = null;
     if (d.tunnelUrl) {
-        const separator = d.tunnelUrl.includes('?') ? '&' : '?';
         const pSelect = document.getElementById('pipelineSelect');
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
-        finalTunnelUrl = `${d.tunnelUrl}${separator}host=${encodedName}${pipeArg}`;
+        finalTunnelUrl = `${d.tunnelUrl}${pipeArg ? ((d.tunnelUrl.includes('?') ? '&' : '?') + pipeArg.slice(1)) : ''}`;
     }
     window._globalTunnelUrl = finalTunnelUrl;
 
@@ -1301,7 +1353,7 @@ async function renderUrls(d) {
     } else if (finalTunnelUrl) {
         rows.push({ url: finalTunnelUrl, label: 'HTTPS tunnel (v3) ← share this', color: 'var(--accent)' });
     } else if (!isPortForward) {
-        rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: '#444', noclick: true });
+        rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
     }
 
     if (!window._isP2P && !isPlaygroundHost) {
@@ -1769,6 +1821,20 @@ function connectWS() {
             }
             return;
         }
+        if (msg.type === 'webcodecs-health') {
+            const vid = msg.viewerId || '(unknown)';
+            const htype = msg.wcHealthType || '?';
+            console.warn(`[WcHealth] Viewer ${vid}: ${htype}`, msg.wcHealthData || '');
+            if (htype === 'fallback-request') {
+                const pc = peerConnections[vid];
+                if (pc) {
+                    try {
+                        ws.send(JSON.stringify({ type: 'force-reload', viewerId: vid, url: window.location.href.split('?')[0] }));
+                    } catch (_) {}
+                }
+            }
+            return;
+        }
         if (msg.type === 'viewer-joined') {
             const isNew = !knownViewers.has(msg.viewerId);
             knownViewers.add(msg.viewerId);
@@ -1795,6 +1861,7 @@ function connectWS() {
         if (msg.type === 'viewer-left') {
             knownViewers.delete(msg.viewerId);
             delete _viewerRegions[msg.viewerId];
+            _removeViewerVAD(msg.viewerId);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
         }
@@ -1837,10 +1904,17 @@ function connectWS() {
             if (pc && msg.candidate) { try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch { } }
         }
 
-        // NEW: Intercept viewer mic trigger
+        // Viewer mic trigger — create new offer on existing PC (no destroy)
         if (msg.type === 'viewer-mic-ready') {
-            log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone. Re-syncing tracks...', 'ok');
-            sendOfferToViewer(msg._viewerId);
+            const pc = peerConnections[msg._viewerId];
+            if (pc && pc.signalingState === 'stable') {
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: msg._viewerId }));
+                    log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone.', 'ok');
+                } catch (e) { log(I18N.t('Renegotiation err:') + ' ' + e.message, 'err'); }
+            }
         }
 
         if (msg.type === 'viewer-vr-active') {
@@ -1850,19 +1924,28 @@ function connectWS() {
             return;
         }
 
+        // Viewer requests to mute/unmute another viewer
+        if (msg.type === 'set-viewer-volume') {
+            const baseViewerId = msg.targetId.replace(/_\d+$/, '');
+            const vol = parseInt(msg.volume, 10);
+            if (baseViewerId && vol >= 0 && vol <= 100) {
+                setViewerVolume(baseViewerId, vol);
+                log(I18N.t('Volume set:') + ' ' + baseViewerId + ' -> ' + vol, 'ok');
+            }
+            return;
+        }
+
+        if (msg.type === 'tunnel-starting') {
+            log(I18N.t('Starting') + ' ' + msg.provider + ' tunnel...', 'ok');
+        }
         if (msg.type === 'tunnel-url') {
-            // In VPS SFU mode the tunnel URL is irrelevant — the custom domain
-            // is already displayed. Swallowing this message prevents the Cloudflare
-            // URL from overwriting the VPS URL in the Viewer URL dock.
             if (_vpsConfig && _vpsConfig.vpsEnabled) {
                 log('Tunnel suppressed — VPS mode active.', 'ok');
                 return;
             }
             log(I18N.t('Tunnel ready:') + ' ' + msg.url, 'ok');
-            // Set _globalTunnelUrl synchronously so _updateDiscordRPC picks it up
-            // even if the async fetch below hasn't resolved yet.
             window._globalTunnelUrl = msg.url;
-            fetch('/api/info').then(r => r.json()).then(async function(d) { d.tunnelUrl = msg.url; await renderUrls(d); if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC(); });
+            fetch('/api/info').then(r => r.json()).then(async function(d) { d.tunnelUrl = msg.url; await renderUrls(d); if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC(); }).catch(() => {});
             if (!_tunnelModalManual) closeTunnelModal();
         }
         if (msg.type === 'tunnel-error') {
@@ -1936,6 +2019,7 @@ async function sendOfferToViewer(viewerId) {
             peerConnections[viewerId].close();
         } catch { }
         delete peerConnections[viewerId];
+        _removeViewerVAD(viewerId);
     }
 
     if (!_turnCredentials && _turnFetchPromise) {
@@ -2127,6 +2211,7 @@ async function sendOfferToViewer(viewerId) {
                 document.body.appendChild(audioEl);
             }
             audioEl.srcObject = e.streams[0];
+            _setupViewerVAD(viewerId, e.streams[0]);
             log(`Incoming voice stream attached for ${viewerId}`, 'ok');
         }
     };
@@ -2521,48 +2606,94 @@ async function startCapture() {
         }
         */
 
-        // ── 2. THE NATIVE WAYLAND BYPASS ──
-        // Only trigger if FFmpeg was off or failed
-        if (!screenStream && isLinux) {
-            screenStream = await navigator.mediaDevices.getUserMedia({
-                video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
-                audio: false
-            });
+        // ── 2. AUTO-CAPTURE: DRM addon → fallback to Portal ──
+        if (!screenStream && window._autoCapture && window.electronAPI) {
+            if (isLinux) {
+                try {
+                    const dims = await window.electronAPI.drmCaptureStart();
+                    if (dims && dims.width > 0 && dims.height > 0) {
+                        // Probe: try one frame with a short timeout
+                        const firstFrame = await Promise.race([
+                            window.electronAPI.drmCaptureGetFrame(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                        ]);
+                        if (!firstFrame || firstFrame.byteLength < dims.width * dims.height * 4) {
+                            throw new Error('First DRM frame was empty');
+                        }
+                        const cvs = document.createElement('canvas');
+                        cvs.width = dims.width;
+                        cvs.height = dims.height;
+                        cvs.style.position = 'absolute';
+                        cvs.style.left = '-9999px';
+                        cvs.style.top = '-9999px';
+                        document.body.appendChild(cvs);
+                        const ctx = cvs.getContext('2d');
+                        const capStream = cvs.captureStream(10);
+                        const tracks = capStream.getVideoTracks();
+                        if (!tracks || tracks.length === 0) throw new Error('captureStream returned no video tracks');
+                        const drmTrack = tracks[0];
+                        drmTrack.contentHint = 'motion';
+                        screenStream = new MediaStream([drmTrack]);
+                        _drmCanvasLoop(ctx, dims, cvs);
+                        log('DRM/KMS native capture started (' + dims.width + 'x' + dims.height + ')', 'ok');
+                    }
+                } catch (drmErr) {
+                    log('DRM capture unavailable (' + (drmErr.message || drmErr) + '), falling back', 'warn');
+                    window.electronAPI.drmCaptureStop().catch(() => {});
+                }
+            }
+            // Fallback: portal with instruction overlay
+            if (!screenStream) {
+                const portalMsg = document.createElement('div');
+                portalMsg.id = 'ns-portal-msg';
+                portalMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:#1a1a2e;color:#fff;padding:24px 32px;border-radius:12px;border:1px solid #c084fc;text-align:center;font-family:monospace;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,0.8);max-width:400px;';
+                portalMsg.innerHTML = '<div style="font-size:24px;margin-bottom:12px;">🖥</div><strong>Screen Selection Required</strong><br><br>Please select your screen (or game window) in the system dialog that just appeared.<br><br><span style="color:#888;font-size:12px;">This dialog is required once per session on Wayland.</span>';
+                document.body.appendChild(portalMsg);
+                try {
+                    await window.electronAPI.setSelectedSource('screen:0:0');
+                    const abortCtrl = new AbortController();
+                    const abortTimer = setTimeout(() => abortCtrl.abort(), 30000);
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({ ...displayMediaOptions, signal: abortCtrl.signal });
+                    clearTimeout(abortTimer);
+                } catch (e) {
+                    if (e.name === 'AbortError') log('Auto-capture timed out waiting for screen selection.', 'err');
+                    else log('Auto-capture failed: ' + e.message, 'err');
+                } finally {
+                    const el = document.getElementById('ns-portal-msg');
+                    if (el) el.remove();
+                }
+            }
         }
-        // ── 3. WINDOWS / MAC LOGIC ──
-        else if (!screenStream && selectedSourceId && window.electronAPI) {
+        // ── 3. LINUX WAYLAND BYPASS (manual capture only) ──
+        // Captures entire desktop silently to avoid xdg-desktop-portal which hides audio checkbox.
+        if (!screenStream && isLinux && !selectedSourceId) {
+            try {
+                screenStream = await navigator.mediaDevices.getUserMedia({
+                    video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                    audio: false
+                });
+            } catch (e) {
+                log('Linux desktop capture failed, falling back: ' + e.message, 'warn');
+            }
+        }
+        // ── 4. ELECTRON / PRE-SELECTED SOURCE PATH (all platforms) ──
+        if (!screenStream && selectedSourceId && window.electronAPI) {
             try {
                 window._lastSourceId = selectedSourceId;
 
-                // Chromium on Windows requires a strictly prefixed source ID.
-                // IDs without a prefix default to the primary monitor (entire screen).
-                // Rule: if the raw ID contains digits only → window capture → 'window:ID:0'
-                //       if it starts with 'screen:' already → leave it
-                //       if it starts with 'window:' already → leave it
-                //       anything else with no colon → assume window, add prefix
-                // Windows Audio Capture fallback bug:
-                // Chromium on Windows refuses to start a new getUserMedia capture if the
-                // previous MediaStreamTrack was not explicitly stopped AND nulled.
-                // Furthermore, if we fall back to getDisplayMedia, the main process needs to know what we selected.
-                if (window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
-                    window.electronAPI.setSelectedSource(selectedSourceId);
-                }
-
                 if (!selectedSourceId.startsWith('window:') && !selectedSourceId.startsWith('screen:')) {
-                    // Raw numeric IDs (e.g. '123456789') are window handles on Windows
                     const isNumeric = /^\d+$/.test(selectedSourceId);
                     selectedSourceId = isNumeric
                         ? `window:${selectedSourceId}:0`
                         : `screen:${selectedSourceId}:0`;
                 }
-                // 1. Grab the Video specifically for the selected Window/Screen
+                window.electronAPI.setSelectedSource(selectedSourceId);
                 const vidStream = await navigator.mediaDevices.getUserMedia({
                     audio: false,
                     video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: selectedSourceId, maxFrameRate: fpsVal } }
                 });
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
-                // 2. Safely grab System Audio as a completely separate stream (if enabled)
                 let tempAudioTrack = null;
                 if (!isLinux && audioSettings.forceAudioEnabled) {
                     try {
@@ -2576,7 +2707,6 @@ async function startCapture() {
                     }
                 }
 
-                // 3. Stitch them together manually
                 screenStream = new MediaStream([vidStream.getVideoTracks()[0]]);
                 if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
 
@@ -2586,7 +2716,7 @@ async function startCapture() {
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
             }
         } else if (!screenStream) {
-            // Ultimate fallback if no other method caught it
+            // Ultimate fallback — native picker
             screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
         }
 
@@ -2695,8 +2825,29 @@ async function startCapture() {
                 const micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints, video: false });
                 const micTrack = micStream.getAudioTracks()[0];
                 if (micTrack) {
-                    combined.addTrack(micTrack);
-                    log(I18N.t('Microphone added:') + ' ' + (micTrack.label || 'default'), 'ok');
+                    try {
+                        const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+                        const src  = ctx.createMediaStreamSource(new MediaStream([micTrack]));
+                        const gain = ctx.createGain();
+                        const dst  = ctx.createMediaStreamDestination();
+                        const savedVol = parseInt(localStorage.getItem('ns_host_mic_gain') ?? '100', 10) / 100;
+
+                        gain.gain.value = window._masterMuteActive ? 0 : savedVol;
+
+                        src.connect(gain);
+                        gain.connect(dst);
+                        _hostMicGainNode = gain;
+
+                        window._nsMicCtx = ctx;
+                        window._nsMicSrc = src;
+                        if (ctx.state === 'suspended') ctx.resume();
+
+                        combined.addTrack(dst.stream.getAudioTracks()[0]);
+                        log(I18N.t('Microphone added:') + ' ' + (micTrack.label || 'default'), 'ok');
+                    } catch (e) {
+                        console.warn('[HostAudio] Mic Gain node failed:', e);
+                        combined.addTrack(micTrack);
+                    }
                 }
             } catch (e) { log(I18N.t('Mic capture failed:') + ' ' + e.message, 'warn'); }
         }
@@ -2843,9 +2994,67 @@ function _forceKillStream(stream) {
     } catch (_) {}
 }
 
+// ── DRM/KMS Canvas Frame Loop ─────────────────────────────────────────────────
+// Polls the native DRM addon for raw RGBA frames via IPC and draws them onto
+// a canvas whose captureStream() feeds the WebRTC pipeline. This is the only
+// Wayland capture path that does not trigger xdg-desktop-portal.
+function _drmCanvasLoop(ctx, dims, canvas) {
+    let running = true;
+    let busy = false;
+    let failedFrames = 0;
+    const MAX_FAILURES = 3;
+    function tick() {
+        if (!running || busy) return;
+        busy = true;
+        window.electronAPI.drmCaptureGetFrame()
+            .then(buf => {
+                if (!running) return;
+                const expect = dims.width * dims.height * 4;
+                if (!buf || buf.byteLength < expect) {
+                    failedFrames++;
+                    if (failedFrames >= MAX_FAILURES) {
+                        log('DRM capture failing (' + failedFrames + ' failures), stopping', 'warn');
+                        running = false;
+                        window.electronAPI.drmCaptureStop().catch(() => {});
+                        window._stopDrmLoop = null;
+                        if (window._onDrmFailed) window._onDrmFailed();
+                        return;
+                    }
+                    busy = false;
+                    requestAnimationFrame(tick);
+                    return;
+                }
+                failedFrames = 0;
+                const imageData = new ImageData(new Uint8ClampedArray(buf.buffer || buf, 0, expect), dims.width);
+                ctx.putImageData(imageData, 0, 0);
+                busy = false;
+                requestAnimationFrame(tick);
+            })
+            .catch(() => {
+                failedFrames++;
+                if (failedFrames >= MAX_FAILURES) {
+                    log('DRM capture error (' + failedFrames + ' failures), stopping', 'warn');
+                    running = false;
+                    window.electronAPI.drmCaptureStop().catch(() => {});
+                    window._stopDrmLoop = null;
+                    if (window._onDrmFailed) window._onDrmFailed();
+                    return;
+                }
+                busy = false;
+                requestAnimationFrame(tick);
+            });
+    }
+    tick();
+    window._stopDrmLoop = function () {
+        running = false;
+        window.electronAPI.drmCaptureStop().catch(() => {});
+    };
+}
+
 function stopCapture() {
     const _wasArcade = isArcade;
     isArcade = false;
+    if (window._stopDrmLoop) { window._stopDrmLoop(); window._stopDrmLoop = null; }
     if (currentStream) { _forceKillStream(currentStream); currentStream = null; }
     if (window._resInterval) { clearInterval(window._resInterval); window._resInterval = null; }
     _stopStatsHud();
@@ -3189,7 +3398,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                     _wcForceKeyframe = true;
                 }
 
-                if (encoder.encodeQueueSize > 2) {
+                if (encoder.encodeQueueSize > 1) {
                     frame.close();
                 } else {
                     const keyFrame = _wcForceKeyframe;
@@ -4630,6 +4839,9 @@ function showAppSettings() {
     applyAppSettingsUI();
     enumerateAudioDevices();
     document.getElementById('appSettingsModal').classList.remove('gone');
+    // Scroll the system log to show the latest entry
+    const logEl = document.getElementById('log');
+    if (logEl) setTimeout(() => { logEl.scrollTop = logEl.scrollHeight; }, 50);
 }
 function closeAppSettings() {
     document.getElementById('appSettingsModal').classList.add('gone');
@@ -4823,12 +5035,23 @@ if (window.electronAPI?.hydrateSettings) {
 
 connectWS();
 
+// ── Refresh viewer URL when iframe becomes visible (dashboard tab switch) ────
+{
+  const _observer = new IntersectionObserver(entries => {
+    if (entries.some(e => e.isIntersecting)) {
+      fetch('/api/info').then(r => r.json()).then(d => renderUrls(d)).catch(() => {});
+    }
+  });
+  _observer.observe(document.documentElement);
+}
+
 // ── Auto-capture on game launch ───────────────────────────────────────────────
 const launchGameData = (() => {
   try { return JSON.parse(sessionStorage.getItem('ns_launch_game') || 'null'); } catch { return null; }
 })();
 if (launchGameData) {
   sessionStorage.removeItem('ns_launch_game');
+  window._autoCapture = true;
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       const badge = document.getElementById('capStatus');

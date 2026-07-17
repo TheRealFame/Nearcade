@@ -315,7 +315,38 @@
             margin: 0 !important;
         }
     }
-  </style>
+  .tunnel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-top: 8px; }
+  .tunnel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .tunnel-card:hover { border-color: var(--accent-dim, rgba(192,132,252,0.4)); background: rgba(255,255,255,0.02); }
+  .tunnel-card.highlight { border-color: var(--accent); background: rgba(192,132,252,0.06); }
+  .tunnel-card .tc-header { display: flex; align-items: center; gap: 6px; }
+  .tunnel-card .tc-icon { width: 24px; height: 24px; border-radius: 4px; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); flex-shrink: 0; font-family: 'IBM Plex Mono', monospace; }
+  .tunnel-card .tc-name { font-weight: 600; font-size: 13px; flex: 1; }
+  .tunnel-card .tc-badge { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; padding: 1px 5px; border-radius: 3px; }
+  .tunnel-card .tc-badge.free { background: #1a3a2a; color: var(--green); }
+  .tunnel-card .tc-badge.paid { background: #3a2a1a; color: var(--yellow); }
+  .tunnel-card .tc-badge.easy { background: #1a2a3a; color: #60a5fa; }
+  .tunnel-card .tc-badge.adv { background: #2a1a3a; color: var(--accent2); }
+  .tunnel-card .tc-badge.manual { background: #2a2a1a; color: #aaa; }
+  .tunnel-card .tc-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .tunnel-card .tc-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+  .tunnel-card .tc-status { font-size: 10px; display: flex; align-items: center; gap: 4px; }
+  .tunnel-card .tc-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .tunnel-card .tc-dot.found { background: var(--green); }
+  .tunnel-card .tc-dot.missing { background: #555; }
+  .tunnel-card .tc-dot.error { background: var(--red); }
+  .more-tunnels-btn { background: none; border: 1px dashed var(--border); color: var(--muted); padding: 12px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; width: 100%; text-align: center; transition: border-color .15s, color .15s; font-family: inherit; }
+  .more-tunnels-btn:hover { border-color: var(--accent); color: var(--text); }
+  .more-tunnels-btn .arrow { display: inline-block; transition: transform .2s; }
+  .more-tunnels-btn.open .arrow { transform: rotate(180deg); }
+  #tunnelGridContainer { max-height: 0; overflow: hidden; transition: max-height .35s ease; }
+  #tunnelGridContainer.open { max-height: 4000px; }
+  .tunnel-section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 16px 0 6px 2px; }
+  .tunnel-status { padding: 10px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; margin-top: 8px; }
+  .tunnel-status.loading { background: rgba(192,132,252,0.08); border: 1px solid var(--accent-dim); color: var(--accent); }
+  .tunnel-status.success { background: rgba(76,175,80,0.08); border: 1px solid rgba(76,175,80,0.3); color: var(--green); }
+  .tunnel-status.error { background: rgba(244,67,54,0.08); border: 1px solid rgba(244,67,54,0.3); color: var(--red); }
+</style>
 </head>
 <body>
   <!-- Error / Warning Popup Overlay -->
@@ -418,6 +449,13 @@
               <span>WebRTC (Google/W3C)</span>
               <span>Electron Framework (OpenJS Foundation)</span>
               <span>Rust Language (Mozilla)</span>
+            </div>
+          </div>
+          <div class="ns-about-category">
+            <h4>Asset Credits</h4>
+            <div class="ns-about-box">
+              <span>Avatars generated via <a href="#" onclick="window.electronAPI ? window.electronAPI.openExternal('https://www.dicebear.com/') : window.open('https://www.dicebear.com/')" style="color:var(--accent);text-decoration:none;">DiceBear</a></span>
+              <span style="font-size:11px;color:var(--muted);margin-top:2px;display:block;">Style: "Big Smile" by Ashley Seo / Ashley McNamara (CC BY 4.0)</span>
             </div>
           </div>
         </div>
@@ -656,6 +694,18 @@ You should have received a copy of the GNU General Public License along with thi
                 <input type="text" id="settingHostName" placeholder="Guest" onchange="saveHostName(this.value)" style="padding-right: 18px; text-align: center;">
               </div>
             </div>
+            <div class="setting-row">
+              <div class="setting-info" style="flex:1; margin-right: 20px;">
+                <h4>Host Avatar</h4>
+                <p>Your avatar shown in voice chat. Click Randomize to generate a new one.</p>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.4);border:1px solid var(--border);overflow:hidden;flex-shrink:0;">
+                   <img id="hostAvatarPreview" src="" style="width:100%;height:100%;object-fit:cover;display:none;" onload="this.style.display='block'">
+                </div>
+                <button onclick="window.randomizeHostAvatar()" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-weight:600;padding:8px 12px;cursor:pointer;transition:all 0.15s;font-family:inherit;">Randomize</button>
+              </div>
+            </div>
             <div class="setting-row" onclick="toggleAppSetting('rumble')">
               <div class="setting-info">
                 <h4>Controller Rumble</h4>
@@ -738,6 +788,18 @@ You should have received a copy of the GNU General Public License along with thi
             </div>
             <div class="toggle" id="settingTrackAutoHost"><div class="toggle-thumb"></div></div>
           </div>
+          <div class="settings-section host-only" id="tunnelsSection">
+            <h2>Additional Tunnels</h2>
+            <p style="font-size:12px;color:var(--muted);margin:-4px 0 12px 0">Extra tunnel providers not shown in the host page. Click to activate.</p>
+            <button class="more-tunnels-btn" id="moreTunnelsBtn" onclick="toggleTunnelGrid()">
+              <span class="arrow">&#9654;</span> <span id="moreTunnelsLabel">Show available tunnel providers</span>
+            </button>
+            <div id="tunnelGridContainer">
+              <div id="tunnelGridLoading" style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">Loading...</div>
+              <div id="tunnelGridContent" style="display:none;"></div>
+              <div id="tunnelStatus" class="tunnel-status" style="display:none"></div>
+            </div>
+          </div>
           <div class="settings-section">
             <h2>Arcade Moderation</h2>
             <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
@@ -753,13 +815,6 @@ You should have received a copy of the GNU General Public License along with thi
                 <p>The token generated by the mod console. Grants access to ban/unban API.</p>
               </div>
               <input type="password" id="settingModSecret" placeholder="64-char hex token" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
-            </div>
-            <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
-              <div class="setting-info" style="flex:1;min-width:200px;">
-                <h4>Discord Webhook</h4>
-                <p>Webhook URL for arcade session announcements (leave empty to disable).</p>
-              </div>
-              <input type="url" id="settingArcadeWebhook" placeholder="https://discord.com/api/webhooks/..." onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
             </div>
             <div class="setting-row" style="cursor:default; gap:8px;">
               <button onclick="verifyModConnection()" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Verify Connection</button>
@@ -842,6 +897,14 @@ You should have received a copy of the GNU General Public License along with thi
       const cEl = document.getElementById('commit-hash');
 
       await applySystemAccent();
+
+      // Handle ?tab= URL parameter for deep-linking from web viewer
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabParam = urlParams.get('tab');
+      if (tabParam && typeof switchTab === 'function') {
+        // Delay slightly to ensure tabs are initialized
+        setTimeout(() => switchTab(tabParam), 100);
+      }
 
       // Random brand color: purple, orange, or white
       const brandColors = [
@@ -984,6 +1047,8 @@ You should have received a copy of the GNU General Public License along with thi
         versionDisplay.style.display = (name === 'arcade') ? 'none' : 'block';
       }
 
+      const gamesTab = document.getElementById('gamesTab');
+      if (gamesTab) gamesTab.style.display = (name === 'connect') ? 'flex' : 'none';
     }
 
     let appConfig = {};
@@ -998,22 +1063,29 @@ You should have received a copy of the GNU General Public License along with thi
       localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
       const indicator = document.getElementById('sysAccentIndicator');
       const root = document.documentElement;
-      if (!window.electronAPI || !useAccent) {
+      
+      const applyDefault = () => {
         root.style.removeProperty('--accent');
         root.style.removeProperty('--accent2');
         root.style.removeProperty('--accent-dim');
         root.style.removeProperty('--accent-glow');
         if (indicator) indicator.style.display = 'none';
+        
+        if (appConfig.hostColor !== '#c084fc') {
+          appConfig.hostColor = '#c084fc';
+          localStorage.setItem('ns_chat_color', '#c084fc');
+          syncToNode();
+        }
+      };
+      
+      if (!window.electronAPI || !useAccent) {
+        applyDefault();
         return;
       }
       try {
         const accent = await window.electronAPI.getAccentColor();
         if (!accent || accent === '#8b5cf6') {
-          root.style.removeProperty('--accent');
-          root.style.removeProperty('--accent2');
-          root.style.removeProperty('--accent-dim');
-          root.style.removeProperty('--accent-glow');
-          if (indicator) indicator.style.display = 'none';
+          applyDefault();
           return;
         }
         const r = parseInt(accent.slice(1,3), 16);
@@ -1024,12 +1096,14 @@ You should have received a copy of the GNU General Public License along with thi
         root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
         root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
         if (indicator) indicator.style.display = 'inline-flex';
+        
+        if (appConfig.hostColor !== accent) {
+          appConfig.hostColor = accent;
+          localStorage.setItem('ns_chat_color', accent);
+          syncToNode();
+        }
       } catch (_) {
-        root.style.removeProperty('--accent');
-        root.style.removeProperty('--accent2');
-        root.style.removeProperty('--accent-dim');
-        root.style.removeProperty('--accent-glow');
-        if (indicator) indicator.style.display = 'none';
+        applyDefault();
       }
     }
 
@@ -1054,7 +1128,7 @@ You should have received a copy of the GNU General Public License along with thi
       } else {
         appConfig.hidmaestro = false;
         syncSettingsUI();
-        if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+        saveAppConfigToElectron();
         syncToNode();
       }
     }
@@ -1099,17 +1173,26 @@ You should have received a copy of the GNU General Public License along with thi
     function enableHidMaestro() {
       appConfig.hidmaestro = true;
       syncSettingsUI();
-      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      saveAppConfigToElectron();
       syncToNode();
       document.getElementById('hidmaestroDisclaimer')?.remove();
     }
 
+    // Strip tunnel fields before saving — they're managed by the host/server
+    function _cfgWithoutTunnel() {
+        const c = { ...appConfig };
+        delete c.tunnelProvider; delete c.neverAsk; delete c.vpsHost;
+        return c;
+    }
+    function saveAppConfigToElectron() {
+        if (window.electronAPI) window.electronAPI.saveSettings(_cfgWithoutTunnel());
+    }
     function syncToNode() {
         const port = _getServerPort();
         fetch(`http://localhost:${port}/api/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(appConfig)
+            body: JSON.stringify(_cfgWithoutTunnel())
         }).catch(()=>{});
     }
 
@@ -1121,8 +1204,41 @@ You should have received a copy of the GNU General Public License along with thi
     }
 
     function syncSettingsUI() {
-      if(document.getElementById('settingHostName')) {
+      if (appConfig) {
         document.getElementById('settingHostName').value = appConfig.hostName || localStorage.getItem('ns_name') || '';
+        
+        let savedHostAvatar = appConfig.hostAvatar || localStorage.getItem('ns_host_avatar') || localStorage.getItem('ns_avatar');
+        let needsSave = false;
+        if (!savedHostAvatar) {
+          savedHostAvatar = Math.floor(Math.random() * 100) + 1;
+          localStorage.setItem('ns_host_avatar', savedHostAvatar);
+          localStorage.setItem('ns_avatar', savedHostAvatar);
+          needsSave = true;
+        } else if (!appConfig.hostAvatar) {
+          needsSave = true;
+        }
+        
+        if (needsSave) {
+          fetch(`http://localhost:${_getServerPort()}/api/config`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hostAvatar: String(savedHostAvatar) })
+          }).catch(()=>{});
+        }
+
+        const hostAvatarPreview = document.getElementById('hostAvatarPreview');
+        if (hostAvatarPreview) hostAvatarPreview.src = `/assets/avatars/avatar-${savedHostAvatar}.svg`;
+        
+        window.randomizeHostAvatar = function() {
+          const newAv = Math.floor(Math.random() * 100) + 1;
+          localStorage.setItem('ns_host_avatar', newAv);
+          localStorage.setItem('ns_avatar', newAv);
+          if (hostAvatarPreview) hostAvatarPreview.src = `/assets/avatars/avatar-${newAv}.svg`;
+          
+          fetch(`http://localhost:${_getServerPort()}/api/config`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hostAvatar: String(newAv) })
+          }).catch(()=>{});
+        };
       }
       
       const uiSel = document.getElementById('hostUISelect');
@@ -1154,9 +1270,6 @@ You should have received a copy of the GNU General Public License along with thi
       if (document.getElementById('settingModSecret')) {
         document.getElementById('settingModSecret').value = appConfig.modSecret || '';
       }
-      if (document.getElementById('settingArcadeWebhook')) {
-        document.getElementById('settingArcadeWebhook').value = appConfig.arcadeWebhook || '';
-      }
       if (document.getElementById('settingArcadeRoleId')) {
         document.getElementById('settingArcadeRoleId').value = appConfig.arcadeRoleId || '';
       }
@@ -1167,7 +1280,7 @@ You should have received a copy of the GNU General Public License along with thi
 
     function saveLangAndReload(val) {
       appConfig.lang = val;
-      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      saveAppConfigToElectron();
       I18N.changeLanguage(val);
     }
 
@@ -1176,16 +1289,140 @@ You should have received a copy of the GNU General Public License along with thi
       // Sync to standard local storage so Arcade and Viewer immediately see it
       localStorage.setItem('ns_name', appConfig.hostName);
 
-      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      saveAppConfigToElectron();
       syncToNode();
+    }
+
+    let _tunnelProviders = null;
+
+    async function toggleTunnelGrid() {
+      const btn = document.getElementById('moreTunnelsBtn');
+      const container = document.getElementById('tunnelGridContainer');
+      const isOpen = container.classList.toggle('open');
+      btn.classList.toggle('open', isOpen);
+
+      if (isOpen && !_tunnelProviders) {
+        try {
+          const res = await fetch('/api/tunnels/providers');
+          const data = await res.json();
+          _tunnelProviders = data.providers || [];
+          renderTunnelGrid();
+        } catch (e) {
+          document.getElementById('tunnelGridLoading').textContent = 'Failed to load: ' + e.message;
+        }
+      }
+    }
+
+    function renderTunnelGrid() {
+      document.getElementById('tunnelGridLoading').style.display = 'none';
+      const el = document.getElementById('tunnelGridContent');
+      el.style.display = 'block';
+
+      const only = _tunnelProviders.filter(p => !p.integrated);
+
+      let html = '<div class="tunnel-section-label">Additional Tunnels</div>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;">';
+      html += '<div class="tunnel-grid">';
+      for (const p of only) html += tunnelCardHtml(p);
+      html += '</div></div>';
+
+      el.innerHTML = html;
+    }
+
+    function tunnelCardHtml(p) {
+      const icon = p.name.charAt(0).toUpperCase();
+      const dotClass = p.status.found ? 'found' : (p.status.error ? 'error' : 'missing');
+      const dotLabel = p.requiresBinary === false ? 'no binary needed'
+        : p.status.found ? 'binary found'
+        : p.status.error ? 'error' : 'binary not detected';
+      const badges = [
+        p.difficulty ? '<span class="tc-badge ' + p.difficulty + '">' + p.difficulty + '</span>' : '',
+        p.pricing ? '<span class="tc-badge ' + p.pricing + '">' + p.pricing + '</span>' : '',
+      ].filter(Boolean).join(' ');
+
+      const isActive = appConfig.tunnelProvider === p.id;
+      return '<div class="tunnel-card' + (isActive ? ' highlight' : '') + '" id="tunnel-card-' + p.id + '" onclick="tunnelCardClick(\'' + p.id + '\')">' +
+        '<div class="tc-header">' +
+          '<div class="tc-icon">' + icon + '</div>' +
+          '<div class="tc-name">' + p.name + '</div>' +
+          badges +
+        '</div>' +
+        '<div class="tc-desc">' + p.description + '</div>' +
+        '<div class="tc-footer">' +
+          '<span class="tc-status"><span class="tc-dot ' + dotClass + '"></span> ' + dotLabel + '</span>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function tunnelCardClick(id) {
+      const p = _tunnelProviders.find(x => x.id === id);
+      if (!p) return;
+      document.querySelectorAll('.tunnel-card').forEach(c => c.classList.remove('highlight'));
+      const card = document.getElementById('tunnel-card-' + id);
+      if (card) card.classList.add('highlight');
+      appConfig.tunnelProvider = id;
+      saveOrSyncConfig();
+      document.getElementById('moreTunnelsLabel').textContent = 'Starting ' + p.name + '...';
+
+      const statusEl = document.getElementById('tunnelStatus');
+      if (statusEl) {
+        statusEl.textContent = 'Starting ' + p.name + '...';
+        statusEl.className = 'tunnel-status loading';
+        statusEl.style.display = 'block';
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 50000);
+      fetch('/api/tunnels/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: id }),
+        signal: controller.signal
+      })
+        .then(r => { clearTimeout(timeoutId); return r.json(); })
+        .then(data => {
+          if (data.success && data.url) {
+            document.getElementById('moreTunnelsLabel').textContent = 'Active: ' + p.name;
+            if (statusEl) {
+              statusEl.innerHTML = '<span style="color:var(--green)">✓</span> ' + p.name + ' running<br><small>URL: <a href="' + data.url + '" target="_blank" style="color:var(--accent)">' + data.url + '</a></small>';
+              statusEl.className = 'tunnel-status success';
+            }
+          } else {
+            document.getElementById('moreTunnelsLabel').textContent = p.name + ' failed';
+            if (statusEl) {
+              statusEl.innerHTML = '<span style="color:var(--red)">✗</span> ' + p.name + ' failed: ' + (data.details || data.error || 'unknown error');
+              statusEl.className = 'tunnel-status error';
+            }
+          }
+          setTimeout(closeTunnelGrid, 6000);
+        })
+        .catch(e => {
+          document.getElementById('moreTunnelsLabel').textContent = p.name + ' error';
+          if (statusEl) {
+            statusEl.innerHTML = '<span style="color:var(--red)">✗</span> Network error: ' + e.message;
+            statusEl.className = 'tunnel-status error';
+          }
+        });
+    }
+
+    function saveOrSyncConfig() {
+      saveAppConfigToElectron();
+      syncToNode();
+    }
+
+    function closeTunnelGrid() {
+      const btn = document.getElementById('moreTunnelsBtn');
+      const container = document.getElementById('tunnelGridContainer');
+      btn.classList.remove('open');
+      container.classList.remove('open');
     }
 
     function saveModSettings() {
       appConfig.modEndpoint = document.getElementById('settingModEndpoint').value.trim() || undefined;
       appConfig.modSecret = document.getElementById('settingModSecret').value.trim() || undefined;
-      appConfig.arcadeWebhook = document.getElementById('settingArcadeWebhook').value.trim() || undefined;
+
       document.getElementById('modConnectionStatus').textContent = '';
-      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      saveAppConfigToElectron();
       syncToNode();
     }
 
@@ -1356,7 +1593,7 @@ You should have received a copy of the GNU General Public License along with thi
       }
       syncSettingsUI();
       if (window.electronAPI) {
-        window.electronAPI.saveSettings(appConfig);
+        saveAppConfigToElectron();
         if (key === 'alwaysOnTop') window.electronAPI.toggleAlwaysOnTop();
         if (key === 'useSystemAccent') applySystemAccent();
       }
@@ -1534,7 +1771,7 @@ You should have received a copy of the GNU General Public License along with thi
         try {
             const parsed = JSON.parse(document.getElementById('hostEditorText').value);
             appConfig.autoHosts = parsed;
-            if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+            saveAppConfigToElectron();
             syncToNode();
             document.getElementById('hostEditorModal').remove();
             renderAutoHosts();
@@ -1552,7 +1789,7 @@ You should have received a copy of the GNU General Public License along with thi
         if (!appConfig.autoHosts) appConfig.autoHosts = [];
         appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
 
-        if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+        saveAppConfigToElectron();
         syncToNode();
         renderAutoHosts();
         document.getElementById('autoName').value = '';
@@ -1675,13 +1912,20 @@ You should have received a copy of the GNU General Public License along with thi
         || appConfig.bootToHost
         || localStorage.getItem('ns_auto_host') === 'true';
 
-    if (autoStartEnabled) {
+if (autoStartEnabled) {
         document.getElementById('settingTrackAutoHost')?.classList.add('on');
         if (!noAutoHost) {
             setTimeout(launchHostSession, 500);
         }
     }
-});
+
+    // 6. Set initial games tab visibility (connect is default active panel)
+    const gamesTab = document.getElementById('gamesTab');
+    const activePanel = document.querySelector('.panel.active');
+    if (gamesTab && activePanel && activePanel.id !== 'panel-connect') {
+      gamesTab.style.display = 'none';
+    }
+  });
 
     function launchHostSession() {
       // Force direct storage read to prevent race condition with appConfig caching
@@ -1709,7 +1953,7 @@ You should have received a copy of the GNU General Public License along with thi
       }
       localStorage.setItem('ns_ui_version', val);
       appConfig.uiVersion = val;
-      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      saveAppConfigToElectron();
     }
     
     function uploadCustomUI(input) {
@@ -1741,7 +1985,7 @@ You should have received a copy of the GNU General Public License along with thi
       // Write to config file so bootToHost is authoritative
       appConfig.bootToHost = isAuto;
       appConfig.autoStartHost = isAuto;
-      if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
+      saveAppConfigToElectron();
       const port = _getServerPort();
       fetch('http://localhost:' + port + '/api/config', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1885,12 +2129,9 @@ You should have received a copy of the GNU General Public License along with thi
     (function initGamesLauncher() {
       window.openGamesOverlay = function() {
         const panel = document.querySelector('#gamesOverlay .go-panel');
-        const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'c084fc';
-        const src = '/games-picker.html?accent=' + encodeURIComponent(accent);
         if (!panel.querySelector('iframe')) {
-          panel.innerHTML = '<iframe src="' + src + '"></iframe>';
-        } else {
-          panel.querySelector('iframe').src = src;
+          const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'c084fc';
+          panel.innerHTML = '<iframe src="/games-picker.html?accent=' + encodeURIComponent(accent) + '"></iframe>';
         }
         document.getElementById('gamesOverlay').classList.add('open');
       };

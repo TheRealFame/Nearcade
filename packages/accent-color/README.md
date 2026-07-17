@@ -28,3 +28,5 @@ Async variant (same as sync for now, reserved for future native addons).
 | Windows  | Registry `AccentColor` DWORD |
 | macOS    | `defaults read -g AppleAccentColor` |
 | Linux    | D-Bus portal → GNOME `gsettings` → KDE `kreadconfig5` |
+
+This package uses artificial intelligence large language models for code generation and structure planning.

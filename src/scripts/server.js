@@ -25,7 +25,7 @@ console.log = function (...args) {
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
   
   // Blur Zrok / Playit / localhost.run / serveo URLs
-  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net)/g, 'https://********.$1');
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net|serveousercontent\.com)/g, 'https://********.$1');
   
   // Blur VPS SSH strings
   msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
@@ -53,6 +53,7 @@ const sidecarPath = __dirname.includes('app.asar')
 const { exec, spawn } = require("child_process");
 const open = (...args) => import('open').then(({ default: open }) => open(...args));
 const which = require("which");
+const tunnels = require('./tunnels.js');
 const killPort = require("kill-port");
 const captureManager = require('../sidecar/CaptureManager.js');
 let activePort = 3000;
@@ -89,6 +90,7 @@ let audioProc = null;
 const viewers = new Map();
 const viewerNames = new Map();
 const viewerColors = new Map();
+const viewerAvatars = new Map();
 const viewerPlatforms = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
@@ -447,12 +449,6 @@ function shouldRequirePin(ip, hasTunnelHeader = false) {
   if (ip.startsWith('100.')) return false;
   return true;
 }
-function getTailscaleIP() {
-  for (const iface of Object.values(os.networkInterfaces()))
-    for (const n of iface)
-      if (n.family === "IPv4" && n.address.startsWith("100.")) return n.address;
-  return null;
-}
 function findFreePort(start) {
   return new Promise(resolve => {
     const s = net.createServer();
@@ -463,364 +459,17 @@ function findFreePort(start) {
 function openBrowser(url) {
   open(url).catch(() => { });
 }
-function getPublicIP() {
+function getPublicIP(timeoutMs = 5000) {
   return new Promise(resolve => {
-    https.get("https://api.ipify.org", res => {
+    const req = https.get("https://api.ipify.org", res => {
       let d = ""; res.on("data", c => d += c); res.on("end", () => resolve(d.trim()));
-    }).on("error", () => resolve(null));
-  });
-}
-
-// ── Binary path resolver ─────────────────────────────────────────────
-const FALLBACK_PATHS = {
-  cloudflared: [
-    path.join(os.homedir(), 'cloudflared.exe'),
-    path.join(os.homedir(), 'bin', 'cloudflared.exe'),
-    'C:\\Program Files\\cloudflared\\cloudflared.exe',
-    path.join(os.homedir(), 'cloudflared'),
-    path.join(os.homedir(), 'bin', 'cloudflared'),
-    '/usr/local/bin/cloudflared',
-    '/usr/bin/cloudflared'
-  ],
-  zrok: [
-    path.join(os.homedir(), 'zrok', 'zrok.exe'),
-    path.join(os.homedir(), 'bin', 'zrok.exe'),
-    path.join(os.homedir(), 'zrok', 'zrok'),
-    path.join(os.homedir(), 'bin', 'zrok'),
-    path.join(os.homedir(), 'bin', 'zrok2')
-  ],
-  zrok2: [
-    path.join(os.homedir(), 'zrok', 'zrok2'),
-    path.join(os.homedir(), 'bin', 'zrok2')
-  ],
-  playit: [
-    path.join(os.homedir(), 'playit.exe'),
-    path.join(os.homedir(), 'bin', 'playit.exe'),
-    path.join(os.homedir(), 'playit'),
-    path.join(os.homedir(), 'bin', 'playit')
-  ],
-  ssh: [
-    'C:\\Windows\\System32\\OpenSSH\\ssh.exe',
-    'C:\\Program Files\\Git\\usr\\bin\\ssh.exe',
-    '/usr/bin/ssh'
-  ],
-};
-
-function findBinaryPath(name) {
-  return which(name).then(p => p).catch(() => {
-    const fallbacks = FALLBACK_PATHS[name] || [];
-    for (const p of fallbacks) {
-      if (fs.existsSync(p)) {
-        console.log(`  [tunnel] Found ${name} at fallback path: ${p}`);
-        return p;
-      }
-    }
-    return null;
-  });
-}
-// ── Tunnel providers ─────────────────────────────────────────────────────────
-
-// Native fallback reader since dotenv is not in package dependencies
-function readEnv(key) {
-  if (process.env[key]) return process.env[key];
-  try {
-    const envPath = path.join(__dirname, '..', '..', '.env');
-    if (fs.existsSync(envPath)) {
-      const lines = fs.readFileSync(envPath, 'utf8').split('\n');
-      for (let line of lines) {
-        if (line.trim().startsWith(key + '=')) {
-          return line.split('=')[1].trim();
-        }
-      }
-    }
-  } catch (e) { }
-  return null;
-}
-
-function ensureExecutable(binPath) {
-  if (!binPath) return;
-  // System package paths are already executable and root-owned — chmod would EPERM.
-  const sysPaths = ['/usr/bin/', '/usr/local/bin/', '/bin/', '/sbin/', '/usr/sbin/'];
-  if (sysPaths.some(p => binPath.startsWith(p))) return;
-  try { fs.chmodSync(binPath, 0o755); } catch (e) { console.warn('[chmod]', binPath, e.message); }
-}
-
-function startTunnelCloudflared(port) {
-  return new Promise(resolve => {
-    findBinaryPath('cloudflared').then(cloudflaredPath => {
-      if (!cloudflaredPath) { resolve({ error: 'NOT_FOUND', provider: 'cloudflared' }); return; }
-      ensureExecutable(cloudflaredPath);
-
-      const cfToken = readEnv('CF_TOKEN');
-      if (cfToken) {
-        console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Token)...");
-        // Force HTTP2 to bypass UDP/QUIC blocks on Linux
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--url", "http://localhost:" + port], { stdio: ["ignore", "pipe", "pipe"] });
-        const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
-        console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-        activeTunnelProc = proc;
-        return resolve({ url, proc });
-      }
-
-      const cfName = readEnv('CF_TUNNEL_NAME');
-      if (cfName) {
-        console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Locally Managed)...");
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", cfName], { stdio: ["ignore", "pipe", "pipe"] });
-        const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
-        console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-        activeTunnelProc = proc;
-        return resolve({ url, proc });
-      }
-
-      console.log("  \x1b[33m~\x1b[0m Starting cloudflared tunnel...");
-      console.log("  \x1b[31m!\x1b[0m WARNING: Free Cloudflare tunnels (trycloudflare.com) are currently heavily restricted by Cloudflare.");
-      console.log("  \x1b[31m!\x1b[0m If your URL returns a 404 Not Found, Cloudflare has blocked the connection at their edge.");
-      console.log("  \x1b[31m!\x1b[0m If this happens, please use Zrok instead (\x1b[36mTUNNEL=zrok node server.js\x1b[0m).");
-
-      // CRITICAL FIX: Force HTTP2 and strictly bind to 127.0.0.1 to avoid IPv6 mismatches and QUIC drops
-      const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:" + port], { stdio: ["ignore", "pipe", "pipe"] });
-      let done = false;
-      const check = data => {
-        const m = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-        if (m && !done) {
-          done = true;
-          activeTunnelProc = proc;
-          const url = m[0] + '/?v3';
-          console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-          resolve({ url: url, proc });
-        }
-      };
-      proc.stderr.on("data", check);
-
-      proc.on("error", () => { if (!done) { done = true; resolve(null); } });
-      proc.on("close", () => { if (!done) { done = true; resolve(null); } });
     });
+    req.on("error", () => resolve(null));
+    req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
   });
 }
 
-function startTunnelVps(port, vpsHost) {
-  return new Promise((resolve) => {
-    if (!vpsHost || vpsHost.trim() === '') {
-      console.log("  \x1b[31m~\x1b[0m VPS Host missing. Check your .env or GUI settings.");
-      return resolve(null);
-    }
-
-    findBinaryPath('ssh').then(sshPath => {
-      if (!sshPath) { resolve(null); return; }
-
-      console.log(`  \x1b[33m~\x1b[0m Clearing ghost ports on VPS...`);
-
-      const killCmd = spawn(sshPath, [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        vpsHost,
-        `fuser -k ${port}/tcp || true`
-      ]);
-
-      killCmd.on('close', () => {
-        console.log(`  \x1b[33m~\x1b[0m Starting VPS Reverse SSH Tunnel to ${vpsHost}...`);
-
-        const proc = spawn(sshPath, [
-          "-v", "-N", "-T",
-          "-o", "ExitOnForwardFailure=yes",
-          "-o", "StrictHostKeyChecking=no",
-          "-o", "UserKnownHostsFile=/dev/null",
-          "-o", "ServerAliveInterval=15",
-          "-o", "ServerAliveCountMax=3",
-          "-R", `0.0.0.0:${port}:127.0.0.1:${port}`, vpsHost
-        ], { stdio: ["ignore", "pipe", "pipe"] });
-
-        const customEnvUrl = readEnv('CUSTOM_URL');
-        let url = (customEnvUrl && customEnvUrl.trim() !== '')
-          ? customEnvUrl.trim().replace(/\/$/, "")
-          : `http://${vpsHost.split('@').pop().trim()}:${port}`;
-
-        // CRITICAL FIX: Append /?v3 for Discord Integration
-        url += '/?v3';
-
-        let done = false;
-
-        proc.stderr.on("data", data => {
-          const out = data.toString();
-          if ((out.includes("remote forward success") || out.includes("Forwarding address")) && !done) {
-            done = true;
-            activeTunnelProc = proc;
-            console.log("  \x1b[32m✓\x1b[0m VPS Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-            resolve({ url, proc });
-          }
-        });
-
-        proc.on("error", () => { if (!done) { done = true; resolve(null); } });
-        proc.on("close", () => { if (!done) { done = true; resolve(null); } });
-      });
-    });
-  });
-}
-
-function startTunnelPlayit(port) {
-  return new Promise(resolve => {
-    findBinaryPath('playit').then(playitPath => {
-      if (!playitPath) { resolve(null); return; }
-      ensureExecutable(playitPath);
-
-      console.log("  \x1b[33m~\x1b[0m Starting playit tunnel...");
-      const proc = spawn(playitPath, [], { stdio: ["ignore", "pipe", "pipe"] });
-      let done = false;
-      const check = data => {
-        const str = data.toString();
-        const claim = str.match(/https:\/\/playit\.gg\/claim\/[a-z0-9\-]+/i);
-        if (claim) { console.log("  \x1b[33m!\x1b[0m playit first-run — visit: \x1b[1m" + claim[0] + "\x1b[0m"); openBrowser(claim[0]); }
-        const url = str.match(/https?:\/\/[a-z0-9\-]+\.at\.playit\.gg(?::\d+)?/i)
-          || str.match(/https?:\/\/[a-z0-9\-]+\.playit\.gg(?::\d+)?/i);
-        if (url && !done) { done = true; resolve({ url: url[0], proc }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url[0] + "\x1b[0m"); }
-      };
-      proc.stdout.on("data", check); proc.stderr.on("data", check);
-      proc.on("close", () => { if (!done) resolve(null); });
-      setTimeout(() => { if (!done) { done = true; resolve(null); console.log("  \x1b[33m!\x1b[0m playit timeout"); } }, 45000);
-    }).catch(() => resolve(null));
-  });
-}
-
-function startTunnelLocalhostRun(port) {
-  return new Promise(resolve => {
-    findBinaryPath('ssh').then(sshPath => {
-      if (!sshPath) { resolve(null); return; }
-
-      console.log("  \x1b[33m~\x1b[0m Starting localhost.run tunnel (SSH)...");
-      const proc = spawn(sshPath, [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        "-o", "ServerAliveInterval=30",
-        "-R", "80:localhost:" + port,
-        "nokey@localhost.run"
-      ], { stdio: ["ignore", "pipe", "pipe"] });
-      let done = false;
-      const check = data => {
-        const m = data.toString().match(/https:\/\/[a-z0-9\-]+\.(?:lhr\.life|localhost\.run)/);
-        if (m && !done) { done = true; resolve({ url: m[0], proc }); console.log("  \x1b[32m\u2713\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); }
-      };
-      proc.stdout.on("data", check); proc.stderr.on("data", check);
-      proc.on("close", c => { if (!done) { resolve(null); console.log("  \x1b[33m!\x1b[0m localhost.run closed (code " + c + ")"); } });
-      setTimeout(() => { if (!done) { done = true; proc.kill(); resolve(null); console.log("  \x1b[33m!\x1b[0m localhost.run timeout — port 22 may be blocked"); } }, 25000);
-    }).catch(() => resolve(null));
-  });
-}
-
-function startTunnelServeo(port) {
-  return new Promise(resolve => {
-    findBinaryPath('ssh').then(sshPath => {
-      if (!sshPath) { resolve(null); return; }
-
-      console.log("  \x1b[33m~\x1b[0m Starting serveo.net tunnel (SSH)...");
-      const proc = spawn(sshPath, [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        "-o", "ServerAliveInterval=30",
-        "-R", "80:localhost:" + port,
-        "serveo.net"
-      ], { stdio: ["ignore", "pipe", "pipe"] });
-      let done = false;
-      const check = data => {
-        const m = data.toString().match(/https:\/\/[a-z0-9\-]+\.serveo\.net/);
-        if (m && !done) { done = true; resolve({ url: m[0], proc }); console.log("  \x1b[32m\u2713\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); }
-      };
-      proc.stdout.on("data", check); proc.stderr.on("data", check);
-      proc.on("close", c => { if (!done) { resolve(null); console.log("  \x1b[33m!\x1b[0m serveo closed (code " + c + ")"); } });
-      setTimeout(() => { if (!done) { done = true; proc.kill(); resolve(null); console.log("  \x1b[33m!\x1b[0m serveo timeout — port 22 may be blocked"); } }, 25000);
-    }).catch(() => resolve(null));
-  });
-}
-
-function startTunnelZrok(port, retries = 3) {
-  return new Promise(async (resolve) => {
-    const zrokPath = await findBinaryPath('zrok').then(p => p).catch(() => null)
-      || await findBinaryPath('zrok2').then(p => p).catch(() => null)
-      || (function () {
-        const cfgBin = path.join(os.homedir(), '.config', 'Nearcade', 'bin');
-        const candidates = [
-          path.join(cfgBin, 'zrok2'), path.join(cfgBin, 'zrok'),
-          '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
-          path.join(os.homedir(), 'bin/zrok'), './zrok',
-          path.join(os.homedir(), 'zrok', 'zrok.exe'),
-        ];
-        for (const c of candidates) if (fs.existsSync(c)) return c;
-        return null;
-      })();
-
-    if (!zrokPath) { resolve({ error: 'NOT_FOUND', provider: 'zrok' }); return; }
-    ensureExecutable(zrokPath);
-
-    console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})... (Retries left: ${retries})`);
-    const args = ["share", "public", "http://localhost:" + port, "--backend-mode", "proxy", "--headless"];
-    const proc = spawn(zrokPath, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let done = false;
-    const check = data => {
-      const out = data.toString();
-      const m = out.match(/(https:\/\/)?([a-z0-9\-]+\.shares?\.zrok\.io)/i);
-      if (m && !done) {
-        done = true;
-        const url = m[1] ? m[0] : "https://" + m[2];
-        process.env.USING_TUNNEL = "true";
-        activeTunnelProc = proc; resolve({ url, proc });
-        console.log("  \x1b[32m\u2713\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-      }
-    };
-    proc.stdout.on("data", check); proc.stderr.on("data", check);
-    proc.on("close", c => {
-      if (!done) {
-        console.log("  \x1b[33m!\x1b[0m zrok share failed or closed (code " + c + ")");
-        if (retries > 0) {
-          console.log("  \x1b[33m~\x1b[0m Retrying Zrok tunnel in 3 seconds...");
-          setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
-        } else {
-          resolve(null);
-        }
-      }
-    });
-    setTimeout(() => {
-      if (!done) {
-        done = true; proc.kill();
-        if (retries > 0) {
-          console.log("  \x1b[33m~\x1b[0m Zrok timeout. Retrying in 3 seconds...");
-          setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
-        } else {
-          resolve(null);
-          console.log("  \x1b[33m!\x1b[0m zrok share timeout.");
-        }
-      }
-    }, 20000);
-  }).catch(() => null);
-}
-
-async function startTunnel(port) {
-  const forced = (process.env.TUNNEL || "").toLowerCase();
-  if (forced === "zrok") return startTunnelZrok(port);
-  if (forced === "vps") return startTunnelVps(port, process.env.VPS_HOST);
-  if (forced === "cloudflared") return startTunnelCloudflared(port);
-  if (forced === "playit") return startTunnelPlayit(port);
-  if (forced === "localhostrun") return startTunnelLocalhostRun(port);
-  if (forced === "serveo") return startTunnelServeo(port);
-  // Auto: try cloudflared → zrok → playit → SSH providers
-  const cf = await startTunnelCloudflared(port);
-  if (cf) return cf;
-  const z = await startTunnelZrok(port);
-  if (z) return z;
-  const pl = await startTunnelPlayit(port);
-  if (pl) return pl;
-  console.log("  \x1b[33m~\x1b[0m Trying localhost.run and serveo in parallel...");
-  const ssh = await Promise.any([
-    startTunnelLocalhostRun(port),
-    startTunnelServeo(port)
-  ].map(p => p.then(r => r || Promise.reject()))).catch(() => null);
-  if (ssh) return ssh;
-  console.log("  \x1b[33m!\x1b[0m All tunnels failed. Options:");
-  console.log("    cloudflared  : https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/");
-  console.log("    serveo/lhr   : outbound SSH (port 22) may be blocked by your router/ISP");
-  console.log("    TUNNEL=cloudflared  node server.js   # force a specific provider");
-  return null;
-}
+// ── Tunnel providers moved to ./tunnels.js ───────────────────────────────────
 
 function sanitize(str) {
   return String(str).replace(/[<>&"'`]/g, c =>
@@ -975,7 +624,7 @@ async function main() {
   activePort = await findFreePort(3000);
   const PORT = activePort;
   const LAN_IP = getLanIP();
-  const PUBLIC_IP = await getPublicIP();
+  getPublicIP().then(ip => { if (ip) console.log("  Public IP : http://" + ip + ":" + PORT + "/ (needs port forward)"); });
   const initialCfg = loadConfig();
   initArcadeHeartbeat(initialCfg);
   let sessionPassword = initialCfg.persistentPassword || '';
@@ -985,7 +634,6 @@ async function main() {
   console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
   console.log("  LAN URL   : http://***.***.***.***:" + PORT + "/");
-  if (PUBLIC_IP) console.log("  Public IP : http://***.***.***.***:" + PORT + "/ (needs port forward)");
   console.log("  PIN       : \x1b[1;32m****\x1b[0m\n");
 
   const app = express();
@@ -1020,6 +668,20 @@ async function main() {
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, HEAD, OPTIONS");
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
+  });
+
+  // ── Viewer access control: block sensitive routes from tunnel traffic ──
+  function isLocal(req) {
+    const addr = req.socket.remoteAddress || '';
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+  }
+  const VIEWER_SAFE_EXACT = ['/', '/favicon.ico'];
+  const VIEWER_SAFE_PREFIX = ['/assets/', '/js/', '/css/', '/api/info', '/api/pin', '/api/pin-required', '/api/turn', '/api/fe-log', '/ws'];
+  app.use((req, res, next) => {
+    if (isLocal(req)) return next();
+    const p = req.path;
+    if (VIEWER_SAFE_EXACT.includes(p) || VIEWER_SAFE_PREFIX.some(pre => p.startsWith(pre))) return next();
+    res.status(403).type('html').send('<!DOCTYPE html><meta charset="utf-8"><title>Forbidden</title><body style="background:#0a0a0c;color:#ccc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;"><div style="text-align:center"><h1 style="color:var(--red,#f44);margin:0 0 8px;">403</h1><p style="color:#888;margin:0">Viewer access only</p></div></body>');
   });
 
   const APP_VERSION = (() => {
@@ -1118,7 +780,7 @@ async function main() {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
     const infoCfg = loadConfig();
-    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: PUBLIC_IP || null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
   app.post("/api/fe-log", express.json(), (req, res) => {
     const clientIp = req.socket.remoteAddress || 'unknown';
@@ -1138,6 +800,7 @@ async function main() {
   });
   app.get("/api/config", (req, res) => res.json(loadConfig()));
   app.post("/api/config", express.json(), (req, res) => {
+    const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
     if (newCfg.tournamentMode && pusher) {
       try { pusher.disconnect(); } catch (_) {}
@@ -1148,6 +811,17 @@ async function main() {
       }
       console.log('[Tournament] Pusher disconnected & heartbeat worker terminated via config endpoint');
     }
+    broadcast(JSON.stringify({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode }));
+    if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode }));
+    
+    // Broadcast roster if host identity changed
+    if (oldCfg.hostColor !== newCfg.hostColor || oldCfg.hostAvatar !== newCfg.hostAvatar || oldCfg.hostName !== newCfg.hostName) {
+      if (hostWS && hostWS.readyState === 1) {
+        _hostDisplayName = newCfg.hostName || 'Host';
+      }
+      broadcastRoster();
+    }
+    
     res.json(newCfg);
   });
   app.post("/api/system-chat", express.json(), (req, res) => {
@@ -1238,10 +912,16 @@ async function main() {
     res.json({ launchers: detect() });
   });
 
+  const gamesCache = { data: null, time: 0, TTL: 15000 };
   app.get("/api/games", (_req, res) => {
+    if (gamesCache.data && Date.now() - gamesCache.time < gamesCache.TTL) {
+      return res.json({ games: gamesCache.data });
+    }
     try {
       const { detectGames } = freshLauncherDetect();
       const games = detectGames();
+      gamesCache.data = games;
+      gamesCache.time = Date.now();
       res.json({ games });
     } catch (e) {
       console.error('[api/games] Error detecting games:', e.message);
@@ -1518,17 +1198,26 @@ async function main() {
     // CRITICAL FIX: Use readEnv to catch the host if the GUI fails to pass it!
     const resolvedVpsHost = (req.body && req.body.vpsHost)
       ? req.body.vpsHost.trim()
-      : (readEnv('VPS_HOST') || '').trim();
+      : (tunnels.readEnv('VPS_HOST') || '').trim();
 
     const fn = {
-      zrok: startTunnelZrok,
-      cloudflared: startTunnelCloudflared,
-      playit: startTunnelPlayit,
-      localhostrun: startTunnelLocalhostRun,
-      serveo: startTunnelServeo,
-      vps: (p) => startTunnelVps(p, resolvedVpsHost),
-      portforward: async () => null
-    }[provider] || startTunnel;
+      zrok: tunnels.startTunnelZrok,
+      cloudflared: tunnels.startTunnelCloudflared,
+      playit: tunnels.startTunnelPlayit,
+      localhostrun: tunnels.startTunnelLocalhostRun,
+      serveo: tunnels.startTunnelServeo,
+      vps: (p) => tunnels.startTunnelVps(p, resolvedVpsHost),
+      portforward: async () => null,
+      bore: tunnels.startTunnelBore,
+      ngrok: tunnels.startTunnelNgrok,
+      frp: tunnels.startTunnelFrp,
+'tailscale-funnel': tunnels.startTunnelTailscaleFunnel,
+      'tailscale-serve': tunnels.startTunnelTailscaleServe,
+      'tailscale-mesh': tunnels.startTunnelTailscaleMesh,
+      zerotier: tunnels.startTunnelZeroTier,
+      netmaker: tunnels.startTunnelNetmaker,
+      'wireguard-direct': tunnels.startTunnelWireguardDirect,
+      }[provider] || (() => tunnels.startTunnel(PORT, provider));
 
     if (provider === 'vps' && resolvedVpsHost) {
       saveConfig({ vpsHost: resolvedVpsHost });
@@ -1538,6 +1227,7 @@ async function main() {
       const tun = await fn(PORT);
       if (tun && tun.url) {
         tunnelUrl = tun.url;
+        tunnels.saveLastProvider(provider);
         const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl });
         if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
       } else if (tun && tun.error === 'NOT_FOUND') {
@@ -1550,6 +1240,34 @@ async function main() {
     } catch (e) {
       console.log(`  \x1b[31m~\x1b[0m Tunnel error:`, e.message);
       if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+    }
+  });
+
+  app.get("/api/tunnels/providers", async (_req, res) => {
+    const results = await Promise.all(tunnels.PROVIDERS.map(async (p) => {
+      let status;
+      try { status = await p.detect(); } catch (e) { status = { found: false, error: e.message }; }
+      return { id: p.id, name: p.name, type: p.type, pricing: p.pricing, difficulty: p.difficulty, description: p.description, tags: p.tags, requiresBinary: p.requiresBinary !== false, integrated: !!p.integrated, status };
+    }));
+    res.json({ providers: results });
+  });
+
+  app.post("/api/tunnels/start", express.json(), async (req, res) => {
+    const { provider } = req.body;
+    if (!provider) { return res.status(400).json({ error: 'provider required' }); }
+    saveConfig({ tunnelProvider: provider });
+    const port = global.currentPort || 3000;
+    try {
+      const result = await tunnels.startTunnel(port, provider);
+      if (result && result.url) {
+        res.json({ success: true, url: result.url });
+      } else if (result && result.error) {
+        res.json({ success: false, error: result.error, details: result.details || '' });
+      } else {
+        res.json({ success: false, error: 'Tunnel failed to start', details: 'No URL returned' });
+      }
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
     }
   });
 
@@ -1658,6 +1376,7 @@ async function main() {
   });
 
   let hostStreaming = false;
+  let _hostDisplayName = 'Host';
   const audioViewers = new Set();
   const viewerGamepads = new Map();
   const viewerHasController = new Set();
@@ -1707,7 +1426,10 @@ async function main() {
 
   function broadcastRoster() {
     const roster = [];
-    roster.push({ id: 'host_0', name: 'Host', gp: false, kb: false, slot: 0, locked: true, inputMode: 'host' });
+    const hCfgAtConnect = loadConfig();
+    const hostAvatar = hCfgAtConnect.hostAvatar || '';
+    const hostColor = hCfgAtConnect.hostColor || '#8b5cf6';
+    roster.push({ id: 'host_0', name: _hostDisplayName, avatar: hostAvatar, color: hostColor, isHost: true, gp: false, kb: false, slot: 0, locked: true, inputMode: 'host' });
     let autoSlot = 1;
     viewers.forEach((vws, id) => {
       const pads = viewerGamepads.get(id) || new Set([0]);
@@ -1724,9 +1446,12 @@ async function main() {
         else if (p.gp && p.kb) mode = 'kbm_emulated';
         else if (!p.gp && !p.kb) mode = 'disabled';
 
+        const vname = viewerNames.get(id) || '';
         roster.push({
           id: rosterId,
-          name: (viewerNames.get(id) || id) + nameSuffix,
+          name: vname + nameSuffix,
+          color: viewerColors.get(id) || '',
+          avatar: viewerAvatars.get(id) || '',
           gp: !!p.gp,
           kb: !!p.kb,
           slot: p.slot ?? autoSlot++,
@@ -1754,7 +1479,9 @@ async function main() {
       console.log("[host] connected");
       hostWS = ws;
       const hCfgAtConnect = loadConfig();
-      broadcast(JSON.stringify({ type: "host-connected", hostName: hCfgAtConnect.hostName || 'Host', hostRegion }));
+      _hostDisplayName = hCfgAtConnect.hostName || 'Host';
+      broadcast(JSON.stringify({ type: "host-connected", hostName: _hostDisplayName, hostRegion }));
+      broadcast(JSON.stringify({ type: 'tournament-mode', enabled: !!hCfgAtConnect.tournamentMode }));
 
       // Start audio routing as soon as the host session opens
       if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
@@ -1834,7 +1561,7 @@ async function main() {
           }
 
           // ── STANDARD SIGNALING ──
-          if ((msg.type === "offer" || msg.type === "ice-host") && msg._viewerId) {
+          if ((msg.type === "offer" || msg.type === "ice-host" || msg.type === "answer") && msg._viewerId) {
             const vws = viewers.get(msg._viewerId);
             if (vws && vws.readyState === 1) {
               vws.send(JSON.stringify(msg));
@@ -1865,6 +1592,13 @@ async function main() {
                 hostWS.send(JSON.stringify({ type: "host-voice-cmd", action: msg.action, targetViewerId: id }));
               }
             });
+            return;
+          }
+          if (msg.type === "force-reload") {
+            const target = viewers.get(msg.viewerId);
+            if (target && target.readyState === 1) {
+              target.send(JSON.stringify(msg));
+            }
             return;
           }
           // ─────────────────────────────────────────────────────────────────
@@ -2326,6 +2060,19 @@ async function main() {
       // always shows the real name rather than the server-assigned Guest#### placeholder.
 
       ws.on("message", raw => {
+        // ── Binary gamepad → wrap & forward to host ──────────────────
+        if (Buffer.isBuffer(raw) && raw[0] === 0x01) {
+          if (hostWS && hostWS.readyState === 1) {
+            const vidBytes = Buffer.from(id, 'utf8');
+            const outBuf = Buffer.alloc(2 + vidBytes.length + raw.length);
+            outBuf[0] = 0x80;
+            outBuf[1] = vidBytes.length;
+            vidBytes.copy(outBuf, 2);
+            raw.copy(outBuf, 2 + vidBytes.length);
+            hostWS.send(outBuf);
+          }
+          return;
+        }
         try {
           const msg = JSON.parse(raw);
 
@@ -2336,8 +2083,10 @@ async function main() {
             let joinName = sanitize(String(msg.name || '')).slice(0, 20) || defaultName;
             viewerNames.set(id, joinName);
             const viewerColor = msg.color || '';
+            const viewerAvatar = msg.avatar || '';
             const viewerPlatform = msg.platform || '';
             if (viewerColor) viewerColors.set(id, viewerColor);
+            if (viewerAvatar) viewerAvatars.set(id, viewerAvatar);
             if (viewerPlatform) viewerPlatforms.set(id, viewerPlatform);
             console.log("[viewer]", id, "name resolved to:", joinName);
 
@@ -2353,20 +2102,28 @@ async function main() {
                 viewerRegion: msg.viewerRegion || null,
                 isDesktopApp: !!msg.isDesktopApp,
                 platform: viewerPlatform,
-                color: viewerColor
+                color: viewerColor,
+                avatar: viewerAvatar
               }));
             }
 
             // Send host info to viewer unconditionally — it's needed for the UI
             // even if the host reconnects moments later.
             const hCfg = loadConfig();
-            ws.send(JSON.stringify({ type: "host-connected", hostName: hCfg.hostName || 'Host', hostRegion }));
+            _hostDisplayName = hCfg.hostName || 'Host';
+            ws.send(JSON.stringify({ type: "host-connected", hostName: _hostDisplayName, hostRegion }));
             ws.send(JSON.stringify({
               type: "ctrl-settings",
               enableMotion: !!global.enableMotion,
               touchLayout: global.touchLayout || 'default',
               expDevices: global.expDevices || []
             }));
+
+            // Inform new viewer of tournament mode
+            if (hCfg.tournamentMode) {
+              ws.send(JSON.stringify({ type: 'tournament-mode', enabled: true }));
+            }
+
             if (hostStreaming) {
               ws.send(JSON.stringify({ type: "host-stream-ready" }));
             }
@@ -2385,7 +2142,7 @@ async function main() {
           }
 
           // Inject viewer ID for answers AND mic renegotiation requests
-          if (msg.type === "answer" || msg.type === "ice-viewer" || msg.type === "viewer-mic-ready") {
+          if (msg.type === "answer" || msg.type === "ice-viewer" || msg.type === "viewer-mic-ready" || msg.type === "offer" || msg.type === "set-viewer-volume") {
             msg._viewerId = id;
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
             return;
@@ -2485,6 +2242,14 @@ async function main() {
             return;
           }
 
+          if (msg.type === "update-color") {
+            if (msg.color) {
+              viewerColors.set(id, String(msg.color).slice(0, 7));
+              broadcastRoster();
+            }
+            return;
+          }
+
           if (msg.type === "chat") {
             msg.msg = sanitize(msg.msg);
             msg.from = sanitize(viewerNames.get(id) || msg.from || 'Guest').slice(0, 20);
@@ -2532,22 +2297,25 @@ async function main() {
           if (msg.type === "gamepad" || msg.type === "keyboard") {
             if (msg.type === "keyboard") msg.type = "kbm";
 
-            // ── PPS flood protection ──────────────────────────────────────────
-            // Track packets per second per viewer. Drop the packet and kick the
-            // viewer if they exceed 300 input messages per second.
-            const _ppsNow = Date.now();
-            if (!ws._ppsWindow || _ppsNow - ws._ppsWindow >= 1000) {
-              ws._ppsWindow = _ppsNow;
-              ws._ppsCount = 1;
-            } else {
-              ws._ppsCount = (ws._ppsCount || 0) + 1;
-              if (ws._ppsCount > 300) {
-                console.warn(`[PPS] Viewer ${id} exceeded 300 inputs/sec — disconnecting`);
-                if (hostWS && hostWS.readyState === 1) {
-                  hostWS.send(JSON.stringify({ type: 'viewer-flood-kick', viewerId: id }));
+            // ── PPS flood protection (gamepad-exempt) ─────────────────────────
+            // Gamepad packets are tiny (14 B) and high-frequency — exempt from
+            // the PPS cap so fast-paced PvP inputs aren't dropped. KBM stays
+            // gated at 300 msg/s to prevent spam.
+            if (msg.type !== "gamepad") {
+              const _ppsNow = Date.now();
+              if (!ws._ppsWindow || _ppsNow - ws._ppsWindow >= 1000) {
+                ws._ppsWindow = _ppsNow;
+                ws._ppsCount = 1;
+              } else {
+                ws._ppsCount = (ws._ppsCount || 0) + 1;
+                if (ws._ppsCount > 300) {
+                  console.warn(`[PPS] Viewer ${id} exceeded 300 inputs/sec — disconnecting`);
+                  if (hostWS && hostWS.readyState === 1) {
+                    hostWS.send(JSON.stringify({ type: 'viewer-flood-kick', viewerId: id }));
+                  }
+                  ws.close(1008, 'pps_flood');
+                  return;
                 }
-                ws.close(1008, 'pps_flood');
-                return;
               }
             }
             // ─────────────────────────────────────────────────────────────────
@@ -2654,6 +2422,16 @@ async function main() {
       // Track input sequence per viewer for ack-based loss detection
       let _inputSeq = 0;
       ws.on("message", raw => {
+        // ── Binary gamepad bypass — direct to inputDriver ─────────────
+        if (Buffer.isBuffer(raw) && raw[0] === 0x01) {
+          if (!myId) return;
+          const padIdx = raw[1];
+          const padId = myId + '_' + padIdx;
+          const perms = inputPerms.get(padId) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
+          if (!perms.gp) return;
+          inputDriver.sendBinary(myId, raw);
+          return;
+        }
         try {
           const msg = JSON.parse(raw);
           if (msg.type === "identify") { myId = msg.viewerId; console.log("[input] identified as", myId); return; }
@@ -2718,9 +2496,11 @@ async function main() {
 
     if (process.env.USE_VPS === 'true' && process.env.VPS_HOST) {
       console.log("  ~ Tunnel: VPS (from .env)");
-      const tun = await startTunnelVps(PORT, process.env.VPS_HOST.trim());
-      if (tun) {
+      if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider: 'vps' }));
+      const tun = await tunnels.startTunnelVps(PORT, process.env.VPS_HOST.trim());
+      if (tun && tun.url) {
         tunnelUrl = tun.url;
+        tunnels.saveLastProvider('vps');
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
       } else {
         console.log(`  \x1b[31m~\x1b[0m VPS Tunnel failed to start on boot.`);
@@ -2737,27 +2517,57 @@ async function main() {
     } else if (cfg.neverAsk && cfg.tunnelProvider === 'portforward') {
       console.log("  ~ Tunnel: port forward mode (saved).");
     } else if (cfg.neverAsk && cfg.tunnelProvider) {
-      console.log("  ~ Tunnel: using saved provider '" + cfg.tunnelProvider + "'");
+      // .last-provider may have a more recent choice than the stale config
+      const last = tunnels.getLastProvider();
+      const provider = (last && last !== cfg.tunnelProvider) ? last : cfg.tunnelProvider;
+      if (provider !== cfg.tunnelProvider) saveConfig({ tunnelProvider: provider, neverAsk: true });
 
-      const fn = {
-        zrok: startTunnelZrok,
-        cloudflared: startTunnelCloudflared,
-        playit: startTunnelPlayit,
-        localhostrun: startTunnelLocalhostRun,
-        serveo: startTunnelServeo,
-        vps: (p) => startTunnelVps(p, cfg.vpsHost || process.env.VPS_HOST || '')
-      }[cfg.tunnelProvider] || startTunnel;
+      console.log("  ~ Tunnel: using saved provider '" + provider + "'");
+      if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider }));
+
+            const fn = {
+        zrok: tunnels.startTunnelZrok,
+        cloudflared: tunnels.startTunnelCloudflared,
+        playit: tunnels.startTunnelPlayit,
+        localhostrun: tunnels.startTunnelLocalhostRun,
+        serveo: tunnels.startTunnelServeo,
+        vps: (p) => tunnels.startTunnelVps(p, cfg.vpsHost || process.env.VPS_HOST || ''),
+        bore: tunnels.startTunnelBore,
+        ngrok: tunnels.startTunnelNgrok,
+        frp: tunnels.startTunnelFrp,
+        'tailscale-funnel': tunnels.startTunnelTailscaleFunnel,
+        'tailscale-serve': tunnels.startTunnelTailscaleServe,
+        'tailscale-mesh': tunnels.startTunnelTailscaleMesh,
+        zerotier: tunnels.startTunnelZeroTier,
+        netmaker: tunnels.startTunnelNetmaker,
+        'wireguard-direct': tunnels.startTunnelWireguardDirect,
+      }[provider] || (() => tunnels.startTunnel(PORT, provider));
 
       const tun = await fn(PORT);
-      if (tun) {
+      if (tun && tun.url) {
         tunnelUrl = tun.url;
+        tunnels.saveLastProvider(provider);
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
       } else {
-        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${cfg.tunnelProvider}' failed to start on boot.`);
-        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: cfg.tunnelProvider }));
+        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' failed to start on boot.`);
+        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
       }
     } else {
-      console.log("  ~ Tunnel: waiting for host to choose provider...");
+      const last = tunnels.getLastProvider();
+      if (last) {
+        console.log("  ~ Tunnel: using last provider '" + last + "' (from tunnels.js)");
+        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider: last }));
+        const tun = await tunnels.startTunnel(PORT, last);
+        if (tun && tun.url) {
+          tunnelUrl = tun.url;
+          tunnels.saveLastProvider(last);
+          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
+        } else {
+          console.log(`  \x1b[31m~\x1b[0m Last provider '${last}' failed to start on boot.`);
+        }
+      } else {
+        console.log("  ~ Tunnel: waiting for host to choose provider...");
+      }
     }
 
     // Auto-start WiVRn server on boot
@@ -2805,6 +2615,14 @@ function cleanup(isElectron = false) {
 
   console.log('\n[server] Shutting down — running cleanup...');
   console.debug('[server] Cleanup stack:', new Error().stack?.split('\n').slice(2).join('\n'));
+
+  try {
+    if (typeof broadcast === 'function') {
+      broadcast(JSON.stringify({ type: 'host-disconnected' }));
+    }
+  } catch (e) {
+    console.error('[server] Error broadcasting session end:', e);
+  }
 
   // ── Terminate worker threads gracefully ──────────────────────────────────
   // Audio worker: ask it to destroy virtual audio, then terminate
@@ -2867,9 +2685,13 @@ function cleanup(isElectron = false) {
   }
 
   if (!isElectron) {
-    killPort(activePort).catch(() => { }).finally(() => process.exit(0));
+    setTimeout(() => {
+      killPort(activePort).catch(() => { }).finally(() => process.exit(0));
+    }, 250);
   } else {
-    killPort(activePort).catch(() => { });
+    setTimeout(() => {
+      killPort(activePort).catch(() => { });
+    }, 250);
   }
 }
 

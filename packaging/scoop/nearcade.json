@@ -1,0 +1,29 @@
+{
+  "version": "3.0.3",
+  "description": "Browser-based game streaming host — low-latency remote play",
+  "homepage": "https://nearcade.cutefame.net",
+  "license": "GPL-3.0-only",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/TheRealFame/Nearcade/releases/download/v$version/Nearcade-Portable.exe",
+      "hash": "0f2fea89f32c1ac63da4398057f4eeedbf1ea515955d9ac41ce6a955bbbe0285",
+      "bin": "Nearcade-Portable.exe",
+      "shortcuts": [
+        [
+          "Nearcade-Portable.exe",
+          "Nearcade"
+        ]
+      ]
+    }
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/TheRealFame/Nearcade/releases/download/v$version/Nearcade-Portable.exe"
+      }
+    }
+  },
+  "checkver": {
+    "github": "https://github.com/TheRealFame/Nearcade"
+  }
+}

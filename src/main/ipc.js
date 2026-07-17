@@ -151,7 +151,7 @@ function registerIpcHandlers(ctx) {
     } catch (_) { return []; }
   });
 
-  ipcMain.on('set-selected-source', (event, id) => {
+  ipcMain.handle('set-selected-source', (event, id) => {
     selectedSourceId = id;
   });
 
@@ -268,16 +268,31 @@ function registerIpcHandlers(ctx) {
     return fs.promises.readFile(path.join(ROOT_DIR, 'src', 'docs', filename), 'utf8');
   });
 
-  ipcMain.on('back-to-dashboard-from-host', () => {
+  ipcMain.on('back-to-dashboard-from-host', (_, tab) => {
     if (ctx.win && !ctx.win.isDestroyed()) {
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1`);
+      const t = tab || 'connect';
+      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1&tab=${t}`);
     }
   });
 
-  ipcMain.on('back-to-dashboard', () => {
+  ipcMain.on('back-to-dashboard', (_, tab) => {
     if (ctx.win && !ctx.win.isDestroyed()) {
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1`);
+      const t = tab || 'connect';
+      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1&tab=${t}`);
     }
+  });
+
+  // Arcade exit: stop arcade session but keep stream alive, return to dashboard
+  ipcMain.handle('arcade-exit', async () => {
+    if (ctx.win && !ctx.win.isDestroyed()) {
+      try {
+        await ctx.win.webContents.executeJavaScript(
+          `if (typeof stopArcadeOnly === 'function') stopArcadeOnly();`
+        );
+      } catch (_) {}
+      await ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1`);
+    }
+    return true;
   });
 
   ipcMain.handle('check-system-setup', () => {
@@ -474,31 +489,124 @@ function registerIpcHandlers(ctx) {
     }
   });
 
+  // ── DRM/KMS native capture addon (Wayland silent capture) ──
+  // Runs in a child process to avoid blocking the main process event loop.
+  const { fork } = require('child_process');
+  let drmChild = null;
+  let drmReady = false;
+  let drmDims = null;
+  let drmReqId = 0;
+  const drmPending = new Map();
+
+  function _drmSpawnWorker() {
+    return new Promise((resolve, reject) => {
+      const workerPath = path.join(__dirname, '..', 'sidecar', 'capture', 'drm-worker.js');
+      let child;
+      try {
+        child = fork(workerPath, [], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'], silent: true });
+      } catch (e) {
+        return reject(new Error('Failed to spawn DRM worker: ' + e.message));
+      }
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error('DRM worker timed out'));
+      }, 8000);
+      child.on('message', msg => {
+        if (msg.type === 'ready') {
+          clearTimeout(timeout);
+          drmChild = child;
+          drmReady = true;
+          drmDims = msg;
+          resolve({ width: msg.width, height: msg.height });
+        } else if (msg.type === 'error') {
+          clearTimeout(timeout);
+          child.kill();
+          reject(new Error(msg.message || 'DRM worker error'));
+        } else if (msg.reqId !== undefined && drmPending.has(msg.reqId)) {
+          const { resolve: r, timeout: t } = drmPending.get(msg.reqId);
+          drmPending.delete(msg.reqId);
+          clearTimeout(t);
+          r(msg);
+        }
+      });
+      child.on('exit', (code) => {
+        clearTimeout(timeout);
+        drmReady = false;
+        drmChild = null;
+        // Reject all pending requests
+        for (const [, p] of drmPending) { clearTimeout(p.timeout); p.resolve({ type: 'error', error: 'DRM worker exited' }); }
+        drmPending.clear();
+        if (!drmReady) reject(new Error('DRM worker exited with code ' + code));
+      });
+      child.on('error', (err) => {
+        clearTimeout(timeout);
+        drmReady = false;
+        drmChild = null;
+        for (const [, p] of drmPending) { clearTimeout(p.timeout); p.resolve({ type: 'error', error: err.message }); }
+        drmPending.clear();
+        reject(new Error('DRM worker error: ' + err.message));
+      });
+    });
+  }
+
+  ipcMain.handle('drm-capture-start', async () => {
+    if (drmChild && drmReady && drmDims) return { width: drmDims.width, height: drmDims.height };
+    try {
+      return await _drmSpawnWorker();
+    } catch (e) {
+      console.error('[drm] Worker failed:', e.message);
+      throw e;
+    }
+  });
+
+  ipcMain.handle('drm-capture-get-frame', async () => {
+    if (!drmChild || !drmReady) throw new Error('DRM capture not started');
+    const reqId = ++drmReqId;
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        drmPending.delete(reqId);
+        reject(new Error('DRM get-frame timed out'));
+      }, 5000);
+      drmPending.set(reqId, { resolve, timeout });
+      drmChild.send({ type: 'get-frame', reqId });
+    }).then(msg => {
+      if (msg.type === 'frame' && msg.path) {
+        // Frame data written to shared temp file by worker
+        const buf = require('fs').readFileSync(msg.path);
+        if (buf.byteLength !== msg.size) throw new Error('DRM frame size mismatch');
+        return buf;
+      }
+      if (msg.type === 'frame') return msg.data || null;
+      throw new Error(msg.error || 'DRM get-frame failed');
+    });
+  });
+
+  ipcMain.handle('drm-capture-stop', async () => {
+    if (drmChild) {
+      try { drmChild.send({ type: 'stop' }); } catch {}
+      setTimeout(() => { if (drmChild) { drmChild.kill(); drmChild = null; drmReady = false; drmDims = null; } }, 1000);
+    }
+    drmReady = false;
+    drmDims = null;
+  });
+
   if (ctx.win && !ctx.win.isDestroyed()) {
     ctx.win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+      if (selectedSourceId) {
+        const id = selectedSourceId;
+        selectedSourceId = null;
+        const isScreen = id.startsWith('screen:');
+        callback({ video: { id, name: isScreen ? 'Screen' : 'Window', thumbnail: nativeImage.createEmpty(), display_id: '' } });
+        return;
+      }
       desktopCapturer.getSources({ types: ['screen', 'window'] }).then(sources => {
         if (sources && sources.length > 0) {
           let chosenSource = sources[0];
-          if (selectedSourceId) {
-            const match = sources.find(s => s.id === selectedSourceId);
-            if (match) chosenSource = match;
-            selectedSourceId = null;
-          }
           if (process.platform === 'win32') callback({ video: chosenSource, audio: 'loopback' });
           else callback({ video: chosenSource });
         } else {
           console.log('[electron] Capture blocked or no sources found. Cancelling.');
           callback();
-          if (ctx.win && !ctx.win.isDestroyed()) {
-            ctx.win.webContents.executeJavaScript(`
-            if (typeof _elDisabled === 'function') {
-              _elDisabled('btnStart', false);
-              _elDisabled('btnSwitch', false);
-              _elDisabled('btnStop', true);
-              if (typeof setCapDot === 'function') setCapDot('');
-            }
-            `).catch(() => { });
-          }
         }
       }).catch(err => {
         console.error('[electron] Capturer error:', err);

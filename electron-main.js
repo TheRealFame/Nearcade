@@ -253,7 +253,7 @@ function startServer() {
         resolve(serverPort);
       }
     };
-    setTimeout(() => { if (!serverPort) { serverPort = 3000; console.log = _serverLog; resolve(3000); } }, 6000);
+    setTimeout(() => { if (!serverPort) { serverPort = 3000; console.log = _serverLog; resolve(3000); } }, 2000);
   });
 }
 

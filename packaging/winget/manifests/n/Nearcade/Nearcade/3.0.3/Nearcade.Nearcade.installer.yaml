@@ -1,0 +1,28 @@
+# Created for Nearcade community package submission
+# Before submitting to microsoft/winget-pkgs, replace InstallerSha256
+# with the actual SHA256 of the release asset.
+# Auto-update: Winget bot monitors GitHub releases for new version tags.
+PackageIdentifier: Nearcade.Nearcade
+PackageVersion: 3.0.3
+InstallerLocale: en-US
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.0.0
+InstallerType: exe
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+InstallerSwitches:
+  Silent: /S
+  SilentWithProgress: /S
+UpgradeBehavior: install
+Commands:
+  - nearcade
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/TheRealFame/Nearcade/releases/download/v3.0.3/Nearcade-Setup-3.0.3.exe
+    InstallerSha256: UPDATE_ME_WITH_ACTUAL_SHA256
+ManifestType: installer
+ManifestVersion: 1.6.0

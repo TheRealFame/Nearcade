@@ -190,7 +190,7 @@ function recoverWebCodecsDecoder() {
 let sysAudioCtx = null;
 let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
-let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
+let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || 'ncade_' + Math.random().toString(36).slice(2, 10);
 document.getElementById('nameInput').value = myName;
 if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
 let enteredPin = '', enteredPassword = '', audioMuted = false;

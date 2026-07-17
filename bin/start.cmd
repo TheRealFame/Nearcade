@@ -25,17 +25,7 @@ fi
 # Failsafe: Clean up the Nearsec Python controller sidecar
 pkill -15 -f "sidecar/input_driver.py" >/dev/null 2>&1
 
-cleanup() {
-    echo "\n  ! Shutting down... cleaning up port 3000"
-    C_PID=$(lsof -ti:3000)
-    if [ -n "$C_PID" ]; then
-        kill -15 $C_PID >/dev/null 2>&1
-        sleep 1
-        kill -9 $C_PID >/dev/null 2>&1
-    fi
-    exit
-}
-trap cleanup 2 15
+
 
 echo "  ┌─────────────────────────────────────┐"
 echo "  │      Nearcade Launcher      │"
@@ -63,7 +53,7 @@ fi
 [ ! -d node_modules ] && npm install --silent
 
 if [ -f node_modules/.bin/electron ]; then
-    ./node_modules/.bin/electron . "$@"
+    exec ./node_modules/.bin/electron . "$@"
 else
     exec node src/scripts/server.js "$@"
 fi

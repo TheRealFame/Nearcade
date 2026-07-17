@@ -1,0 +1,1 @@
+cmd_Release/obj.target/capture_linux.node := g++ -o Release/obj.target/capture_linux.node -shared -pthread -rdynamic -m64  -Wl,-soname=capture_linux.node -Wl,--start-group Release/obj.target/capture_linux/capture-linux.o Release/obj.target/../../../node_modules/node-addon-api/src/nothing.a -Wl,--end-group -ldrm

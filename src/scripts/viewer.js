@@ -77,7 +77,9 @@ async function _applyBwProfile(targetPc) {
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 const host = location.host;
-let ws, pc, myId = sessionStorage.getItem('ns_viewer_id');
+let wsHost = location.host;  // reassigned to 127.0.0.1 on first WebSocket failure
+let ws, pc, myId = sessionStorage.getItem('ns_viewer_id') || 'ns_' + Math.random().toString(36).slice(2, 10);
+if (!sessionStorage.getItem('ns_viewer_id')) sessionStorage.setItem('ns_viewer_id', myId);
 let _reconnectTimer = null;
 let viewerRegion = '';
 let smartDb = {};
@@ -194,7 +196,7 @@ let sysAudioCtx = null;
 let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
 let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || '';
-document.getElementById('nameInput').value = myName || 'Guest' + Math.floor(Math.random() * 9000 + 1000);
+document.getElementById('nameInput').value = myName || 'ncade_' + Math.random().toString(36).slice(2, 10);
 if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
 // Fall back to server config name so arcade/in-app viewers see their dashboard name
 if (!localStorage.getItem('ns_name')) {
@@ -203,9 +205,37 @@ if (!localStorage.getItem('ns_name')) {
       myName = cfg.hostName;
       document.getElementById('nameInput').value = myName;
       localStorage.setItem('ns_name', myName);
+      // Refresh the color picker's preview now that we have a name
+      const inp = document.getElementById('nameInput');
+      if (inp) {
+        const evt = new Event('input', { bubbles: true });
+        inp.dispatchEvent(evt);
+      }
     }
   }).catch(() => {});
 }
+// ── PRE-JOIN HOST INFO ──
+(function fetchHostInfo() {
+  const hostUrl = urlParamsGlobal.get('host');
+  if (hostUrl) {
+    safeApiJson(hostUrl + '/api/info', null).then(info => {
+      if (!info) return;
+      const bar = document.getElementById('hostInfoBar');
+      const nameEl = document.getElementById('hostInfoName');
+      const gameEl = document.getElementById('hostInfoGame');
+      const metaEl = document.getElementById('hostInfoMeta');
+      if (!bar || !nameEl) return;
+      if (info.hostName) nameEl.textContent = info.hostName;
+      if (info.game && !info.game.match(/^(Unknown Game|Arcade Game|Game)$/i)) gameEl.textContent = '🎮 ' + info.game;
+      const parts = [];
+      if (info.hostRegion) parts.push('📍 ' + info.hostRegion.toUpperCase());
+      if (info.viewerCount !== undefined) parts.push('👥 ' + info.viewerCount);
+      if (info.codec) parts.push('🎬 ' + info.codec);
+      if (parts.length) metaEl.textContent = parts.join(' · ');
+      bar.style.display = 'block';
+    });
+  }
+})();
 let enteredPin = '', enteredPassword = '', audioMuted = false;
 let kbEnabled = false;
 
@@ -355,7 +385,15 @@ async function createPC() {
         'stun:stun.miwifi.com:3478',
     ];
     iceServers.push({ urls: fallbackPool.sort(() => 0.5 - Math.random())[0] });
-    if (_turnCredentials) iceServers.push(_turnCredentials);
+    if (_turnCredentials) {
+        iceServers.push(_turnCredentials);
+    } else {
+        iceServers.push({
+            urls: 'turn:openrelayproject.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        });
+    }
 
     pc = new RTCPeerConnection({
         iceServers: iceServers,
@@ -364,17 +402,23 @@ async function createPC() {
         sdpSemantics: 'unified-plan'
     });
 
+    let _iceFailCount = 0;
     pc.onconnectionstatechange = () => {
         console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
         if (pc.connectionState === 'failed') {
-            console.warn('[WebRTC] Connection failed — requesting fresh offer in 1s...');
+            _iceFailCount++;
+            const delay = _iceFailCount === 1 ? 500 : _iceFailCount === 2 ? 1500 : 3000;
+            console.warn(`[WebRTC] Connection failed (attempt ${_iceFailCount}) — retrying in ${delay}ms...`);
             setStatus('Connection failed. Retrying...');
             clearTimeout(_reconnectTimer);
             _reconnectTimer = setTimeout(() => {
                 if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
                     ws.send(JSON.stringify({ type: 'request-offer' }));
                 }
-            }, 1000);
+            }, delay);
+        }
+        if (pc.connectionState === 'connected') {
+            _iceFailCount = 0;
         }
         if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
     };
@@ -415,6 +459,10 @@ async function createPC() {
                 videoEl.muted = true; // Required by Chrome/Safari to allow dynamic autoplay
                 videoEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
                 videoEl.play().catch(err => console.warn('[WebRTC] video.play() exception:', err));
+                if ('requestVideoFrameCallback' in videoEl) {
+                    function vfc() { if (window._trackViewerFrame) window._trackViewerFrame(); videoEl.requestVideoFrameCallback(vfc); }
+                    videoEl.requestVideoFrameCallback(vfc);
+                }
                 videoEl.onplaying = () => {
                     if (typeof showOverlay === 'function') showOverlay(false);
                     setStatus('');
@@ -522,9 +570,9 @@ async function createPC() {
 
             // This ensures your mouse/keyboard coordinates are actually processed
             channel.onmessage = (e) => {
-                // (If your viewer was receiving data from the host here, you'd parse it.
-                // Usually this channel is purely for sending FROM the viewer TO the host,
-                // but we must acknowledge the channel open state regardless).
+                if (typeof e.data === 'string') {
+                    try { const m = JSON.parse(e.data); if (m.type === 'pong') onPong(); } catch {}
+                }
             };
 
             // Bind the fast-lane channel to your input dispatcher
@@ -538,14 +586,12 @@ async function createPC() {
         if (audioTrack) micSender = pc.addTrack(audioTrack, localMicStream);
     }
 
-    // Renegotiation — sends a new offer when tracks are added/removed
+    // Renegotiation — signal the host to create a new offer on the existing PC
     pc.onnegotiationneeded = async () => {
         if (!ws || ws.readyState !== 1) return;
         try {
-            console.log('[WebRTC] Renegotiation needed — sending new offer...');
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription }));
+            console.log('[WebRTC] Renegotiation needed — signaling host...');
+            ws.send(JSON.stringify({ type: 'viewer-mic-ready' }));
         } catch (err) {
             console.error('[WebRTC] Renegotiation error:', err);
         }
@@ -571,10 +617,6 @@ async function enableMic() {
 
         if (pc && pc.signalingState !== 'closed') {
             micSender = pc.addTrack(audioTrack, localMicStream);
-            // NEW: Command the Host to send a fresh offer picking up this new audio track
-            if (ws && ws.readyState === 1) {
-                ws.send(JSON.stringify({ type: 'viewer-mic-ready' }));
-            }
         }
 
         micEnabled = true;
@@ -802,37 +844,8 @@ function stopVAD() {
     vadAnalyser = null;
 }
 
-// ── WHO'S TALKING OVERLAY ─────────────────────────────────────────────────────
 function setLocalTalking(active) {
-    const myEntry = document.getElementById('talkingMe');
-    if (myEntry) myEntry.classList.toggle('talking-active', active);
-    refreshTalkingOverlayVisibility();
-}
-
-/**
- * Stub: update overlay with remote speaker list from server.
- * Wire this up to a 'voice-activity' WebSocket message later.
- * @param {string[]} activeSpeakerIds
- */
-function updateTalkingOverlay(activeSpeakerIds) {
-    const overlay = document.getElementById('talkingOverlay');
-    if (!overlay) return;
-    overlay.querySelectorAll('.talking-remote').forEach(el => el.remove());
-    activeSpeakerIds.forEach(id => {
-        const el = document.createElement('div');
-        el.className = 'talking-entry talking-remote talking-active';
-        el.dataset.viewerId = id;
-        el.innerHTML = `<span class="talking-dot"></span><span class="talking-name">${id}</span>`;
-        overlay.appendChild(el);
-    });
-    refreshTalkingOverlayVisibility();
-}
-
-function refreshTalkingOverlayVisibility() {
-    const overlay = document.getElementById('talkingOverlay');
-    if (!overlay) return;
-    const anyActive = !!overlay.querySelector('.talking-active');
-    overlay.classList.toggle('talking-overlay-visible', anyActive);
+    if (typeof window.vcSetTalking === 'function') window.vcSetTalking('self', active);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -955,13 +968,44 @@ const keyMap = {
 };
 const mouseMap = { 0: 'BTN_LEFT', 1: 'BTN_MIDDLE', 2: 'BTN_RIGHT' };
 
+// ── Input Sequence Tracking (rollback prediction support) ──────────────────────
+// Each sent input gets a sequence number so the host can acknowledge receipt.
+// Lost inputs are detected by gaps in the ack sequence.
+let _inputSeq = 0;
+let _lastAckedSeq = 0;
+let _inputBuffer = [];
+
+function _stampInput(data) {
+    const seq = ++_inputSeq;
+    if (typeof data === 'object' && data !== null && !(data instanceof ArrayBuffer)) {
+        data._seq = seq;
+        _inputBuffer.push({ seq, data: JSON.parse(JSON.stringify(data)), time: performance.now() });
+        if (_inputBuffer.length > 120) _inputBuffer.shift();
+    }
+    return seq;
+}
+
+function _onInputAck(ackSeq) {
+    _lastAckedSeq = ackSeq;
+    _inputBuffer = _inputBuffer.filter(e => e.seq > ackSeq);
+    const gap = _inputSeq - ackSeq;
+    if (gap > 30) {
+        console.warn(`[input-pred] Large unacked gap: ${gap} inputs behind`);
+    }
+}
+
 // ── Fast-Lane Input Dispatcher ────────────────────────────────────────────────
-// Tries WebRTC DataChannel first (zero-latency), falls back to inputWs, then ws.
+// Tries WebTransport datagrams first, then WebRTC DataChannel, then WebSocket.
 function sendInputData(data) {
     const isBin = data instanceof Uint8Array || data instanceof ArrayBuffer;
-    const str = isBin ? null : (typeof data === 'string' ? data : JSON.stringify(data));
+    let str = isBin ? null : (typeof data === 'string' ? data : JSON.stringify(data));
+
+    if (!isBin && typeof data === 'object' && data !== null) {
+        _stampInput(data);
+        str = JSON.stringify(data);
+    }
     
-    // 1. WebTransport Unreliable Datagrams (VPS Fast Lane)
+    // 1. WebTransport Unreliable Datagrams (lowest latency)
     if (window.wtInputWriter) {
         try {
             window.wtInputWriter.write(isBin ? data : new TextEncoder().encode(str));
@@ -973,9 +1017,11 @@ function sendInputData(data) {
     if (window._fastLaneChannel && window._fastLaneChannel.readyState === 'open') {
         try { window._fastLaneChannel.send(isBin ? data : str); return; } catch (_) { }
     }
+    // 3. Direct input WebSocket (if available)
     if (inputWs && inputWs.readyState === 1) {
         inputWs.send(isBin ? data : str); return;
     }
+    // 4. Main signaling WebSocket (fallback)
     if (ws && ws.readyState === 1) {
         ws.send(isBin ? data : str);
     }
@@ -1097,6 +1143,7 @@ window.addEventListener('deviceorientation', (e) => {
 document.querySelectorAll('[data-btn]').forEach(el => {
     el.addEventListener('touchstart', e => { 
         e.preventDefault(); 
+        if (clientRumbleEnabled && navigator.vibrate) navigator.vibrate(20);
         touchState.buttons[el.dataset.btn].pressed = true; 
         touchState.buttons[el.dataset.btn].value = 1; 
         el.style.transform = 'scale(0.92)';
@@ -1538,29 +1585,13 @@ function pollGamepad() {
         return;
     }
 
-    // #6: rAF batching — write to shared buffer instead of sending directly
-    _latestGamepadState = { vIndex, state, changed, now };
-}
-
-// #6: rAF-driven input send — consumes latest state at display refresh rate
-let _latestGamepadState = null;
-let _lastRafSend = 0;
-function _rafInputLoop(timestamp) {
-    requestAnimationFrame(_rafInputLoop);
-    if (!_latestGamepadState) return;
-    const { vIndex, state, changed, now } = _latestGamepadState;
+    // Send immediately — no rAF batching, so fast PvP inputs arrive
+    // at native polling rate instead of being throttled to display refresh.
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
     if (changed || forceHb) {
         lastGpSend[vIndex] = now;
         sendInputData(_packGamepadBinary(vIndex, state));
     }
-    _latestGamepadState = null;
-}
-// Start rAF loop after DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(_rafInputLoop));
-} else {
-    requestAnimationFrame(_rafInputLoop);
 }
 
 function _packGamepadBinary(vIndex, state) {
@@ -1608,11 +1639,13 @@ window.addEventListener('gamepadconnected', e => {
 // ── STATUS / OVERLAY ──────────────────────────────────────────────────────────
 function log(msg) { console.log(msg); }
 function setStatus(msg, live) {
-    document.getElementById('overlayStatus').textContent = msg;
-    document.getElementById('topStatus').textContent = msg;
-    if (live) document.getElementById('liveDot').style.display = 'inline-block';
+    const st = document.getElementById('overlayStatus');
+    const ts = document.getElementById('topStatus');
+    if (st) st.textContent = msg;
+    if (ts) ts.textContent = msg;
+    if (live) { const ld = document.getElementById('liveDot'); if (ld) ld.style.display = 'inline-block'; }
 }
-function showOverlay(v) { document.getElementById('overlay').classList.toggle('gone', !v); }
+function showOverlay(v) { const el = document.getElementById('overlay'); if (el) el.classList.toggle('gone', !v); }
 
 // Captures the current rendered frame into _swapOverlayEl so the viewer sees
 // a freeze-frame (rather than black) during host disconnects / codec swaps.
@@ -1751,42 +1784,103 @@ async function connect() {
         // Always use /ws/viewer — the Node.js server has no /vps handler.
         // The ?v3 param is kept for backward compat (doesn't affect routing).
         const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
-        let wsUrl = `${proto}://${host}/ws/viewer`;
+        let wsUrl;
+        if (hostParam && !hostParam.startsWith('p2p://') && hostParam.includes('://')) {
+            let base = hostParam.replace(/\/$/, '');
+            base = base.replace(/^http(s?):/, 'ws$1:');
+            wsUrl = base.includes('/ws/viewer') ? base : base + '/ws/viewer';
+        } else {
+            wsUrl = `${proto}://${wsHost}/ws/viewer`;
+        }
 
         if (enteredPin) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `pin=${encodeURIComponent(enteredPin)}`;
         if (enteredPassword) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `password=${encodeURIComponent(enteredPassword)}`;
-        ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
+        const sig = new Signaling();
+        let _sigOnOpen, _sigOnMessage, _sigOnClose, _sigOnError;
+        ws = {
+            get readyState() { return sig.readyState; },
+            url: wsUrl,
+            set onopen(fn) { _sigOnOpen = fn; },
+            get onopen() { return _sigOnOpen; },
+            set onmessage(fn) { _sigOnMessage = fn; },
+            get onmessage() { return _sigOnMessage; },
+            set onclose(fn) { _sigOnClose = fn; },
+            get onclose() { return _sigOnClose; },
+            set onerror(fn) { _sigOnError = fn; },
+            get onerror() { return _sigOnError; },
+            set binaryType(_) {},
+            get binaryType() { return 'arraybuffer'; },
+            send: (data) => {
+                if (data instanceof ArrayBuffer || data instanceof Blob)
+                    return sig.sendBinary(data);
+                return sig.send(data);
+            },
+            close: (c, r) => sig.disconnect(c, r),
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            _sig: sig,
+        };
+        sig.on('connected', () => { if (_sigOnOpen) _sigOnOpen({}); });
+        sig.on('disconnected', (d) => {
+            if (_sigOnClose) _sigOnClose({ code: d.code || 1000, reason: d.reason || '' });
+        });
+        sig.on('error', (d) => { if (_sigOnError) _sigOnError(d || {}); });
+
+        sig.on('binary', (data) => { if (_sigOnMessage) _sigOnMessage({ data }); });
+        sig.on('*', (type, msg) => {
+            if (_sigOnMessage && !{connected:1,disconnected:1,error:1,binary:1}[type])
+                _sigOnMessage({ data: JSON.stringify(msg) });
+        });
+        sig.connect(wsUrl);
+        // Start the dedicated input WebSocket early — parallel with the
+        // join handshake — so gamepad input has a path before WebRTC connects.
+        connectInputWS();
         stopReconnect = false;
 
-        // ── EXPERIMENTAL WEBTRANSPORT CLIENT ──────────────────────────────────────
-        const wtRequested = urlParams.get('wt') === '1' || urlParams.get('pipeline') === 'webtransport';
-        if (useVps && wtRequested) {
-          if ('WebTransport' in window) {
+        // ── WEBTRANSPORT DATAGRAM TRANSPORT (local/VPS only, not through tunnels) ──
+        const _isLocalHost = host === 'localhost' || host.startsWith('localhost:') || host === '127.0.0.1' || host.startsWith('127.0.0.1:');
+        if ('WebTransport' in window && (_isLocalHost || useVps)) {
+            const wtUrl = useVps
+                ? `https://${host}:4433/wt`
+                : `${proto}://${host}/wt`;
             try {
-                const wtUrl = `https://${host}:4433/wt`;
                 const wt = new WebTransport(wtUrl);
                 wt.ready.then(() => {
-                    console.log('[WebTransport] Connected to UDP datagram router.');
+                    console.log('[WebTransport] Connected, using datagrams for input.');
                     window.wtInputWriter = wt.datagrams.writable.getWriter();
+                    wt.datagrams.readable.getReader().then(reader => {
+                        (async () => {
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                try {
+                                    const msg = JSON.parse(new TextDecoder().decode(value));
+                                    if (msg.type === 'input-ack' && msg.seq != null) _onInputAck(msg.seq);
+                                } catch (_) {}
+                            }
+                        })();
+                    }).catch(() => {});
                 }).catch(e => console.warn('[WebTransport] Handshake failed, falling back to WS:', e));
-                wt.closed.then(() => { 
-                    window.wtInputWriter = null; 
-                    console.log('[WebTransport] Session closed.'); 
-                }).catch(()=>{});
+                wt.closed.then(() => { window.wtInputWriter = null; }).catch(()=>{});
             } catch (e) {
                 console.warn('[WebTransport] Setup error:', e);
             }
-          } else {
-            console.info('[WebTransport] Not supported in this browser — falling back to WebSocket input path.');
-          }
         }
     }
 
+    // Restore saved chat color on pin screen
+    const _savedClr = localStorage.getItem('ns_chat_color') || '';
+    if (_savedClr) {
+        const existing = document.querySelector(`.clr-opt[data-clr="${_savedClr}"]`);
+        if (existing) existing.style.borderColor = '#fff';
+    }
     ws.onopen = () => {
+        const liveName = (document.getElementById('nameInput')?.value || myName || '').trim();
         ws.send(JSON.stringify({
-            type: 'join', viewerId: myId, name: myName, pin: enteredPin,
-            viewerRegion, clientVersion: CLIENT_VERSION,
+            type: 'join', viewerId: myId, name: liveName, pin: enteredPin,
+            viewerRegion, clientVersion: CLIENT_VERSION, platform: viewerPlatform,
+            color: localStorage.getItem('ns_chat_color') || '',
+            avatar: localStorage.getItem('ns_avatar') || '',
             isDesktopApp: urlParamsGlobal.has('compat')
         }));
         knownNativePads.forEach(pInfo => ws.send(JSON.stringify(Object.assign({ type: 'gpid' }, pInfo))));
@@ -1843,6 +1937,20 @@ async function connect() {
 
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
+
+        if (msg.type === 'pong') { if (typeof onPong === 'function') onPong(); return; }
+
+        if (msg.type === 'force-reload') {
+            console.warn('[WebCodecs] Host requested fallback from WebCodecs — reloading without WebCodecs');
+            _stopWcHealthMonitor();
+            try { if (wcDecoder?.state !== 'closed') wcDecoder.close(); } catch (_) {}
+            wcDecoder = null;
+            const url = new URL(window.location.href);
+            url.searchParams.delete('wc');
+            url.searchParams.delete('wc2');
+            setTimeout(() => { window.location.href = url.href; }, 500);
+            return;
+        }
 
         // webcodecs-config arrives on the main WS in VPS mode (replayed by the
         // Rust router on join). In WebRTC-only mode it arrives on the DataChannel.
@@ -1901,9 +2009,10 @@ async function connect() {
             document.getElementById('frameCanvas').style.display = 'none';
             processorRunning = false;
             showOverlay(true); setStatus('Host reconnected, waiting for stream...');
-            document.getElementById('spinner').style.display = 'block';
+            const sp1 = document.getElementById('spinner'); if (sp1) sp1.style.display = 'block';
             // Display the host's saved name in both the overlay and the topbar pill
             if (msg.hostName) {
+                window._hostName = msg.hostName;
                 const overlayEl = document.getElementById('sessionHostName');
                 if (overlayEl) { overlayEl.textContent = 'HOST SESSION — ' + msg.hostName; overlayEl.style.display = 'block'; }
                 const topEl = document.getElementById('topHostName');
@@ -1920,9 +2029,25 @@ async function connect() {
             // resulting in 'User-Initiated Abort' / DataChannel disconnect loops!
             return;
         }
+        if (msg.type === 'tournament-mode') {
+            if (typeof window.vcSetTournament === 'function') window.vcSetTournament(msg.enabled);
+            return;
+        }
         if (msg.type === 'tunnel-url') return;
 
         if (msg.type === 'offer') {
+            // If PC exists and is in stable state, this is a renegotiation — update existing PC
+            if (pc && pc.signalingState === 'stable' && pc.connectionState !== 'closed') {
+                try {
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    ws.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription }));
+                } catch (err) {
+                    console.error('[webrtc] renegotiation error:', err.message);
+                }
+                return;
+            }
             clearTimeout(_reconnectTimer);
             if (pc) { try { pc.close(); } catch { } pc = null; }
             await createPC();
@@ -2004,12 +2129,18 @@ async function connect() {
         }
         if (msg.type === 'your-id') {
             document.getElementById('pinScreen').classList.add('gone');
+            if (typeof window.showVoiceOverlay === 'function') window.showVoiceOverlay();
             myId = msg.viewerId;
             sessionStorage.setItem('ns_viewer_id', myId);
             const nameEl = document.querySelector('#talkingMe .talking-name');
             if (nameEl) nameEl.textContent = myName + ' (You)';
 
-            // --> START THE FAST LANE NOW THAT WE KNOW OUR ID <--
+            // If the input WS already connected (early start above),
+            // send identify now that we know our ID.
+            if (inputWs && inputWs.readyState === 1) {
+                inputWs.send(JSON.stringify({ type: 'identify', viewerId: myId }));
+            }
+            // Otherwise start the fast lane now that we know our ID.
             connectInputWS();
             return;
         }
@@ -2067,19 +2198,60 @@ async function connect() {
 
             return;
         }
-        if (msg.type === 'host-disconnected' || msg.type === 'host-stream-stopped') {
+        if (msg.type === 'new-tunnel-url') {
+            // Host changed tunnel — redirect viewer to the new URL
+            const newUrl = msg.url;
+            if (newUrl && newUrl !== location.origin) {
+                const currentParams = new URLSearchParams(location.search);
+                const pin = currentParams.get('pin') || '';
+                const lang = currentParams.get('lang') || 'en';
+                let redirectUrl = newUrl + '?client=1' + (pin ? '&pin=' + encodeURIComponent(pin) : '') + '&lang=' + lang;
+                if (currentParams.get('electron') === '1') redirectUrl += '&electron=1';
+                // Store room so server can reassign
+                fetch(newUrl + '/api/info').catch(() => {});
+                setTimeout(() => { location.href = redirectUrl; }, 500);
+            }
+            return;
+        }
+        if (msg.type === 'host-disconnected') {
             _nsHostConnected = false;
-            
-            // Capture the exact moment the stream stopped so it doesn't go to black
+            window.sessionEndedByHost = true;
             _freezeFrameForSwap();
 
-            // Make the native HTML overlay semi-transparent so the frozen game is visible
             const overlay = document.getElementById('overlay');
-            if (overlay) overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.75)';
+            if (overlay) {
+                overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.85)';
+                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session.</div><button class="pin-submit-btn" onclick="window.electronAPI ? window.electronAPI.backToDashboard(\'arcade\') : window.close()" style="margin-top:8px;">Leave Session</button>';
+            }
             
             showOverlay(true);
-            setStatus('Host stopped streaming');
-            document.getElementById('spinner').style.display = 'block';
+            const sp = document.getElementById('spinner');
+            if (sp) sp.style.display = 'none';
+
+            if (pc) { pc.close(); pc = null; }
+            if (video) video.srcObject = null;
+            return;
+        }
+
+        if (msg.type === 'host-stream-stopped') {
+            _nsHostConnected = false;
+            _freezeFrameForSwap();
+
+            if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
+                const ctx2d = _swapOverlayEl.getContext('2d');
+                const cx = _swapOverlayEl.width / 2, cy = _swapOverlayEl.height / 2;
+                ctx2d.fillStyle = 'rgba(0,0,0,0.55)';
+                ctx2d.fillRect(0, 0, _swapOverlayEl.width, _swapOverlayEl.height);
+                ctx2d.font = `bold ${Math.round(_swapOverlayEl.height * 0.04)}px sans-serif`;
+                ctx2d.fillStyle = '#ffffff';
+                ctx2d.textAlign = 'center';
+                ctx2d.textBaseline = 'middle';
+                ctx2d.fillText("Stream Stopped", cx, cy);
+            }
+            
+            showOverlay(true);
+            const sp = document.getElementById('spinner');
+            if (sp) sp.style.display = 'none';
 
             if (pc) { pc.close(); pc = null; }
             if (video) video.srcObject = null;
@@ -2089,11 +2261,10 @@ async function connect() {
         if (msg.type === 'session-full') {
             showOverlay(true);
             setStatus(`Session full — ${msg.reason || 'maximum players reached'}`);
-            document.getElementById('spinner').style.display = 'none';
+            const sp2 = document.getElementById('spinner'); if (sp2) sp2.style.display = 'none';
             if (pc) { pc.close(); pc = null; }
             return;
         }
-
         if (msg.type === 'session-password-required') {
             // Show the styled pin screen with the session password field
             // instead of the browser's native prompt() dialog.
@@ -2121,7 +2292,7 @@ async function connect() {
         }
         if (msg.type === 'host-not-streaming') {
             showOverlay(true); setStatus('Host is not sharing their screen yet...');
-            document.getElementById('spinner').style.display = 'none';
+            const sp3 = document.getElementById('spinner'); if (sp3) sp3.style.display = 'none';
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
         }
@@ -2186,7 +2357,8 @@ async function connect() {
             return;
         }
         if (msg.type === 'slot-assigned') { return; } // Slot info not displayed to viewer
-        if (msg.type === 'chat') { appendChat(msg.from || msg.name, msg.msg, msg.viewerId === myId); return; }
+        if (msg.type === 'chat') { appendChat(msg.from || msg.name, msg.msg, msg.viewerId === myId, msg.platform, msg.color, msg.isHost); return; }
+        if (msg.type === 'input-ack') { _onInputAck(msg.seq); return; }
         if (msg.type === 'host-voice-cmd' && msg.targetViewerId === myId) {
             if (msg.action === 'mute') {
                 forceMutedByHost = true; disableMic(); updateMicButton();
@@ -2198,9 +2370,15 @@ async function connect() {
             return;
         }
         // Stub: handle server-sent VAD feed
-        if (msg.type === 'voice-activity') { updateTalkingOverlay(msg.activeSpeakers || []); return; }
+        if (msg.type === 'voice-activity') {
+            if (typeof window.vcUpdateTalking === 'function') window.vcUpdateTalking(msg.activeSpeakers || []);
+            return;
+        }
         if (msg.type === 'roster') {
+            if (typeof window.vcSyncRoster === 'function') window.vcSyncRoster(msg.viewers || [], myId);
             const listEl = document.getElementById('lobbyList');
+            // Store roster for @mention
+            window._rosterList = msg.viewers || [];
             if (listEl) {
                 listEl.innerHTML = '';
                 const seen = new Set(); let hostAdded = false;
@@ -2249,6 +2427,17 @@ async function connect() {
                 }
                 enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
             }
+            if (window.sessionEndedByHost) {
+                // Do not attempt to reconnect or show generic "Host disconnected" message
+                return;
+            }
+            if (event.code === 1006) {
+                const newHost = '127.0.0.1:' + (location.port || (location.protocol === 'https:' ? 443 : 80));
+                if (wsHost !== newHost) {
+                    wsHost = newHost;
+                    console.warn(`[WebSocket] Falling back to ${wsHost}`);
+                }
+            }
             setTimeout(connect, 2000);
         };
     })(ws);
@@ -2293,6 +2482,13 @@ function submitPin() {
     }).finally(() => {
         connect();
         if (!gpPolling) activateGamepad();
+        
+        // Auto-fullscreen on Steam Deck after user gesture
+        const isSteamDeck = navigator.userAgent.toLowerCase().includes('valve steam gamepad') || 
+            (navigator.platform === 'Linux x86_64' && navigator.maxTouchPoints > 0 && screen.width === 1280 && screen.height === 800);
+        if (isSteamDeck && !document.fullscreenElement) {
+            document.documentElement.requestFullscreen().then(landscape).catch(() => { });
+        }
     });
 }
 
@@ -2319,7 +2515,31 @@ function submitSessionPassword() {
 
 // ── CHAT ──────────────────────────────────────────────────────────────────────
 let lastChatMsg = '', lastChatTime = 0;
-function appendChat(name, text, isMe) {
+
+function platIcon(name) {
+    const map = {
+        'Mobile':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>',
+        'Steam Deck':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152L2 17a1 1 0 0 0 1 1h2.128a1 1 0 0 0 .958-.71l.635-2.115C7.14 14.155 8.13 13.5 9.25 13.5h5.5c1.12 0 2.11.655 2.529 1.675l.635 2.115a1 1 0 0 0 .958.71H21a1 1 0 0 0 1-1l-.685-8.258A4 4 0 0 0 17.32 5z"/></svg>',
+        'Windows':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        'macOS':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        'Linux':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+        'PC':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+    };
+    return map[name] || '';
+}
+
+function detectViewerPlatform() {
+    const ua = navigator.userAgent;
+    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return 'Mobile';
+    if (navigator.platform === 'Linux x86_64' && navigator.maxTouchPoints > 0 && screen.width === 1280 && screen.height === 800) return 'Steam Deck';
+    if (ua.includes('Win')) return 'Windows';
+    if (ua.includes('Mac')) return 'macOS';
+    if (ua.includes('Linux')) return 'Linux';
+    return '';
+}
+const viewerPlatform = detectViewerPlatform();
+
+function appendChat(name, text, isMe, platform, color, isHost) {
     const el = document.getElementById('chatLog');
     if (isMe) {
         const now = Date.now();
@@ -2328,26 +2548,142 @@ function appendChat(name, text, isMe) {
     }
     const d = document.createElement('div');
     d.className = 'cmsg';
+    if (!isMe && typeof myName !== 'undefined' && new RegExp('@' + myName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)) {
+        d.classList.add('cmsg-mentioned');
+    }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'cname' + (isMe ? ' me' : '');
-    nameSpan.textContent = name;
+    nameSpan.textContent = name + ' ';
+    if (color) nameSpan.style.color = color;
+    if (platform) {
+        const platBadge = document.createElement('span');
+        platBadge.className = 'plat-badge';
+        platBadge.innerHTML = platIcon(platform) || platform;
+        nameSpan.appendChild(platBadge);
+    }
+    if (!isMe && isHost) {
+        const hostBadge = document.createElement('span');
+        hostBadge.className = 'plat-badge';
+        hostBadge.textContent = 'HOST';
+        hostBadge.style.cssText = 'font-size:8px;font-weight:700;letter-spacing:0.1em;color:var(--accent);opacity:0.7;margin-left:4px;vertical-align:middle;';
+        nameSpan.appendChild(hostBadge);
+    }
     d.appendChild(nameSpan);
     d.appendChild(document.createTextNode(text));
     el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
+
+const VIEWER_EMOJI_CATS = (window.EMOJI_DATA || []).length ? window.EMOJI_DATA : [];
+function injectViewerEmojiPicker() {
+    const chatRow = document.querySelector('#chatInput');
+    if (!chatRow || document.getElementById('emojiPicker')) return;
+    const style = document.createElement('style');
+    style.textContent = '#emojiPicker{display:none}#emojiPicker.show{display:flex;flex-direction:column}#emojiPicker .picker-body{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;-ms-overflow-style:none}#emojiPicker .picker-body::-webkit-scrollbar{display:none}#emojiPicker .cat-tabs{display:flex;gap:2px;padding:4px 2px 2px;flex-shrink:0;border-top:1px solid #333;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none}#emojiPicker .cat-tabs::-webkit-scrollbar{display:none}#emojiPicker .cat-tab{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;border-radius:4px;color:#888;line-height:1;flex-shrink:0;opacity:0.4;transition:opacity 0.15s;display:flex;align-items:center}#emojiPicker .cat-tab.active{opacity:1;color:#fff;background:#333}#emojiPicker .cat-tab:hover{opacity:0.8}#emojiPicker .cat-page{display:none;flex-wrap:wrap;gap:2px;padding:4px 2px}#emojiPicker .cat-page.active{display:flex}#emojiPicker button:not(.cat-tab){background:none;border:none;cursor:pointer;font-size:20px;padding:2px 4px;border-radius:4px;color:#fff;line-height:1}#emojiPicker button:not(.cat-tab):hover{background:#333;transform:scale(1.15)}';
+    document.head.appendChild(style);
+    const pickerBtn = document.createElement('button');
+    pickerBtn.id = 'emojiPickerBtn';
+    const faceEmojis = ['😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','🥰','😘','😗','😙','😚','🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😒','🙃','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🥴','😵','🤯','😕','😟','🙁','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😤','😡','😠','🤬'];
+    pickerBtn.textContent = faceEmojis[Math.floor(Math.random() * faceEmojis.length)];
+    pickerBtn.type = 'button';
+    pickerBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:18px;padding:4px 6px;line-height:1;opacity:0.5;transition:opacity 0.15s';
+    pickerBtn.title = 'Insert emoji';
+    pickerBtn.onmouseenter = () => pickerBtn.style.opacity = '1';
+    pickerBtn.onmouseleave = () => { if (!picker.classList.contains('show')) pickerBtn.style.opacity = '0.5'; };
+    const picker = document.createElement('div');
+    picker.id = 'emojiPicker';
+    picker.className = 'show';
+    picker.style.cssText = 'position:absolute;bottom:100%;left:0;background:#1a1d23;border:1px solid #333;border-radius:8px;width:300px;max-height:260px;z-index:9999';
+    const bodyDiv = document.createElement('div');
+    bodyDiv.className = 'picker-body';
+    picker.appendChild(bodyDiv);
+    const tabsDiv = document.createElement('div');
+    tabsDiv.className = 'cat-tabs';
+    picker.appendChild(tabsDiv);
+    VIEWER_EMOJI_CATS.forEach((cat, ci) => {
+        const tab = document.createElement('button');
+        tab.className = 'cat-tab' + (ci === 0 ? ' active' : '');
+        tab.textContent = cat.label;
+        tab.type = 'button';
+        tab.title = cat.name;
+        const page = document.createElement('div');
+        page.className = 'cat-page' + (ci === 0 ? ' active' : '');
+        cat.items.forEach(e => {
+            const btn = document.createElement('button');
+            btn.textContent = e; btn.type = 'button';
+            btn.onclick = () => {
+                const inp = document.getElementById('chatMsg');
+                if (inp) { inp.value += e; inp.focus(); }
+                picker.className = 'show';
+            };
+            page.appendChild(btn);
+        });
+        tab.onclick = () => {
+            tabsDiv.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            bodyDiv.querySelectorAll('.cat-page').forEach(p => p.classList.remove('active'));
+            page.classList.add('active');
+        };
+        tabsDiv.appendChild(tab);
+        bodyDiv.appendChild(page);
+    });
+    pickerBtn.onclick = () => {
+        const isOpen = picker.classList.contains('show');
+        picker.className = isOpen ? '' : 'show';
+    };
+    document.addEventListener('click', (ev) => {
+        if (!picker.contains(ev.target) && ev.target !== pickerBtn) picker.className = '';
+    });
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:relative;display:inline-flex';
+    wrapper.appendChild(pickerBtn);
+    wrapper.appendChild(picker);
+    chatRow.insertBefore(wrapper, chatRow.firstChild);
+    picker.className = ''; // start hidden
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectViewerEmojiPicker);
+} else {
+    injectViewerEmojiPicker();
+}
 const chatHistory = [];
 let chatHistoryIndex = -1;
-function sendChat() {
-    const inp = document.getElementById('chatMsg');
-    const msg = inp.value.trim();
-    if (!msg || !ws || ws.readyState !== 1) return;
-    ws.send(JSON.stringify({ type: 'chat', from: myName, msg }));
-    appendChat(myName, msg, true);
-    chatHistory.push(msg);
-    chatHistoryIndex = chatHistory.length;
-    inp.value = '';
+// ── @MENTION AUTOCOMPLETE ──
+let _mentionData = { viewers: [], idx: -1 };
+function _showMentionDropdown(inp) {
+    const val = inp.value;
+    const cursor = inp.selectionStart;
+    const before = val.slice(0, cursor);
+    const atIdx = before.lastIndexOf('@');
+    if (atIdx === -1 || (atIdx > 0 && val[atIdx - 1] !== ' ' && val[atIdx - 1] !== '\n')) { _hideMentionDropdown(); return; }
+    const partial = before.slice(atIdx + 1).toLowerCase();
+    const roster = window._rosterList || [];
+    let known = roster.map(v => ({ id: v.id, name: (v.name || '').replace(/ \d+$/, '') })).filter(v => v.name.toLowerCase().includes(partial));
+    if (partial === '' || (known.length === 0 && 'host'.includes(partial))) known = [{ id: 'HOST', name: 'Host' }, ...known];
+    if (known.length === 0) { _hideMentionDropdown(); return; }
+    _mentionData.viewers = known;
+    _mentionData.idx = 0;
+    let dd = document.getElementById('mentionDD');
+    if (!dd) {
+        dd = document.createElement('div');
+        dd.id = 'mentionDD';
+        dd.style.cssText = 'position:absolute;bottom:100%;left:0;background:#1a1d23;border:1px solid #333;border-radius:6px;padding:4px;z-index:99999;max-height:140px;overflow-y:auto;min-width:120px';
+        const wrapper = document.querySelector('.chat-input-row') || inp.parentElement;
+        wrapper?.appendChild(dd);
+    }
+    dd.innerHTML = known.map((v, i) =>
+        `<div class="m-item" data-idx="${i}" style="padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;${i === 0 ? 'background:#333;color:#fff;' : ''}" onmouseover="document.querySelectorAll('.m-item').forEach(e=>e.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;');this.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:#333;color:#fff;';_mentionData.idx=${i}" onclick="const inp=document.getElementById('chatMsg');const v=inp.value;const cs=inp.selectionStart;const bf=v.slice(0,v.lastIndexOf('@',cs));const af=v.slice(cs);const mention='@${v.name} ';const nv=bf+mention+af;inp.value=nv;inp.selectionStart=inp.selectionEnd=bf.length+mention.length;inp.focus();document.getElementById('mentionDD')?.remove();">${v.name}</div>`
+    ).join('');
+    dd.style.display = 'block';
 }
+function _hideMentionDropdown() { const dd = document.getElementById('mentionDD'); if (dd) dd.style.display = 'none'; _mentionData.idx = -1; }
 document.addEventListener('keydown', e => {
+    const dd = document.getElementById('mentionDD');
+    if (dd && dd.style.display !== 'none') {
+        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.viewers.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:#333;color:#fff;':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:#333;color:#fff;':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;'); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="'+_mentionData.idx+'"]'); if (sel) sel.click(); return; }
+        if (e.key === 'Escape') { _hideMentionDropdown(); return; }
+    }
     if (e.target.id !== 'chatMsg') return;
     const inp = e.target;
     if (e.key === 'ArrowUp') {
@@ -2361,9 +2697,29 @@ document.addEventListener('keydown', e => {
         inp.value = chatHistoryIndex < chatHistory.length ? chatHistory[chatHistoryIndex] : '';
     }
 });
+document.addEventListener('keyup', e => {
+    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+});
+document.addEventListener('input', e => {
+    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+});
+function sendChat() {
+    const inp = document.getElementById('chatMsg');
+    const msg = inp.value.trim();
+    if (!msg || !ws || ws.readyState !== 1) return;
+    const _chatClr = localStorage.getItem('ns_chat_color') || '';
+    ws.send(JSON.stringify({ type: 'chat', from: myName, msg, platform: viewerPlatform, color: _chatClr }));
+    appendChat(myName, msg, true, viewerPlatform, _chatClr);
+    chatHistory.push(msg);
+    chatHistoryIndex = chatHistory.length;
+    inp.value = '';
+    _hideMentionDropdown();
+}
 function toggleChat() {
-    document.getElementById('chatPanel').classList.toggle('open');
-    document.getElementById('nsBar').classList.remove('open');
+    const panel = document.getElementById('chatPanel');
+    const bar = document.getElementById('nsBar');
+    if (panel) panel.classList.toggle('open');
+    if (bar) bar.classList.remove('open');
 }
 function toggleAudio() {
     audioMuted = !audioMuted;
@@ -2541,6 +2897,153 @@ function initCursorPrediction() {
 }
 document.addEventListener('DOMContentLoaded', initCursorPrediction);
 
+// ── GAMEPAD PREDICTION ─────────────────────────────────────────────────────────
+// Shows button presses on a local overlay instantly (no wait for server echo).
+let _gpPredictEl = null;
+let _gpPredictBtns = [];
+
+function initGamepadPrediction() {
+    _gpPredictEl = document.createElement('div');
+    _gpPredictEl.id = 'gp-predict';
+    _gpPredictEl.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:9998;display:none;gap:6px;align-items:center;padding:8px 14px;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.08);border-radius:10px;';
+    _gpPredictEl.style.display = 'none';
+
+    const labels = ['◀','▶','▲','▼','LB','RB','LT','RT','A','B','X','Y','Back','Start'];
+    const ids    = [14,  15,  12,  13,  4,   5,   6,   7,   0,  1,  2,  3,  8,    9    ];
+    for (let i = 0; i < ids.length; i++) {
+        const btn = document.createElement('span');
+        btn.textContent = labels[i];
+        btn.style.cssText = 'padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;font-family:sans-serif;color:rgba(255,255,255,0.3);background:rgba(255,255,255,0.04);transition:color 0.05s,background 0.05s,box-shadow 0.05s;';
+        _gpPredictEl.appendChild(btn);
+        _gpPredictBtns[ids[i]] = btn;
+    }
+
+    document.body.appendChild(_gpPredictEl);
+    const obs = new MutationObserver(() => {
+        const gpConnected = navigator.getGamepads ? Array.from(navigator.getGamepads()).some(g => g && g.connected) : false;
+        _gpPredictEl.style.display = gpConnected ? 'flex' : 'none';
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+
+    // Show on first gamepad connect
+    window.addEventListener('gamepadconnected', () => { _gpPredictEl.style.display = 'flex'; });
+    window.addEventListener('gamepaddisconnected', () => {
+        const still = navigator.getGamepads ? Array.from(navigator.getGamepads()).some(g => g && g.connected) : false;
+        if (!still) _gpPredictEl.style.display = 'none';
+    });
+}
+
+// Patch pollGamepad to update overlay immediately
+const _origPoll = pollGamepad;
+pollGamepad = function() {
+    _origPoll();
+    if (!_gpPredictEl || _gpPredictEl.style.display === 'none') return;
+    for (const gp of navigator.getGamepads()) {
+        if (!gp || !gp.connected) continue;
+        for (let i = 0; i < 16; i++) {
+            const el = _gpPredictBtns[i];
+            if (!el) continue;
+            const pressed = gp.buttons[i]?.pressed || false;
+            const val = gp.buttons[i]?.value || 0;
+            if (pressed || val > 0.1) {
+                el.style.color = '#fff';
+                el.style.background = 'rgba(192,132,252,0.5)';
+                el.style.boxShadow = '0 0 10px rgba(192,132,252,0.4)';
+            } else {
+                el.style.color = 'rgba(255,255,255,0.25)';
+                el.style.background = 'rgba(255,255,255,0.04)';
+                el.style.boxShadow = 'none';
+            }
+        }
+        break; // Only show first gamepad
+    }
+};
+
+document.addEventListener('DOMContentLoaded', initGamepadPrediction);
+
+// ── LATENCY OVERLAY ───────────────────────────────────────────────────────────
+// Shows ping, frame rate, and packet loss in the viewer info panel.
+let _latencyOverlayEl = null;
+
+function initLatencyOverlay() {
+    _latencyOverlayEl = document.createElement('div');
+    _latencyOverlayEl.id = 'latency-overlay';
+    _latencyOverlayEl.style.cssText = 'position:fixed;top:12px;right:12px;z-index:9997;display:none;padding:8px 12px;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-family:sans-serif;font-size:10px;color:rgba(255,255,255,0.7);line-height:1.6;pointer-events:none;';
+    _latencyOverlayEl.innerHTML = 'Ping: —<br>FPS: —<br>Jitter: —<br>Path: —';
+    document.body.appendChild(_latencyOverlayEl);
+
+    let pingSent = 0;
+    let pingPath = '';
+    let lastRtt = 0;
+    let frames = 0;
+    let lastFpsCheck = performance.now();
+    let frameTimes = [];
+    let prevFrameTime = 0;
+
+    // Ping over DataChannel first (true game path), fallback to WebSocket
+    function sendPing() {
+        const dc = window._fastLaneChannel;
+        if (dc && dc.readyState === 'open') {
+            pingPath = 'P2P';
+            pingSent = performance.now();
+            try { dc.send(JSON.stringify({ type: 'ping' })); return; } catch {}
+        }
+        if (ws && ws.readyState === 1) {
+            pingPath = 'Relay';
+            pingSent = performance.now();
+            ws.send(JSON.stringify({ type: 'ping' }));
+        }
+    }
+
+    setInterval(sendPing, 3000);
+
+    function trackFrame() {
+        frames++;
+        totalPkts++;
+        const now = performance.now();
+        if (prevFrameTime > 0) {
+            frameTimes.push(now - prevFrameTime);
+            if (frameTimes.length > 60) frameTimes.shift();
+        }
+        prevFrameTime = now;
+    }
+
+    window._trackViewerFrame = trackFrame;
+
+    function onPong() {
+        if (pingSent) {
+            lastRtt = performance.now() - pingSent;
+            pingSent = 0;
+        }
+    }
+
+    function updateLatencyDisplay() {
+        const now = performance.now();
+        const dt = now - lastFpsCheck;
+        if (dt < 1000) return;
+        const fps = Math.round(frames / (dt / 1000));
+        frames = 0;
+        lastFpsCheck = now;
+
+        const jitter = frameTimes.length > 2
+            ? Math.round(Math.sqrt(frameTimes.reduce((s, t) => s + (t - frameTimes.reduce((a,b) => a+b, 0)/frameTimes.length) ** 2, 0) / frameTimes.length))
+            : 0;
+        frameTimes = [];
+
+        const pingColor = lastRtt < 50 ? '#4ade80' : lastRtt < 100 ? '#facc15' : '#f87171';
+        _latencyOverlayEl.innerHTML = 'Ping: <span style="color:' + pingColor + ';font-weight:600;">' + (lastRtt ? Math.round(lastRtt) + 'ms' : '—') + '</span>'
+            + '<br>FPS: <span style="font-weight:600;">' + fps + '</span>'
+            + '<br>Jitter: <span style="font-weight:600;">' + jitter + 'ms</span>'
+            + '<br>Path: <span style="font-weight:600;">' + pingPath + '</span>';
+    }
+
+    // Update display continuously
+    function _latencyLoop() { updateLatencyDisplay(); requestAnimationFrame(_latencyLoop); }
+    requestAnimationFrame(_latencyLoop);
+}
+
+document.addEventListener('DOMContentLoaded', initLatencyOverlay);
+
 // ── FULLSCREEN ────────────────────────────────────────────────────────────────
 function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
 function toggleFS() {
@@ -2575,6 +3078,101 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.classList.toggle('ns-btn-active', clientRumbleEnabled);
     }
 });
+
+// ── WEBCODECS FRAME HEALTH MONITOR ──
+// Detects black screen, frozen stream, and decoder stalls.
+// Reports issues to host; auto-fallbacks to standard WebRTC after repeated failures.
+let _wcHealth = {
+    lastFrameTime: 0,
+    frameCount: 0,
+    consecutiveBlackFrames: 0,
+    criticalFailures: 0,
+    maxCriticalFailures: 2,
+    intervals: [],
+};
+
+function _startWcHealthMonitor() {
+    _stopWcHealthMonitor();
+    if (!_wcHealth._origTrackFrame) _wcHealth._origTrackFrame = window._trackViewerFrame;
+    window._trackViewerFrame = function () {
+        if (_wcHealth._origTrackFrame) _wcHealth._origTrackFrame();
+        _wcHealth.lastFrameTime = performance.now();
+        _wcHealth.frameCount++;
+    };
+
+    _wcHealth.intervals.push(setInterval(() => {
+        if (!wcDecoder || wcDecoder.state !== 'configured') return;
+        const elapsed = performance.now() - _wcHealth.lastFrameTime;
+        if (elapsed > 5000 && _wcHealth.lastFrameTime > 0) {
+            console.warn(`[WcHealth] Frozen — ${Math.round(elapsed)}ms no frames`);
+            _reportWcHealth('frozen', { elapsed });
+        }
+    }, 3000));
+
+    _wcHealth.intervals.push(setInterval(() => {
+        if (!wcCanvas || !wcCtx || _wcHealth.frameCount < 10) return;
+        try {
+            let r = 0, g = 0, b = 0, a = 255;
+            const cx = wcCanvas.width >> 1, cy = wcCanvas.height >> 1;
+            if (typeof wcCtx.getImageData === 'function') {
+                const px = wcCtx.getImageData(cx, cy, 1, 1);
+                r = px.data[0]; g = px.data[1]; b = px.data[2]; a = px.data[3];
+            } else if (typeof wcCtx.readPixels === 'function') {
+                const px = new Uint8Array(4);
+                wcCtx.readPixels(cx, cy, 1, 1, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, px);
+                r = px[0]; g = px[1]; b = px[2]; a = px[3];
+            } else return;
+            if (r < 5 && g < 5 && b < 5 && a > 0) {
+                _wcHealth.consecutiveBlackFrames++;
+                if (_wcHealth.consecutiveBlackFrames >= 3) {
+                    console.warn('[WcHealth] Black screen detected');
+                    _reportWcHealth('black-screen', { consecutive: _wcHealth.consecutiveBlackFrames });
+                }
+            } else {
+                _wcHealth.consecutiveBlackFrames = 0;
+            }
+        } catch (_) {}
+    }, 3000));
+
+    _wcHealth.intervals.push(setInterval(() => {
+        _reportWcHealth('telemetry', {
+            fps: _wcHealth.frameCount > 0 ? Math.round(_wcHealth.frameCount / 6) : 0,
+            decoderState: wcDecoder?.state || 'none',
+        });
+        _wcHealth.frameCount = 0;
+    }, 6000));
+}
+
+function _stopWcHealthMonitor() {
+    _wcHealth.intervals.forEach(id => clearInterval(id));
+    _wcHealth.intervals = [];
+    _wcHealth.criticalFailures = 0;
+    if (_wcHealth._origTrackFrame) {
+        window._trackViewerFrame = _wcHealth._origTrackFrame;
+        _wcHealth._origTrackFrame = null;
+    }
+}
+
+function _reportWcHealth(type, data) {
+    const payload = { type: 'webcodecs-health', wcHealthType: type, wcHealthData: data };
+    if (typeof myId !== 'undefined') payload.viewerId = myId;
+    try { if (window.wcChannel?.readyState === 'open') wcChannel.send(JSON.stringify(payload)); } catch (_) {}
+    try { if (ws?.readyState === 1) ws.send(JSON.stringify(payload)); } catch (_) {}
+    if (type === 'frozen' || type === 'black-screen') {
+        _wcHealth.criticalFailures++;
+        if (_wcHealth.criticalFailures >= _wcHealth.maxCriticalFailures) {
+            console.warn('[WcHealth] Critical — falling back to standard WebRTC');
+            _stopWcHealthMonitor();
+            try { if (wcDecoder?.state !== 'closed') wcDecoder.close(); } catch (_) {}
+            wcDecoder = null;
+            _reportWcHealth('fallback-request', { reason: type });
+            const url = new URL(window.location.href);
+            url.searchParams.delete('wc');
+            url.searchParams.delete('wc2');
+            setTimeout(() => { window.location.href = url.href; }, 1000);
+        }
+    }
+}
 
 // ── WEBCODECS VIEWER INITIALIZER ──
 function initWebCodecsViewer(config) {
@@ -2680,6 +3278,7 @@ function initWebCodecsViewer(config) {
                 wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
             }
             frame.close();
+            if (window._trackViewerFrame) window._trackViewerFrame();
 
             if (_wcFirstFrame) {
                 _wcFirstFrame = false;
@@ -2691,6 +3290,7 @@ function initWebCodecsViewer(config) {
                 }
                 const overlay = document.getElementById('overlay');
                 if (overlay) overlay.style.backgroundColor = '';
+                if (_latencyOverlayEl) _latencyOverlayEl.style.display = 'block';
             }
         },
         error: (e) => {
@@ -2714,6 +3314,7 @@ function initWebCodecsViewer(config) {
         wcDecoder.configure(decoderConfig);
     }
     console.log('[WebCodecs] Hardware Decoder Ready!');
+    _startWcHealthMonitor();
 }
 
 // ── STEAM DECK / IMMERSIVE AUTO-DETECT ───────────────────────────────────────
@@ -2997,3 +3598,13 @@ function onXRFrame(time, frame) {
         sendInputData(JSON.stringify(vrState));
     }
 }
+
+// ── Voice: set user volume / mute — called from voice overlay ──
+window.setUserVolume = function (targetId, volume) {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({
+        type: 'set-viewer-volume',
+        targetId: targetId,
+        volume: volume
+    }));
+};

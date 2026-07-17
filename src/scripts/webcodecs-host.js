@@ -1,19 +1,18 @@
-// #9: Host-side WebCodecs + DataChannel video transport
-// Alternative video path: encodes frames with WebCodecs VideoEncoder and sends
-// encoded NAL units over the unordered DataChannel. Bypasses the WebRTC media
-// pipeline's jitter buffer entirely. The viewer decodes with WebCodecs VideoDecoder.
-
 let _wcEncoder = null;
 let _wcDataChannels = new Set();
 let _wcForceKeyframe = false;
 let _wcStreaming = false;
-let _wcFrameSource = null; // { getFrame() -> { data: Buffer, width, height } }
+let _wcFrameSource = null;
+let _wcSvcLayers = 1;
+let _wcSvcEnabled = false;
 
-function initWebCodecsStream(frameSource) {
+async function initWebCodecsStream(frameSource, svcLayers) {
     _wcFrameSource = frameSource;
     _wcStreaming = true;
+    _wcSvcLayers = svcLayers || 1;
+    _wcSvcEnabled = _wcSvcLayers > 1;
 
-    const codecStr = _selectCodec();
+    const codecStr = await _selectCodec();
     if (!codecStr) {
         console.error('[WebCodecs] No compatible codec found');
         return false;
@@ -21,14 +20,26 @@ function initWebCodecsStream(frameSource) {
 
     const init = {
         output: (chunk, metadata) => {
-            // Send encoded chunk to all connected viewers via DataChannel
-            const buf = new Uint8Array(chunk.byteLength + 1);
-            buf[0] = metadata.decoderConfig ? 0x02 : 0x01; // 0x01=frame, 0x02=config
-            chunk.copyTo(buf.subarray(1));
+            const buf = new Uint8Array(chunk.byteLength + 9);
+            buf[0] = metadata.decoderConfig ? 0x02 : 0x01;
+            new DataView(buf.buffer).setFloat64(1, chunk.timestamp, true);
+            chunk.copyTo(buf.subarray(9));
+
+            if (metadata.decoderConfig) {
+                const configMsg = {
+                    codec: metadata.decoderConfig.codec,
+                    codedWidth: metadata.decoderConfig.codedWidth || (_wcFrameSource?.width || 1920),
+                    codedHeight: metadata.decoderConfig.codedHeight || (_wcFrameSource?.height || 1080),
+                    description: metadata.decoderConfig.description
+                        ? Array.from(new Uint8Array(metadata.decoderConfig.description))
+                        : null,
+                    svcTemporalLayers: _wcSvcLayers
+                };
+                _broadcastJson({ type: 'webcodecs-config', ...configMsg });
+            }
+
             for (const dc of _wcDataChannels) {
-                try {
-                    if (dc.readyState === 'open') dc.send(buf.buffer);
-                } catch (_) {}
+                try { if (dc.readyState === 'open') dc.send(buf.buffer); } catch (_) {}
             }
         },
         error: (e) => console.error('[WebCodecs] Encoder error:', e.message)
@@ -36,13 +47,17 @@ function initWebCodecsStream(frameSource) {
 
     const config = {
         codec: codecStr,
-        width: _wcFrameSource.width || 1920,
-        height: _wcFrameSource.height || 1080,
+        width: _wcFrameSource?.width || 1920,
+        height: _wcFrameSource?.height || 1080,
         bitrate: 8_000_000,
         framerate: 60,
         latencyMode: 'realtime',
         hardwareAcceleration: 'prefer-hardware'
     };
+
+    if (_wcSvcEnabled && (codecStr.startsWith('vp09') || codecStr.startsWith('av01'))) {
+        config.scalabilityMode = `L1T${Math.min(_wcSvcLayers, 3)}`;
+    }
 
     try {
         _wcEncoder = new VideoEncoder(init);
@@ -56,17 +71,27 @@ function initWebCodecsStream(frameSource) {
     return true;
 }
 
-function _selectCodec() {
-    // Try H264 (baseline) first, fall back to VP9
+async function _selectCodec() {
     for (const c of [
-        'avc1.42002A', // H264 Constrained Baseline
-        'avc1.42E01F', // H264 Constrained Baseline (alt)
-        'vp09.00.10.08', // VP9
-        'vp8', // VP8
+        'avc1.42002A',
+        'avc1.42E01F',
+        'vp8',
+        'vp09.00.10.08',
+        'av01.0.04M.08',
     ]) {
-        if (VideoEncoder.isConfigSupported({ codec: c }).supported) return c;
+        try {
+            const support = await VideoEncoder.isConfigSupported({ codec: c });
+            if (support?.supported) return c;
+        } catch (_) {}
     }
     return null;
+}
+
+function _broadcastJson(msg) {
+    const str = JSON.stringify(msg);
+    for (const dc of _wcDataChannels) {
+        try { if (dc.readyState === 'open') dc.send(str); } catch (_) {}
+    }
 }
 
 function _startCaptureLoop() {
@@ -75,7 +100,7 @@ function _startCaptureLoop() {
     async function processFrames() {
         if (!_wcEncoder || _wcEncoder.state !== 'configured') return;
 
-        const frame = _wcFrameSource.getFrame();
+        const frame = _wcFrameSource?.getFrame?.();
         if (frame) {
             const videoFrame = new VideoFrame(frame.data, {
                 format: 'BGRA',
@@ -84,11 +109,9 @@ function _startCaptureLoop() {
                 timestamp: performance.now() * 1000
             });
 
-            const keyFrame = _wcForceKeyframe;
-            _wcForceKeyframe = false;
-
             try {
-                _wcEncoder.encode(videoFrame, { keyFrame });
+                _wcEncoder.encode(videoFrame, { keyFrame: _wcForceKeyframe });
+                _wcForceKeyframe = false;
             } catch (e) {
                 console.error('[WebCodecs] Encode error:', e.message);
             }
@@ -98,9 +121,7 @@ function _startCaptureLoop() {
         requestAnimationFrame(processFrames);
     }
 
-    // Force keyframe every 500ms
     setInterval(() => { _wcForceKeyframe = true; }, 500);
-
     requestAnimationFrame(processFrames);
 }
 
@@ -117,6 +138,16 @@ function forceKeyframe() {
     _wcForceKeyframe = true;
 }
 
+function updateSvcLayers(n) {
+    _wcSvcLayers = Math.max(1, Math.min(n, 3));
+    _wcSvcEnabled = _wcSvcLayers > 1;
+    if (_wcEncoder && _wcEncoder.state === 'configured' && _wcSvcEnabled) {
+        try {
+            _wcEncoder.configure({ ..._wcEncoder._lastConfig, scalabilityMode: `L1T${_wcSvcLayers}` });
+        } catch (_) {}
+    }
+}
+
 function stopStreaming() {
     _wcStreaming = false;
     _wcDataChannels.clear();
@@ -131,5 +162,6 @@ module.exports = {
     addViewerDataChannel,
     removeViewerDataChannel,
     forceKeyframe,
+    updateSvcLayers,
     stopStreaming
 };

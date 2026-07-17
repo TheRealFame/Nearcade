@@ -1,6 +1,6 @@
 {
   "name": "@nearcade/accent-color",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Cross-platform system accent color detection for Node.js — Windows, macOS, Linux",
   "main": "index.js",
   "scripts": {

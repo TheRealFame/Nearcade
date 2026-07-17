@@ -40,6 +40,17 @@
           </div>
         </div>
 
+        <div class="ctrl-modal-row" id="settingRowTournamentMode" onclick="toggleAppSetting('tournamentMode')"
+          style="margin-top:8px;">
+          <div class="ctrl-toggle-track" id="settingTrackTournamentMode">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Tournament Mode <span style="font-size:9px;color:var(--accent);background:var(--accent-dim);padding:1px 6px;border-radius:3px;margin-left:6px;vertical-align:middle;">Lowest Latency</span></div>
+            <div class="ctrl-row-desc">Disables arcade pings, Discord RPC, and dynamic bitrate recovery to minimize host-side latency overhead.</div>
+          </div>
+        </div>
+
         <div
           style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
           Audio Capture</div>
@@ -112,7 +123,7 @@
           style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
           System Log</div>
         <div id="log"
-          style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:8px;height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;font-family:var(--mono);">
+          style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:8px;height:300px;overflow-y:auto;font-family:var(--mono);">
         </div>
       </div>
 

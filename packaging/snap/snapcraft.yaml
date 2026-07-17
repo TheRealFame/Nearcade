@@ -1,0 +1,72 @@
+name: nearcade
+base: core22
+version: "3.0.3"
+summary: Browser-based game streaming host — low-latency remote play
+description: |
+  Nearcade is a browser-based game streaming host that enables
+  low-latency remote play. Stream your games to any device with
+  minimal input lag and high-quality video.
+
+grade: stable
+confinement: strict
+
+apps:
+  nearcade:
+    command: bin/nearcade
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - pulseaudio
+      - opengl
+      - home
+      - x11
+      - wayland
+      - joystick
+      - hardware-observe
+      - raw-usb
+    environment:
+      DISABLE_WAYLAND: "0"
+      ELECTRON_USE_GL: "egl"
+
+parts:
+  nearcade:
+    plugin: dump
+    source: https://github.com/TheRealFame/Nearcade/releases/download/v3.0.3/Nearcade-3.0.3.AppImage
+    source-type: file
+    override-build: |
+      unsquashfs -f -d "${SNAPCRAFT_PART_INSTALL}" "${SNAPCRAFT_PART_SRC}"
+      sed -i 's|Icon=nearcade|Icon=${SNAP}/meta/gui/nearcade.png|' \
+        "${SNAPCRAFT_PART_INSTALL}/usr/share/applications/nearcade.desktop" 2>/dev/null || true
+    build-packages:
+      - squashfs-tools
+    stage-packages:
+      - libnss3
+      - libnspr4
+      - libatk1.0-0
+      - libatk-bridge2.0-0
+      - libcups2
+      - libdrm2
+      - libxkbcommon0
+      - libxcomposite1
+      - libxdamage1
+      - libxrandr2
+      - libgbm1
+      - libpango-1.0-0
+      - libcairo2
+      - libasound2
+    stage:
+      - -usr/share/applications
+
+passthrough:
+  layout:
+    /usr/share/nearcade:
+      symlink: $SNAP/usr/share/nearcade
+
+plugs:
+  joystick:
+    interface: joystick
+  raw-usb:
+    interface: raw-usb
+  hardware-observe:
+    interface: hardware-observe

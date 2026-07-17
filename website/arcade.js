@@ -144,9 +144,6 @@ arcadeChannel.bind('client-session-ping', (data) => {
         data.lastSeen = Date.now();
         data.category = data.category || '';
 
-            sessions.unshift(data);
-
-
         sessions.unshift(data);
 
         if (typeof updateLiveDot === 'function') updateLiveDot(true);

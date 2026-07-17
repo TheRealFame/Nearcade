@@ -58,6 +58,15 @@ export default {
           const session = await request.json();
           if (!session?.id) return new Response("Missing session ID", { status: 400, headers: CORS });
 
+          // Whitelist tunnel domains to prevent webhook spam from arbitrary URLs
+          if (session.url) {
+            const allowedDomains = /\.(trycloudflare\.com|lhr\.life|serveo\.net|bore\.pub|ngrok(?:-free)?\.app|playit\.gg|share\.zrok\.io)$/i;
+            if (!allowedDomains.test(new URL(session.url).hostname)) {
+              console.log(`[Worker] Rejected ping with disallowed domain: ${session.url}`);
+              return new Response("Forbidden", { status: 403, headers: CORS });
+            }
+          }
+
           if (env.BANS_KV) {
             // Dedup old sessions from same host (tunnel URL)
             if (session.url) {
@@ -76,6 +85,8 @@ export default {
               const roleId = env.ARCADE_ROLE_ID || "";
               const thumbnail = isUrl(session.thumbnail) ? { url: session.thumbnail } : undefined;
               const gameTitle = (session.game && !session.game.match(/^(Unknown Game|Arcade Game|Game)$/i)) ? session.game : "🎮 Game";
+
+              // Send initial webhook WITHOUT role ping (session started)
               const embed = {
                 title: gameTitle,
                 url: session.url,
@@ -90,11 +101,62 @@ export default {
                 footer: { text: `Nearcade v${session.version || "3.0.2"}` },
                 timestamp: new Date().toISOString()
               };
-              const payload = roleId
-                ? { content: `<@&${roleId}>`, embeds: [embed], username: "Nearcade Arcade", avatar_url: "https://nearcade.cutefame.net/favicon.ico" }
-                : { embeds: [embed], username: "Nearcade Arcade", avatar_url: "https://nearcade.cutefame.net/favicon.ico" };
-              await fetch(env.ARCADE_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+              const initalPayload = { embeds: [embed], username: "Nearcade Arcade", avatar_url: "https://nearcade.cutefame.net/favicon.ico" };
+              await fetch(env.ARCADE_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(initalPayload) }).catch(() => {});
+
+              // Schedule role ping after 15 minutes if session is still active
+              if (roleId) {
+                await env.BANS_KV.put(`role_ping_${session.id}`, JSON.stringify({
+                  roleId: roleId,
+                  gameTitle: gameTitle,
+                  url: session.url,
+                  hostName: session.hostName,
+                  hostRegion: session.hostRegion,
+                  region: session.region,
+                  os: session.os,
+                  codec: session.codec,
+                  codecType: session.codecType,
+                  category: session.category,
+                  thumbnail: session.thumbnail,
+                  version: session.version
+                }), { expirationTtl: 900 });
+              }
+
               await env.BANS_KV.put(`webhook_rep_${session.id}`, "1", { expirationTtl: 3600 });
+            }
+
+            // Check for pending role pings that are ready (15 min elapsed)
+            if (env.BANS_KV && env.ARCADE_WEBHOOK) {
+              try {
+                const pendingList = await env.BANS_KV.list({ prefix: "role_ping_" });
+                for (const key of pendingList.keys) {
+                  const raw = await env.BANS_KV.get(key.name);
+                  if (!raw) continue;
+                  const ping = JSON.parse(raw);
+                  const embed = {
+                    title: ping.gameTitle || "🎮 Game",
+                    url: ping.url,
+                    color: 0x8b5cf6,
+                    description: `**Host:** ${ping.hostName || "Unknown"}\n**Region:** ${ping.hostRegion || "?"}\n**Players:** ${ping.region || "?"}\n\n⏰ *Session has been running for over 15 minutes!*`,
+                    fields: [
+                      { name: "OS", value: ping.os || "?", inline: true },
+                      { name: "Codec", value: `${ping.codec || "?"} (${ping.codecType || "WebRTC"})`, inline: true },
+                      { name: "Category", value: ping.category || "General", inline: true }
+                    ],
+                    thumbnail: isUrl(ping.thumbnail) ? { url: ping.thumbnail } : undefined,
+                    footer: { text: `Nearcade v${ping.version || "3.0.2"} • Role pinged` },
+                    timestamp: new Date().toISOString()
+                  };
+                  const payload = {
+                    content: `<@&${ping.roleId}>`,
+                    embeds: [embed],
+                    username: "Nearcade Arcade",
+                    avatar_url: "https://nearcade.cutefame.net/favicon.ico"
+                  };
+                  await fetch(env.ARCADE_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+                  await env.BANS_KV.delete(key.name);
+                }
+              } catch (_) {}
             }
           }
           return json({ success: true });

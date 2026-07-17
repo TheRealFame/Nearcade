@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Session & Navigation ──
   installDrivers: () => ipcRenderer.send('install-drivers'),
-  backToDashboard: () => ipcRenderer.send('back-to-dashboard-from-host'),
+  backToDashboard: (tab) => ipcRenderer.send('back-to-dashboard-from-host', tab),
   updateTrayIcon: (iconPath) => ipcRenderer.send('update-tray-icon', iconPath),
   joinSession: (url, meta, pin)   => ipcRenderer.invoke('join-session', { url, meta, pin }),
   pingSession: (url)              => ipcRenderer.invoke('ping-session', url),
@@ -41,7 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── CRITICAL FIX: Secure IPC routing for screen capture ──
   getWindowSources: () => ipcRenderer.invoke('get-window-sources'),
-  setSelectedSource: (id) => ipcRenderer.send('set-selected-source', id),
+  setSelectedSource: (id) => ipcRenderer.invoke('set-selected-source', id),
 
   // ── Window Chrome & Discord ──
   minimize:                       () => ipcRenderer.send('window-minimize'),
@@ -64,11 +64,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSetupSuccess:                 (cb) => ipcRenderer.on('setup-success', () => cb()),
   onSetupFailed:                  (cb) => ipcRenderer.on('setup-failed', (_e, err) => cb(err)),
 
+  // ── DRM/KMS Native Capture (Wayland silent auto-capture) ──
+  drmCaptureStart: () => ipcRenderer.invoke('drm-capture-start'),
+  drmCaptureGetFrame: () => ipcRenderer.invoke('drm-capture-get-frame'),
+  drmCaptureStop: () => ipcRenderer.invoke('drm-capture-stop'),
+
   // ── Event Listeners ──
   onServerLog:    (cb) => ipcRenderer.on('server-log',    (_e, v) => cb(v)),
   onViewerClosed: (cb) => ipcRenderer.on('viewer-closed', ()      => cb()),
   onUpdateReady:  (cb) => ipcRenderer.on('update-ready',  (_e, v) => cb(v)),
   onAppError:     (cb) => ipcRenderer.on('app-error',     (_e, msg, severity) => cb(msg, severity)),
+  arcadeExit:     ()    => ipcRenderer.invoke('arcade-exit'),
 
   startNativeGamepadCapture: () => ipcRenderer.send('start-native-gamepad'),
   onNativeGamepadEvent: (cb) => ipcRenderer.on('native-gamepad-event', (_e, msg) => cb(msg)),

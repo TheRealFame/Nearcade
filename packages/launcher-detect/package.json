@@ -1,0 +1,34 @@
+{
+  "name": "@nearcade/launcher-detect",
+  "version": "0.1.4",
+  "description": "Detect installed game launchers (Steam, Heroic, Lutris, Epic, Ubisoft, Origin, Battle.net) and launch games via their protocol URLs — cross-platform (Linux, Windows, macOS).",
+  "main": "index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheRealFame/Nearcade.git",
+    "directory": "packages/launcher-detect"
+  },
+  "keywords": [
+    "game-launcher",
+    "steam",
+    "heroic",
+    "lutris",
+    "epic-games",
+    "ubisoft",
+    "origin",
+    "battlenet",
+    "launcher-detection",
+    "protocol",
+    "deep-link",
+    "cross-platform"
+  ],
+  "author": "fame <fame@cutefame.net>",
+  "engines": {
+    "node": ">=14"
+  },
+  "files": [
+    "index.js",
+    "games-picker.html"
+  ]
+}

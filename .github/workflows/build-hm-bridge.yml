@@ -21,12 +21,27 @@ jobs:
           submodules: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check if rebuild needed
+        id: check
+        shell: pwsh
+        run: |
+          $srcPath = "src/sidecar/input_backends/HmBridge/HmBridge.exe"
+          if (Test-Path $srcPath) {
+            git diff --quiet HEAD -- src/sidecar/input_backends/HmBridge/ src/sidecar/hidmaestro/ .github/workflows/build-hm-bridge.yml
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "::notice::No changes to HmBridge sources — binary is up to date, skipping build"
+              "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            }
+          }
+
       - name: Setup .NET
+        if: steps.check.outputs.skip != 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Install Windows Driver Kit (WDK)
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           winget install --source winget --exact --id Microsoft.WindowsWDK.10.0.26100 `
@@ -37,7 +52,7 @@ jobs:
           }
 
       - name: Create placeholder files for SDK (WDK missing)
-        if: env.WDK_MISSING == 'true'
+        if: steps.check.outputs.skip != 'true' && env.WDK_MISSING == 'true'
         shell: pwsh
         working-directory: src/sidecar/hidmaestro
         run: |
@@ -48,7 +63,7 @@ jobs:
           Write-Host "Placeholder files created in build\"
 
       - name: Build HIDMaestro SDK only (WDK missing)
-        if: env.WDK_MISSING == 'true'
+        if: steps.check.outputs.skip != 'true' && env.WDK_MISSING == 'true'
         working-directory: src/sidecar/hidmaestro
         run: |
           echo "Building SDK only (no embedded driver -- gamepad disabled)"
@@ -56,7 +71,7 @@ jobs:
           dotnet build sdk\HIDMaestro.Core\HIDMaestro.Core.csproj -nologo -v minimal
 
       - name: Build HIDMaestro native driver + SDK (WDK available)
-        if: env.WDK_MISSING != 'true'
+        if: steps.check.outputs.skip != 'true' && env.WDK_MISSING != 'true'
         shell: cmd
         working-directory: src/sidecar/hidmaestro
         run: |
@@ -67,11 +82,13 @@ jobs:
           )
 
       - name: Build HmBridge
+        if: steps.check.outputs.skip != 'true'
         working-directory: src/sidecar/input_backends/HmBridge
         run: |
           dotnet publish -c Release -r win-x64 --self-contained false
 
       - name: Copy binary to source tree
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           $src = "src/sidecar/input_backends/HmBridge/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish/HmBridge.exe"
@@ -85,6 +102,7 @@ jobs:
           }
 
       - name: Commit binary
+        if: steps.check.outputs.skip != 'true'
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
@@ -94,5 +112,6 @@ jobs:
             Write-Host "No changes to commit"
           } else {
             git commit -m "[auto] build HmBridge.exe"
+            git pull --rebase origin main
             git push origin HEAD:main
           }

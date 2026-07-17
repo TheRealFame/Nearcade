@@ -1,0 +1,22 @@
+pkgbase = nearcade
+	pkgdesc = Browser-based game streaming host — low-latency remote play
+	pkgver = 3.0.3
+	pkgrel = 1
+	url = https://nearcade.cutefame.net
+	install = 
+	arch = x86_64
+	license = GPL3
+	depends = electron
+	depends = pipewire
+	depends = pipewire-pulse
+	depends = wireplumber
+	depends = portaudio
+	depends = python
+	depends = python-pip
+	optdepends = python-uinput: virtual gamepad support
+	provides = nearcade
+	conflicts = nearcade
+	source = https://github.com/TheRealFame/Nearcade/releases/download/v3.0.3/Nearcade-3.0.3.pacman
+	sha256sums = SKIP
+
+pkgname = nearcade

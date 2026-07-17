@@ -5,7 +5,8 @@
   <link rel="icon" type="image/x-icon" href="../favicon.ico">
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="description" content="Nearcade">
   <title>Nearcade</title>
 
@@ -215,6 +216,59 @@
 
     .pin-input::placeholder {
       color: var(--muted2);
+    }
+
+    /* ─── COLOR PICKER ───────────────────────────────────── */
+    .clr-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .clr-native {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 32px;
+      height: 32px;
+      border: 2px solid var(--border2);
+      border-radius: 50%;
+      cursor: pointer;
+      padding: 0;
+      background: none;
+      flex-shrink: 0;
+    }
+
+    .clr-native::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    .clr-native::-webkit-color-swatch {
+      border: none;
+      border-radius: 50%;
+    }
+
+    .clr-native::-moz-color-swatch {
+      border: none;
+      border-radius: 50%;
+    }
+
+    .clr-freq {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.15s, transform 0.1s;
+    }
+
+    .clr-freq:hover {
+      border-color: var(--accent);
+      transform: scale(1.15);
+    }
+
+    .clr-freq.active {
+      border-color: #fff;
     }
 
     #pinInput {
@@ -612,7 +666,7 @@
       flex-direction: column;
       gap: 6px;
     }
-    
+
     @media (max-width: 768px) {
       #nsBarInner {
         width: 190px;
@@ -654,7 +708,7 @@
       text-align: left;
       width: 100%;
     }
-    
+
     @media (max-width: 768px) {
       .ns-bar-btn {
         font-size: 11px;
@@ -795,7 +849,7 @@
       bottom: 10px;
       left: 10px;
       width: min(340px, calc(100vw - 20px));
-      height: clamp(200px, 36vh, 300px);
+      height: 300px;
       background: var(--card);
       backdrop-filter: blur(16px);
       border: 1px solid var(--border2);
@@ -806,6 +860,10 @@
       transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       z-index: 400;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      resize: both;
+      overflow: hidden;
+      min-width: 180px;
+      min-height: 120px;
     }
 
     #chatPanel.open {
@@ -837,6 +895,25 @@
       word-break: break-word;
     }
 
+    .cmsg-mentioned {
+      background: rgba(250, 204, 21, 0.12);
+      border-left: 3px solid #facc15;
+      padding-left: 8px;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .plat-badge {
+      display: inline-flex;
+      align-items: center;
+      vertical-align: middle;
+      opacity: 0.5;
+      margin-left: 2px;
+    }
+
+    .plat-badge svg {
+      display: block;
+    }
+
     .cname {
       color: var(--accent2);
       font-weight: 700;
@@ -844,7 +921,7 @@
     }
 
     .cname.me {
-      color: var(--warn);
+      color: var(--accent);
     }
 
     #chatInput {
@@ -1230,10 +1307,25 @@
       transform: scale(0.92);
     }
 
-    #touchUI .up { top: 0; left: 35%; }
-    #touchUI .down { bottom: 0; left: 35%; }
-    #touchUI .left { top: 35%; left: 0; }
-    #touchUI .right { top: 35%; right: 0; }
+    #touchUI .up {
+      top: 0;
+      left: 35%;
+    }
+
+    #touchUI .down {
+      bottom: 0;
+      left: 35%;
+    }
+
+    #touchUI .left {
+      top: 35%;
+      left: 0;
+    }
+
+    #touchUI .right {
+      top: 35%;
+      right: 0;
+    }
 
     #touchUI .top-buttons {
       position: absolute;
@@ -1498,6 +1590,33 @@
       padding: 0;
     }
 
+    #chatResizeHandle {
+      cursor: nw-resize;
+      color: var(--muted2);
+      opacity: 0.4;
+      font-size: 14px;
+      line-height: 1;
+      user-select: none;
+      padding: 6px 6px;
+      border-radius: 6px;
+      transition: opacity 0.15s;
+    }
+
+    #chatResizeHandle:hover {
+      opacity: 0.9;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    #chatHeader.is-dragging {
+      cursor: grabbing !important;
+    }
+
+    #chatHeader.is-dragging #chatHeaderTitle,
+    #chatHeader.is-dragging #chatResizeHandle,
+    #chatHeader.is-dragging #chatCloseBtn {
+      pointer-events: none;
+    }
+
     #chatCloseBtn svg {
       width: 13px;
       height: 13px;
@@ -1508,22 +1627,308 @@
       color: var(--danger);
       background: rgba(248, 113, 113, 0.08);
     }
+
+    /* ─── QUICK HOST PANEL ─────────────────────────────────── */
+    #quickHostBtn {
+      display: none;
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 450;
+      background: var(--accent-dim);
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      border-radius: 10px;
+      color: var(--accent2);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 8px 14px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      transition: all 0.15s;
+      gap: 6px;
+      align-items: center;
+    }
+
+    #quickHostBtn:hover {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .electron #quickHostBtn {
+      display: flex;
+    }
+
+    #quickHostPanel {
+      position: fixed;
+      top: 0;
+      right: -340px;
+      width: 320px;
+      height: 100vh;
+      z-index: 900;
+      background: rgba(9, 10, 16, 0.96);
+      backdrop-filter: blur(20px);
+      border-left: 1px solid var(--border2);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: right 0.3s cubic-bezier(0.1, 0.9, 0.2, 1);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+    }
+
+    #quickHostPanel.open {
+      right: 0;
+    }
+
+    #quickHostPanel .qhp-header {
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #quickHostPanel .qhp-close {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--muted2);
+      transition: all 0.15s;
+      padding: 0;
+    }
+
+    #quickHostPanel .qhp-close:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(248, 113, 113, 0.08);
+    }
+
+    #quickHostPanel .qhp-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    #quickHostPanel .qhp-input:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+
+    #quickHostPanel .qhp-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    #quickHostPanel .qhp-btn {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      flex: 1;
+      min-width: 70px;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    #quickHostPanel .qhp-btn:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--accent2);
+    }
+
+    #quickHostPanel .qhp-note {
+      font-size: 10px;
+      color: var(--muted2);
+      line-height: 1.6;
+      padding: 10px 0;
+      text-align: center;
+      font-family: var(--mono);
+    }
+
+    #quickHostPanel .qhp-no-lauchers {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      padding: 12px 0;
+    }
+
+    #quickHostBackdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 899;
+      background: rgba(0, 0, 0, 0.3);
+    }
+
+    #quickHostBackdrop.open {
+      display: block;
+    }
+
+    /* ─── PROFILE PANEL (expandable from right of pin-card) ──── */
+    .pin-card-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: flex-start;
+    }
+
+    #profileTab {
+      position: absolute;
+      right: -32px;
+      top: 32px;
+      width: 28px;
+      height: 40px;
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-left: none;
+      border-radius: 0 10px 10px 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted2);
+      font-size: 12px;
+      transition: color 0.15s, background 0.15s;
+      z-index: 10;
+    }
+
+    #profileTab:hover {
+      color: var(--accent2);
+      background: var(--accent-dim);
+    }
+
+    #profileTab.open {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #profilePanel {
+      position: absolute;
+      left: 100%;
+      top: 0;
+      margin-left: 8px;
+      width: 240px;
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 9;
+      backdrop-filter: blur(16px);
+    }
+
+    #profilePanel.open {
+      display: flex;
+    }
+
+    @media (max-width:720px) {
+      #profilePanel {
+        left: auto;
+        right: -32px;
+        top: 74px;
+        border-radius: 0 12px 12px 12px;
+        margin-left: 0;
+      }
+    }
+
+    #profilePanel .pp-label {
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      font-weight: 600;
+    }
+
+    #profilePanel .pp-input {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 10px;
+      width: 100%;
+    }
+
+    #profilePanel .pp-input:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+
+    #profilePanel .pp-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    #profilePanel .pp-clr-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #profilePanel .pp-id-reveal {
+      background: none;
+      border: none;
+      color: var(--muted2);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px;
+      transition: color 0.15s;
+    }
+
+    #profilePanel .pp-id-reveal:hover {
+      color: var(--accent2);
+    }
+
+    #profilePanel .pp-id-val {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent2);
+      word-break: break-all;
+    }
   </style>
   <script>
-    (async function(){
+    (async function () {
       if (window.electronAPI && localStorage.getItem('ns_use_system_accent') !== 'false') try {
         const c = await window.electronAPI.getAccentColor();
         if (c && c !== '#8b5cf6') {
-          const r = parseInt(c.slice(1,3), 16);
-          const g = parseInt(c.slice(3,5), 16);
-          const b = parseInt(c.slice(5,7), 16);
+          const r = parseInt(c.slice(1, 3), 16);
+          const g = parseInt(c.slice(3, 5), 16);
+          const b = parseInt(c.slice(5, 7), 16);
           const root = document.documentElement;
           root.style.setProperty('--accent', c);
           root.style.setProperty('--accent2', c);
           root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.14)`);
           root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
         }
-      } catch(_){}
+      } catch (_) { }
     })();
     // ── CLIENT-ONLY BUILD FLAG ────────────────────────────────────────────────────
     // Set window.IS_CLIENT_ONLY = true before this script, or add ?client=1 to URL,
@@ -1542,7 +1947,7 @@
         // The connect flow goes straight to the direct link or arcade
         document.body.classList.add('client-only');
         console.log('[Build] Client-only mode active — host UI hidden');
-        
+
         initArcadeUI();
       });
     }
@@ -1554,35 +1959,482 @@
       }
     }
   </script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <style>
+    /* ─── VOICE CHAT OVERLAY ───────────────────────────────────────────── */
+    :root {
+      --vc-w: clamp(100px, 12vw, 250px);
+      --vc-font: clamp(8px, 0.6vw, 12px);
+      --vc-tab-w: clamp(18px, 1.8vw, 32px)
+    }
+
+    .vc-arrow-tab {
+      position: fixed;
+      top: var(--vc-tab-pos, 50%);
+      left: 0;
+      z-index: 600;
+      cursor: grab;
+      width: var(--vc-tab-w);
+      height: clamp(28px, 2.8vw, 44px);
+      background: rgba(15, 17, 26, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-left: none;
+      border-radius: 0 6px 6px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity .4s;
+      user-select: none;
+      opacity: 1;
+      backdrop-filter: blur(4px)
+    }
+
+    .vc-arrow-tab:active {
+      cursor: grabbing
+    }
+
+    .vc-arrow-tab:hover {
+      background: rgba(88, 101, 242, 0.35);
+      border-color: var(--accent)
+    }
+
+    .vc-arrow-tab.hidden {
+      opacity: 0;
+      pointer-events: none
+    }
+
+    .vc-arrow-tab svg {
+      width: clamp(8px, 0.7vw, 14px);
+      height: clamp(8px, 0.7vw, 14px);
+      fill: rgba(255, 255, 255, 0.8);
+      transition: transform .25s;
+      display: block;
+      pointer-events: none
+    }
+
+    .vc-arrow-tab.open svg {
+      transform: rotate(180deg)
+    }
+
+    .vc-drag-hint {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: clamp(5px, 0.3vw, 7px);
+      color: rgba(255, 255, 255, 0.35);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity .2s;
+      pointer-events: none;
+      margin-top: 2px;
+      line-height: 1
+    }
+
+    .vc-arrow-tab:hover .vc-drag-hint {
+      opacity: .7
+    }
+
+    .vc-panel {
+      position: fixed;
+      top: var(--vc-tab-pos, 50%);
+      left: 0;
+      transform: translateX(-100%)translateY(-50%);
+      z-index: 599;
+      width: var(--vc-w);
+      background: rgba(15, 17, 26, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-left: none;
+      border-radius: 0 8px 8px 0;
+      box-shadow: 4px 0 24px rgba(0, 0, 0, .3);
+      overflow: hidden;
+      transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      backdrop-filter: blur(6px)
+    }
+
+    .vc-panel.open {
+      transform: translateX(var(--vc-tab-w))translateY(-50%)
+    }
+
+    .vc-list .vc-user {
+      opacity: .75
+    }
+
+    .vc-list .vc-user.talking {
+      opacity: 1
+    }
+
+    .vc-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: clamp(3px, 0.3vw, 6px) clamp(4px, 0.4vw, 8px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(0, 0, 0, 0.15)
+    }
+
+    .vc-title {
+      font-size: var(--vc-font);
+      font-weight: 600;
+      color: var(--muted)
+    }
+
+    .vc-leave {
+      background: none;
+      border: none;
+      color: var(--green);
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-size: clamp(7px, 0.45vw, 10px);
+      font-weight: 500;
+      transition: all .15s;
+      line-height: 1
+    }
+
+    .vc-leave:hover {
+      background: rgba(52, 211, 153, .12)
+    }
+
+    .vc-list {
+      max-height: clamp(120px, 12vh, 220px);
+      overflow-y: auto;
+      padding: clamp(2px, 0.2vw, 4px)
+    }
+
+    .vc-list .vc-user {
+      display: flex;
+      align-items: center;
+      gap: clamp(3px, 0.25vw, 6px);
+      padding: clamp(2px, 0.25vw, 5px) clamp(3px, 0.35vw, 6px);
+      border-radius: 4px;
+      transition: all .15s;
+      animation: vcFade .2s
+    }
+
+    @keyframes vcFade {
+      from {
+        opacity: 0;
+        transform: translateX(-6px)
+      }
+
+      to {
+        opacity: 1;
+        transform: translateX(0)
+      }
+    }
+
+    .vc-list .vc-user:hover {
+      background: rgba(88, 101, 242, 0.1)
+    }
+
+    .vc-list .vc-user.muted {
+      opacity: .4
+    }
+
+    .vc-av {
+      width: clamp(16px, 1.2vw, 26px);
+      height: clamp(16px, 1.2vw, 26px);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: clamp(7px, 0.5vw, 11px);
+      color: #fff;
+      flex-shrink: 0;
+      position: relative
+    }
+
+    .vc-ring {
+      position: absolute;
+      inset: -2px;
+      border-radius: 50%;
+      border: 2px solid var(--vc-ring-color, var(--green));
+      opacity: 0;
+      transition: opacity .15s
+    }
+
+    .vc-list .vc-user.talking .vc-ring {
+      opacity: 1;
+      animation: vcPulse 1s infinite
+    }
+
+    @keyframes vcPulse {
+
+      0%,
+      100% {
+        opacity: .6
+      }
+
+      50% {
+        opacity: 1
+      }
+    }
+
+    .vc-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px
+    }
+
+    .vc-name {
+      font-size: var(--vc-font);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 2px
+    }
+
+    .vc-vol-wrap {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      opacity: 0;
+      transition: opacity .15s
+    }
+
+    .vc-list .vc-user:hover .vc-vol-wrap {
+      opacity: 1
+    }
+
+    .vc-vol-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: clamp(28px, 2.2vw, 50px);
+      height: 2px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.12);
+      outline: none;
+      cursor: pointer
+    }
+
+    .vc-vol-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: clamp(5px, 0.35vw, 8px);
+      height: clamp(5px, 0.35vw, 8px);
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer
+    }
+
+    .vc-vol-slider::-moz-range-thumb {
+      width: clamp(5px, 0.35vw, 8px);
+      height: clamp(5px, 0.35vw, 8px);
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: none
+    }
+
+    .vc-vol-pct {
+      font-size: clamp(6px, 0.4vw, 9px);
+      color: var(--muted);
+      width: clamp(14px, 1.2vw, 22px);
+      text-align: right
+    }
+
+    .vc-mute-btn {
+      width: clamp(24px, 1.6vw, 32px);
+      height: clamp(24px, 1.6vw, 32px);
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+      transition: all .15s;
+      flex-shrink: 0;
+      box-shadow: 0 0 4px rgba(255, 255, 255, 0.2)
+    }
+
+    .vc-mute-btn:hover {
+      background: rgba(255, 255, 255, 0.35);
+      color: #fff
+    }
+
+    .vc-mute-btn.muted {
+      background: rgba(237, 66, 69, 0.55);
+      color: var(--danger);
+      box-shadow: 0 0 6px rgba(237, 66, 69, 0.5)
+    }
+
+    .vc-mute-btn.muted:hover {
+      background: rgba(237, 66, 69, 0.75)
+    }
+
+    .vc-mute-btn img,
+    .vc-mute-btn svg {
+      width: clamp(14px, 1vw, 20px);
+      height: clamp(14px, 1vw, 20px);
+      display: block
+    }
+
+    .vc-footer {
+      padding: clamp(3px, 0.3vw, 6px) clamp(4px, 0.4vw, 8px);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(0, 0, 0, 0.1)
+    }
+
+    .vc-footer button {
+      width: 100%;
+      padding: clamp(2px, 0.25vw, 5px);
+      border-radius: 4px;
+      border: none;
+      font-size: var(--vc-font);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text)
+    }
+
+    .vc-footer button:active {
+      transform: scale(.96)
+    }
+
+    .vc-footer button:hover {
+      background: rgba(88, 101, 242, 0.15)
+    }
+
+    .vc-footer button.muted {
+      background: rgba(237, 66, 69, .15);
+      color: var(--danger)
+    }
+
+    .vc-mini {
+      position: fixed;
+      top: calc(var(--vc-tab-pos, 50%) + clamp(22px, 2.2vw, 40px));
+      left: clamp(2px, 0.2vw, 4px);
+      z-index: 598;
+      opacity: 0;
+      transform: translateY(-4px);
+      pointer-events: none;
+      transition: all .25s;
+      display: flex;
+      align-items: center;
+      gap: clamp(3px, 0.25vw, 5px);
+      background: rgba(15, 17, 26, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      padding: clamp(2px, 0.25vw, 5px) clamp(4px, 0.35vw, 7px) clamp(2px, 0.25vw, 5px) clamp(2px, 0.25vw, 3px);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, .3);
+      cursor: pointer;
+      backdrop-filter: blur(6px)
+    }
+
+    .vc-mini.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto
+    }
+
+    .vc-mini:hover {
+      background: rgba(15, 17, 26, 0.95);
+      border-color: rgba(255, 255, 255, 0.18)
+    }
+
+    .vc-mini-av {
+      width: clamp(14px, 1vw, 22px);
+      height: clamp(14px, 1vw, 22px);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: clamp(7px, 0.5vw, 10px);
+      color: #fff;
+      flex-shrink: 0;
+      position: relative
+    }
+
+    .vc-mini-av .vc-ring {
+      inset: -2px
+    }
+
+    .vc-mini-name {
+      font-size: var(--vc-font)
+    }
+
+    .vc-list::-webkit-scrollbar {
+      width: 3px
+    }
+
+    .vc-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px
+    }
+
+    .vc-disconnected {
+      padding: clamp(6px, 0.6vw, 12px);
+      text-align: center
+    }
+
+    .vc-disconnected .vc-dc-icon {
+      font-size: clamp(10px, 0.8vw, 16px);
+      margin-bottom: 3px;
+      display: block
+    }
+
+    .vc-disconnected p {
+      font-size: clamp(7px, 0.45vw, 10px);
+      color: var(--muted);
+      margin-bottom: 5px;
+      line-height: 1.3
+    }
+
+    .vc-disconnected button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: clamp(2px, 0.25vw, 5px) clamp(6px, 0.5vw, 10px);
+      font-size: clamp(7px, 0.45vw, 10px);
+      cursor: pointer;
+      transition: all .15s
+    }
+
+    .vc-disconnected button:hover {
+      filter: brightness(1.2)
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 </head>
 
 <body>
 
   <!-- Error / Warning Popup Overlay -->
-  <div id="ns-error-popup" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
+  <div id="ns-error-popup"
+    style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
     <span id="ns-error-text">Critical Error occurred.</span>
-    <button onclick="this.parentElement.style.display='none'" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
+    <button onclick="this.parentElement.style.display='none'"
+      style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
   </div>
-  
+
   <script>
-    window.showError = function(msg, severity = 'red') {
+    window.showError = function (msg, severity = 'red') {
       const popup = document.getElementById('ns-error-popup');
       const text = document.getElementById('ns-error-text');
       if (!popup || !text) return;
-      
+
       popup.style.background = severity === 'yellow' ? '#f59e0b' : '#d32f2f';
       popup.style.color = severity === 'yellow' ? '#000' : '#fff';
       text.innerText = msg;
       popup.style.display = 'flex';
-      
+
       // Auto-hide warnings after 10s, keep reds until closed
       if (severity === 'yellow') {
         setTimeout(() => { popup.style.display = 'none'; }, 10000);
       }
     };
-    
+
     if (window.electronAPI && window.electronAPI.onAppError) {
       window.electronAPI.onAppError((msg, severity) => {
         if (window.showError) window.showError(msg, severity);
@@ -1596,7 +2448,7 @@
     <div class="brand-wrap">
       <img src="/assets/NearcadeLogo.png" alt="Nearcade" class="brand-img">
       <div class="brand-name">Nearcade</div>
-      <div class="brand-sub">peer-to-peer remote play</div>
+      <div class="brand-sub">couch co-op remote play</div>
     </div>
 
     <!-- Language select -->
@@ -1604,27 +2456,75 @@
       style="background:rgba(0,0,0,0.4);color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:10px;padding:4px 8px;outline:none;cursor:pointer;font-family:var(--mono);">
     </select>
 
-    <div class="pin-card">
-      <div class="pin-field-label">Display Name</div>
-      <input id="nameInput" type="text" placeholder="Guest" maxlength="20" class="pin-input"
-        onkeydown="if(event.key==='Enter')submitPin()">
+    <!-- ── HOST INFO (fetched before join) ── -->
+    <div id="hostInfoBar"
+      style="display:none;margin-bottom:8px;background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 14px;text-align:center;border:1px solid rgba(255,255,255,0.06);max-width:320px">
+      <div style="font-size:13px;font-weight:700;color:var(--accent);" id="hostInfoName"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px;" id="hostInfoGame"></div>
+      <div style="font-size:10px;color:var(--muted2);margin-top:4px;display:flex;gap:8px;justify-content:center;"
+        id="hostInfoMeta"></div>
+    </div>
 
-      <div id="pinWrap">
-        <div class="pin-field-label" style="margin-top:4px;">PIN Code</div>
-        <input id="pinInput" type="text" autocomplete="off" placeholder="0000" maxlength="32" class="pin-input"
-          onkeydown="if(event.key==='Enter')submitPin()">
+    <div class="pin-card-wrap">
+      <div class="pin-card">
+        <div class="pin-field-label">Your Name</div>
+        <input id="nameInput" type="text" placeholder="Guest" maxlength="16" class="pin-input" autocomplete="off" data-1p-ignore="true" data-lpignore="true" data-form-type="other" spellcheck="false"
+          onkeydown="if(event.key==='Enter')submitPin()" style="color:var(--ni-color,var(--text))">
+        <div id="namePreview" style="font-size:11px;margin:2px 0 0 2px;min-height:1.2em;"></div>
+
+        <div id="pinWrap">
+          <div class="pin-field-label" style="margin-top:4px;">PIN Code</div>
+          <input id="pinInput" type="text" autocomplete="off" placeholder="0000" maxlength="32" class="pin-input"
+            onkeydown="if(event.key==='Enter')submitPin()">
+        </div>
+
+        <!-- Session password — hidden until server sends session-password-required -->
+        <div id="sessionPasswordWrap" style="display:none;">
+          <div class="pin-field-label" style="margin-top:4px;">Session Password</div>
+          <input id="sessionPasswordInput" type="password" placeholder="Enter session password" class="pin-input"
+            onkeydown="if(event.key==='Enter')submitSessionPassword()">
+        </div>
+
+        <button class="pin-submit-btn" onclick="submitPin()">Join Stream →</button>
+        <button class="pin-submit-btn client-only-btn"
+          style="display:none;background:var(--surface);color:var(--text);border:1px solid var(--border);margin-top:8px;"
+          onclick="window.electronAPI ? window.electronAPI.backToDashboard() : window.location.href='/'">← Cancel & Go
+          Back</button>
+        <div id="pinErr"></div>
       </div>
 
-      <!-- Session password — hidden until server sends session-password-required -->
-      <div id="sessionPasswordWrap" style="display:none;">
-        <div class="pin-field-label" style="margin-top:4px;">Session Password</div>
-        <input id="sessionPasswordInput" type="password" placeholder="Enter session password" class="pin-input"
-          onkeydown="if(event.key==='Enter')submitSessionPassword()">
-      </div>
+      <button id="profileTab" onclick="toggleProfile()" title="Profile">‹</button>
+      <div id="profilePanel">
+        <button onclick="toggleProfile()" style="position:absolute; top:12px; right:12px; background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:0; width:20px; height:20px; border-radius:4px; display:flex; align-items:center; justify-content:center; transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.color='var(--text)'" onmouseout="this.style.background='transparent';this.style.color='var(--muted)'">×</button>
+        <div class="pp-label">Avatar</div>
+        <div class="pp-row" style="gap:10px; margin-bottom: 8px;">
+          <div
+            style="width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.4);border:1px solid var(--border2);overflow:hidden;flex-shrink:0;">
+            <img id="profileAvatarPreview" src="" style="width:100%;height:100%;object-fit:cover;display:none;"
+              onload="this.style.display='block'">
+          </div>
+          <button onclick="window.randomizeAvatar()"
+            style="flex:1;background:rgba(255,255,255,0.06);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:10px;font-weight:600;padding:6px;cursor:pointer;transition:all 0.15s;font-family:inherit;">Randomize</button>
+        </div>
+        <div class="pp-label">Chat Color</div>
+        <div class="pp-clr-row">
+          <input type="color" id="profileClr" class="clr-native" value="#43b581" onchange="setProfileColor(this.value)"
+            oninput="setProfileColor(this.value)">
+          <span id="profileFreqClrs"></span>
+        </div>
 
-      <button class="pin-submit-btn" onclick="submitPin()">Join Stream →</button>
-      <button class="pin-submit-btn client-only-btn" style="display:none;background:var(--surface);color:var(--text);border:1px solid var(--border);margin-top:8px;" onclick="window.electronAPI ? window.electronAPI.backToDashboard() : window.location.href='/'">← Cancel & Go Back</button>
-      <div id="pinErr"></div>
+        <div class="pp-row">
+          <span class="pp-label" style="margin:0;">User ID</span>
+          <button class="pp-id-reveal" id="profileIdReveal" onclick="toggleProfileId()" title="Reveal ID"><svg
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" width="16" height="16">
+              <path
+                d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+              <circle cx="12" cy="12" r="3" />
+            </svg></button>
+        </div>
+        <div id="profileIdVal" class="pp-id-val" style="display:none;"></div>
+      </div>
     </div>
   </div>
 
@@ -1683,16 +2583,7 @@
     </svg>
   </button>
 
-  <!-- ════ WHO'S TALKING OVERLAY ════ -->
-  <div id="talkingOverlay">
-    <div class="talking-header">Talking</div>
-    <!-- My entry — always present, toggled active by VAD -->
-    <div class="talking-entry" id="talkingMe">
-      <span class="talking-dot"></span>
-      <span class="talking-name">You</span>
-    </div>
-    <!-- Remote entries injected here by updateTalkingOverlay() -->
-  </div>
+
 
   <!-- ════ SLIDE-OUT CONTROL BAR ════ -->
   <div id="nsBar">
@@ -1703,9 +2594,7 @@
       <button class="ns-bar-btn ns-btn-active" id="audBtn" onclick="toggleAudio()">
         Stream Audio
       </button>
-      <button class="ns-bar-btn" id="micBtn" onclick="toggleMic()">
-        Microphone: OFF
-      </button>
+
       <button class="ns-bar-btn" onclick="toggleAudioPanel()">
         Audio Levels...
       </button>
@@ -1732,7 +2621,9 @@
 
       <div class="ns-bar-divider"></div>
       <div class="ns-bar-section">Device API</div>
-      <select id="inputModeSelect" class="ns-bar-btn" style="background:var(--bg);border-color:var(--border2);appearance:none;padding:7px 10px;" onchange="window.updateInputMode && window.updateInputMode(this.value)">
+      <select id="inputModeSelect" class="ns-bar-btn"
+        style="background:var(--bg);border-color:var(--border2);appearance:none;padding:7px 10px;"
+        onchange="window.updateInputMode && window.updateInputMode(this.value)">
         <option value="gamepad">Standard Gamepad</option>
       </select>
 
@@ -1746,10 +2637,13 @@
         <button class="ns-bar-btn" data-bw="high" onclick="setBandwidthProfile('high')"
           style="flex:1;justify-content:center;font-size:10px;padding:7px 4px;">High</button>
       </div>
-      <button class="ns-bar-btn" onclick="toggleNetStats()" style="margin-top: 4px; justify-content: center; font-size: 10px;">
+      <button class="ns-bar-btn" onclick="toggleNetStats()"
+        style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Toggle Net Stats
       </button>
-      <button class="ns-bar-btn" onclick="if(typeof forceReloadStream === 'function') forceReloadStream(); else if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }));" style="margin-top: 4px; justify-content: center; font-size: 10px;">
+      <button class="ns-bar-btn"
+        onclick="if(typeof forceReloadStream === 'function') forceReloadStream(); else if(window.ws) ws.send(JSON.stringify({ type: 'request-offer' }));"
+        style="margin-top: 4px; justify-content: center; font-size: 10px;">
         Force Reload Stream
       </button>
 
@@ -1758,17 +2652,40 @@
       <button class="ns-bar-btn" id="guideBtn" onclick="openControllerGuide()">
         Controller Guide
       </button>
+      <button class="ns-bar-btn" id="voiceToggleBtn" onclick="vcToggleConnection()" style="display:none">
+        Voice
+      </button>
       <div style="position:relative;display:inline-block;width:100%;">
         <button class="ns-bar-btn" id="chatToggleBtn" onclick="toggleChat()">
           Chat
         </button>
         <span id="chatBadge"></span>
       </div>
-      <button class="ns-bar-btn" style="color:var(--danger);font-weight:bold;margin-top:8px;" onclick="window.electronAPI ? window.electronAPI.backToDashboard() : window.location.href='/'">
+      <button class="ns-bar-btn" style="color:var(--danger);font-weight:bold;margin-top:8px;"
+        onclick="window.electronAPI?.backToDashboard('arcade') || (window.location.href='/')">
         Disconnect
       </button>
 
     </div>
+  </div>
+
+  <!-- ════ QUICK HOST PANEL (desktop only) ════ -->
+  <button id="quickHostBtn" onclick="toggleQuickHost()">🎮 Quick Host</button>
+  <div id="quickHostBackdrop" onclick="toggleQuickHost()"></div>
+  <div id="quickHostPanel">
+    <div class="qhp-header">
+      <span>Quick Host</span>
+      <button class="qhp-close" onclick="toggleQuickHost()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+          style="width:13px;height:13px;">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
+    <input id="quickHostGameId" class="qhp-input" placeholder="Game ID (e.g. 730 for CS2)" maxlength="40">
+    <div id="quickHostGrid" class="qhp-grid"></div>
+    <div class="qhp-note">Game will launch locally. You'll be redirected to your host page to manage the session.</div>
   </div>
 
 
@@ -1788,18 +2705,45 @@
   <div id="chatPanel">
     <div id="chatHeader">
       <span id="chatHeaderTitle">Chat</span>
-      <button id="chatCloseBtn" onclick="closeChatPanel()" title="Close chat">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
+      <div style="display:flex;align-items:center;gap:2px;">
+        <div id="chatResizeHandle" title="Drag to resize">╲</div>
+        <button id="chatCloseBtn" onclick="closeChatPanel()" title="Close chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
     </div>
     <div id="chatLog"></div>
     <div id="chatInput">
       <input id="chatMsg" placeholder="Message..." maxlength="300"
         onkeydown="if(event.key==='Enter'){event.preventDefault();sendChat()}">
       <button id="chatSend" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+  <!-- ════ VOICE CHAT OVERLAY ════ -->
+  <div id="vcOverlay" style="display:none">
+    <div class="vc-arrow-tab" id="vcTab" onclick="vcTogglePanel()">
+      <svg viewBox="0 0 1024 1024">
+        <path fill="currentColor"
+          d="M338.752 104.704a64 64 0 000 90.496l316.8 316.8-316.8 316.8a64 64 0 0090.496 90.496l362.048-362.048a64 64 0 000-90.496L429.248 104.704a64 64 0 00-90.496 0z" />
+      </svg>
+      <span class="vc-drag-hint">drag</span>
+    </div>
+    <div class="vc-panel" id="vcPanel">
+      <div class="vc-header">
+        <div class="vc-title">Voice</div>
+        <button class="vc-leave" id="vcLeaveBtn" onclick="vcLeave()">Leave</button>
+      </div>
+      <div id="vcListWrap">
+        <div class="vc-list" id="vcList"></div>
+      </div>
+    </div>
+    <div class="vc-mini" id="vcMini" onclick="vcOpenPanel()">
+      <div class="vc-mini-av" id="vcMiniAv" style="background:#5865f2">F<span class="vc-ring"></span></div>
+      <span class="vc-mini-name" id="vcMiniName">Fame</span>
     </div>
   </div>
 
@@ -1905,32 +2849,257 @@
   <!-- ════ NET STATS OVERLAY ════ -->
   <style>
     #netStatsOverlay {
-      position: fixed; top: 70px; right: 16px;
-      background: rgba(9,10,16,0.85); backdrop-filter: blur(10px);
-      border: 1px solid var(--border); border-radius: 8px;
-      padding: 10px 14px; z-index: 200; pointer-events: none;
-      font-family: var(--mono); font-size: 10px; color: var(--text);
-      display: flex; flex-direction: column; gap: 4px; width: 170px;
+      position: fixed;
+      top: 70px;
+      right: 16px;
+      background: rgba(9, 10, 16, 0.85);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      z-index: 200;
+      pointer-events: none;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 170px;
     }
-    #netStatsOverlay.gone { display: none !important; }
+
+    #netStatsOverlay.gone {
+      display: none !important;
+    }
   </style>
   <div id="netStatsOverlay" class="gone">
-    <div style="font-weight:700; margin-bottom:4px; font-size:11px; color:var(--accent); font-family:var(--sans);">NET STATS</div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Codec:</span> <span id="nsCodec">--</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Resolution:</span> <span id="nsRes">--</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">FPS:</span> <span id="nsFps">--</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Ping:</span> <span id="nsPing">-- ms</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bandwidth:</span> <span id="nsBitrate">-- kbps</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Decode Lat:</span> <span id="nsDecode">-- ms</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span id="nsLoss">-- %</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span id="nsJitter">-- ms</span></div>
+    <div style="font-weight:700; margin-bottom:4px; font-size:11px; color:var(--accent); font-family:var(--sans);">NET
+      STATS</div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Codec:</span> <span
+        id="nsCodec">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Resolution:</span> <span
+        id="nsRes">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">FPS:</span> <span
+        id="nsFps">--</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Ping:</span> <span
+        id="nsPing">-- ms</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bandwidth:</span> <span
+        id="nsBitrate">-- kbps</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Decode Lat:</span> <span
+        id="nsDecode">-- ms</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span
+        id="nsLoss">-- %</span></div>
+    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span
+        id="nsJitter">-- ms</span></div>
   </div>
 
   <!-- ════ SCRIPTS ════ -->
   <script src="/js/i18n.js"></script>
   <script src="/js/version.js"></script>
+  <script src="/js/emoji-data.js"></script>
   <script type="module" src="/js/p2p-signaler.js"></script>
-  <script src="/js/viewer.js?v=9"></script>
+  <script src="/js/signaling.js?v=1"></script>
+  <script src="/js/viewer.js?v=10"></script>
+
+  <!-- ── Color Picker & Profile ── -->
+  <script>
+    (function initColorPicker() {
+      // Avatar Initialization
+      let savedAvatar = localStorage.getItem('ns_avatar');
+      if (!savedAvatar) {
+        savedAvatar = Math.floor(Math.random() * 100) + 1;
+        localStorage.setItem('ns_avatar', savedAvatar);
+      }
+      const avatarPreview = document.getElementById('profileAvatarPreview');
+      if (avatarPreview) avatarPreview.src = `/assets/avatars/avatar-${savedAvatar}.svg`;
+
+      window.randomizeAvatar = function () {
+        const newAv = Math.floor(Math.random() * 100) + 1;
+        localStorage.setItem('ns_avatar', newAv);
+        if (avatarPreview) avatarPreview.src = `/assets/avatars/avatar-${newAv}.svg`;
+        if (typeof window.vcUpdateSelf === 'function') {
+          window.vcUpdateSelf(undefined, undefined, newAv);
+        }
+      };
+
+      let saved = localStorage.getItem('ns_chat_color');
+      if (!saved) {
+        saved = '#43b581';
+        localStorage.setItem('ns_chat_color', saved);
+      }
+      const savedName = localStorage.getItem('ns_name') || '';
+      const freq = JSON.parse(localStorage.getItem('ns_freq_colors') || '[]');
+      const DEFAULT_FREQ = ['#43b581', '#8b5cf6', '#f87171', '#fbbf24', '#60a5fa', '#f472b6', '#34d399'];
+      let freqChanged = false;
+      for (const df of DEFAULT_FREQ) {
+        if (!freq.includes(df)) { freq.push(df); freqChanged = true; }
+      }
+      if (freqChanged) localStorage.setItem('ns_freq_colors', JSON.stringify(freq));
+      const nativeInput = document.getElementById('nativeClr');
+      const freqContainer = document.getElementById('freqClrs');
+      const nameInput = document.getElementById('nameInput');
+      const profileName = document.getElementById('profileName');
+      const profileClr = document.getElementById('profileClr');
+      const profileFreq = document.getElementById('profileFreqClrs');
+      const namePreview = document.getElementById('namePreview');
+      if (!nameInput) return;
+
+      function updatePreview() {
+        if (!namePreview) return;
+        const n = nameInput.value.trim() || localStorage.getItem('ns_name') || 'Guest';
+        namePreview.innerHTML = '<span style="color:' + saved + ';font-weight:700;">' + n.replace(/</g, '&lt;') + '</span> will appear in chat';
+        const joinBtn = document.querySelector('.pin-submit-btn');
+        if (joinBtn) joinBtn.style.background = saved;
+      }
+
+      nameInput.value = savedName;
+      nameInput.style.setProperty('--ni-color', saved);
+      nameInput.dataset.clr = saved;
+      if (nativeInput) nativeInput.value = saved;
+      if (profileName) profileName.value = savedName;
+      if (profileClr) profileClr.value = saved;
+      const root = document.documentElement;
+      root.style.setProperty('accent-color', saved);
+      root.style.setProperty('--accent', saved);
+      root.style.setProperty('--accent2', saved);
+      const r0 = parseInt(saved.slice(1, 3), 16);
+      const g0 = parseInt(saved.slice(3, 5), 16);
+      const b0 = parseInt(saved.slice(5, 7), 16);
+      root.style.setProperty('--accent-dim', `rgba(${r0},${g0},${b0},0.14)`);
+      root.style.setProperty('--accent-glow', `rgba(${r0},${g0},${b0},0.35)`);
+      updatePreview();
+      function renderFreq() {
+        const picker = profileClr;
+        const dot = (c, a) => '<button class="clr-freq' + (c === a ? ' active' : '') + '" data-clr="' + c + '" style="background:' + c + '" onclick="window.setColor(\'' + c + '\')"></button>';
+        const all = [saved].concat(freq.filter(c => c !== saved));
+        if (freqContainer) freqContainer.innerHTML = all.slice(0, 7).map(c => dot(c, saved)).join('');
+        if (profileFreq) profileFreq.innerHTML = all.slice(0, 7).map(c => dot(c, saved)).join('');
+      }
+
+      function syncName(val) {
+        nameInput.value = val;
+        if (profileName) profileName.value = val;
+        if (val) localStorage.setItem('ns_name', val);
+        if (typeof window.vcUpdateSelf === 'function') window.vcUpdateSelf(val, undefined);
+        updatePreview();
+      }
+
+      window.setColor = function (clr) {
+        saved = clr;
+        nameInput.style.setProperty('--ni-color', clr);
+        if (nativeInput) nativeInput.value = clr;
+        if (profileClr) profileClr.value = clr;
+        nameInput.dataset.clr = clr;
+        localStorage.setItem('ns_chat_color', clr);
+        if (typeof window.vcUpdateSelf === 'function') window.vcUpdateSelf(undefined, clr);
+        const idx = freq.indexOf(clr);
+        if (idx > -1) freq.splice(idx, 1);
+        freq.unshift(clr);
+        localStorage.setItem('ns_freq_colors', JSON.stringify(freq));
+        renderFreq();
+        updatePreview();
+        const root = document.documentElement;
+        root.style.setProperty('accent-color', clr);
+        root.style.setProperty('--accent', clr);
+        root.style.setProperty('--accent2', clr);
+        const r = parseInt(clr.slice(1, 3), 16);
+        const g = parseInt(clr.slice(3, 5), 16);
+        const b = parseInt(clr.slice(5, 7), 16);
+        root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.14)`);
+        root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+        if (window.ws && window.ws.readyState === 1) {
+          window.ws.send(JSON.stringify({ type: 'update-color', color: clr }));
+        }
+      };
+
+      if (nativeInput) nativeInput.oninput = function () { window.setColor(this.value); };
+      nameInput.oninput = function () { syncName(this.value); };
+      if (profileName) profileName.oninput = function () { syncName(this.value); };
+      if (profileClr) profileClr.oninput = function () { window.setColor(this.value); };
+
+      renderFreq();
+    })();
+
+    function toggleProfile() {
+      const panel = document.getElementById('profilePanel');
+      const tab = document.getElementById('profileTab');
+      const opened = panel.classList.toggle('open');
+      tab.classList.toggle('open', opened);
+      tab.textContent = opened ? '›' : '‹';
+    }
+
+    function toggleProfileId() {
+      const el = document.getElementById('profileIdVal');
+      const reveal = document.getElementById('profileIdReveal');
+      if (el.style.display === 'none') {
+        el.style.display = 'block';
+        el.textContent = myId || sessionStorage.getItem('ns_viewer_id') || '—';
+        reveal.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>';
+      } else {
+        el.style.display = 'none';
+        reveal.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>';
+      }
+    }
+
+    function setProfileColor(clr) {
+      if (window.setColor) window.setColor(clr);
+    }
+  </script>
+
+  <!-- ── Quick Host (desktop only) ── -->
+  <script>
+    (function initQuickHost() {
+      if (!window.electronAPI) return;
+      document.body.classList.add('electron');
+
+      const LAUNCHER_LABELS = {
+        steam: 'Steam', heroic: 'Heroic', lutris: 'Lutris',
+        epic: 'Epic', uplay: 'Ubisoft', origin: 'Origin', bnet: 'Battle.net'
+      };
+
+      const grid = document.getElementById('quickHostGrid');
+      const input = document.getElementById('quickHostGameId');
+
+      if (!grid) return;
+
+      fetch('/api/launchers')
+        .then(r => r.json())
+        .then(d => {
+          const ids = d.launchers || [];
+          if (!ids.length) {
+            grid.innerHTML = '<div class="qhp-no-lauchers">No game launchers detected</div>';
+            return;
+          }
+          grid.innerHTML = ids.map(id =>
+            `<button class="qhp-btn" data-id="${id}">${LAUNCHER_LABELS[id] || id}</button>`
+          ).join('');
+          grid.querySelectorAll('.qhp-btn').forEach(btn => {
+            btn.onclick = () => {
+              const gameId = input.value.trim();
+              if (!gameId) { input.focus(); return; }
+              const launcher = btn.dataset.id;
+              fetch('/api/launch-game', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ launcher, gameId })
+              }).then(() => {
+                setTimeout(() => { window.location.href = '/host.html'; }, 500);
+              }).catch(() => {
+                setTimeout(() => { window.location.href = '/host.html'; }, 500);
+              });
+            };
+          });
+        })
+        .catch(() => {
+          grid.innerHTML = '<div class="qhp-no-lauchers">Could not detect launchers</div>';
+        });
+    })();
+
+    function toggleQuickHost() {
+      document.getElementById('quickHostPanel').classList.toggle('open');
+      document.getElementById('quickHostBackdrop').classList.toggle('open');
+    }
+  </script>
 
   <!-- Post-load patches — run after viewer.js is fully parsed -->
   <script>
@@ -1966,7 +3135,7 @@
       if (dy < -2 || e.clientY < 60) {
         showTopBar(3000);
       }
-      
+
       // Desktop mouse-to-right-edge to open nsBar
       if (e.clientX >= window.innerWidth - 10) {
         const nsBar = document.getElementById('nsBar');
@@ -1975,7 +3144,7 @@
           if (typeof resetNsBarTimeout === 'function') resetNsBarTimeout();
         }
       }
-      
+
       _lastMouseY = e.clientY;
     }, { passive: true });
 
@@ -2035,6 +3204,8 @@
         document.getElementById('audioBtn').classList.remove('open');
         // Focus input
         setTimeout(() => document.getElementById('chatMsg')?.focus(), 80);
+        // Apply adaptive font scale after open animation
+        setTimeout(() => { const l = document.getElementById('chatLog'); if (l) { const h = panel.clientHeight; l.style.fontSize = Math.min(17, Math.max(12, Math.round(12 + (h - 300) * 0.01))) + 'px'; } }, 300);
       }
     };
 
@@ -2044,9 +3215,9 @@
     let _toastTimeout = null;
 
     const _origAppendChat = window.appendChat;
-    window.appendChat = function (name, text, isMe) {
+    window.appendChat = function (name, text, isMe, platform, color, isHost) {
       // 1. Actually add the message to the log
-      if (typeof _origAppendChat === 'function') _origAppendChat(name, text, isMe);
+      if (typeof _origAppendChat === 'function') _origAppendChat(name, text, isMe, platform, color, isHost);
 
       // 2. Check if the chat panel is currently closed
       const panel = document.getElementById('chatPanel');
@@ -2120,7 +3291,7 @@
     let _touchStartX = 0;
     document.addEventListener('touchstart', e => {
       _touchStartX = e.touches[0].clientX;
-      
+
       // Close nsBar if tap is outside it on mobile
       if (nsBar && nsBar.classList.contains('open') && !nsBar.contains(e.target)) {
         nsBar.classList.remove('open');
@@ -2129,20 +3300,91 @@
     }, { passive: true });
     document.addEventListener('touchend', e => {
       const dx = e.changedTouches[0].clientX - _touchStartX;
-      
+
       // Swipe left from right edge to open
       if (_touchStartX > window.innerWidth - 44 && dx < -20) {
         nsBar.classList.add('open');
         resetNsBarTimeout();
       }
-      
+
       // Swipe right to forcefully close
       if (nsBar && nsBar.classList.contains('open') && dx > 40) {
         nsBar.classList.remove('open');
         clearTimeout(_nsBarTimeout);
       }
     }, { passive: true });
+
+    // ── Chat panel: resize (top-right) + drag-to-move + adaptive font ──
+    (function initChatDragResize() {
+      const panel = document.getElementById('chatPanel');
+      const header = document.getElementById('chatHeader');
+      const handle = document.getElementById('chatResizeHandle');
+      const log = document.getElementById('chatLog');
+      if (!panel || !header || !handle) return;
+
+      let mode = null;          // 'resize' | 'move'
+      let startX, startY, startW, startH, startL, startB;
+
+      function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+      function applyFontScale() {
+        if (!log) return;
+        const h = panel.clientHeight;
+        // font: 12px at 300px height → 15px at 600px height, capped at 17px
+        const size = clamp(Math.round(12 + (h - 300) * (3 / 300)), 12, 17);
+        log.style.fontSize = size + 'px';
+      }
+
+      function onDown(e) {
+        if (e.button !== 0) return;
+        // Don't intercept close button clicks
+        if (e.target.closest('#chatCloseBtn')) return;
+
+        const rect = panel.getBoundingClientRect();
+        startX = e.clientX; startY = e.clientY;
+        startW = rect.width; startH = rect.height;
+        startL = rect.left; startB = rect.bottom;
+
+        if (e.target === handle || handle.contains(e.target)) {
+          mode = 'resize';
+        } else if (e.target === header || header.contains(e.target)) {
+          mode = 'move';
+        } else {
+          return;
+        }
+        e.preventDefault();
+        header.classList.toggle('is-dragging', mode === 'move');
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp, { once: true });
+      }
+
+      function onMove(e) {
+        const dx = e.clientX - startX;
+        const dy = startY - e.clientY;
+        if (mode === 'resize') {
+          const newW = clamp(startW + dx, 180, window.innerWidth - 40);
+          const newH = clamp(startH + dy, 120, window.innerHeight - 40);
+          panel.style.width = newW + 'px';
+          panel.style.height = newH + 'px';
+          applyFontScale();
+        } else if (mode === 'move') {
+          const newL = clamp(startL + dx, 0, window.innerWidth - 180);
+          const newB = clamp(startB - dy, 120, window.innerHeight);
+          panel.style.left = newL + 'px';
+          panel.style.bottom = (window.innerHeight - newB) + 'px';
+        }
+      }
+
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        header.classList.remove('is-dragging');
+        mode = null;
+      }
+
+      header.addEventListener('mousedown', onDown);
+    })();
   </script>
+  <script src="/js/voice-chat.js"></script>
 </body>
 
 </html>

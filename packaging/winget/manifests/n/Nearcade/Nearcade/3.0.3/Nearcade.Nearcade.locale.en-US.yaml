@@ -1,0 +1,23 @@
+PackageIdentifier: Nearcade.Nearcade
+PackageVersion: 3.0.3
+PackageLocale: en-US
+Publisher: Cutefame
+PublisherUrl: https://cutefame.net
+PublisherSupportUrl: https://github.com/TheRealFame/Nearcade/issues
+PrivacyUrl: https://cutefame.net/privacy
+Author: Fame
+PackageName: Nearcade
+PackageUrl: https://nearcade.cutefame.net
+License: GPL-3.0-only
+LicenseUrl: https://github.com/TheRealFame/Nearcade/blob/main/LICENSE
+Copyright: Copyright (c) 2024 Cutefame
+ShortDescription: Browser-based game streaming host — low-latency remote play
+Moniker: nearcade
+Tags:
+  - streaming
+  - gaming
+  - remote-play
+  - game-streaming
+  - electron
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

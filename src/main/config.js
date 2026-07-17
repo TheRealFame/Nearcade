@@ -88,12 +88,17 @@ function loadControllers() {
   return Object.assign({}, DEFAULT_CONTROLLERS, bundled, user);
 }
 
-function saveSettings(s) {
-  try {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(s, null, 2));
-  } catch (e) { console.error('saveSettings:', e.message); }
-}
+ let _saveTimer = null;
+ function saveSettings(s) {
+   if (_saveTimer) clearTimeout(_saveTimer);
+   _saveTimer = setTimeout(() => {
+     _saveTimer = null;
+     try {
+       if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+       fs.writeFileSync(CONFIG_FILE, JSON.stringify(s, null, 2));
+     } catch (e) { console.error('saveSettings:', e.message); }
+   }, 250);
+ }
 
 module.exports = {
   getConfigDir, CONFIG_DIR, CONFIG_FILE, ROOT_DIR,

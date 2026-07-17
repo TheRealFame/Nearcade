@@ -12,7 +12,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // Minimal API surface exposed to the remote session page
 contextBridge.exposeInMainWorld('electronAPI', {
-  backToDashboard: () => ipcRenderer.send('back-to-dashboard'),
+  backToDashboard: (tab) => ipcRenderer.send('back-to-dashboard', tab),
   // Expose the same getWindowSources noop so host.js doesn't crash if loaded here
   getWindowSources: () => Promise.resolve([]),
 });

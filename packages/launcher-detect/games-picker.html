@@ -218,11 +218,27 @@ function toggleView() {
 function loadGames() {
   currentView = lsGet('ns_game_view', 'grid');
   document.getElementById('goViewToggle').textContent = currentView === 'grid' ? '≡' : '▦';
+
+  // Check sessionStorage cache to avoid re-scanning
+  try {
+    const cached = sessionStorage.getItem('ns_games');
+    const cachedAt = sessionStorage.getItem('ns_games_at');
+    if (cached && cachedAt && Date.now() - parseInt(cachedAt) < 20000) {
+      allGames = JSON.parse(cached);
+      renderGames();
+      return;
+    }
+  } catch {}
+
   document.getElementById('goBody').innerHTML = '<div class="go-loading">Scanning installed games...</div>';
   fetch('/api/games')
     .then(r => r.json())
     .then(d => {
       allGames = d.games || [];
+      try {
+        sessionStorage.setItem('ns_games', JSON.stringify(allGames));
+        sessionStorage.setItem('ns_games_at', String(Date.now()));
+      } catch {}
       renderGames();
     })
     .catch(() => {
