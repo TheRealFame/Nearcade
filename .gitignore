@@ -46,3 +46,6 @@ latest.log
 frame.rgba
 nearsec_layer.log
 
+
+# Capacitor Android Build Output
+dist-android/

@@ -138,17 +138,18 @@ jobs:
           ./bin/build-android.sh
 
       - name: Sync Capacitor
+        working-directory: ./packaging
         run: npx cap sync android
 
       - name: Build APK (Release)
-        working-directory: ./android
+        working-directory: ./packaging/android
         run: |
           chmod +x ./gradlew
           ./gradlew assembleRelease
 
       # ── FIX: Rename the APK before uploading ──
       - name: Rename APK
-        run: mv android/app/build/outputs/apk/release/app-release.apk "Nearcade-Android.apk"
+        run: mv packaging/android/app/build/outputs/apk/release/app-release.apk "Nearcade-Android.apk"
 
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
