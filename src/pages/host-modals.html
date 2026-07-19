@@ -261,8 +261,8 @@
                   style="color:var(--accent);text-decoration:underline;cursor:pointer;">github.com/cloudflare/cloudflared</a>
               </div>
               <div style="color:var(--muted);font-size:10px;line-height:1.4;">Run in terminal:</div>
-              <span class="cmd"
-                style="display:block;background:rgba(0,0,0,0.3);padding:6px;border-radius:3px;font-family:var(--mono);font-size:9px;word-break:break-all;">cloudflared tunnel --no-autoupdate --url http://localhost:3000</span>
+              <span class="cmd" onclick="copyCmdText(event, this)" title="Click to copy"
+                style="display:block;background:rgba(0,0,0,0.3);padding:6px;border-radius:3px;font-family:var(--mono);font-size:9px;word-break:break-all;cursor:pointer;">cloudflared tunnel --no-autoupdate --url http://localhost:3000</span>
             </div>
           </label>
 
@@ -281,8 +281,8 @@
               <div style="color:var(--muted);font-size:10px;line-height:1.4;">Get token: <a href="https://zrok.io"
                   target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer;">zrok.io</a>
               </div>
-              <span class="cmd"
-                style="display:block;background:rgba(0,0,0,0.3);padding:6px;border-radius:3px;font-family:var(--mono);font-size:9px;word-break:break-all;">zrok enable [token]</span>
+              <span class="cmd" onclick="copyCmdText(event, this)" title="Click to copy"
+                style="display:block;background:rgba(0,0,0,0.3);padding:6px;border-radius:3px;font-family:var(--mono);font-size:9px;word-break:break-all;cursor:pointer;">zrok enable [token]</span>
             </div>
           </label>
           <label class="provider-card">
@@ -297,8 +297,8 @@
                   target="_blank"
                   style="color:var(--accent);text-decoration:underline;cursor:pointer;">localhost.run</a></div>
               <div style="color:var(--muted);font-size:10px;line-height:1.4;">Run in terminal:</div>
-              <span class="cmd"
-                style="display:block;background:rgba(0,0,0,0.3);padding:6px;border-radius:3px;font-family:var(--mono);font-size:9px;word-break:break-all;">ssh -R 80:localhost:3000 nokey@localhost.run</span>
+              <span class="cmd" onclick="copyCmdText(event, this)" title="Click to copy"
+                style="display:block;background:rgba(0,0,0,0.3);padding:6px;border-radius:3px;font-family:var(--mono);font-size:9px;word-break:break-all;cursor:pointer;">ssh -R 80:localhost:3000 nokey@localhost.run</span>
             </div>
           </label>
           <label class="provider-card">
@@ -329,8 +329,8 @@
                 style="background:rgba(0,0,0,0.4);padding:6px;border-radius:6px;border:1px solid var(--border);margin-top:4px;">
                 <div style="font-size:9px;color:var(--muted2);margin-bottom:4px;letter-spacing:0.05em;">TERMINAL COMMAND:</div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-                  <code
-                    style="color:var(--muted);font-size:10px;font-family:var(--mono);word-break:break-all;flex:1;">ssh -N -R 3000:localhost:3000 VPS</code>
+                  <code onclick="copyCmd(event, 'ssh -N -R 3000:localhost:3000 VPS', this)" title="Click to copy"
+                    style="color:var(--muted);font-size:10px;font-family:var(--mono);word-break:break-all;flex:1;cursor:pointer;">ssh -N -R 3000:localhost:3000 VPS</code>
                   <button class="copy-btn" style="margin:0;flex-shrink:0;"
                     onclick="copyCmd(event, 'ssh -N -R 3000:localhost:3000 VPS')">copy</button>
                 </div>

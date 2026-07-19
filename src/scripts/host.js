@@ -4020,7 +4020,22 @@ function showTunnelError(msg) {
     document.getElementById('tunnelRetryBtn').classList.remove('gone');
 }
 
-function copyCmd(e, cmd) {
+function copyCmdText(e, el) {
+    e.preventDefault();
+    e.stopPropagation();
+    const cmd = el.innerText;
+    navigator.clipboard.writeText(cmd).then(() => {
+        const orig = el.innerText;
+        el.innerText = 'Copied!';
+        el.style.color = 'var(--accent)';
+        setTimeout(() => {
+            el.innerText = orig;
+            el.style.color = '';
+        }, 1000);
+    });
+}
+
+function copyCmd(e, cmd, el = null) {
     e.stopPropagation();
     let finalCmd = cmd;
     if (cmd.includes('VPS')) {
@@ -4028,11 +4043,21 @@ function copyCmd(e, cmd) {
         finalCmd = cmd.replace('VPS', host);
     }
     navigator.clipboard.writeText(finalCmd).then(() => {
-        const btn = e.target;
-        const orig = btn.textContent;
-        btn.textContent = '✓';
-        btn.style.borderColor = 'var(--accent)';
-        setTimeout(() => { btn.textContent = orig; btn.style.borderColor = '#4e5058'; }, 1000);
+        if (el && el.tagName.toLowerCase() === 'code') {
+            const orig = el.innerText;
+            el.innerText = 'Copied!';
+            el.style.color = 'var(--accent)';
+            setTimeout(() => {
+                el.innerText = orig;
+                el.style.color = 'var(--muted)';
+            }, 1000);
+        } else {
+            const btn = e.target;
+            const orig = btn.textContent;
+            btn.textContent = '✓';
+            btn.style.borderColor = 'var(--accent)';
+            setTimeout(() => { btn.textContent = orig; btn.style.borderColor = '#4e5058'; }, 1000);
+        }
     });
 }
 
