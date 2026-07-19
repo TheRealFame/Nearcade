@@ -345,7 +345,7 @@ async function createWindow() {
 
   win.webContents.on('did-finish-load', () => {
     const currentURL = win.webContents.getURL();
-    if (currentURL.includes('/old_host')) {
+    if (currentURL.includes('/old_host') || currentURL.includes('client=1')) {
       win.webContents.executeJavaScript(`
       if (!document.getElementById('ns-dash-btn') && window.electronAPI) {
         const btn = document.createElement('button');
