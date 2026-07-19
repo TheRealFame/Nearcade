@@ -1939,7 +1939,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
@@ -2503,7 +2503,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;

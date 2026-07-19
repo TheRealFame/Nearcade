@@ -4600,7 +4600,13 @@ function _updateStatsHud() {
         });
 
         if (bestPair?.currentRoundTripTime != null) {
-            _elText('hudRtt', Math.round(bestPair.currentRoundTripTime * 1000) + 'ms');
+            const rttMs = Math.round(bestPair.currentRoundTripTime * 1000);
+            _elText('hudRtt', rttMs + 'ms');
+            if (window._hostDelayEnabled && ws && ws.readyState === 1) {
+                // Approximate viewer input latency (RTT/2 + ~20ms decode overhead)
+                const delayMs = Math.round(rttMs / 2) + 20;
+                ws.send(JSON.stringify({ type: 'host_delay', delayMs: delayMs }));
+            }
         }
 
         if (outboundVideo) {
@@ -5531,3 +5537,11 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     list.appendChild(el);
     saveExpDevices();
 }
+
+window._hostDelayEnabled = false;
+window.toggleHostDelay = function(enabled) {
+    window._hostDelayEnabled = enabled;
+    if (window.ws && window.ws.readyState === 1) {
+        window.ws.send(JSON.stringify({ type: 'host_delay', enabled: enabled, delayMs: 0 }));
+    }
+};

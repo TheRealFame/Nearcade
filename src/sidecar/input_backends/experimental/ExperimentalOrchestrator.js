@@ -19,7 +19,9 @@ function send(msg) {
         'eyetracking': 'backend_eyetracking.py',
         'lightgun': 'backend_lightguns.py',
         'adaptive': 'backend_adaptive.py',
-        'android': 'backend_android.py'
+        'android': 'backend_android.py',
+        'webhid': 'backend_webhid.py',
+        'host_delay': 'backend_hostdelay.py'
     };
 
     const scriptName = typeMap[msg.type];
