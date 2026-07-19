@@ -2235,7 +2235,7 @@ async function connect() {
             const overlay = document.getElementById('overlay');
             if (overlay) {
                 overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.85)';
-                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session.</div><button class="pin-submit-btn" onclick="window.electronAPI ? window.electronAPI.backToDashboard(\'arcade\') : window.close()" style="margin-top:8px;">Leave Session</button>';
+                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session.</div><button class="pin-submit-btn" onclick="if(window.electronAPI){window.electronAPI.backToDashboard(\'arcade\')}else if(new URLSearchParams(window.location.search).get(\'client\')){history.back()}else{window.close();setTimeout(()=>{location.href=\'/\'},200)}" style="margin-top:8px;">Leave Session</button>';
             }
             
             showOverlay(true);
