@@ -2050,8 +2050,9 @@ async function connect() {
         if (msg.type === 'tunnel-url') return;
 
         if (msg.type === 'offer') {
-            // If PC exists and is in stable state, this is a renegotiation — update existing PC
-            if (pc && pc.signalingState === 'stable' && pc.connectionState !== 'closed') {
+            // If PC exists and is in stable state AND is fully connected, this is a renegotiation — update existing PC.
+            // If the connection is failed/disconnected, we MUST tear it down and accept the fresh PC offer from the host.
+            if (pc && pc.signalingState === 'stable' && pc.connectionState === 'connected') {
                 try {
                     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                     const answer = await pc.createAnswer();
