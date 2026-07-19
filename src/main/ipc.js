@@ -140,6 +140,11 @@ function registerIpcHandlers(ctx) {
     return ctx.settings.alwaysOnTop;
   });
 
+  ipcMain.handle('get-cursor-pos', () => {
+    const { screen } = require('electron');
+    return screen.getCursorScreenPoint();
+  });
+
   ipcMain.handle('check-gstreamer-deps', () => {
     if (process.platform !== 'linux') return false;
     try {

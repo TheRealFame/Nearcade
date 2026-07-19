@@ -568,10 +568,30 @@ async function createPC() {
         if (channel.label === 'input') {
             console.log('[Input] Dedicated 250Hz Fast Lane connected.');
 
-            // This ensures your mouse/keyboard coordinates are actually processed
             channel.onmessage = (e) => {
                 if (typeof e.data === 'string') {
-                    try { const m = JSON.parse(e.data); if (m.type === 'pong') onPong(); } catch {}
+                    try { 
+                        const m = JSON.parse(e.data); 
+                        if (m.type === 'pong') onPong(); 
+                        else if (m.type === 'cursor') {
+                            let fakeCursor = document.getElementById('fake-cursor');
+                            if (!fakeCursor) {
+                                fakeCursor = document.createElement('div');
+                                fakeCursor.id = 'fake-cursor';
+                                fakeCursor.style.position = 'absolute';
+                                fakeCursor.style.top = '0';
+                                fakeCursor.style.left = '0';
+                                fakeCursor.style.width = '24px';
+                                fakeCursor.style.height = '24px';
+                                fakeCursor.style.backgroundImage = 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\'%3E%3Cpath d=\'M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87c.45 0 .67-.54.35-.85L6.35 2.85a.5.5 0 0 0-.85.35Z\' fill=\'%23ffffff\' stroke=\'%23000000\' stroke-width=\'1.5\'/%3E%3C/svg%3E")';
+                                fakeCursor.style.backgroundSize = 'contain';
+                                fakeCursor.style.pointerEvents = 'none';
+                                fakeCursor.style.zIndex = '999999';
+                                document.body.appendChild(fakeCursor);
+                            }
+                            fakeCursor.style.transform = `translate3d(${m.x}px, ${m.y}px, 0)`;
+                        }
+                    } catch {}
                 }
             };
 
@@ -1231,6 +1251,18 @@ function handleHIDReport(event) {
         hidGyroX = data.getInt16(21, true) / 30000.0;
         hidGyroY = data.getInt16(19, true) / 30000.0;
     }
+
+    if (window.currentInputMode === 'webhid') {
+        const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const b64 = btoa(String.fromCharCode.apply(null, u8));
+        const pkt = JSON.stringify({
+            type: 'webhid',
+            vid: vid,
+            pid: hidDevice.productId,
+            buffer: b64
+        });
+        sendInputData(pkt);
+    }
 }
 
 // ── CALIBRATION ───────────────────────────────────────────────────────────────
@@ -1461,6 +1493,8 @@ function pollGamepad() {
     if (!bestGp && touchMode) isTouch = true;
     
     if (!bestGp && !isTouch) return; // No inputs available
+
+    if (window.currentInputMode === 'webhid' && hidDevice) return; // Managed exclusively by handleHIDReport
 
     const vIndex = 0; // Force ALL inputs from this viewer to slot 0
 
@@ -2309,6 +2343,7 @@ async function connect() {
                     const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
+                    if (enabledExp.includes('webhid')) html += '<option value="webhid">Raw WebHID eSports (1000Hz)</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
                     

@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getWindowSources: () => ipcRenderer.invoke('get-window-sources'),
   setSelectedSource: (id) => ipcRenderer.invoke('set-selected-source', id),
   checkGstreamerDeps: () => ipcRenderer.invoke('check-gstreamer-deps'),
+  getCursorPos: () => ipcRenderer.invoke('get-cursor-pos'),
 
   // ── Window Chrome & Discord ──
   minimize:                       () => ipcRenderer.send('window-minimize'),

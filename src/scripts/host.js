@@ -161,6 +161,30 @@ let _turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
     return c;
 }).catch(() => null);
 // ─────────────────────────────────────────────────────────────────────────────
+// Function to munge the SDP before setting local description for ultra-low latency audio
+function forceOpusLowLatency(sdp) {
+    const sdpLines = sdp.split('\r\n');
+    let opusPayload = -1;
+    for (let line of sdpLines) {
+        if (line.startsWith('a=rtpmap:') && line.includes('opus/48000/2')) {
+            opusPayload = line.split(':')[1].split(' ')[0];
+            break;
+        }
+    }
+    if (opusPayload !== -1) {
+        const fmtpRegex = new RegExp(`^a=fmtp:${opusPayload} `);
+        for (let i = 0; i < sdpLines.length; i++) {
+            if (fmtpRegex.test(sdpLines[i])) {
+                if (!sdpLines[i].includes('ptime')) {
+                    sdpLines[i] += '; ptime=2.5; minptime=2.5; stereo=0; useinbandfec=1';
+                }
+                break;
+            }
+        }
+    }
+    return sdpLines.join('\r\n');
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function loadAppConfig() {
     if (window.electronAPI?.getSettings) return window.electronAPI.getSettings();
@@ -1936,6 +1960,7 @@ function connectWS() {
             if (pc && pc.signalingState === 'stable') {
                 try {
                     const offer = await pc.createOffer();
+                    offer.sdp = forceOpusLowLatency(offer.sdp);
                     await pc.setLocalDescription(offer);
                     ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: msg._viewerId }));
                     log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone.', 'ok');
@@ -2282,6 +2307,7 @@ async function sendOfferToViewer(viewerId) {
 
     try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+        offer.sdp = forceOpusLowLatency(offer.sdp);
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
         const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
         const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: viewerId, codec: rawCodecName };
@@ -3900,6 +3926,7 @@ window.saveCodecUI = async function(val) {
 
         try {
             const offer = await pc.createOffer({ iceRestart: false });
+            offer.sdp = forceOpusLowLatency(offer.sdp);
             await pc.setLocalDescription(offer);
             const rawName = codec.split('/')[1].toLowerCase();
             const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: vid, codec: rawName };
@@ -5506,3 +5533,23 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     list.appendChild(el);
     saveExpDevices();
 }
+
+// Hardware Cursor Compositing
+setInterval(async () => {
+    if (Object.keys(peerConnections).length > 0 && window.electronAPI && typeof window.electronAPI.getCursorPos === 'function') {
+        try {
+            const pos = await window.electronAPI.getCursorPos();
+            if (pos) {
+                const msg = JSON.stringify({ type: 'cursor', x: pos.x, y: pos.y });
+                for (let vid in peerConnections) {
+                    const pc = peerConnections[vid];
+                    if (pc.inputChannel && pc.inputChannel.readyState === 'open') {
+                        pc.inputChannel.send(msg);
+                    }
+                }
+            }
+        } catch (e) {
+            // Ignore if IPC fails
+        }
+    }
+}, 16);
