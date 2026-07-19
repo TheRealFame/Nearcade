@@ -1385,7 +1385,8 @@ async function renderUrls(d) {
     if (d.tunnelUrl) {
         const pSelect = document.getElementById('pipelineSelect');
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
-        finalTunnelUrl = `${d.tunnelUrl}${pipeArg ? ((d.tunnelUrl.includes('?') ? '&' : '?') + pipeArg.slice(1)) : ''}`;
+        const baseSep = d.tunnelUrl.includes('?') ? '&' : '?';
+        finalTunnelUrl = `${d.tunnelUrl}${baseSep}host=${encodedName}${pipeArg}`;
     }
     window._globalTunnelUrl = finalTunnelUrl;
 
