@@ -5531,23 +5531,3 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     list.appendChild(el);
     saveExpDevices();
 }
-
-// Hardware Cursor Compositing
-setInterval(async () => {
-    if (Object.keys(peerConnections).length > 0 && window.electronAPI && typeof window.electronAPI.getCursorPos === 'function') {
-        try {
-            const pos = await window.electronAPI.getCursorPos();
-            if (pos) {
-                const msg = JSON.stringify({ type: 'cursor', x: pos.x, y: pos.y });
-                for (let vid in peerConnections) {
-                    const pc = peerConnections[vid];
-                    if (pc.inputChannel && pc.inputChannel.readyState === 'open') {
-                        pc.inputChannel.send(msg);
-                    }
-                }
-            }
-        } catch (e) {
-            // Ignore if IPC fails
-        }
-    }
-}, 16);
