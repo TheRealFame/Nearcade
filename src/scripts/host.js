@@ -1960,7 +1960,6 @@ function connectWS() {
             if (pc && pc.signalingState === 'stable') {
                 try {
                     const offer = await pc.createOffer();
-                    offer.sdp = forceOpusLowLatency(offer.sdp);
                     await pc.setLocalDescription(offer);
                     ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: msg._viewerId }));
                     log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone.', 'ok');
@@ -2307,7 +2306,6 @@ async function sendOfferToViewer(viewerId) {
 
     try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-        offer.sdp = forceOpusLowLatency(offer.sdp);
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
         const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
         const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: viewerId, codec: rawCodecName };
@@ -3926,7 +3924,6 @@ window.saveCodecUI = async function(val) {
 
         try {
             const offer = await pc.createOffer({ iceRestart: false });
-            offer.sdp = forceOpusLowLatency(offer.sdp);
             await pc.setLocalDescription(offer);
             const rawName = codec.split('/')[1].toLowerCase();
             const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: vid, codec: rawName };
