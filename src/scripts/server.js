@@ -941,22 +941,41 @@ async function main() {
     res.json({ launchers: detect() });
   });
 
-  const gamesCache = { data: null, time: 0, TTL: 15000 };
+  const gamesCache = { data: null, time: 0, TTL: 300000 }; // 5 minute cache
   app.get("/api/games", (_req, res) => {
     if (gamesCache.data && Date.now() - gamesCache.time < gamesCache.TTL) {
       return res.json({ games: gamesCache.data });
     }
-    try {
-      const { detectGames } = freshLauncherDetect();
-      const games = detectGames();
-      gamesCache.data = games;
+    
+    const { Worker } = require('worker_threads');
+    const worker = new Worker(`
+      const { parentPort } = require('worker_threads');
+      try {
+        const modPath = require.resolve('@nearcade/launcher-detect');
+        delete require.cache[modPath];
+        const { detectGames } = require('@nearcade/launcher-detect');
+        
+        const games = detectGames();
+        parentPort.postMessage({ games });
+      } catch(e) {
+        parentPort.postMessage({ error: e.message, stack: e.stack });
+      }
+    `, { eval: true });
+
+    worker.on('message', (msg) => {
+      if (msg.error) {
+        console.error('[api/games] Error detecting games in worker:', msg.error);
+        return res.status(500).json({ error: msg.error, games: [] });
+      }
+      gamesCache.data = msg.games;
       gamesCache.time = Date.now();
-      res.json({ games });
-    } catch (e) {
-      console.error('[api/games] Error detecting games:', e.message);
-      console.error(e.stack);
-      res.status(500).json({ error: e.message, games: [] });
-    }
+      res.json({ games: msg.games });
+    });
+
+    worker.on('error', (err) => {
+      console.error('[api/games] Worker crashed:', err);
+      res.status(500).json({ error: 'Worker crashed', games: [] });
+    });
   });
 
   const gameArtCacheDir = path.join(os.homedir(), '.cache', 'Nearcade', 'game-art');
