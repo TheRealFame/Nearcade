@@ -423,7 +423,30 @@ async function createWindow() {
 
   try { os.setPriority(process.pid, os.constants.priority.PRIORITY_HIGH); } catch (_) { }
 
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.setWindowOpenHandler(({ url, features }) => {
+    if (url.includes('localhost:') || url.includes('127.0.0.1:')) {
+      let width = 600, height = 500;
+      if (features) {
+        const wMatch = features.match(/width=(\d+)/);
+        const hMatch = features.match(/height=(\d+)/);
+        if (wMatch) width = parseInt(wMatch[1]);
+        if (hMatch) height = parseInt(hMatch[1]);
+      }
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width, height,
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: features.includes('nodeIntegration=yes'),
+            contextIsolation: !features.includes('contextIsolation=no')
+          }
+        }
+      };
+    }
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   win.webContents.on('before-input-event', (event, input) => {
     if ((input.control && input.shift && input.key.toLowerCase() === 'i') || input.key === 'F12') {

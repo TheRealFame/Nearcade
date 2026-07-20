@@ -3,11 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <title>Nearcade Co-op Launcher</title>
-  <link rel="stylesheet" href="/css/host.css">
   <style>
+    :root {
+      --bg: #1e1e24;
+      --text: #f0f0f0;
+      --surface: #2b2b36;
+      --border: #444444;
+      --muted: #a1a1aa;
+      --muted2: #71717a;
+      --accent: #a78bfa;
+      --green: #4ade80;
+      --danger: #ef4444;
+      --item-border: rgba(255,255,255,0.05);
+    }
+    
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f9fafb;
+        --text: #111827;
+        --surface: #ffffff;
+        --border: #e5e7eb;
+        --muted: #6b7280;
+        --muted2: #9ca3af;
+        --accent: #7c3aed;
+        --item-border: rgba(0,0,0,0.05);
+      }
+    }
+
     body {
-      background: var(--bg, #0b0c10);
-      color: var(--text, #c5c6c7);
+      background: var(--bg);
+      color: var(--text);
       font-family: 'Inter', system-ui, sans-serif;
       padding: 20px;
       margin: 0;
@@ -19,19 +44,19 @@
     h2 { margin-top: 0; font-size: 16px; color: var(--accent); }
     .form-group { margin-bottom: 15px; }
     .form-group label { display: block; font-size: 11px; margin-bottom: 5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
-    .form-control { width: 100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 4px; color: white; font-family: monospace; font-size: 12px; box-sizing: border-box; }
-    .game-list { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
-    .game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .form-control { width: 100%; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: monospace; font-size: 12px; box-sizing: border-box; }
+    .game-list { flex: 1; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+    .game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--item-border); }
     .game-item:last-child { border-bottom: none; }
     .game-title { font-weight: bold; font-size: 13px; }
     .game-path { font-size: 10px; color: var(--muted2); font-family: monospace; margin-top: 4px; }
-    .btn { background: var(--accent); color: #000; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; }
+    .btn { background: var(--accent); color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; }
     .btn:hover { opacity: 0.9; }
     .btn-launch { background: var(--green); color: #000; }
     .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     
-    #addGameModal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 100; }
-    .modal-content { background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border); width: 80%; max-width: 400px; }
+    #addGameModal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(2px); }
+    .modal-content { background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border); width: 80%; max-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
   </style>
 </head>
 <body>
