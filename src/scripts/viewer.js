@@ -3057,7 +3057,6 @@ function initLatencyOverlay() {
 
     function trackFrame() {
         frames++;
-        totalPkts++;
         const now = performance.now();
         if (prevFrameTime > 0) {
             frameTimes.push(now - prevFrameTime);
