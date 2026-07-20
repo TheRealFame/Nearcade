@@ -688,7 +688,10 @@
               <div class="ctrl-row-label">Local Co-op Launcher (Linux Experimental)</div>
               <div class="ctrl-row-desc">Launch multiple DRM-free instances of a game, with inputs isolated per viewer.</div>
             </div>
-            <button class="ns-bar-btn" onclick="window.open('/pages/coop-launcher.html', 'CoopLauncher', 'width=600,height=500,contextIsolation=no,nodeIntegration=yes');" style="padding:6px 12px;font-size:11px;">
+            <button onclick="window.open('/pages/coop-launcher.html', 'CoopLauncher', 'width=600,height=500,contextIsolation=no,nodeIntegration=yes');" 
+              style="background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
+              onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
+              onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">
               Open Launcher
             </button>
           </div>
