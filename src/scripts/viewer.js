@@ -1057,7 +1057,14 @@ function sendInputData(data) {
 
     // 2. WebRTC DataChannel (P2P Fast Lane)
     if (window._fastLaneChannel && window._fastLaneChannel.readyState === 'open') {
-        try { window._fastLaneChannel.send(isBin ? data : str); return; } catch (_) { }
+        try { 
+            let sendStr = str;
+            if (!isBin && typeof sendStr === 'string' && sendStr.length < 1200) {
+                sendStr = sendStr.padEnd(1200, ' ');
+            }
+            window._fastLaneChannel.send(isBin ? data : sendStr); 
+            return; 
+        } catch (_) { }
     }
     // 3. Direct input WebSocket (if available)
     if (inputWs && inputWs.readyState === 1) {
