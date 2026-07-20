@@ -2976,7 +2976,7 @@ async function startCapture() {
             }
         }
 
-        const disableFallback = true;
+        const disableFallback = false;
 
         if (aTrack) {
             combined.addTrack(aTrack);
@@ -2985,8 +2985,11 @@ async function startCapture() {
             if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'stop-audio-fallback' }));
         } else {
             if (!disableFallback) {
-                log(I18N.t('Browser capture failed. Engaging Python OS-level audio fallback...'), 'warn');
-                if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start-audio-fallback' }));
+                log(I18N.t('Browser audio capture failed. Engaging Python fallback in 3s...'), 'warn');
+                setTimeout(() => {
+                    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'start-audio-fallback' }));
+                    log(I18N.t('Python OS-level audio fallback activated.'), 'ok');
+                }, 3000);
             } else {
                 log(I18N.t('Browser capture failed. (Python Fallback disabled)'), 'err');
             }
