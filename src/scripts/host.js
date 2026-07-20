@@ -3225,11 +3225,18 @@ function stopCapture() {
     isArcade = false;
     if (window._stopDrmLoop) { window._stopDrmLoop(); window._stopDrmLoop = null; }
     if (currentStream) { _forceKillStream(currentStream); currentStream = null; }
+    if (window._multiStreams) {
+        window._multiStreams.forEach(s => _forceKillStream(s));
+        window._multiStreams = [];
+    }
+    if (window.viewerWindowAssignments) window.viewerWindowAssignments = {};
     if (window._resInterval) { clearInterval(window._resInterval); window._resInterval = null; }
     if (window._gstPreviewInterval) { clearInterval(window._gstPreviewInterval); window._gstPreviewInterval = null; }
     if (window._gstPreviewStream) { _forceKillStream(window._gstPreviewStream); window._gstPreviewStream = null; }
     const localVideo = document.getElementById('localVideo');
-    if (localVideo) localVideo.poster = '';
+    if (localVideo) { localVideo.poster = ''; localVideo.srcObject = null; }
+    const grid = document.getElementById('previewGrid');
+    if (grid) grid.innerHTML = '';
     _stopStatsHud();
     stopAudioMeter();
 
