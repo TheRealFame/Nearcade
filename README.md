@@ -72,6 +72,6 @@ The platform includes an optional public lobby system. Hosts can list their sess
 ## Browser Userscript (Identity Persistence)
 Your display name and chat color only save per-site by default. Install this userscript with [Tampermonkey](https://www.tampermonkey.net/) or any fork and your identity follows you across all Nearcade sessions — Cloudflare tunnels, zrok, localhost, anywhere.
 
-[Install Nearcade Identity Persist](src/scripts/nearcade-identity-persist.user.js)
+[Install Nearcade Identity Persist](https://github.com/TheRealFame/Nearcade/raw/main/src/scripts/nearcade-identity-persist.user.js)
 
 This project uses artificial intelligence large language models for code generation and structure planning.
