@@ -1,83 +1,68 @@
 // ==UserScript==
 // @name         Nearcade Identity Persist
 // @namespace    nearcade
-// @version      1.1.0
-// @description  Persists your display name and chat color across all Nearcade sessions — works on any tunnel, any origin. Install once, identity follows you everywhere.
+// @version      1.2.0
+// @description  Persists ALL your viewer settings (name, colors, gamepad mappings, volumes, stream quality) across all Nearcade sessions and tunnels. Install once, your setup follows you everywhere.
 // @author       Nearcade
 // @match        *://*/*
 // @icon         https://nearcade.cutefame.net/assets/NearcadeIcon.svg
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
-// @run-at       document-idle
+// @grant        GM_listValues
+// @run-at       document-start
 // @license      MIT
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    const KEY = 'ns_name';
-
-    function isNearcadePage() {
-        return !!(document.getElementById('nameInput') ||
-                  document.querySelector('.pin-card') ||
-                  document.getElementById('pinScreen'));
+    // We only care about Nearcade specific keys
+    function isNearcadeKey(key) {
+        return key && (key.startsWith('ns_') || key.startsWith('nearsec_map_'));
     }
 
-    function inject() {
-        const input = document.getElementById('nameInput');
-        const clrInput = document.getElementById('profileClr');
-        
-        if (input) {
-            const saved = GM_getValue(KEY, '');
-            if (saved && !input.value) {
-                input.value = saved;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
+    // 1. On page load, immediately inject all saved settings from Tampermonkey into the site's localStorage
+    // This happens at document-start before Nearcade's scripts load and read localStorage
+    try {
+        const savedKeys = GM_listValues();
+        for (const key of savedKeys) {
+            if (isNearcadeKey(key)) {
+                localStorage.setItem(key, GM_getValue(key));
             }
+        }
+    } catch (e) {}
 
-            let timer;
-            input.addEventListener('input', function() {
-                clearTimeout(timer);
-                timer = setTimeout(() => {
-                    const val = input.value.trim();
-                    if (val) {
-                        GM_setValue(KEY, val);
-                        try { localStorage.setItem(KEY, val); } catch {}
+    // 2. Continually monitor localStorage for any changes made by the viewer (e.g. changing volume, remaps, name)
+    // Since we are in a sandbox, a lightweight polling interval is the most reliable way to catch changes
+    // without having to build complex window.postMessage bridges.
+    setInterval(() => {
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (isNearcadeKey(key)) {
+                    const val = localStorage.getItem(key);
+                    const savedVal = GM_getValue(key);
+                    if (val !== savedVal) {
+                        GM_setValue(key, val);
                     }
-                }, 300);
-            });
-        }
-
-        if (clrInput) {
-            const savedClr = GM_getValue('ns_chat_color', '');
-            if (savedClr && clrInput.value !== savedClr) {
-                clrInput.value = savedClr;
-                clrInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
-            
-            clrInput.addEventListener('change', function() {
-                const val = clrInput.value;
-                if (val) {
-                    GM_setValue('ns_chat_color', val);
-                    try { localStorage.setItem('ns_chat_color', val); } catch {}
-                }
-            });
-        }
-    }
+        } catch (e) {}
+    }, 1000); // Check every second
 
-    if (isNearcadePage()) {
-        if (document.getElementById('nameInput')) {
-            inject();
-        } else {
-            const observer = new MutationObserver(() => {
-                if (document.getElementById('nameInput')) {
-                    observer.disconnect();
-                    inject();
+    // If the name input exists, we might still want to trigger its input event so the UI updates
+    window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => {
+            const nameInput = document.getElementById('nameInput');
+            if (nameInput && nameInput.value === '') {
+                const saved = GM_getValue('ns_name', '');
+                if (saved) {
+                    nameInput.value = saved;
+                    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
                 }
-            });
-            observer.observe(document.body || document.documentElement, {
-                childList: true, subtree: true
-            });
-        }
-    }
+            }
+        }, 500);
+    });
+
 })();
