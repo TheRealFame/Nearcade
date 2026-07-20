@@ -22,34 +22,52 @@
         return key && (key.startsWith('ns_') || key.startsWith('nearsec_map_'));
     }
 
-    // 1. On page load, immediately inject all saved settings from Tampermonkey into the site's localStorage
-    // This happens at document-start before Nearcade's scripts load and read localStorage
+    // 1. Memory cache to detect which side actually changed
+    const memoryCache = {};
+
+    // 2. On page load, immediately inject all saved settings from Tampermonkey into the site's localStorage
     try {
         const savedKeys = GM_listValues();
         for (const key of savedKeys) {
             if (isNearcadeKey(key)) {
-                localStorage.setItem(key, GM_getValue(key));
+                const val = GM_getValue(key);
+                localStorage.setItem(key, val);
+                memoryCache[key] = val;
             }
         }
     } catch (e) {}
 
-    // 2. Continually monitor localStorage for any changes made by the viewer (e.g. changing volume, remaps, name)
-    // Since we are in a sandbox, a lightweight polling interval is the most reliable way to catch changes
-    // without having to build complex window.postMessage bridges.
+    // 3. Bidirectional sync loop
     setInterval(() => {
         try {
+            // A. Check if Tampermonkey storage was updated by ANOTHER tab/origin
+            const savedKeys = GM_listValues();
+            for (const key of savedKeys) {
+                if (isNearcadeKey(key)) {
+                    const gmVal = GM_getValue(key);
+                    if (memoryCache[key] !== gmVal) {
+                        localStorage.setItem(key, gmVal);
+                        memoryCache[key] = gmVal;
+                        
+                        // Fire a fake storage event so the page knows it updated
+                        window.dispatchEvent(new StorageEvent('storage', { key: key, newValue: gmVal }));
+                    }
+                }
+            }
+
+            // B. Check if THIS tab's localStorage was updated by the user interacting with the UI
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (isNearcadeKey(key)) {
-                    const val = localStorage.getItem(key);
-                    const savedVal = GM_getValue(key);
-                    if (val !== savedVal) {
-                        GM_setValue(key, val);
+                    const lsVal = localStorage.getItem(key);
+                    if (memoryCache[key] !== lsVal) {
+                        GM_setValue(key, lsVal);
+                        memoryCache[key] = lsVal;
                     }
                 }
             }
         } catch (e) {}
-    }, 1000); // Check every second
+    }, 250);
 
     // If the name input exists, we might still want to trigger its input event so the UI updates
     window.addEventListener('DOMContentLoaded', () => {
