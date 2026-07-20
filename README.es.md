@@ -82,6 +82,6 @@ La plataforma incluye un sistema de lobby público opcional. Los anfitriones pue
 
 Su nombre para mostrar y el color del chat solo se guardan por sitio de forma predeterminada. Instale este script de usuario con[Mono manipulador](https://www.tampermonkey.net/)o cualquier bifurcación y su identidad lo seguirá en todas las sesiones de Nearcade: túneles de Cloudflare, zrok, localhost, en cualquier lugar.
 
-[Instalar la persistencia de identidad de Nearcade](src/scripts/nearcade-identity-persist.user.js)
+[Instalar la persistencia de identidad de Nearcade](https://github.com/TheRealFame/Nearcade/raw/main/src/scripts/nearcade-identity-persist.user.js)
 
 Este proyecto utiliza modelos de lenguaje grandes de inteligencia artificial para la generación de código y la planificación de estructuras.

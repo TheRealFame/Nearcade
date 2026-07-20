@@ -82,6 +82,6 @@ sudo ./linux_setup.sh
 
 デフォルトでは、表示名とチャットの色はサイトごとにのみ保存されます。このユーザースクリプトをインストールするには[タンパーモンキー](https://www.tampermonkey.net/)または任意のフォークで、あなたのアイデンティティは、Cloudflare トンネル、zrok、localhost など、すべての Nearcade セッションにわたってあなたに従います。
 
-[Nearcade ID の永続的なインストール](src/scripts/nearcade-identity-persist.user.js)
+[Nearcade ID の永続的なインストール](https://github.com/TheRealFame/Nearcade/raw/main/src/scripts/nearcade-identity-persist.user.js)
 
 このプロジェクトでは、コード生成と構造計画に人工知能の大規模言語モデルを使用します。

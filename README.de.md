@@ -82,6 +82,6 @@ Die Plattform umfasst optional ein öffentliches Lobbysystem. Gastgeber können 
 
 Ihr Anzeigename und Ihre Chat-Farbe werden standardmäßig nur pro Site gespeichert. Installieren Sie dieses Benutzerskript mit[Tampermonkey](https://www.tampermonkey.net/)oder jeder Fork und Ihre Identität folgt Ihnen über alle Nearcade-Sitzungen hinweg – Cloudflare-Tunnel, Zrok, Localhost, überall.
 
-[Installieren Sie Nearcade Identity Persist](src/scripts/nearcade-identity-persist.user.js)
+[Installieren Sie Nearcade Identity Persist](https://github.com/TheRealFame/Nearcade/raw/main/src/scripts/nearcade-identity-persist.user.js)
 
 Dieses Projekt nutzt große Sprachmodelle mit künstlicher Intelligenz zur Codegenerierung und Strukturplanung.
