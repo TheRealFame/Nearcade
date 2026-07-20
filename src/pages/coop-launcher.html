@@ -188,6 +188,15 @@
           alert(`Failed to launch: ${e.message}`);
         }
       }
+      
+      // Store in session storage so host.js can detect and enter Multi-Instance Mode
+      sessionStorage.setItem('ns_multi_instance', JSON.stringify({
+        title: game.title,
+        executable: game.executable,
+        count: num,
+        timestamp: Date.now()
+      }));
+
       alert(`Launched ${num} instances of ${game.title}! Check your taskbar.`);
     }
 

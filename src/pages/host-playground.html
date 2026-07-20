@@ -368,7 +368,10 @@
     <div class="left-col">
       <!-- Massive Video Preview Frame -->
       <div class="preview-container">
-        <video id="preview" autoplay playsinline muted disablePictureInPicture style="position:absolute; width:100%; height:100%; object-fit:contain; z-index:1;"></video>
+        <div id="previewGrid" style="position:absolute; inset:0; display:grid; grid-template-columns: 1fr; grid-template-rows: 1fr; gap:2px; z-index:1; background:#000;">
+          <video id="preview" autoplay playsinline muted disablePictureInPicture style="width:100%; height:100%; object-fit:contain;"></video>
+        </div>
+        
         <div class="preview-header">
           <div class="brand">Nearcade</div>
           <div class="status-pill">
@@ -377,7 +380,7 @@
           </div>
         </div>
         
-        <div class="preview-placeholder" id="prevOverlay" style="z-index:2; position:absolute; inset:0; background:var(--bg);">
+        <div class="preview-placeholder" id="prevOverlay" style="z-index:2; position:absolute; inset:0;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:48px;height:48px;margin-bottom:16px;opacity:0.5;">
             <rect x="2" y="3" width="20" height="14" rx="2"/>
             <polygon points="10 8 16 12 10 16 10 8"/>

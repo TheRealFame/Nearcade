@@ -5269,6 +5269,121 @@ if (launchGameData) {
   });
 }
 
+// ── Auto-capture on Multi-Instance Co-op launch ────────────────────────────────
+const multiInstanceData = (() => {
+  try { return JSON.parse(sessionStorage.getItem('ns_multi_instance') || 'null'); } catch { return null; }
+})();
+if (multiInstanceData && (Date.now() - multiInstanceData.timestamp < 120000)) {
+  window._multiInstanceMode = multiInstanceData;
+  document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.getElementById('prevOverlay');
+    if (overlay && window.electronAPI && window.electronAPI.getWindowSources) {
+        overlay.innerHTML = `
+            <div style="text-align:center; padding: 24px;">
+                <div style="font-size:24px; font-weight:800; color:var(--accent); margin-bottom:8px;">${multiInstanceData.title}</div>
+                <div style="font-size:14px; color:var(--muted); margin-bottom:24px;">${multiInstanceData.count} Local Instances Launched</div>
+                <button onclick="startMultiInstanceCapture()" style="background:var(--st-accent); color:#fff; border:none; padding:12px 24px; border-radius:99px; font-weight:700; cursor:pointer; font-size:15px; box-shadow:0 4px 16px rgba(241, 91, 181, 0.4);">
+                    Scan and Bind Windows
+                </button>
+            </div>
+        `;
+    }
+  });
+}
+
+// Global array to store our multiplexed video streams
+window._multiStreams = [];
+
+async function startMultiInstanceCapture() {
+    if (!window._multiInstanceMode || !window.electronAPI) return;
+    
+    const overlay = document.getElementById('prevOverlay');
+    if (overlay) overlay.innerHTML = '<div style="color:var(--muted);">Scanning for windows...</div>';
+    
+    try {
+        const sources = await window.electronAPI.getWindowSources();
+        const targetTitle = window._multiInstanceMode.title.toLowerCase();
+        // Fallback: match parts of the executable name if title doesn't match perfectly
+        const targetExec = window._multiInstanceMode.executable.toLowerCase().split(/[/\\]/).pop().replace('.exe', '');
+        
+        let matchedSources = sources.filter(s => 
+            !s.isScreen && 
+            (s.name.toLowerCase().includes(targetTitle) || s.name.toLowerCase().includes(targetExec))
+        );
+        
+        if (matchedSources.length === 0) {
+            alert("Could not find any windows matching '" + targetTitle + "'. Did the game finish launching?");
+            if (overlay) overlay.style.display = 'none';
+            return;
+        }
+
+        // We only need up to the number of instances launched
+        matchedSources = matchedSources.slice(0, window._multiInstanceMode.count);
+        
+        window._multiStreams = [];
+        const grid = document.getElementById('previewGrid');
+        if (grid) grid.innerHTML = '';
+        
+        // Dynamically adjust grid columns
+        if (grid) {
+            const cols = matchedSources.length === 1 ? 1 : 2;
+            grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            grid.style.gridTemplateRows = `repeat(${Math.ceil(matchedSources.length / 2)}, 1fr)`;
+        }
+
+        for (let i = 0; i < matchedSources.length; i++) {
+            const src = matchedSources[i];
+            window.electronAPI.setSelectedSource(src.id);
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: src.id, maxFrameRate: 30 } }
+            });
+            window._multiStreams.push(stream);
+            
+            if (grid) {
+                const vid = document.createElement('video');
+                vid.autoplay = true; vid.playsInline = true; vid.muted = true; vid.disablePictureInPicture = true;
+                vid.style.cssText = 'width:100%; height:100%; object-fit:contain; border: 1px solid rgba(255,255,255,0.1);';
+                vid.srcObject = stream;
+                
+                const container = document.createElement('div');
+                container.style.cssText = 'position:relative; width:100%; height:100%;';
+                container.innerHTML = `<div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); padding:4px 8px; border-radius:4px; font-size:10px; color:#fff; z-index:10; border:1px solid rgba(255,255,255,0.2);">Inst ${i+1}</div>`;
+                
+                // Allow dropping viewers onto this tile to assign them
+                container.addEventListener('dragover', (e) => { e.preventDefault(); container.style.border = '2px solid var(--accent)'; });
+                container.addEventListener('dragleave', () => { container.style.border = 'none'; });
+                container.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    container.style.border = 'none';
+                    if (window.draggedItem) {
+                        const viewerId = window.draggedItem.dataset.id;
+                        alert('Assigned Viewer ' + viewerId + ' to Instance ' + (i+1) + '. (WebRTC track hot-swapping requires core rebuild)');
+                    }
+                });
+                
+                container.appendChild(vid);
+                grid.appendChild(container);
+            }
+        }
+        
+        if (overlay) overlay.style.display = 'none';
+        
+        // Use the first stream as the fallback currentStream so the rest of the UI doesn't crash
+        window.currentStream = window._multiStreams[0];
+        window.activeSourceId = 'multi-instance';
+        
+        const badge = document.getElementById('capStatus');
+        if (badge) badge.textContent = `Streaming ${window._multiStreams.length} Instances`;
+        if (typeof setCapDot === 'function') setCapDot('ok');
+        
+    } catch (err) {
+        console.error("Multi-instance capture failed:", err);
+        alert("Failed to capture windows: " + err.message);
+        if (overlay) overlay.style.display = 'none';
+    }
+}
+
 // ── AUTOMATED HEADLESS BOOT (Arcade Worker) ───────────────────────────
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get('auto') === '1') {
