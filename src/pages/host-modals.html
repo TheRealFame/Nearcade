@@ -683,15 +683,14 @@
             </div>
           </div>
 
-          <div class="ctrl-modal-row" id="ctrlRowCoop" onclick="toggleCtrlSetting('enableCoopIsolation')"
-            style="margin-top:8px;">
-            <div class="ctrl-toggle-track" id="ctrlTrackCoop">
-              <div class="ctrl-toggle-thumb"></div>
+          <div class="ctrl-modal-row" style="margin-top:8px;">
+            <div class="ctrl-row-text" style="flex:1;">
+              <div class="ctrl-row-label">Local Co-op Launcher (Linux Experimental)</div>
+              <div class="ctrl-row-desc">Launch multiple DRM-free instances of a game, with inputs isolated per viewer.</div>
             </div>
-            <div class="ctrl-row-text">
-              <div class="ctrl-row-label">Local Co-op Isolation (Linux Experimental)</div>
-              <div class="ctrl-row-desc">Enables LD_PRELOAD input isolation, allowing you to launch multiple instances of a game and bind specific viewers to specific windows.</div>
-            </div>
+            <button class="ns-bar-btn" onclick="window.open('/pages/coop-launcher.html', 'CoopLauncher', 'width=600,height=500,contextIsolation=no,nodeIntegration=yes');" style="padding:6px 12px;font-size:11px;">
+              Open Launcher
+            </button>
           </div>
 
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">

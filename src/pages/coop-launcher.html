@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Nearcade Co-op Launcher</title>
+  <link rel="stylesheet" href="../styles/index.css">
+  <style>
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      padding: 20px;
+      margin: 0;
+      height: 100vh;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+    h2 { margin-top: 0; font-size: 16px; color: var(--accent); }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; font-size: 11px; margin-bottom: 5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .form-control { width: 100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 4px; color: white; font-family: monospace; font-size: 12px; box-sizing: border-box; }
+    .game-list { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; }
+    .game-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .game-item:last-child { border-bottom: none; }
+    .game-title { font-weight: bold; font-size: 13px; }
+    .game-path { font-size: 10px; color: var(--muted2); font-family: monospace; margin-top: 4px; }
+    .btn { background: var(--accent); color: #000; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; }
+    .btn:hover { opacity: 0.9; }
+    .btn-launch { background: var(--green); color: #000; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    
+    #addGameModal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 100; }
+    .modal-content { background: var(--bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border); width: 80%; max-width: 400px; }
+  </style>
+</head>
+<body>
+
+  <div class="header-bar">
+    <div>
+      <h2>Co-op Launcher</h2>
+      <div style="font-size:11px; color:var(--muted2);">Launch isolated instances for couch co-op streaming.</div>
+    </div>
+    <button class="btn" onclick="document.getElementById('addGameModal').style.display='flex'">+ Add Game</button>
+  </div>
+
+  <div class="game-list" id="gameList">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Add Game Modal -->
+  <div id="addGameModal">
+    <div class="modal-content">
+      <h3 style="margin-top:0; font-size:14px; color:var(--accent);">Add DRM-Free Game</h3>
+      <div class="form-group">
+        <label>Game Title</label>
+        <input type="text" id="gameTitle" class="form-control" placeholder="e.g. RetroArch">
+      </div>
+      <div class="form-group">
+        <label>Executable Path</label>
+        <input type="text" id="gamePath" class="form-control" placeholder="/usr/bin/retroarch">
+      </div>
+      <div class="form-group">
+        <label>Launch Arguments (Optional)</label>
+        <input type="text" id="gameArgs" class="form-control" placeholder="--fullscreen">
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
+        <button class="btn" style="background:transparent; color:white; border:1px solid var(--border);" onclick="document.getElementById('addGameModal').style.display='none'">Cancel</button>
+        <button class="btn" onclick="saveGame()">Save Game</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const fs = require('fs');
+    const path = require('path');
+    const { spawn } = require('child_process');
+
+    // For now we'll just use a local JSON file in the appDataDir to mock the CSV DB requested
+    const userDataPath = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || '', '.config');
+    const dbPath = path.join(userDataPath, 'nearcade_coop_db.json');
+
+    let games = [];
+
+    function loadDB() {
+      try {
+        if (fs.existsSync(dbPath)) {
+          games = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+        }
+      } catch (e) {
+        console.error('Failed to load DB', e);
+      }
+      renderList();
+    }
+
+    function saveDB() {
+      try {
+        fs.writeFileSync(dbPath, JSON.stringify(games, null, 2));
+      } catch (e) {
+        console.error('Failed to save DB', e);
+      }
+    }
+
+    function saveGame() {
+      const title = document.getElementById('gameTitle').value;
+      const executable = document.getElementById('gamePath').value;
+      const args = document.getElementById('gameArgs').value;
+
+      if (!title || !executable) return alert('Title and Path required');
+
+      games.push({ id: Date.now().toString(), title, executable, args });
+      saveDB();
+      renderList();
+      
+      document.getElementById('addGameModal').style.display = 'none';
+      document.getElementById('gameTitle').value = '';
+      document.getElementById('gamePath').value = '';
+      document.getElementById('gameArgs').value = '';
+    }
+
+    function removeGame(id) {
+      games = games.filter(g => g.id !== id);
+      saveDB();
+      renderList();
+    }
+
+    function launchCoop(id) {
+      const game = games.find(g => g.id === id);
+      if (!game) return;
+
+      const instances = prompt(`How many instances of ${game.title} do you want to launch? (1-4)`, "2");
+      const num = parseInt(instances);
+      if (isNaN(num) || num < 1 || num > 4) return;
+
+      const isolatorPath = path.join(__dirname, '../sidecar/input_backends/experimental/coop_isolator.so');
+
+      if (!fs.existsSync(isolatorPath)) {
+        alert("coop_isolator.so not found! Please ensure it is compiled.");
+        return;
+      }
+
+      for (let i = 0; i < num; i++) {
+        // We'll mock the evdev assignment for now. In reality, it would pull from active viewers.
+        const evdevPath = `/dev/input/event${i + 10}`; 
+        
+        const env = Object.assign({}, process.env, {
+          LD_PRELOAD: isolatorPath,
+          NEARCADE_ALLOWED_EVDEV: evdevPath
+        });
+
+        const argList = game.args ? game.args.split(' ') : [];
+
+        try {
+          const child = spawn(game.executable, argList, {
+            env: env,
+            detached: true,
+            stdio: 'ignore'
+          });
+          child.unref();
+          console.log(`Launched ${game.title} Instance ${i+1} bound to ${evdevPath}`);
+        } catch (e) {
+          console.error(`Failed to launch instance ${i+1}`, e);
+          alert(`Failed to launch: ${e.message}`);
+        }
+      }
+      alert(`Launched ${num} instances of ${game.title}! Check your taskbar.`);
+    }
+
+    function renderList() {
+      const list = document.getElementById('gameList');
+      list.innerHTML = '';
+
+      if (games.length === 0) {
+        list.innerHTML = '<div style="color:var(--muted); text-align:center; padding: 20px; font-size:12px;">No games added yet. Click "+ Add Game" to start.</div>';
+        return;
+      }
+
+      games.forEach(game => {
+        const item = document.createElement('div');
+        item.className = 'game-item';
+        item.innerHTML = `
+          <div>
+            <div class="game-title">${game.title}</div>
+            <div class="game-path">${game.executable} ${game.args}</div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-launch" onclick="launchCoop('${game.id}')">Launch Co-op</button>
+            <button class="btn" style="background:var(--danger); color:white;" onclick="removeGame('${game.id}')">X</button>
+          </div>
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    // Init
+    loadDB();
+  </script>
+</body>
+</html>
