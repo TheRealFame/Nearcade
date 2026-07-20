@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         Nearcade Identity Persist
-// @namespace    nearcade
-// @version      1.2.0
+// @namespace    https://github.com/TheRealFame/Nearcade
+// @version      3.0.4
 // @description  Persists ALL your viewer settings (name, colors, gamepad mappings, volumes, stream quality) across all Nearcade sessions and tunnels. Install once, your setup follows you everywhere.
+// @updateURL    https://github.com/TheRealFame/Nearcade/raw/refs/heads/main/src/scripts/nearcade-identity-persist.user.js
+// @downloadURL  https://github.com/TheRealFame/Nearcade/raw/refs/heads/main/src/scripts/nearcade-identity-persist.user.js
 // @author       Nearcade
 // @match        *://*/*
 // @icon         https://nearcade.cutefame.net/assets/NearcadeIcon.svg
@@ -14,7 +16,7 @@
 // @license      MIT
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // We only care about Nearcade specific keys
@@ -35,7 +37,7 @@
                 memoryCache[key] = val;
             }
         }
-    } catch (e) {}
+    } catch (e) { }
 
     // 3. Bidirectional sync loop
     setInterval(() => {
@@ -48,7 +50,7 @@
                     if (memoryCache[key] !== gmVal) {
                         localStorage.setItem(key, gmVal);
                         memoryCache[key] = gmVal;
-                        
+
                         // Fire a fake storage event so the page knows it updated
                         window.dispatchEvent(new StorageEvent('storage', { key: key, newValue: gmVal }));
                     }
@@ -66,7 +68,7 @@
                     }
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
     }, 250);
 
     // If the name input exists, we might still want to trigger its input event so the UI updates
