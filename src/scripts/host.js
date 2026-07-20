@@ -1599,6 +1599,13 @@ function renderRoster(list) {
         <option value="disabled"      ${currentMode === 'disabled'      ? 'selected' : ''}>Disabled</option>
         </select>
         `}
+        ${(window._multiInstanceMode && window._multiStreams && window._multiStreams.length > 0 && v.id !== 'host_0') ? `
+        <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;"
+        onchange="assignViewerToInstance('${v.id}', this.value); this.blur();">
+            <option value="-1">Auto/None</option>
+            ${window._multiStreams.map((_, j) => `<option value="${j}" ${(window.viewerWindowAssignments && window.viewerWindowAssignments[v.id] === j) ? 'selected' : ''}>Inst ${j+1}</option>`).join('')}
+        </select>
+        ` : ''}
         ${v.id === 'host_0' ? '' : `
         <div style="width:1px;height:12px;background:var(--border2);margin:0 2px;"></div>
         <button onclick="cycleViewerMic('${v.id}')" title="${micTitle}"
@@ -5424,6 +5431,36 @@ async function startMultiInstanceCapture() {
         alert("Failed to capture windows: " + err.message);
         if (overlay) overlay.style.display = 'none';
     }
+}
+
+async function assignViewerToInstance(viewerId, instanceIndexStr) {
+    if (!window.viewerWindowAssignments) window.viewerWindowAssignments = {};
+    const i = parseInt(instanceIndexStr);
+    
+    if (i === -1) {
+        delete window.viewerWindowAssignments[viewerId];
+        log(`Unbound Viewer ${viewerId} from instance.`, 'ok');
+    } else {
+        window.viewerWindowAssignments[viewerId] = i;
+        log(`Binding Viewer ${viewerId} to Instance ${i+1}...`, 'ok');
+        
+        if (ws && ws.readyState === 1 && window._multiInstanceMode && window.electronAPI) {
+            // Re-fetch window name if possible, or use base name
+            const targetName = window._multiInstanceMode.title;
+            ws.send(JSON.stringify({
+                type: 'bind-evdev',
+                viewerId: viewerId,
+                targetWindowName: targetName
+            }));
+        }
+    }
+    
+    if (peerConnections[viewerId]) {
+        log(`Hot-swapping WebRTC video track for Viewer ${viewerId}...`, 'ok');
+        try { peerConnections[viewerId].close(); } catch (e) {}
+        delete peerConnections[viewerId];
+    }
+    await sendOfferToViewer(viewerId);
 }
 
 // ── AUTOMATED HEADLESS BOOT (Arcade Worker) ───────────────────────────

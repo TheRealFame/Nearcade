@@ -1,6 +1,7 @@
 class GamepadNav {
     constructor() {
         this.active = false;
+        this.polling = false;
         this.elements = [];
         this.currentIndex = -1;
         this.lastTime = 0;
@@ -13,11 +14,15 @@ class GamepadNav {
             if (this.currentIndex === -1 && this.elements.length > 0) {
                 this.focus(0);
             }
-            this.poll();
+            if (!this.polling) {
+                this.polling = true;
+                this.poll();
+            }
         });
         
         window.addEventListener('gamepaddisconnected', () => {
             this.active = navigator.getGamepads().some(gp => gp !== null);
+            if (!this.active) this.polling = false;
         });
     }
 
