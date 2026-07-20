@@ -324,6 +324,8 @@ function registerIpcHandlers(ctx) {
     try {
       if (process.platform === 'linux') {
         artifactsFound = fs.existsSync('/etc/udev/rules.d/99-nearsec-input.rules');
+      } else if (process.platform === 'win32') {
+        artifactsFound = fs.existsSync('C:\\Windows\\System32\\drivers\\ViGEmBus.sys');
       }
     } catch (_) {}
 
