@@ -1,28 +1,27 @@
-# Nearcade v3.0.4 Release Notes
+# Nearcade 3.0.4
 
-Nearcade v3.0.4 is a major polish and stability update focused heavily on the **Multi-Instance Co-op Engine**, **Steam Deck/Handheld Accessibility**, and **VPS Auto-Updating**.
+This release focuses on quality-of-life improvements, fixing UI stutters, and handling larger game libraries more efficiently. We've also improved multi-instance routing and added a few updates for Steam Deck users.
 
-## What's New
+## Changes & Improvements
 
-### Multi-Instance Orchestration
-*   **WebRTC Dynamic Hot-Swapping:** Implemented full multiplexing backend for the Host Playground. Assigning a viewer to a specific game instance now triggers an on-the-fly WebRTC track swap without tearing down their connection.
-*   **Gamepad-Accessible Router:** HTML5 Drag-and-Drop does not natively support gamepads. To fix this, we added an accessible "Instance Assignment" dropdown directly on the Roster cards in the Host UI, allowing full Multi-Instance orchestration using only a D-pad/Controller.
-*   **Input Isolation via `bind-evdev`:** Viewers assigned to a specific window instance now have their virtual inputs isolated exclusively to that game's process via the Python input driver.
+### Core & Performance
+- **Background Game Scanning:** Offloaded Steam game library detection (`@nearcade/launcher-detect`) to a background `worker_thread` with a 5-minute cache. This prevents the Node.js event loop from stalling for users with massive (1000+) Steam libraries.
+- **Audio Fallback Timeout:** Re-enabled the Python OS-level audio fallback. If the browser fails to grab system audio, it will wait 3 seconds before automatically spinning up the Python audio driver.
+- **Smart Windows Setup:** The boot script now checks for `ViGEmBus.sys` natively. If the driver is already installed, it silently skips the setup wizard and takes you straight to the dashboard.
+- **Version Parity:** Synced the VPS router and `package-lock.json` up to 3.0.4.
 
-### Steam Deck & Handheld Polish
-*   **True-Black Vector Iconography:** Rebuilt the Steam Deck asset (`steamdeck.svg`) to perfectly match the sleek roster aesthetics.
-*   **Automatic Client Detection:** The server now accurately parses client identifiers and automatically assigns the Steam Deck iconography to verified handheld users on the roster.
-*   **Memory Leak Fixes:** Resolved an issue where multiple controller connections would duplicate `requestAnimationFrame` polling loops, causing significant CPU drain on handhelds.
+### Viewer UI & Extensions
+- **Identity Persist Extension Fix:** Rewrote the Tampermonkey script's sync loop. It now uses a bidirectional memory cache, fixing a bug where visiting a new Zrok subdomain would wipe your saved viewer settings.
+- **Zero-Flicker Navigation:** Fixed visual stutters on the dashboard splash screen and viewer UI. Custom chat colors and splash visibility are now applied synchronously before the DOM paints.
+- **Settings Modal & Controls:** Moved viewer options into a new settings modal. Added a client-side stick deadzone slider so viewers can counter stick drift themselves, plus toggles for rumble and stream bandwidth.
 
-### Viewer UI Experience
-*   **Advanced Settings Modal:** Removed the cluttered sidebar buttons in favor of a sleek, glassmorphic settings modal for viewers.
-*   **Client-Side Deadzones:** Added an analog stick deadzone slider that directly overrides the gamepad polling loop, allowing viewers to fix their own "stick drift" without host intervention.
-*   **Stream & Rumble Overrides:** Viewers can now toggle rumble, switch bandwidth profiles, and force-reload streams effortlessly from the new settings menu.
-
-### VPS Router Architecture
-*   **Self-Updating Binaries:** The Rust VPS router now supports fully automated background updates. By configuring the `AUTO_UPDATE_REPO` environment variable, the VPS will check GitHub hourly and seamlessly pull/reboot into the latest compiled binary release.
-*   **Version Sync:** The VPS router binary version has been explicitly bumped to align with the `3.0.4` ecosystem.
+### Multi-Instance & Handhelds
+- **Dynamic Track Swapping:** Moving a viewer to a different game instance on the Host Playground now swaps their WebRTC track on the fly without dropping the connection.
+- **Gamepad-Friendly Routing:** Added an "Instance Assignment" dropdown to the roster cards so you can route players to games using just a controller (bypassing the need for drag-and-drop).
+- **Process Isolation:** Inputs for viewers assigned to specific window instances are now strictly isolated to that game via `bind-evdev`.
+- **Steam Deck Updates:** Added proper Steam Deck icon parsing for verified handheld users and fixed a `requestAnimationFrame` memory leak that was draining CPU when multiple controllers connected.
 
 ## Bug Fixes
-*   Removed hardcoded scroll constraints on the URL list in the Host Playground, allowing all links to display naturally.
-*   Fixed memory leaks and improper teardowns in the `stopCapture()` lifecycle during Multi-Instance mode.
+- Removed hardcoded scroll limits on the Host Playground URL list.
+- Fixed teardown logic issues in `stopCapture()` during Multi-Instance mode.
+- Dropped the fake `StorageEvent` from the Tampermonkey script that was crashing third-party extension dashboards.

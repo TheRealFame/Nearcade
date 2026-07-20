@@ -50,9 +50,6 @@
                     if (memoryCache[key] !== gmVal) {
                         localStorage.setItem(key, gmVal);
                         memoryCache[key] = gmVal;
-
-                        // Fire a fake storage event so the page knows it updated
-                        window.dispatchEvent(new StorageEvent('storage', { key: key, newValue: gmVal }));
                     }
                 }
             }
