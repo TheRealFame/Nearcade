@@ -1,6 +1,6 @@
 [package]
 name        = "nearsec-router"
-version     = "1.0.0"
+version     = "3.0.4"
 edition     = "2021"
 description = "Nearcade VPS SFU — dumb-pipe WebSocket router"
 authors     = ["Nearcade"]
@@ -23,6 +23,8 @@ serde_json        = "1"
 uuid              = { version = "1", features = ["v4"] }
 # WebTransport (QUIC/HTTP3) implementation (Experimental)
 wtransport      = "0.1"
+# Auto updater (similar to electron-updater)
+self_update     = { version = "0.41", features = ["archive-tar", "rustls"] }
 # Single shared mutable state via RwLock
 
 [profile.release]

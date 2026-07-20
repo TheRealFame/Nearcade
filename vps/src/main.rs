@@ -262,6 +262,50 @@ async fn main() {
         run_webtransport_server(wt_state).await;
     });
 
+    // Spawn Auto-Updater (If configured)
+    if let Ok(repo) = env::var("AUTO_UPDATE_REPO") {
+        println!("[nearsec-router] Auto-updater enabled. Polling {} for new releases.", repo);
+        tokio::spawn(async move {
+            let parts: Vec<&str> = repo.split('/').collect();
+            if parts.len() != 2 {
+                eprintln!("[nearsec-router] AUTO_UPDATE_REPO must be in format 'owner/repo'");
+                return;
+            }
+            let owner = parts[0].to_string();
+            let repo_name = parts[1].to_string();
+            
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // poll every 1 hour
+            loop {
+                interval.tick().await;
+                let owner = owner.clone();
+                let repo_name = repo_name.clone();
+                let res = tokio::task::spawn_blocking(move || {
+                    self_update::backends::github::Update::configure()
+                        .repo_owner(&owner)
+                        .repo_name(&repo_name)
+                        .bin_name("nearsec-router")
+                        .show_download_progress(true)
+                        .current_version(env!("CARGO_PKG_VERSION"))
+                        .build()
+                        .and_then(|updater| updater.update_extended())
+                }).await;
+
+                match res {
+                    Ok(Ok(status)) => {
+                        if status.updated() {
+                            println!("[nearsec-router] Successfully updated to {}. Restarting process...", status.version());
+                            std::process::exit(0); // Systemd will restart the new binary automatically
+                        } else {
+                            println!("[nearsec-router] Auto-updater: Already on latest version ({}).", status.version());
+                        }
+                    },
+                    Ok(Err(e)) => eprintln!("[nearsec-router] Auto-update check failed: {}", e),
+                    Err(e) => eprintln!("[nearsec-router] Auto-update task panicked: {}", e),
+                }
+            }
+        });
+    }
+
     println!("[nearsec-router] Listening on ws://0.0.0.0:{}", port);
 
     loop {
