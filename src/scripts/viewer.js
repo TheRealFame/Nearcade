@@ -23,10 +23,9 @@ function setBandwidthProfile(key) {
     if (!BW_PROFILES[key]) return;
     _bwProfile = key;
     localStorage.setItem('ns_bw_profile', key);
-    // Update button states in nsBar
-    document.querySelectorAll('[data-bw]').forEach(btn => {
-        btn.classList.toggle('ns-btn-active', btn.dataset.bw === key);
-    });
+    // Update select state in Settings Modal
+    const sel = document.getElementById('vBwSelect');
+    if (sel) sel.value = key;
     // Apply immediately if a PC exists
     if (pc) _applyBwProfile(pc);
     console.log('[BW] Profile set:', key);
@@ -795,6 +794,47 @@ function toggleAudioPanel() {
     if (btn) btn.classList.toggle('open', !isOpen);
     if (!isOpen) document.getElementById('nsBar')?.classList.remove('open');
 }
+// ── VIEWER SETTINGS MODAL ───────────────────────────────────────────────────
+function openViewerSettings() {
+    const modal = document.getElementById('viewerSettingsModal');
+    if (modal) modal.classList.add('open');
+    document.getElementById('nsBar')?.classList.remove('open');
+}
+
+function closeViewerSettings() {
+    const modal = document.getElementById('viewerSettingsModal');
+    if (modal) modal.classList.remove('open');
+}
+
+window._globalDeadzone = parseFloat(localStorage.getItem('ns_deadzone')) || 0.10;
+function updateDeadzone(val) {
+    const num = parseFloat(val);
+    window._globalDeadzone = num;
+    localStorage.setItem('ns_deadzone', num.toString());
+    const valEl = document.getElementById('vDeadzoneVal');
+    if (valEl) valEl.textContent = num.toFixed(2);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Restore saved settings on load
+    const savedDz = parseFloat(localStorage.getItem('ns_deadzone')) || 0.10;
+    const dzSlider = document.getElementById('vDeadzoneSlider');
+    const dzVal = document.getElementById('vDeadzoneVal');
+    if (dzSlider) dzSlider.value = savedDz;
+    if (dzVal) dzVal.textContent = savedDz.toFixed(2);
+    
+    const savedBw = localStorage.getItem('ns_bw_profile') || 'auto';
+    const bwSel = document.getElementById('vBwSelect');
+    if (bwSel) bwSel.value = savedBw;
+    
+    // Wire click-outside for modal
+    const settingsModal = document.getElementById('viewerSettingsModal');
+    if (settingsModal) {
+        settingsModal.addEventListener('mousedown', (e) => {
+            if (e.target === settingsModal) closeViewerSettings();
+        });
+    }
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── VOICE ACTIVITY DETECTION ──────────────────────────────────────────────────
@@ -1501,7 +1541,7 @@ function pollGamepad() {
     let changed = false;
 
     if (!isTouch && bestGp) {
-        let dz = gpDeadzones[bestGp.index] !== undefined ? gpDeadzones[bestGp.index] : 0.05;
+        let dz = window._globalDeadzone !== undefined ? window._globalDeadzone : (gpDeadzones[bestGp.index] !== undefined ? gpDeadzones[bestGp.index] : 0.05);
         for (let i = 0; i < 4; i++) {
             let val = bestGp.axes[i] || 0;
             if (Math.abs(val) < dz) val = 0;
@@ -2317,7 +2357,7 @@ async function connect() {
             if (typeof maybeShowVRButton === 'function') maybeShowVRButton();
             
             if (msg.expDevices) {
-                const select = document.getElementById('inputModeSelect');
+                const select = document.getElementById('vInputApiSelect');
                 if (select) {
                     const currentVal = select.value || window.currentInputMode;
                     let html = '<option value="gamepad">Standard Gamepad</option>';
@@ -3081,18 +3121,12 @@ let clientRumbleEnabled = localStorage.getItem('ns_rumble') !== 'false';
 function toggleClientRumble() {
     clientRumbleEnabled = !clientRumbleEnabled;
     localStorage.setItem('ns_rumble', clientRumbleEnabled);
-    const btn = document.getElementById('rumbleBtn');
-    if (btn) {
-        btn.textContent = `Rumble: ${clientRumbleEnabled ? 'ON' : 'OFF'}`;
-        btn.classList.toggle('ns-btn-active', clientRumbleEnabled);
-    }
+    const toggle = document.getElementById('vRumbleToggle');
+    if (toggle) toggle.classList.toggle('on', clientRumbleEnabled);
 }
 document.addEventListener('DOMContentLoaded', () => {
-    const btn = document.getElementById('rumbleBtn');
-    if (btn) {
-        btn.textContent = `Rumble: ${clientRumbleEnabled ? 'ON' : 'OFF'}`;
-        btn.classList.toggle('ns-btn-active', clientRumbleEnabled);
-    }
+    const toggle = document.getElementById('vRumbleToggle');
+    if (toggle) toggle.classList.toggle('on', clientRumbleEnabled);
 });
 
 // ── WEBCODECS FRAME HEALTH MONITOR ──
@@ -3389,12 +3423,15 @@ window.addEventListener('message', (e) => {
 let netStatsInterval = null;
 window.toggleNetStats = function() {
     const el = document.getElementById('netStatsOverlay');
+    const toggle = document.getElementById('vNetStatsToggle');
     if (!el) return;
     if (el.classList.contains('gone')) {
         el.classList.remove('gone');
+        if (toggle) toggle.classList.add('on');
         window.startNetStats();
     } else {
         el.classList.add('gone');
+        if (toggle) toggle.classList.remove('on');
         clearInterval(netStatsInterval);
     }
 };
