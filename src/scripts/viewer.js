@@ -806,7 +806,8 @@ function closeViewerSettings() {
     if (modal) modal.classList.remove('open');
 }
 
-window._globalDeadzone = parseFloat(localStorage.getItem('ns_deadzone')) || 0.10;
+let storedDz = localStorage.getItem('ns_deadzone');
+window._globalDeadzone = storedDz !== null ? parseFloat(storedDz) : 0.10;
 function updateDeadzone(val) {
     const num = parseFloat(val);
     window._globalDeadzone = num;
@@ -817,7 +818,8 @@ function updateDeadzone(val) {
 
 document.addEventListener('DOMContentLoaded', () => {
     // Restore saved settings on load
-    const savedDz = parseFloat(localStorage.getItem('ns_deadzone')) || 0.10;
+    let savedStoredDz = localStorage.getItem('ns_deadzone');
+    const savedDz = savedStoredDz !== null ? parseFloat(savedStoredDz) : 0.10;
     const dzSlider = document.getElementById('vDeadzoneSlider');
     const dzVal = document.getElementById('vDeadzoneVal');
     if (dzSlider) dzSlider.value = savedDz;
