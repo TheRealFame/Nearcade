@@ -803,8 +803,14 @@
           <div id="viewerPanelList" style="display:flex;flex-direction:column;gap:6px;min-height:60px;"></div>
           
           <div style="margin-top:20px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
-            <div style="font-size:10px;color:var(--muted2);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px;">
-              <img src="/assets/icons/controller.svg" style="width:14px;height:14px;opacity:0.7;"> Controller Roster (Drag to swap)
+            <div style="font-size:10px;color:var(--muted2);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <img src="/assets/icons/controller.svg" style="width:14px;height:14px;opacity:0.7;"> Controller Roster (Drag to swap)
+              </div>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;text-transform:none;" title="Host Delay Equalization: Automatically delays the physical host controller to match viewer latency (Linux only).">
+                <input type="checkbox" id="hostDelayToggle" onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked)">
+                <span style="font-size:10px;opacity:0.8;">Equalize Host Latency</span>
+              </label>
             </div>
             <div id="roster" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:48px;"></div>
             <div class="empty-note" id="rosterEmpty" style="margin-top:0;">Waiting for viewers...</div>

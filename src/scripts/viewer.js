@@ -1231,6 +1231,18 @@ function handleHIDReport(event) {
         hidGyroX = data.getInt16(21, true) / 30000.0;
         hidGyroY = data.getInt16(19, true) / 30000.0;
     }
+
+    if (window.currentInputMode === 'webhid') {
+        const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const b64 = btoa(String.fromCharCode.apply(null, u8));
+        const pkt = JSON.stringify({
+            type: 'webhid',
+            vid: vid,
+            pid: hidDevice.productId,
+            buffer: b64
+        });
+        sendInputData(pkt);
+    }
 }
 
 // ── CALIBRATION ───────────────────────────────────────────────────────────────
@@ -1461,6 +1473,8 @@ function pollGamepad() {
     if (!bestGp && touchMode) isTouch = true;
     
     if (!bestGp && !isTouch) return; // No inputs available
+
+    if (window.currentInputMode === 'webhid' && hidDevice) return; // Managed exclusively by handleHIDReport
 
     const vIndex = 0; // Force ALL inputs from this viewer to slot 0
 
@@ -2036,8 +2050,9 @@ async function connect() {
         if (msg.type === 'tunnel-url') return;
 
         if (msg.type === 'offer') {
-            // If PC exists and is in stable state, this is a renegotiation — update existing PC
-            if (pc && pc.signalingState === 'stable' && pc.connectionState !== 'closed') {
+            // If PC exists and is in stable state AND is fully connected, this is a renegotiation — update existing PC.
+            // If the connection is failed/disconnected, we MUST tear it down and accept the fresh PC offer from the host.
+            if (pc && pc.signalingState === 'stable' && pc.connectionState === 'connected') {
                 try {
                     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                     const answer = await pc.createAnswer();
@@ -2221,7 +2236,7 @@ async function connect() {
             const overlay = document.getElementById('overlay');
             if (overlay) {
                 overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.85)';
-                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session.</div><button class="pin-submit-btn" onclick="window.electronAPI ? window.electronAPI.backToDashboard(\'arcade\') : window.close()" style="margin-top:8px;">Leave Session</button>';
+                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session.</div><button class="pin-submit-btn" onclick="if(window.electronAPI){window.electronAPI.backToDashboard(\'arcade\')}else if(new URLSearchParams(window.location.search).get(\'client\')){history.back()}else{window.close();setTimeout(()=>{location.href=\'/\'},200)}" style="margin-top:8px;">Leave Session</button>';
             }
             
             showOverlay(true);
@@ -2309,6 +2324,7 @@ async function connect() {
                     const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
+                    if (enabledExp.includes('webhid')) html += '<option value="webhid">Raw WebHID eSports (1000Hz)</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
                     

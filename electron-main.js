@@ -16,6 +16,7 @@ const isArcadeWorker = process.argv.includes('--arcade-worker');
 const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
 let isWebCodecs = process.argv.includes('--webcodecs');
 let isFFmpegCapture = process.argv.includes('--ffmpeg');
+let isGstWebRTC = process.argv.includes('--webrtc');
 const gotTheLock = isArcadeWorker ? true : app.requestSingleInstanceLock();
 
 function registerDiscordProtocol(clientId) {
@@ -130,6 +131,7 @@ try {
       if (!process.argv.includes('--webcodecs') && !process.argv.includes('--ffmpeg') && !process.argv.includes('--webrtc')) {
         if (parsedConfig.captureMethod === 'webcodecs' || parsedConfig.captureMethod === 'custom_webcodecs') isWebCodecs = true;
         if (parsedConfig.captureMethod === 'ffmpeg') isFFmpegCapture = true;
+        if (parsedConfig.captureMethod === 'gstreamer_webrtc') isGstWebRTC = true;
         console.log(`[Main] Loaded capture method from config: ${parsedConfig.captureMethod || 'native'}`);
       } else {
         console.log(`[Main] Capture method forced by CLI arguments.`);
@@ -166,8 +168,8 @@ function _electronSignalCleanup(signal) {
         );
       } catch (_) { }
     }
-    process.exit(0);
   }
+  setTimeout(() => process.exit(0), 250);
 }
 process.on('SIGINT', () => _electronSignalCleanup('SIGINT'));
 process.on('SIGTERM', () => _electronSignalCleanup('SIGTERM'));
@@ -231,6 +233,8 @@ app.commandLine.appendSwitch('force-high-performance-gpu');
 app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 
 let serverPort = null;
 let serverCore = null;
@@ -341,7 +345,7 @@ async function createWindow() {
 
   win.webContents.on('did-finish-load', () => {
     const currentURL = win.webContents.getURL();
-    if (currentURL.includes('/old_host')) {
+    if (currentURL.includes('/old_host') || currentURL.includes('client=1')) {
       win.webContents.executeJavaScript(`
       if (!document.getElementById('ns-dash-btn') && window.electronAPI) {
         const btn = document.createElement('button');
@@ -380,7 +384,7 @@ async function createWindow() {
   win.webContents.session.setPermissionCheckHandler(() => true);
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
 
-  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture };
+  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC };
   registerIpcHandlers(ctx);
 
   win.on('resize', () => {
@@ -491,8 +495,16 @@ app.on('will-quit', () => {
   if (serverCore && serverCore.cleanup) serverCore.cleanup(true);
 });
 
-app.on('before-quit', () => {
-  if (serverCore && serverCore.cleanup) serverCore.cleanup(true);
+let _isCleanupDelayDone = false;
+app.on('before-quit', (e) => {
+  if (!_isCleanupDelayDone) {
+    e.preventDefault();
+    if (serverCore && serverCore.cleanup) serverCore.cleanup(true);
+    setTimeout(() => {
+      _isCleanupDelayDone = true;
+      app.quit();
+    }, 250);
+  }
 });
 
 app.on('window-all-closed', () => app.quit());

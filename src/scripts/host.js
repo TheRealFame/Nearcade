@@ -161,6 +161,30 @@ let _turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
     return c;
 }).catch(() => null);
 // ─────────────────────────────────────────────────────────────────────────────
+// Function to munge the SDP before setting local description for ultra-low latency audio
+function forceOpusLowLatency(sdp) {
+    const sdpLines = sdp.split('\r\n');
+    let opusPayload = -1;
+    for (let line of sdpLines) {
+        if (line.startsWith('a=rtpmap:') && line.includes('opus/48000/2')) {
+            opusPayload = line.split(':')[1].split(' ')[0];
+            break;
+        }
+    }
+    if (opusPayload !== -1) {
+        const fmtpRegex = new RegExp(`^a=fmtp:${opusPayload} `);
+        for (let i = 0; i < sdpLines.length; i++) {
+            if (fmtpRegex.test(sdpLines[i])) {
+                if (!sdpLines[i].includes('ptime')) {
+                    sdpLines[i] += '; ptime=2.5; minptime=2.5; stereo=0; useinbandfec=1';
+                }
+                break;
+            }
+        }
+    }
+    return sdpLines.join('\r\n');
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function loadAppConfig() {
     if (window.electronAPI?.getSettings) return window.electronAPI.getSettings();
@@ -963,6 +987,13 @@ async function setLowLatencyParams(pc) {
 
             const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
             params.encodings[0].degradationPreference = degPref;
+            
+            // Apply Temporal SVC for Smooth mode
+            if (degPref === 'maintain-framerate') {
+                params.encodings[0].scalabilityMode = 'L1T2';
+            } else {
+                delete params.encodings[0].scalabilityMode;
+            }
         }
         await sender.setParameters(params);
     } catch (e) {
@@ -974,6 +1005,32 @@ async function applyBitrateToAll() {
     for (const pc of Object.values(peerConnections)) {
         await setLowLatencyParams(pc);
     }
+    
+    // Dynamically update WebCodecs encoder if running
+    if (typeof _wcEncoder !== 'undefined' && _wcEncoder && _wcEncoder.state === 'configured') {
+        const wcConfig = { ..._wcEncoder._lastConfig };
+        const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
+        
+        if (degPref === 'maintain-framerate' && (wcConfig.codec.startsWith('vp09') || wcConfig.codec.startsWith('av01') || wcConfig.codec.startsWith('vp8'))) {
+            wcConfig.scalabilityMode = 'L1T2';
+        } else {
+            delete wcConfig.scalabilityMode;
+        }
+        
+        const bitVal = parseInt(document.getElementById('bitrateSelect')?.value || 0, 10);
+        if (bitVal > 0) wcConfig.bitrate = bitVal;
+        
+        const fpsVal = parseInt(document.getElementById('fpsSelect')?.value || 60, 10);
+        if (fpsVal > 0) wcConfig.framerate = fpsVal;
+
+        try {
+            _wcEncoder.configure(wcConfig);
+            _wcEncoder._lastConfig = wcConfig;
+        } catch (e) {
+            console.warn('[WebCodecs] Failed to update config dynamically:', e);
+        }
+    }
+
     const bitVal = parseInt(document.getElementById('bitrateSelect').value, 10);
     log(I18N.t('Stream bitrate changed to') + ' ' + (bitVal > 0 ? (bitVal / 1000000) + ' Mbps' : 'Auto'), 'ok');
 }
@@ -1361,7 +1418,8 @@ async function renderUrls(d) {
     if (d.tunnelUrl) {
         const pSelect = document.getElementById('pipelineSelect');
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
-        finalTunnelUrl = `${d.tunnelUrl}${pipeArg ? ((d.tunnelUrl.includes('?') ? '&' : '?') + pipeArg.slice(1)) : ''}`;
+        const baseSep = d.tunnelUrl.includes('?') ? '&' : '?';
+        finalTunnelUrl = `${d.tunnelUrl}${baseSep}host=${encodedName}${pipeArg}`;
     }
     window._globalTunnelUrl = finalTunnelUrl;
 
@@ -3467,6 +3525,12 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         hardwareAcceleration: 'no-preference',
         latencyMode: 'realtime'
     };
+    
+    const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
+    if (degPref === 'maintain-framerate' && (_wcCodecStr.startsWith('vp09') || _wcCodecStr.startsWith('av01') || _wcCodecStr.startsWith('vp8'))) {
+        wcConfig.scalabilityMode = 'L1T2';
+    }
+    
     encoder.configure(wcConfig);
     encoder._lastConfig = wcConfig;
     console.log(`[WebCodecs] Encoder configured with codec: ${_wcCodecStr} (from UI: ${_wcCodecSel})`);
@@ -4575,7 +4639,13 @@ function _updateStatsHud() {
         });
 
         if (bestPair?.currentRoundTripTime != null) {
-            _elText('hudRtt', Math.round(bestPair.currentRoundTripTime * 1000) + 'ms');
+            const rttMs = Math.round(bestPair.currentRoundTripTime * 1000);
+            _elText('hudRtt', rttMs + 'ms');
+            if (window._hostDelayEnabled && ws && ws.readyState === 1) {
+                // Approximate viewer input latency (RTT/2 + ~20ms decode overhead)
+                const delayMs = Math.round(rttMs / 2) + 20;
+                ws.send(JSON.stringify({ type: 'host_delay', delayMs: delayMs }));
+            }
         }
 
         if (outboundVideo) {
@@ -5506,3 +5576,11 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     list.appendChild(el);
     saveExpDevices();
 }
+
+window._hostDelayEnabled = false;
+window.toggleHostDelay = function(enabled) {
+    window._hostDelayEnabled = enabled;
+    if (window.ws && window.ws.readyState === 1) {
+        window.ws.send(JSON.stringify({ type: 'host_delay', enabled: enabled, delayMs: 0 }));
+    }
+};

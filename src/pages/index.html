@@ -3200,8 +3200,10 @@
         _chatUnread = 0;
         document.getElementById('nsBar').classList.remove('open');
         // Close audio panel if open
-        document.getElementById('audioPanel').classList.remove('open');
-        document.getElementById('audioBtn').classList.remove('open');
+        const audioPanelEl = document.getElementById('audioPanel');
+        if (audioPanelEl) audioPanelEl.classList.remove('open');
+        const audioBtnEl = document.getElementById('audioBtn');
+        if (audioBtnEl) audioBtnEl.classList.remove('open');
         // Focus input
         setTimeout(() => document.getElementById('chatMsg')?.focus(), 80);
         // Apply adaptive font scale after open animation

@@ -755,32 +755,43 @@ async function main() {
       .replace(/(<meta property="og:image"\s+content=")[^"]*"/, `$1${ogImage}"`);
     res.type("html").send(html);
   });
-  app.get("/dashboard", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
-  app.get("/setup", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "setup.html")); });
-  app.get("/host", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
+  // ── SECURITY MIDDLEWARE ──
+  // Prevents remote viewers from accessing the Host UI or privileged APIs 
+  // via reverse tunnels (Cloudflare, zrok) by checking for proxy headers.
+  const adminMiddleware = (req, res, next) => {
+    const remoteAddr = req.socket.remoteAddress || '';
+    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    const isForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+    
+    if (isLocal && !isForwarded) {
+      next();
+    } else {
+      res.status(403).json({ ok: false, error: "Forbidden: Host actions cannot be performed remotely over a tunnel." });
+    }
+  };
 
-  app.get("/host-minimal", (req, res) => {
+  app.get("/dashboard", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
+  app.get("/setup", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "setup.html")); });
+  app.get("/host", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
+
+  app.get("/host-minimal", adminMiddleware, (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-minimal.html"));
   });
-  app.get("/host-playground", (req, res) => {
+  app.get("/host-playground", adminMiddleware, (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-playground.html"));
   });
-  app.get("/host-custom", (req, res) => {
+  app.get("/host-custom", adminMiddleware, (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-custom.html"));
   });
-  app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
-  app.get("/games-picker.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
+  app.get("/gamepad-popup.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
+  app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
   
-  app.post("/api/save-custom-host", express.json({limit: '10mb'}), (req, res) => {
-    const remoteAddr = req.socket.remoteAddress || '';
-    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
-      return res.status(403).json({ error: 'localhost only' });
-    }
+  app.post("/api/save-custom-host", adminMiddleware, express.json({limit: '10mb'}), (req, res) => {
     const htmlContent = req.body.html;
     if (typeof htmlContent !== 'string') return res.status(400).json({error: 'Invalid content'});
     if (htmlContent.length > 10485760) return res.status(400).json({error: 'Content too large'});
@@ -817,7 +828,7 @@ async function main() {
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
   app.get("/api/config", (req, res) => res.json(loadConfig()));
-  app.post("/api/config", express.json(), (req, res) => {
+  app.post("/api/config", adminMiddleware, express.json(), (req, res) => {
     const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
     if (newCfg.tournamentMode && pusher) {
@@ -842,7 +853,7 @@ async function main() {
     
     res.json(newCfg);
   });
-  app.post("/api/system-chat", express.json(), (req, res) => {
+  app.post("/api/system-chat", adminMiddleware, express.json(), (req, res) => {
     const msg = (req.body?.msg || '').trim();
     if (!msg) return res.status(400).json({ ok: false });
     broadcast(JSON.stringify({ type: "chat", from: "Nearcade", msg }));
@@ -850,7 +861,7 @@ async function main() {
     res.json({ ok: true });
   });
 
-  app.post('/api/set-session-password', express.json(), (req, res) => {
+  app.post('/api/set-session-password', adminMiddleware, express.json(), (req, res) => {
     const newPass = (req.body?.password || '').trim();
     saveConfig({ persistentPassword: newPass });
     sessionPassword = newPass;
@@ -982,7 +993,7 @@ async function main() {
     tryFetch();
   });
 
-  app.post("/api/launch-game", express.json(), (req, res) => {
+  app.post("/api/launch-game", adminMiddleware, express.json(), (req, res) => {
     const { launch } = freshLauncherDetect();
     const { launcher, gameId } = req.body || {};
     if (!launcher || !gameId) return res.status(400).json({ error: 'Missing launcher or gameId' });
@@ -1008,14 +1019,14 @@ async function main() {
     });
   });
 
-  app.post("/api/create-virtual-audio", (req, res) => {
+  app.post("/api/create-virtual-audio", adminMiddleware, (req, res) => {
     initVirtualAudio((success, error) => {
       res.json({ success, error: error || null });
     });
   });
 
   // ── Input Visualizer — SSE stream of parsed driver packets ────────────────
-  app.get('/api/input-visualizer', (req, res) => {
+  app.get('/api/input-visualizer', adminMiddleware, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -1032,7 +1043,7 @@ async function main() {
   });
 
   // ── Viewer Input Permission — revoke / restore ────────────────────────────
-  app.post('/api/viewer-input-perm', express.json(), (req, res) => {
+  app.post('/api/viewer-input-perm', adminMiddleware, express.json(), (req, res) => {
     const { viewerId, revoked } = req.body || {};
     if (!viewerId) return res.status(400).json({ ok: false, reason: 'missing viewerId' });
     const padId = viewerId + '_0';
@@ -1067,11 +1078,7 @@ async function main() {
     res.json({ ok: true });
   });
 
-  app.post("/api/open-terminal", express.json(), (req, res) => {
-    const remoteAddr = req.socket.remoteAddress || '';
-    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
-      return res.status(403).json({ ok: false, reason: 'localhost only' });
-    }
+  app.post("/api/open-terminal", adminMiddleware, express.json(), (req, res) => {
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
     const { cmd, name } = req.body || {};
     if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false });
@@ -1096,11 +1103,7 @@ async function main() {
 
   let activeGameProc = null;
 
-  app.post("/api/force-route", express.json(), (req, res) => {
-    const remoteAddr = req.socket.remoteAddress || '';
-    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
-      return res.status(403).json({ ok: false, reason: 'localhost only' });
-    }
+  app.post("/api/force-route", adminMiddleware, express.json(), (req, res) => {
     if (!pb) {
       console.warn("[Audio] PatchBay not ready.");
       return res.json({ success: false });
@@ -1112,11 +1115,11 @@ async function main() {
   });
 
   // ── Unified Capture Manager API ───────────────────────────────────────────
-  app.get('/api/capture/status', (req, res) => {
+  app.get('/api/capture/status', adminMiddleware, (req, res) => {
     res.json(captureManager.getStatus());
   });
 
-  app.post('/api/capture/start', express.json(), async (req, res) => {
+  app.post('/api/capture/start', adminMiddleware, express.json(), async (req, res) => {
     const { method, options } = req.body || {};
     if (!method) return res.status(400).json({ ok: false, reason: 'method is required (webcodecs | ffmpeg | webrtc)' });
     try {
@@ -1128,7 +1131,7 @@ async function main() {
     }
   });
 
-  app.post('/api/capture/stop', async (req, res) => {
+  app.post('/api/capture/stop', adminMiddleware, async (req, res) => {
     try {
       await captureManager.stop();
       res.json({ ok: true });
@@ -1138,11 +1141,7 @@ async function main() {
     }
   });
 
-  app.post("/api/restart-game", express.json(), (req, res) => {
-    const remoteAddr = req.socket.remoteAddress || '';
-    if (remoteAddr !== '127.0.0.1' && remoteAddr !== '::1' && remoteAddr !== '::ffff:127.0.0.1') {
-      return res.status(403).json({ ok: false, reason: 'localhost only' });
-    }
+  app.post("/api/restart-game", adminMiddleware, express.json(), (req, res) => {
     if (activeGameProc) {
       try { process.kill(-activeGameProc.pid); } catch (e) { }
       try { activeGameProc.kill(); } catch (e) { }
@@ -1195,7 +1194,7 @@ async function main() {
     res.json({ success: true });
   });
 
-  app.post("/api/start-tunnel", express.json(), async (req, res) => {
+  app.post("/api/start-tunnel", adminMiddleware, express.json(), async (req, res) => {
 
     if (activeTunnelProc) {
       console.log("  \x1b[33m~\x1b[0m Stopping existing tunnel process before switching...");
@@ -1940,7 +1939,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
@@ -2504,7 +2503,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
