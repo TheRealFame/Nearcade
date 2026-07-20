@@ -4379,10 +4379,10 @@ async function checkTunnelOnConnect() {
     }
     try {
         const info = await fetch('/api/info').then(r => r.json());
-        // ALWAYS render whatever URL the server already has, regardless of neverAsk.
-        // Previously this bailed when neverAsk:true, leaving the UI stuck on boot.
+        // ALWAYS render whatever URL the server already has (including LAN/Public IP if tunnelUrl is null)
+        renderUrls(info);
+
         if (info.tunnelUrl) {
-            renderUrls(info);
             return;
         }
         // No tunnel yet — only prompt for one if the user hasn't chosen "never ask"
