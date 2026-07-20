@@ -1473,7 +1473,8 @@ async function main() {
           kb: !!p.kb,
           slot: p.slot ?? autoSlot++,
           locked: !!p.locked,
-          inputMode: mode
+          inputMode: mode,
+          platform: viewerPlatforms.get(id) || ''
         });
       });
     });

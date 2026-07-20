@@ -1574,6 +1574,10 @@ function renderRoster(list) {
         if (currentMode === 'kbm_emulated') iconSrc = '/assets/icons/arrow-up-from-line.svg';
         if (currentMode === 'experimental') iconSrc = '/assets/icons/plug.svg';
 
+        if (v.platform === 'Steam Deck') {
+            iconSrc = '/assets/icons/steamdeck.svg';
+        }
+
         if (!viewerAudioStates[v.id]) viewerAudioStates[v.id] = { vol: 100, state: 0 };
         const audState = _globalMicKillActive ? 3 : viewerAudioStates[v.id].state;
         const micSvg   = _micSvg(audState);
