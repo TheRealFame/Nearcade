@@ -2231,13 +2231,23 @@ async function sendOfferToViewer(viewerId) {
         }
     }
 
-    currentStream.getTracks().forEach(track => {
+    // ── MULTI-INSTANCE STREAM SELECTION ──
+    let targetStream = currentStream;
+    if (window._multiInstanceMode && window.viewerWindowAssignments && typeof window.viewerWindowAssignments[viewerId] !== 'undefined') {
+        const streamIdx = window.viewerWindowAssignments[viewerId];
+        if (window._multiStreams && window._multiStreams[streamIdx]) {
+            targetStream = window._multiStreams[streamIdx];
+            console.log(`[WebRTC] Routing specific instance stream ${streamIdx} to viewer ${viewerId}`);
+        }
+    }
+
+    targetStream.getTracks().forEach(track => {
         if (track.kind === 'video' && forceWc) {
             console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
             return;
         }
 
-        const sender = pc.addTrack(track, currentStream);
+        const sender = pc.addTrack(track, targetStream);
         if (track.kind === 'video' && sender.setParameters) {
             const params = sender.getParameters();
             if (params.encodings && params.encodings.length > 0) {
@@ -5357,12 +5367,33 @@ async function startMultiInstanceCapture() {
                 // Allow dropping viewers onto this tile to assign them
                 container.addEventListener('dragover', (e) => { e.preventDefault(); container.style.border = '2px solid var(--accent)'; });
                 container.addEventListener('dragleave', () => { container.style.border = 'none'; });
-                container.addEventListener('drop', (e) => {
+                container.addEventListener('drop', async (e) => {
                     e.preventDefault();
                     container.style.border = 'none';
                     if (window.draggedItem) {
                         const viewerId = window.draggedItem.dataset.id;
-                        alert('Assigned Viewer ' + viewerId + ' to Instance ' + (i+1) + '. (WebRTC track hot-swapping requires core rebuild)');
+                        if (!window.viewerWindowAssignments) window.viewerWindowAssignments = {};
+                        window.viewerWindowAssignments[viewerId] = i;
+                        log(`Binding Viewer ${viewerId} to Instance ${i+1}...`, 'ok');
+                        
+                        // Tell the python input driver to isolate their virtual pad to this evdev window!
+                        if (ws && ws.readyState === 1) {
+                            ws.send(JSON.stringify({
+                                type: 'bind-evdev',
+                                viewerId: viewerId,
+                                targetWindowName: src.name
+                            }));
+                        }
+                        
+                        // Re-negotiate WebRTC to swap the stream!
+                        if (peerConnections[viewerId]) {
+                            log(`Hot-swapping WebRTC video track for Viewer ${viewerId}...`, 'ok');
+                            try {
+                                peerConnections[viewerId].close(); // force destroy existing PC
+                            } catch (e) {}
+                            delete peerConnections[viewerId];
+                        }
+                        await sendOfferToViewer(viewerId);
                     }
                 });
                 

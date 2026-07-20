@@ -1682,6 +1682,14 @@ async function main() {
             return;
           }
 
+          if (msg.type === "bind-evdev") {
+            const realId = msg.viewerId.split('_')[0];
+            console.log(`[host] Binding Viewer ${realId} to evdev window target: ${msg.targetWindowName}`);
+            // Send to Python input driver
+            toUinput(msg);
+            return;
+          }
+
           if (msg.type === "chat") {
             const text = String(msg.msg || '');
             const urlRegex = /\b(?:https?:\/\/|www\.)[^\s]+\b/i;
