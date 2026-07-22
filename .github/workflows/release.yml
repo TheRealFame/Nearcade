@@ -139,7 +139,10 @@ jobs:
 
       - name: Sync Capacitor
         working-directory: ./packaging
-        run: npx cap sync android
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/android
+          npx cap sync android
 
       - name: Build APK (Release)
         working-directory: ./packaging/android
