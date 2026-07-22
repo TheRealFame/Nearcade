@@ -3731,7 +3731,8 @@ function connectVps(cfg) {
                         const hostParam = encodeURIComponent(cfg.hostName || 'Host');
                         const pSelect = document.getElementById('pipelineSelect');
                         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
-                        const viewerUrl = origin + '/?v3&host=' + hostParam + pipeArg;
+                        const baseOrigin = cfg.customUrl ? cfg.customUrl.replace(/\/$/, '') : origin;
+                        const viewerUrl = baseOrigin + '/?v3&host=' + hostParam + pipeArg;
                         window._globalTunnelUrl = viewerUrl;
                         if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC();
                         const el = document.getElementById('urlList');

@@ -827,7 +827,11 @@ async function main() {
     const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
-  app.get("/api/config", (req, res) => res.json(loadConfig()));
+  app.get("/api/config", (req, res) => {
+    const cfg = loadConfig();
+    if (process.env.CUSTOM_URL) cfg.customUrl = process.env.CUSTOM_URL.trim();
+    res.json(cfg);
+  });
   app.post("/api/config", adminMiddleware, express.json(), (req, res) => {
     const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
