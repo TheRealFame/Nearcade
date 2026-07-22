@@ -89,7 +89,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.on('forward-input-binary', (_event, viewerId, buf) => {
     const driver = _getInputDriver();
     if (driver && driver.sendBinary) {
-      try { driver.sendBinary(viewerId, new Uint8Array(buf)); } catch (e) {
+      try { driver.sendBinary(viewerId, Buffer.from(buf)); } catch (e) {
         console.error('[ipc] forward-input-binary error:', e.message);
       }
     }
