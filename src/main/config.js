@@ -50,6 +50,7 @@ const DEFAULTS = {
   firstRunComplete: false,
   neverBotherSetup: false,
   useSystemAccent: false,
+  useNativeTheme: false,
   checkForUpdates: true,
 };
 

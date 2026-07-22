@@ -1,0 +1,25 @@
+{
+  "name": "@nearcade/native-palette",
+  "version": "1.0.0",
+  "description": "Cross-platform deep semantic OS UI theme extraction (KDE, GTK, Windows, macOS)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "theme",
+    "desktop",
+    "kde",
+    "gtk",
+    "windows",
+    "macos",
+    "colors",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@nearcade/accent-color": "^0.1.2",
+    "ini": "^4.1.3"
+  }
+}

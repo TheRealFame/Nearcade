@@ -4,7 +4,7 @@ const os = require('os');
 const { spawn, execFileSync, exec, execSync } = require('child_process');
 const {
   app, ipcMain, shell, clipboard, desktopCapturer,
-  systemPreferences, dialog, nativeImage,
+  systemPreferences, dialog, nativeImage, nativeTheme
 } = require('electron');
 const { CONFIG_DIR, CONFIG_FILE, LOG_FILE, ROOT_DIR } = require('./config');
 const { loadControllers, saveSettings } = require('./config');
@@ -270,6 +270,21 @@ function registerIpcHandlers(ctx) {
       }
     } catch (_) { }
     return '#8b5cf6';
+  });
+
+  ipcMain.handle('get-native-theme', () => {
+    try {
+      const { getThemeColors } = require('../../packages/native-palette');
+      const theme = getThemeColors();
+      
+      // Force Electron to synchronize the titlebar and dialog colors with the OS
+      nativeTheme.themeSource = 'system';
+      
+      return theme;
+    } catch (e) {
+      console.error('[ipc] Failed to fetch native theme:', e);
+      return null;
+    }
   });
 
   ipcMain.handle('get-app-version', () => {

@@ -1,0 +1,340 @@
+:root {
+      --bg: #080808;
+      --sidebar: #0d0d0d;
+      --surface: #141414;
+      --surface-hover: #1a1a1a;
+      --accent: #c084fc;
+      --accent-dim: rgba(192, 132, 252, 0.15);
+      --text: #e8e8e8;
+      --muted: #888;
+      --muted2: #666;
+      --border: #222;
+      --danger: #ff4444;
+      --green: #44cc44;
+      --warn: #ffaa00;
+      --sidebar-width: 280px;
+    }
+
+    /* Mobile UI Overrides */
+@media screen and (max-width: 900px) {
+    /* Target the content boxes specifically, NOT the background */
+    .modal, .modal-content, #controllerGuideCard {
+        width: 95vw !important;
+        max-width: 95vw !important;
+        max-height: 85vh !important;
+        overflow-y: auto !important;
+        top: 5vh !important;
+        left: 2.5vw !important;
+        transform: none !important;
+        margin: 0 !important;
+    }
+}
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root { accent-color: var(--accent); }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #ns-splash-screen {
+      position: fixed; inset: 0; z-index: 999999;
+      background: #080808; display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.5s ease, visibility 0.5s;
+    }
+    #ns-splash-screen img {
+      width: 288px; filter: drop-shadow(0 0 25px rgba(192, 132, 252, 0.6));
+      animation: splashPop 2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+      transition: all 0.5s ease;
+    }
+    #ns-splash-screen.fading-out img {
+      filter: drop-shadow(0 0 60px rgba(192, 132, 252, 1));
+      transform: scale(1.05);
+    }
+    @keyframes splashPop {
+      0% { opacity: 0; transform: scale(0.9) translateY(-10px); filter: drop-shadow(0 0 0 rgba(192, 132, 252, 0)); }
+      20% { opacity: 1; transform: scale(1.02) translateY(0); filter: drop-shadow(0 0 40px rgba(192, 132, 252, 0.8)); }
+      100% { opacity: 1; transform: scale(1) translateY(0); filter: drop-shadow(0 0 25px rgba(192, 132, 252, 0.6)); }
+    }
+
+    /* Disable highlighting on the app UI */
+    html, body {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    /* But keep it enabled for text inputs and chat boxes */
+    input, textarea, [contenteditable] {
+      user-select: auto;
+      -webkit-user-select: auto;
+    }
+
+    #titlebar {
+      position: fixed; top: 0; left: 0; right: 0; height: 36px;
+      -webkit-app-region: drag; z-index: 500;
+    }
+
+    #app { flex: 1; min-height: 0; display: flex; }
+
+    .lang-switcher {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px;
+      margin-top: 8px;
+      border-radius: 12px;
+      transition: all 0.2s;
+    }
+    .globe-icon {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+      filter: invert(0.6);
+      transition: filter 0.2s;
+    }
+    #langSelect {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      transition: opacity 0.2s, color 0.2s;
+    }
+    #langSelect option {
+      background: var(--surface);
+      color: var(--text);
+    }
+    #langSelect:hover { color: var(--text); }
+    .lang-switcher:hover .globe-icon { filter: invert(0.9); }
+
+    #sidebar.collapsed #langSelect {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #sidebar {
+      width: var(--sidebar-width); background: var(--sidebar); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding: 32px 16px; z-index: 100;
+      transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+      /* NOTE: -webkit-app-region:drag removed from sidebar container.
+         The fixed #titlebar at the top of the window is the only drag zone.
+         Having drag on the sidebar caused intermittent click failures on
+         Linux/Electron even when child buttons declared no-drag. */
+      overflow: hidden; white-space: nowrap;
+    }
+    #sidebar.collapsed { width: 76px; }
+
+    .sidebar-header { display: flex; align-items: center; margin-bottom: 40px; margin-top: 36px; padding: 0 4px; -webkit-app-region: no-drag; }
+    .collapse-btn {
+      background: transparent; border: none; color: var(--muted); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+      border-radius: 8px; transition: background 0.2s, color 0.2s; margin-right: 12px;
+    }
+    .collapse-btn:hover { background: var(--surface); color: var(--accent); }
+    .collapse-btn svg { width: 20px; height: 20px; }
+
+    .brand-wrap { display: flex; align-items: center; gap: 12px; opacity: 1; transition: opacity 0.2s; }
+    #sidebar.collapsed .brand-wrap { opacity: 0; pointer-events: none; }
+    .brand-logo { height: 32px; filter: drop-shadow(0 0 10px rgba(192, 132, 252, 0.4)); }
+    .brand-text { font-size: 13px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+
+    .nav-btn {
+      width: 100%; text-align: left; background: transparent; border: 1px solid transparent;
+      color: var(--muted); padding: 14px; border-radius: 12px; font-family: inherit;
+      font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-bottom: 8px;
+      -webkit-app-region: no-drag; display: flex; align-items: center; gap: 16px; overflow: hidden;
+    }
+    .nav-btn svg { width: 22px; height: 22px; flex-shrink: 0; }
+    .nav-btn .btn-text { transition: opacity 0.2s; }
+    #sidebar.collapsed .nav-btn .btn-text { opacity: 0; }
+    .nav-btn:hover { color: var(--text); background: var(--surface); }
+    .nav-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(192,132,252,0.3); }
+
+    .spacer { flex: 1; }
+
+    #main-content { flex: 1; position: relative; display: flex; flex-direction: column; background: var(--bg); min-width: 0; }
+    .panel { display: none; width: 100%; height: 100%; flex-direction: column; overflow-y: auto; }
+    .panel.active { display: flex; }
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+    .connect-container { padding: 50px; max-width: 800px; display: flex; flex-direction: column; height: 100%; }
+    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; color: var(--text); letter-spacing: 0.02em; }
+    p.sub { color: var(--muted); font-size: 14px; margin-bottom: 40px; line-height: 1.5; }
+
+    .connect-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 30px; }
+    .connect-card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+    .connect-card h2 svg { width: 18px; height: 18px; }
+
+    .input-row { display: flex; gap: 12px; }
+    .input-wrapper { position: relative; flex: 1; display: flex; align-items: center; }
+    .input-wrapper input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); padding: 14px 18px; padding-right: 50px;
+      border-radius: 8px; color: var(--text); font-family: inherit; font-size: 14px; font-weight: 500; outline: none; transition: border-color 0.2s;
+    }
+    .input-wrapper input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+    .btn-paste {
+      position: absolute; right: 6px; background: transparent; border: none;
+      color: var(--muted); border-radius: 4px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .btn-paste:hover { color: var(--text, #fff); background: var(--surface-hover); border-color: transparent; }
+    .btn-paste svg { width: 16px; height: 16px; }
+
+    .btn-connect {
+      background: var(--accent); color: #000; border: none; padding: 0 28px; border-radius: 8px;
+      font-weight: 700; font-size: 14px; cursor: pointer; transition: transform 0.1s, filter 0.2s; font-family: inherit;
+    }
+    .btn-connect:hover { filter: brightness(1.15); box-shadow: 0 0 15px rgba(192, 132, 252, 0.3); }
+    .btn-connect:active { transform: scale(0.96); }
+
+    .error-msg { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 18px; font-weight: 500; }
+
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: auto; }
+    .info-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; justify-content: center; }
+    .info-card h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+    .info-card p { font-size: 13px; color: #aaa; line-height: 1.5; }
+
+    .settings-container { padding: 50px; max-width: 800px; }
+    .settings-section { margin-bottom: 30px; }
+    .settings-section h2 { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.2s;}
+    .setting-row:hover { border-color: var(--accent); }
+    .setting-info h4 { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .setting-info p { font-size: 12px; color: var(--muted); }
+
+    .toggle { position: relative; width: 44px; height: 24px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; transition: background 0.2s; flex-shrink: 0; }
+    .toggle.on { background: var(--accent); border-color: var(--accent); }
+    .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--text, #fff); border-radius: 50%; transition: transform 0.2s; }
+    .toggle.on .toggle-thumb { transform: translateX(20px); }
+
+    #updateModal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; }
+    #updateModal .modal-content { background: var(--surface); padding: 30px; border-radius: 12px; border: 1px solid var(--border); max-width: 400px; text-align: center; }
+    #updateModal h2 { color: var(--accent); margin-bottom: 12px; font-weight: 700; }
+    #updateModal p { color: var(--muted); margin-bottom: 24px; font-size: 14px; line-height: 1.5; }
+    #updateModal .modal-actions { display: flex; gap: 12px; justify-content: center; }
+    #updateModal button { padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; border: none; transition: filter 0.2s; }
+    #updateModal button:hover { filter: brightness(1.1); }
+    #updateModal .btn-primary { background: var(--accent); color: #000; }
+    #updateModal .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
+    .modal-bg.open { display: flex; animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-content { background: var(--surface); width: 600px; height: 550px; border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.8); overflow: hidden; transform: scale(0.98); transition: transform 0.2s; }
+    .modal-bg.open .modal-content { transform: scale(1); }
+    .modal-head { padding: 16px 20px; background: #0a0a0a; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: var(--accent); letter-spacing: 0.05em; }
+    .close-modal { background: var(--surface-hover); border: 1px solid var(--border); border-radius: 6px; width: 28px; height: 28px; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .close-modal:hover { color: var(--text, #fff); border-color: #555; }
+
+    #virtual-cursor { position: fixed; width: 20px; height: 20px; background: rgba(192,132,252,0.6); border: 2px solid var(--text, #fff); border-radius: 50%; z-index: 999999; pointer-events: none; display: none; box-shadow: 0 0 15px #c084fc; transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    #virtual-cursor.clicking { transform: scale(0.6); background: var(--text, #fff); }
+    body.client-only .host-only { display: none !important; }
+  /* ═══ GAMES RIBBON (arrow tab, middle-right) ═══ */
+    #gamesTab {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 22px;
+      height: 160px;
+      background: var(--surface, #141414);
+      border: 1px solid var(--border, #222);
+      border-right: none;
+      border-radius: 8px 0 0 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      z-index: 500;
+      color: var(--muted2, #666);
+      user-select: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    #gamesTab:hover { background: var(--accent-dim, rgba(192,132,252,0.15)); color: var(--accent, #c084fc); }
+
+    /* ── Games Overlay (Full Collection) ── */
+    #gamesOverlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(8,8,8,0.55);
+      backdrop-filter: blur(4px);
+      z-index: 1100;
+    }
+    #gamesOverlay.open { display: block; }
+    #gamesOverlay .go-panel {
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      width: 80%;
+      max-width: 900px;
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 40px rgba(0,0,0,0.5);
+      animation: goSlideIn 0.2s ease-out;
+    }
+    @keyframes goSlideIn {
+      from { transform: translateX(40px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    #gamesOverlay .go-panel iframe {
+      width: 100%; height: 100%;
+      border: none;
+    }
+
+  /* Mobile UI Overrides & Notch Protection */
+    @media screen and (max-width: 900px) {
+    .modal, .modal-content, #controllerGuideCard {
+            width: 95vw !important;
+            max-width: 95vw !important;
+            max-height: 85vh !important;
+            overflow-y: auto !important;
+            top: 5vh !important;
+            left: 2.5vw !important;
+            transform: none !important;
+            margin: 0 !important;
+        }
+    }
+  .tunnel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-top: 8px; }
+  .tunnel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .tunnel-card:hover { border-color: var(--accent-dim, rgba(192,132,252,0.4)); background: rgba(255,255,255,0.02); }
+  .tunnel-card.highlight { border-color: var(--accent); background: rgba(192,132,252,0.06); }
+  .tunnel-card .tc-header { display: flex; align-items: center; gap: 6px; }
+  .tunnel-card .tc-icon { width: 24px; height: 24px; border-radius: 4px; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); flex-shrink: 0; font-family: 'IBM Plex Mono', monospace; }
+  .tunnel-card .tc-name { font-weight: 600; font-size: 13px; flex: 1; }
+  .tunnel-card .tc-badge { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; padding: 1px 5px; border-radius: 3px; }
+  .tunnel-card .tc-badge.free { background: #1a3a2a; color: var(--green); }
+  .tunnel-card .tc-badge.paid { background: #3a2a1a; color: var(--yellow); }
+  .tunnel-card .tc-badge.easy { background: #1a2a3a; color: #60a5fa; }
+  .tunnel-card .tc-badge.adv { background: #2a1a3a; color: var(--accent2); }
+  .tunnel-card .tc-badge.manual { background: #2a2a1a; color: #aaa; }
+  .tunnel-card .tc-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .tunnel-card .tc-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+  .tunnel-card .tc-status { font-size: 10px; display: flex; align-items: center; gap: 4px; }
+  .tunnel-card .tc-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .tunnel-card .tc-dot.found { background: var(--green); }
+  .tunnel-card .tc-dot.missing { background: #555; }
+  .tunnel-card .tc-dot.error { background: var(--red); }
+  .more-tunnels-btn { background: none; border: 1px dashed var(--border); color: var(--muted); padding: 12px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; width: 100%; text-align: center; transition: border-color .15s, color .15s; font-family: inherit; }
+  .more-tunnels-btn:hover { border-color: var(--accent); color: var(--text); }
+  .more-tunnels-btn .arrow { display: inline-block; transition: transform .2s; }
+  .more-tunnels-btn.open .arrow { transform: rotate(180deg); }
+  #tunnelGridContainer { max-height: 0; overflow: hidden; transition: max-height .35s ease; }
+  #tunnelGridContainer.open { max-height: 4000px; }
+  .tunnel-section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 16px 0 6px 2px; }
+  .tunnel-status { padding: 10px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; margin-top: 8px; }
+  .tunnel-status.loading { background: rgba(192,132,252,0.08); border: 1px solid var(--accent-dim); color: var(--accent); }
+  .tunnel-status.success { background: rgba(76,175,80,0.08); border: 1px solid rgba(76,175,80,0.3); color: var(--green); }
+  .tunnel-status.error { background: rgba(244,67,54,0.08); border: 1px solid rgba(244,67,54,0.3); color: var(--red); }

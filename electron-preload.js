@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getServerInfo: ()               => ipcRenderer.invoke('get-server-info'),
   getVersion:    ()               => ipcRenderer.invoke('get-app-version'),
   getAccentColor: ()              => ipcRenderer.invoke('get-accent-color'),
+  getNativeTheme: ()              => ipcRenderer.invoke('get-native-theme'),
   // FIX #7: openHost now accepts an optional version string ('new' | 'old')
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   openLog:     ()                 => ipcRenderer.send('open-log'),

@@ -8,6 +8,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <title>Nearcade</title>
+  <script src="/js/native-theme.js"></script>
   <link rel="stylesheet" href="/css/host.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -309,14 +310,14 @@
 
     _whenReady(() => {
       const capDotEl = document.getElementById('capDot');
-      const livePill = document.getElementById('livePill');
+      const livePill = document.getElementById('capStatusPill');
       const dot2 = document.getElementById('capDot2');
       if (!capDotEl) return;
 
       function syncLivePill() {
         const isLive = capDotEl.classList.contains('live');
         const isErr = capDotEl.classList.contains('err');
-        if (livePill) livePill.style.display = isLive ? 'flex' : 'none';
+        if (livePill) { livePill.style.display = 'flex'; if (isLive) livePill.classList.add('live-pill'); else livePill.classList.remove('live-pill'); }
         if (dot2) dot2.className = 'dot' + (isLive ? ' live' : isErr ? ' err' : '');
       }
 
@@ -381,7 +382,7 @@
         if (typeof orig !== 'function') return;
         window.setCapDot = function (state) {
           orig(state);
-          const pill = document.getElementById('livePill');
+          const pill = document.getElementById('capStatusPill');
           if (pill) pill.style.display = state === 'live' ? 'flex' : 'none';
         };
       })();
