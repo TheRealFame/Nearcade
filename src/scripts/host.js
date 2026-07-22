@@ -5790,3 +5790,26 @@ window.toggleHostDelay = function(enabled) {
         window.ws.send(JSON.stringify({ type: 'host_delay', enabled: enabled, delayMs: 0 }));
     }
 };
+
+// ── PREVENT ACCIDENTAL RELOADS ──
+// Protects the host session from accidental Ctrl+R / F5 / Tab closes
+window.addEventListener('beforeunload', (e) => {
+    if ((typeof _vpsConfig !== 'undefined' && _vpsConfig && _vpsConfig.vpsEnabled) || (typeof ws !== 'undefined' && ws && ws.readyState === 1)) {
+        e.preventDefault();
+        e.returnValue = 'You are currently hosting an active Arcade session. Reloading will disconnect all viewers. Are you sure you want to leave?';
+    }
+});
+
+window.addEventListener('keydown', (e) => {
+    // Intercept Ctrl+R, Cmd+R, and F5
+    if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') || e.key === 'F5') {
+        if ((typeof _vpsConfig !== 'undefined' && _vpsConfig && _vpsConfig.vpsEnabled) || (typeof ws !== 'undefined' && ws && ws.readyState === 1)) {
+            e.preventDefault();
+            if (confirm("You are currently hosting an active Arcade session.\n\nReloading the page will drop all viewers and terminate the broadcast.\n\nAre you sure you want to reload?")) {
+                // Temporarily disable the beforeunload listener so location.reload() succeeds
+                window.onbeforeunload = null; 
+                location.reload();
+            }
+        }
+    }
+});
