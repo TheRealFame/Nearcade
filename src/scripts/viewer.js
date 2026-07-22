@@ -1653,7 +1653,7 @@ function pollGamepad() {
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
     if (changed || forceHb) {
         lastGpSend[vIndex] = now;
-        if (useVps || (inputWs && inputWs.readyState === 1 && !window._fastLaneChannel)) {
+        if (vpsConnected || (inputWs && inputWs.readyState === 1 && !window._fastLaneChannel)) {
             sendInputData(_packGamepadJson(vIndex, state));
         } else {
             sendInputData(_packGamepadBinary(vIndex, state));
@@ -2215,6 +2215,7 @@ async function connect() {
         }
         if (msg.type === 'auth-ok') {
             vpsConnected = true;
+            document.getElementById('chatBtn').style.display = 'flex'; // Show chat button on VPS
             if (msg.viewer_id) {
                 myId = msg.viewer_id;
                 sessionStorage.setItem('ns_viewer_id', myId);
@@ -2549,8 +2550,9 @@ async function connect() {
 // For local (non-VPS) servers, check the HTTP API on load.
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
-    const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
-    if (!useVps) {
+    // The chat button is hidden by default in index.html (or we hide it here).
+    // It will be shown when vpsConnected becomes true.
+    document.getElementById('chatBtn').style.display = 'none';
         safeApiJson('/api/pin-required', { required: true }).then(d => {
             pinRequired = d.required !== false;
             if (!pinRequired) {
