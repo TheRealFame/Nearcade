@@ -97,7 +97,18 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-settings', () => {
     const s = { ...ctx.settings };
-    if (process.env.CUSTOM_URL) s.customUrl = process.env.CUSTOM_URL.trim();
+    try {
+      let envFile = path.join(ROOT_DIR, '.env');
+      if (!fs.existsSync(envFile)) envFile = path.join(CONFIG_DIR, '.env');
+      if (fs.existsSync(envFile)) {
+        const envContent = fs.readFileSync(envFile, 'utf8');
+        envContent.split('\n').forEach(line => {
+          const match = line.match(/^\s*CUSTOM_URL\s*=\s*(.*)?\s*$/);
+          if (match) s.customUrl = (match[1] || '').trim().replace(/^['"]|['"]$/g, '');
+        });
+      }
+    } catch (_) {}
+    if (process.env.CUSTOM_URL && !s.customUrl) s.customUrl = process.env.CUSTOM_URL.trim();
     return s;
   });
 
