@@ -708,7 +708,7 @@
             </select>
           </div>
 
-          <div class="ctrl-modal-row" id="ctrlRowHybrid" onclick="toggleHybridInput()" style="margin-top:8px;">
+                    <div class="ctrl-modal-row" id="ctrlRowHybrid" onclick="toggleHybridInput()" style="margin-top:8px;">
             <div class="ctrl-toggle-track" id="ctrlTrackHybrid">
               <div class="ctrl-toggle-thumb"></div>
             </div>
@@ -717,6 +717,17 @@
               <div class="ctrl-row-desc">Both gamepad and KBM emulation active simultaneously (Degraded performance). Also disables
                 window-title auto-mapping.</div>
             </div>
+          </div>
+
+          <div class="ctrl-modal-row" id="ctrlRowHostDelay" onclick="document.getElementById('hostDelayToggle').click()" style="margin-top:8px;">
+            <div class="ctrl-toggle-track" id="ctrlTrackHostDelay">
+              <div class="ctrl-toggle-thumb"></div>
+            </div>
+            <div class="ctrl-row-text">
+              <div class="ctrl-row-label">Equalize Host Latency</div>
+              <div class="ctrl-row-desc">Automatically delays the physical host controller to match viewer latency (Linux only).</div>
+            </div>
+            <input type="checkbox" id="hostDelayToggle" style="display:none;" onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked); document.getElementById('ctrlTrackHostDelay').classList.toggle('on', this.checked)">
           </div>
 
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
@@ -820,10 +831,7 @@
               <div style="display:flex;align-items:center;gap:6px;">
                 <img src="/assets/icons/controller.svg" style="width:14px;height:14px;opacity:0.7;"> Controller Roster (Drag to swap)
               </div>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;text-transform:none;" title="Host Delay Equalization: Automatically delays the physical host controller to match viewer latency (Linux only).">
-                <input type="checkbox" id="hostDelayToggle" onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked)">
-                <span style="font-size:10px;opacity:0.8;">Equalize Host Latency</span>
-              </label>
+              
             </div>
             <div id="roster" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:48px;"></div>
             <div class="empty-note" id="rosterEmpty" style="margin-top:0;">Waiting for viewers...</div>
