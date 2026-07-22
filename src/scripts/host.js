@@ -1420,8 +1420,12 @@ async function renderUrls(d) {
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
         const baseSep = d.tunnelUrl.includes('?') ? '&' : '?';
         finalTunnelUrl = `${d.tunnelUrl}${baseSep}host=${encodedName}${pipeArg}`;
+        window._globalTunnelUrl = finalTunnelUrl;
+    } else if (window._vpsConfig && window._vpsConfig.vpsEnabled) {
+        finalTunnelUrl = window._globalTunnelUrl; // Preserve URL set by VPS WebSocket
+    } else {
+        window._globalTunnelUrl = null;
     }
-    window._globalTunnelUrl = finalTunnelUrl;
 
     const pSelect = document.getElementById('pipelineSelect');
     const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
@@ -1432,8 +1436,12 @@ async function renderUrls(d) {
     // Check if we are running in P2P mode!
     if (window._isP2P && window._p2pCode) {
         rows.push({ url: window._p2pCode, label: 'P2P ROOM CODE', color: 'var(--accent2)' });
+    } else if (window._vpsConfig && window._vpsConfig.vpsEnabled && finalTunnelUrl) {
+        rows.push({ url: finalTunnelUrl, label: 'VPS SFU (v3) ← share this', color: 'var(--accent)' });
     } else if (finalTunnelUrl) {
         rows.push({ url: finalTunnelUrl, label: 'HTTPS tunnel (v3) ← share this', color: 'var(--accent)' });
+    } else if (window._vpsConfig && window._vpsConfig.vpsEnabled && !finalTunnelUrl) {
+        rows.push({ url: 'VPS SFU mode — connecting...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
     } else if (!isPortForward) {
         rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
     }
