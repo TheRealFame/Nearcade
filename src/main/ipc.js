@@ -95,7 +95,11 @@ function registerIpcHandlers(ctx) {
     }
   });
 
-  ipcMain.handle('get-settings', () => ctx.settings);
+  ipcMain.handle('get-settings', () => {
+    const s = { ...ctx.settings };
+    if (process.env.CUSTOM_URL) s.customUrl = process.env.CUSTOM_URL.trim();
+    return s;
+  });
 
   ipcMain.handle('get-vps-config', () => ({
     vpsEnabled: !!ctx.settings.vpsEnabled,
