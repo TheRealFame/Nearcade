@@ -1653,8 +1653,45 @@ function pollGamepad() {
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
     if (changed || forceHb) {
         lastGpSend[vIndex] = now;
-        sendInputData(_packGamepadBinary(vIndex, state));
+        if (useVps || (inputWs && inputWs.readyState === 1 && !window._fastLaneChannel)) {
+            sendInputData(_packGamepadJson(vIndex, state));
+        } else {
+            sendInputData(_packGamepadBinary(vIndex, state));
+        }
     }
+}
+
+function _packGamepadJson(vIndex, state) {
+    let btnMask = 0;
+    if (state.buttons[0]?.pressed) btnMask |= 0x0001;
+    if (state.buttons[1]?.pressed) btnMask |= 0x0002;
+    if (state.buttons[2]?.pressed) btnMask |= 0x0004;
+    if (state.buttons[3]?.pressed) btnMask |= 0x0008;
+    if (state.buttons[4]?.pressed) btnMask |= 0x0100;
+    if (state.buttons[5]?.pressed) btnMask |= 0x0200;
+    if (state.buttons[8]?.pressed) btnMask |= 0x2000;
+    if (state.buttons[9]?.pressed) btnMask |= 0x1000;
+    if (state.buttons[10]?.pressed) btnMask |= 0x0400;
+    if (state.buttons[11]?.pressed) btnMask |= 0x0800;
+    if (state.buttons[12]?.pressed) btnMask |= 0x0010;
+    if (state.buttons[13]?.pressed) btnMask |= 0x0020;
+    if (state.buttons[14]?.pressed) btnMask |= 0x0040;
+    if (state.buttons[15]?.pressed) btnMask |= 0x0080;
+    if (state.buttons[16]?.pressed) btnMask |= 0x4000;
+
+    return JSON.stringify({
+        type: 'gamepad',
+        viewerId: myId,
+        pad_id: myId + '_' + vIndex,
+        padIndex: vIndex,
+        buttons: btnMask,
+        lx: state.axes[0] || 0,
+        ly: state.axes[1] || 0,
+        rx: state.axes[2] || 0,
+        ry: state.axes[3] || 0,
+        lt: (state.buttons[6]?.value || 0) / 255.0,
+        rt: (state.buttons[7]?.value || 0) / 255.0
+    });
 }
 
 function _packGamepadBinary(vIndex, state) {
