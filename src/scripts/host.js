@@ -4085,6 +4085,7 @@ if (document.readyState === 'loading') {
 }
 
 function startAudioMeter(stream) {
+    stopAudioMeter();
     const fill = document.getElementById('meter');
     if (!fill) return; // Safely exit if UI doesn't have a meter
     
@@ -4174,9 +4175,7 @@ function confirmTunnel() {
     setTunnelBusy(true);
 
     if (provider === 'portforward') {
-        if (remember) {
-            saveAppConfig({ tunnelProvider: 'portforward', neverAsk: true });
-        }
+        saveAppConfig({ tunnelProvider: 'portforward', neverAsk: remember });
         setTunnelBusy(false);
         closeTunnelModal();
         log(I18N.t('Using direct Port Forwarding. Share your Public IP URL.'), 'ok');
@@ -4204,9 +4203,7 @@ function confirmTunnel() {
         if (window.electronAPI && typeof window.electronAPI.saveVpsConfig === 'function') {
             window.electronAPI.saveVpsConfig(vpsCfg);
         }
-        if (remember) {
-            saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: true });
-        }
+        saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: remember });
         
         // Clear P2P UI locks
         window._isP2P = false;
@@ -4283,9 +4280,7 @@ function proceedP2POnly() {
         }
     }
 
-    if (remember) {
-        saveAppConfig({ tunnelProvider: 'p2p', neverAsk: true });
-    }
+    saveAppConfig({ tunnelProvider: 'p2p', neverAsk: remember });
 
     // Generate a random 12-char room code
     const array = new Uint32Array(2);
@@ -5793,21 +5788,12 @@ window.toggleHostDelay = function(enabled) {
 
 // ── PREVENT ACCIDENTAL RELOADS ──
 // Protects the host session from accidental Ctrl+R / F5 / Tab closes
-window.addEventListener('beforeunload', (e) => {
-    if ((typeof _vpsConfig !== 'undefined' && _vpsConfig && _vpsConfig.vpsEnabled) || (typeof ws !== 'undefined' && ws && ws.readyState === 1)) {
-        e.preventDefault();
-        e.returnValue = 'You are currently hosting an active Arcade session. Reloading will disconnect all viewers. Are you sure you want to leave?';
-    }
-});
-
 window.addEventListener('keydown', (e) => {
     // Intercept Ctrl+R, Cmd+R, and F5
     if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') || e.key === 'F5') {
         if ((typeof _vpsConfig !== 'undefined' && _vpsConfig && _vpsConfig.vpsEnabled) || (typeof ws !== 'undefined' && ws && ws.readyState === 1)) {
             e.preventDefault();
             if (confirm("You are currently hosting an active Arcade session.\n\nReloading the page will drop all viewers and terminate the broadcast.\n\nAre you sure you want to reload?")) {
-                // Temporarily disable the beforeunload listener so location.reload() succeeds
-                window.onbeforeunload = null; 
                 location.reload();
             }
         }

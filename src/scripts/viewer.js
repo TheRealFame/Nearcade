@@ -921,9 +921,9 @@ function sysChat(text) { console.log("[Nearcade System]:", text); }
 const video = document.getElementById('video');
 const frameCanvas = document.getElementById('frameCanvas');
 const frameCtx = frameCanvas.getContext('2d', { alpha: false });
-let processorRunning = false;
 
 function startFrameProcessor(track) {
+    let processorRunning = false;
     if (!window.MediaStreamTrackProcessor) {
         if (!video.srcObject) video.srcObject = new MediaStream();
         video.srcObject.addTrack(track);
@@ -2098,7 +2098,6 @@ async function connect() {
             const videoEl = document.getElementById('video');
             if (videoEl?.srcObject) { videoEl.srcObject.getTracks().forEach(t => t.stop()); videoEl.srcObject = null; }
             document.getElementById('frameCanvas').style.display = 'none';
-            processorRunning = false;
             showOverlay(true); setStatus('Host reconnected, waiting for stream...');
             const sp1 = document.getElementById('spinner'); if (sp1) sp1.style.display = 'block';
             // Display the host's saved name in both the overlay and the topbar pill
