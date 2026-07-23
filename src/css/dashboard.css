@@ -338,3 +338,65 @@
   .tunnel-status.loading { background: rgba(192,132,252,0.08); border: 1px solid var(--accent-dim); color: var(--accent); }
   .tunnel-status.success { background: rgba(76,175,80,0.08); border: 1px solid rgba(76,175,80,0.3); color: var(--green); }
   .tunnel-status.error { background: rgba(244,67,54,0.08); border: 1px solid rgba(244,67,54,0.3); color: var(--red); }
+/* Community Server Cards */
+.container-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.container-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(192, 132, 252, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.container-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(circle at 100% 0%, rgba(192, 132, 252, 0.08) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.container-card:hover::before {
+  opacity: 1;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, var(--accent), #9b51e0);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(192, 132, 252, 0.2);
+}
+
+.primary-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(192, 132, 252, 0.4);
+  filter: brightness(1.1);
+}
+
+.primary-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.primary-btn:disabled {
+  background: rgba(255,255,255,0.1);
+  color: var(--muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
