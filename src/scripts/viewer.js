@@ -194,25 +194,10 @@ function recoverWebCodecsDecoder() {
 let sysAudioCtx = null;
 let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
+let useVps = false;
 let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || '';
-document.getElementById('nameInput').value = myName || 'ncade_' + Math.random().toString(36).slice(2, 10);
-if (urlParamsGlobal.get('name')) localStorage.setItem('ns_name', myName);
-// Fall back to server config name so arcade/in-app viewers see their dashboard name
-if (!localStorage.getItem('ns_name')) {
-  fetch('/api/config').then(r => r.json()).then(cfg => {
-    if (cfg && cfg.hostName) {
-      myName = cfg.hostName;
-      document.getElementById('nameInput').value = myName;
-      localStorage.setItem('ns_name', myName);
-      // Refresh the color picker's preview now that we have a name
-      const inp = document.getElementById('nameInput');
-      if (inp) {
-        const evt = new Event('input', { bubbles: true });
-        inp.dispatchEvent(evt);
-      }
-    }
-  }).catch(() => {});
-}
+document.getElementById("nameInput").value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
+if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 // ── PRE-JOIN HOST INFO ──
 (function fetchHostInfo() {
   const hostUrl = urlParamsGlobal.get('host');
@@ -421,7 +406,13 @@ async function createPC() {
         }
         if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
     };
-    pc.oniceconnectionstatechange = () => console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'failed') {
+            console.warn('[WebRTC] ICE failed. Requesting fresh offer to recover...');
+            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
+        }
+    };
     pc.onsignalingstatechange = () => console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
     pc.onicecandidateerror = (e) => console.error('[WebRTC] ICE Error:', e);
 
@@ -940,7 +931,7 @@ function startFrameProcessor(track) {
             showOverlay(false); setStatus('Live', true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
-            document.getElementById('kbmHint').style.display = 'inline';
+            if (window.kbmHintEnabled) document.getElementById('kbmHint').style.display = 'inline';
             const overlay = document.getElementById('overlay');
             if (overlay) overlay.style.backgroundColor = '';
             if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) _swapOverlayEl.style.display = 'none';
@@ -976,7 +967,7 @@ function startFrameProcessor(track) {
             showOverlay(false); setStatus('Live', true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
-            document.getElementById('kbmHint').style.display = 'inline';
+            if (window.kbmHintEnabled) document.getElementById('kbmHint').style.display = 'inline';
             const overlay = document.getElementById('overlay');
             if (overlay) overlay.style.backgroundColor = '';
             if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) _swapOverlayEl.style.display = 'none';
@@ -1158,8 +1149,8 @@ const touchState = {
 function toggleTouch() {
     touchMode = !touchMode;
     document.getElementById('touchUI').classList.toggle('gone', !touchMode);
-    const btn = document.getElementById('touchToggleBtn');
-    if (btn) { btn.classList.toggle('ns-btn-active', touchMode); btn.textContent = touchMode ? 'Touch UI: ON' : 'Touch UI: OFF'; }
+    const btn = document.getElementById('vTouchToggle');
+    if (btn) { if (touchMode) btn.classList.add('on'); else btn.classList.remove('on'); }
     document.getElementById('nsBar').classList.remove('open');
 }
 
@@ -1883,7 +1874,7 @@ async function connect() {
     } else {
         // Always use /ws/viewer — the Node.js server has no /vps handler.
         // The ?v3 param is kept for backward compat (doesn't affect routing).
-        const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+        useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
         let wsUrl;
         if (hostParam && !hostParam.startsWith('p2p://') && hostParam.includes('://')) {
             let base = hostParam.replace(/\/$/, '');
@@ -2549,7 +2540,7 @@ async function connect() {
 // For local (non-VPS) servers, check the HTTP API on load.
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
-    const useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
     if (!useVps) {
         safeApiJson('/api/pin-required', { required: true }).then(d => {
             pinRequired = d.required !== false;
@@ -3023,12 +3014,12 @@ function initGamepadPrediction() {
     document.body.appendChild(_gpPredictEl);
     const obs = new MutationObserver(() => {
         const gpConnected = navigator.getGamepads ? Array.from(navigator.getGamepads()).some(g => g && g.connected) : false;
-        _gpPredictEl.style.display = gpConnected ? 'flex' : 'none';
+        _gpPredictEl.style.display = (gpConnected && window.kbmHintEnabled) ? 'flex' : 'none';
     });
     obs.observe(document.body, { childList: true, subtree: true });
 
     // Show on first gamepad connect
-    window.addEventListener('gamepadconnected', () => { _gpPredictEl.style.display = 'flex'; });
+    window.addEventListener('gamepadconnected', () => { if (window.kbmHintEnabled) _gpPredictEl.style.display = 'flex'; });
     window.addEventListener('gamepaddisconnected', () => {
         const still = navigator.getGamepads ? Array.from(navigator.getGamepads()).some(g => g && g.connected) : false;
         if (!still) _gpPredictEl.style.display = 'none';
