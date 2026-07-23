@@ -827,6 +827,18 @@ async function main() {
     const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
+
+  app.get("/api/community-servers", (req, res) => {
+    const file = path.join(projectRoot, 'config', 'community-servers.json');
+    if (fs.existsSync(file)) res.sendFile(file);
+    else res.json([]);
+  });
+
+  app.get("/api/community-turn-servers", (req, res) => {
+    const file = path.join(projectRoot, 'config', 'community-turn-servers.json');
+    if (fs.existsSync(file)) res.sendFile(file);
+    else res.json([]);
+  });
   app.get("/api/config", (req, res) => {
     const cfg = loadConfig();
     if (process.env.CUSTOM_URL) cfg.customUrl = process.env.CUSTOM_URL.trim();

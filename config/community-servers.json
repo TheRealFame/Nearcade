@@ -7,13 +7,6 @@
     "description": "The default highly-available STUN server."
   },
   {
-    "name": "Cloudflare STUN",
-    "url": "stun:stun.cloudflare.com:3478",
-    "author": "Cloudflare",
-    "region": "Global",
-    "description": "Public STUN server provided by Cloudflare."
-  },
-  {
     "name": "Community Test Server",
     "url": "stun:stun.example.com:3478",
     "author": "FameCommunity",

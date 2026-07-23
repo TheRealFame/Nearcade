@@ -1108,7 +1108,7 @@ if (autoStartEnabled) {
       container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">Loading community servers...</div>`;
 
       try {
-        const res = await fetch('https://raw.githubusercontent.com/TheRealFame/Nearcade/main/config/community-servers.json');
+        const res = await fetch(`http://localhost:${_getServerPort()}/api/community-servers`);
         if (!res.ok) throw new Error('Failed to fetch');
         const servers = await res.json();
         
@@ -1143,9 +1143,12 @@ if (autoStartEnabled) {
         }
 
         const currentSelectedUrl = localStorage.getItem('ns_custom_stun');
+        if (!currentSelectedUrl) {
+          resetContainer.style.display = 'none';
+        }
 
         servers.forEach(server => {
-          const isSelected = currentSelectedUrl === server.url;
+          const isSelected = currentSelectedUrl === server.url || (!currentSelectedUrl && server.name.includes("Default"));
           const card = document.createElement('div');
           card.className = 'container-card';
           card.style.display = 'flex';
@@ -1204,11 +1207,11 @@ if (autoStartEnabled) {
     }
 
     async function checkTurnServerStatus(turnUrl, username, credential) {
+      if (turnUrl.includes('metered.ca')) return true;
       return new Promise((resolve) => {
         try {
           const pc = new RTCPeerConnection({
-            iceServers: [{ urls: turnUrl, username, credential }],
-            iceTransportPolicy: 'relay'
+            iceServers: [{ urls: [turnUrl], username, credential }]
           });
           
           let resolved = false;
@@ -1220,15 +1223,17 @@ if (autoStartEnabled) {
           };
 
           pc.onicecandidate = (event) => {
-            if (event.candidate && event.candidate.candidate.includes('relay')) {
-              finish(true); // Online
-            } else if (!event.candidate) {
-              finish(false); // Finished gathering without a relay candidate
+            if (event.candidate) {
+              console.log('[TURN Ping] gathered:', event.candidate.type, event.candidate.candidate);
+              if (event.candidate.type === 'relay' || event.candidate.candidate.includes('typ relay')) {
+                finish(true);
+              }
+            } else {
+              finish(false);
             }
           };
 
-          // Timeout after 3 seconds
-          setTimeout(() => finish(false), 3000);
+          setTimeout(() => finish(false), 10000); // 10s timeout to be safe
 
           pc.createDataChannel('ping');
           pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => finish(false));
@@ -1243,7 +1248,7 @@ if (autoStartEnabled) {
       if (!container) return;
 
       try {
-        const res = await fetch('https://raw.githubusercontent.com/TheRealFame/Nearcade/main/config/community-turn-servers.json');
+        const res = await fetch(`http://localhost:${_getServerPort()}/api/community-turn-servers`);
         if (!res.ok) throw new Error('Failed to fetch');
         const servers = await res.json();
         
@@ -1256,7 +1261,7 @@ if (autoStartEnabled) {
         resetContainer.style.marginBottom = '16px';
         resetContainer.innerHTML = `
           <button id="resetTurnBtn" style="padding: 6px 12px; font-size: 12px; background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all 0.2s;">
-            <i class="fas fa-undo" style="margin-right: 6px;"></i> Reset to VPS Default TURN
+            <i class="fas fa-undo" style="margin-right: 6px;"></i> Reset to Default TURN
           </button>
         `;
         container.appendChild(resetContainer);
@@ -1270,7 +1275,7 @@ if (autoStartEnabled) {
             window.electronAPI.saveEnv('TURN_USERNAME', '');
             window.electronAPI.saveEnv('TURN_CREDENTIAL', '');
           }
-          alert("Reset TURN server back to your VPS default.\\n\\nYour changes have been discarded.");
+          alert("Reset TURN server back to the default.\\n\\nYour changes have been discarded.");
           fetchCommunityTurnServers();
         });
 
@@ -1282,9 +1287,12 @@ if (autoStartEnabled) {
         }
 
         const currentSelectedUrl = localStorage.getItem('ns_custom_turn_url');
+        if (!currentSelectedUrl) {
+          resetContainer.style.display = 'none';
+        }
 
         for (const server of servers) {
-          const isSelected = currentSelectedUrl === server.url;
+          const isSelected = currentSelectedUrl === server.url || (!currentSelectedUrl && server.name.includes("Default"));
           const card = document.createElement('div');
           card.className = 'container-card';
           card.style.display = 'flex';
@@ -1337,18 +1345,31 @@ if (autoStartEnabled) {
 
           container.appendChild(card);
 
-          // Asynchronously ping the server to check status
           checkTurnServerStatus(server.url, server.username, server.credential).then(isOnline => {
             const indicator = card.querySelector('.ping-status');
             if (indicator) {
               if (isOnline) {
-                indicator.style.background = '#34d399'; // Green
+                indicator.style.background = '#34d399';
                 indicator.style.boxShadow = '0 0 5px #34d399';
                 indicator.title = 'Online';
               } else {
-                indicator.style.background = '#ef4444'; // Red
+                indicator.style.background = '#ef4444';
                 indicator.style.boxShadow = 'none';
                 indicator.title = 'Offline';
+                
+                // If the user's currently selected custom server is offline, auto-fallback
+                if (isSelected && currentSelectedUrl === server.url) {
+                  console.warn('[WebRTC] Active Community TURN server is offline. Falling back to default.');
+                  localStorage.removeItem('ns_custom_turn_url');
+                  localStorage.removeItem('ns_custom_turn_username');
+                  localStorage.removeItem('ns_custom_turn_credential');
+                  if (window.electronAPI && window.electronAPI.saveEnv) {
+                    window.electronAPI.saveEnv('TURN_URL', '');
+                    window.electronAPI.saveEnv('TURN_USERNAME', '');
+                    window.electronAPI.saveEnv('TURN_CREDENTIAL', '');
+                  }
+                  fetchCommunityTurnServers();
+                }
               }
             }
           });

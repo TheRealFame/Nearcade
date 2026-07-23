@@ -371,9 +371,9 @@
 }
 
 .primary-btn {
-  background: linear-gradient(135deg, var(--accent), #9b51e0);
-  color: white;
-  border: none;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 20px;
   font-size: 13px;
@@ -381,13 +381,12 @@
   font-family: 'IBM Plex Mono', monospace;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(192, 132, 252, 0.2);
 }
 
 .primary-btn:hover:not(:disabled) {
-  transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(192, 132, 252, 0.4);
-  filter: brightness(1.1);
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(192, 132, 252, 0.2);
 }
 
 .primary-btn:active:not(:disabled) {
@@ -395,8 +394,9 @@
 }
 
 .primary-btn:disabled {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
   color: var(--muted);
+  border-color: transparent;
   box-shadow: none;
   cursor: not-allowed;
 }
