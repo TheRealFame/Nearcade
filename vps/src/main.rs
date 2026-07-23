@@ -292,11 +292,14 @@ async fn main() {
 
                 match res {
                     Ok(Ok(status)) => {
-                        if status.updated() {
-                            println!("[nearsec-router] Successfully updated to {}. Restarting process...", status.version());
-                            std::process::exit(0); // Systemd will restart the new binary automatically
-                        } else {
-                            println!("[nearsec-router] Auto-updater: Already on latest version ({}).", status.version());
+                        match status {
+                            self_update::update::UpdateStatus::Updated(release) => {
+                                println!("[nearsec-router] Successfully updated to {}. Restarting process...", release.version);
+                                std::process::exit(0); // Systemd will restart the new binary automatically
+                            },
+                            self_update::update::UpdateStatus::UpToDate => {
+                                println!("[nearsec-router] Auto-updater: Already on latest version.");
+                            }
                         }
                     },
                     Ok(Err(e)) => eprintln!("[nearsec-router] Auto-update check failed: {}", e),

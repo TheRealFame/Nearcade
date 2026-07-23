@@ -210,6 +210,15 @@ You should have received a copy of the GNU General Public License along with thi
         <span class="btn-text">Host Session</span>
       </button>
 
+      <button class="nav-btn" onclick="switchTab('serverlist')" id="tab-serverlist">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <span class="btn-text">Community STUN</span>
+      </button>
+
       <button class="nav-btn" onclick="switchTab('containers')" id="tab-containers">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
@@ -332,12 +341,19 @@ You should have received a copy of the GNU General Public License along with thi
 
       <div class="panel" id="panel-serverlist">
         <div class="settings-container">
-          <h1>Public Servers</h1>
-          <p class="sub">Browse and join active public P2P and Tunneled matches.</p>
+          <h1>Community STUN Servers</h1>
+          <p class="sub">Browse and select public STUN servers hosted by the community.</p>
+
+          <div style="background: rgba(255, 166, 0, 0.1); border-left: 4px solid orange; padding: 12px; margin-bottom: 16px; border-radius: 4px; font-size: 13px; color: var(--text);">
+            <strong>What is a STUN server?</strong><br/>
+            A STUN server is a tiny relay used by WebRTC strictly to discover your public IP address so you can establish a direct Peer-to-Peer connection with other players. It does <b>not</b> route your video, audio, or game inputs.<br/><br/>
+            <strong>Privacy Warning:</strong><br/>
+            If you select a Community STUN Server, the person hosting that server will be able to see your public IP address. They cannot see or intercept any game data, but they will know your IP address connected to them.
+          </div>
           <div class="settings-section">
             <div id="serverListContainer" style="display:flex;flex-direction:column;gap:12px;">
               <!-- Servers would populate here -->
-              <div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">No servers currently available.</div>
+              <div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">Loading community servers...</div>
             </div>
           </div>
         </div>

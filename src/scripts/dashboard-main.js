@@ -155,6 +155,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const gamesTab = document.getElementById('gamesTab');
       if (gamesTab) gamesTab.style.display = (name === 'connect') ? 'flex' : 'none';
+
+      if (name === 'serverlist') {
+        fetchCommunityServers();
+      }
     }
 
     let appConfig = {};
@@ -1094,6 +1098,61 @@ if (autoStartEnabled) {
       gamesTab.style.display = 'none';
     }
   });
+
+    async function fetchCommunityServers() {
+      const container = document.getElementById('serverListContainer');
+      if (!container) return;
+
+      container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">Loading community servers...</div>`;
+
+      try {
+        const res = await fetch('https://raw.githubusercontent.com/TheRealFame/Nearcade/main/config/community-servers.json');
+        if (!res.ok) throw new Error('Failed to fetch');
+        const servers = await res.json();
+        
+        container.innerHTML = '';
+        if (servers.length === 0) {
+          container.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">No servers currently available.</div>`;
+          return;
+        }
+
+        servers.forEach(server => {
+          const card = document.createElement('div');
+          card.className = 'container-card';
+          card.style.display = 'flex';
+          card.style.justifyContent = 'space-between';
+          card.style.alignItems = 'center';
+          card.innerHTML = `
+            <div>
+              <h3 style="margin:0; font-size:16px;">${server.name}</h3>
+              <p style="margin:4px 0; color:var(--muted); font-size:12px;">${server.description || ''}</p>
+              <div style="font-size:11px; color:var(--accent);">Region: ${server.region || 'Unknown'} &bull; Author: ${server.author}</div>
+            </div>
+            <button class="primary-btn" style="padding:8px 16px; font-size:12px; height:auto;">Select</button>
+          `;
+          
+          card.querySelector('button').addEventListener('click', () => {
+            const confirmMsg = "PRIVACY WARNING:\\n\\nIf you select a Community STUN Server, your public IP address will be visible to the person hosting the server.\\n\\nDo you want to proceed and use " + server.name + "?";
+            if (!confirm(confirmMsg)) return;
+
+            // Save to localStorage for the viewer side
+            localStorage.setItem('ns_custom_stun', server.url);
+            
+            // Save to env for the host side
+            if (window.electronAPI && window.electronAPI.saveEnv) {
+              window.electronAPI.saveEnv('STUN_URL', server.url);
+            }
+            alert("Successfully selected STUN server: " + server.name + "\\n(" + server.url + ")");
+          });
+
+          container.appendChild(card);
+        });
+
+      } catch (err) {
+        console.error('Failed to fetch community STUN servers:', err);
+        container.innerHTML = `<div style="padding: 20px; text-align: center; color: #ff5d3d; border: 1px dashed var(--border); border-radius: 8px;">Failed to load server list. Check your internet connection.</div>`;
+      }
+    }
 
     function launchHostSession() {
       // Force direct storage read to prevent race condition with appConfig caching

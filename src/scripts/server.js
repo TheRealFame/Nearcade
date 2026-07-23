@@ -786,7 +786,7 @@ async function main() {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-custom.html"));
   });
-  app.get("/gamepad-popup.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
+  app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
   app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
@@ -1221,13 +1221,13 @@ async function main() {
 
     if (activeTunnelProc) {
       console.log("  \x1b[33m~\x1b[0m Stopping existing tunnel process before switching...");
-      try { activeTunnelProc.kill(); } catch (e) { }
+      try { activeTunnelProc.kill('SIGINT'); } catch (e) { }
       activeTunnelProc = null;
     }
     tunnelUrl = null;
 
     const provider = (req.body && req.body.provider) || "cloudflared";
-    if (req.body && req.body.remember) saveConfig({ tunnelProvider: provider, neverAsk: true });
+    saveConfig({ tunnelProvider: provider, neverAsk: !!(req.body && req.body.remember) });
 
     res.json({ ok: true, starting: true });
 
@@ -2681,7 +2681,6 @@ function cleanup(isElectron = false) {
   _cleanupDone = true;
 
   console.log('\n[server] Shutting down — running cleanup...');
-  console.debug('[server] Cleanup stack:', new Error().stack?.split('\n').slice(2).join('\n'));
 
   try {
     if (typeof broadcast === 'function') {
@@ -2707,8 +2706,7 @@ function cleanup(isElectron = false) {
     setTimeout(() => { try { _arcadeWorker && _arcadeWorker.terminate(); } catch (_) { } }, 500);
   }
 
-  if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
-  if (activeTunnelProc) { try { activeTunnelProc.kill(); } catch (_) { } }
+  if (activeTunnelProc) { try { activeTunnelProc.kill('SIGINT'); } catch (_) { } }
 
   // Stop WiVRn
   if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
@@ -2754,11 +2752,11 @@ function cleanup(isElectron = false) {
   if (!isElectron) {
     setTimeout(() => {
       killPort(activePort).catch(() => { }).finally(() => process.exit(0));
-    }, 250);
+    }, 800);
   } else {
     setTimeout(() => {
       killPort(activePort).catch(() => { });
-    }, 250);
+    }, 800);
   }
 }
 

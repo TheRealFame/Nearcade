@@ -349,8 +349,16 @@ async function createPC() {
         await _turnFetchPromise;
     }
 
-    // Always include Google STUN as the primary — it's the most reliable.
-    const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    // Initialize with custom STUN if selected, else default to Google
+    const iceServers = [];
+    const customStun = localStorage.getItem('ns_custom_stun');
+    if (customStun) {
+        console.log('[WebRTC] Using Custom Community STUN:', customStun);
+        iceServers.push({ urls: customStun });
+    }
+    
+    // Always include Google STUN as a reliable fallback
+    iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
 
     // Pick a second from trusted alternates
     const trustedPool = [
