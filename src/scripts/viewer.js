@@ -377,8 +377,23 @@ async function createPC() {
         'stun:stun.miwifi.com:3478',
     ];
     iceServers.push({ urls: fallbackPool.sort(() => 0.5 - Math.random())[0] });
-    if (_turnCredentials) {
-        iceServers.push(_turnCredentials);
+
+    // Inject Custom Community TURN if selected, overriding host defaults
+    const customTurnUrl = localStorage.getItem('ns_custom_turn_url');
+    if (customTurnUrl) {
+        console.log('[WebRTC] Using Custom Community TURN:', customTurnUrl);
+        iceServers.push({
+            urls: customTurnUrl,
+            username: localStorage.getItem('ns_custom_turn_username') || '',
+            credential: localStorage.getItem('ns_custom_turn_credential') || ''
+        });
+    } else if (_turnCredentials) {
+        // If array, push all elements, else push object directly
+        if (Array.isArray(_turnCredentials)) {
+            iceServers.push(..._turnCredentials);
+        } else {
+            iceServers.push(_turnCredentials);
+        }
     } else {
         iceServers.push({
             urls: 'turn:openrelayproject.metered.ca:443?transport=tcp',

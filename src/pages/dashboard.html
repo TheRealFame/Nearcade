@@ -359,6 +359,26 @@ You should have received a copy of the GNU General Public License along with thi
         </div>
       </div>
 
+      <div class="panel" id="panel-turnlist" style="display:none;">
+        <div class="settings-container">
+          <h1>Community TURN Servers</h1>
+          <p class="sub">Browse and select public TURN servers hosted by the community.</p>
+
+          <div style="background: rgba(255, 69, 58, 0.1); border-left: 4px solid #ff453a; padding: 12px; margin-bottom: 16px; border-radius: 4px; font-size: 13px; color: var(--text);">
+            <strong>What is a TURN server?</strong><br/>
+            A TURN server is a high-bandwidth relay used by WebRTC when a direct Peer-to-Peer connection fails. <b>It routes ALL of your video, audio, and game input traffic.</b><br/><br/>
+            <strong>CRITICAL PRIVACY WARNING:</strong><br/>
+            If you select a Community TURN Server, the person hosting that server will be routing your entire game stream. While WebRTC is end-to-end encrypted (meaning they cannot decrypt your video/audio or intercept passwords), they can see your public IP address and measure your exact bandwidth usage. <b>Only select TURN servers from hosts you trust.</b>
+          </div>
+          <div class="settings-section">
+            <div id="turnListContainer" style="display:flex;flex-direction:column;gap:12px;">
+              <!-- Servers would populate here -->
+              <div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">Loading community TURN servers...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="panel" id="panel-settings">
         <div class="settings-container">
           <h1>App Settings</h1>

@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Open Relay Project (Example)",
+    "url": "turn:openrelay.metered.ca:80",
+    "username": "openrelayproject",
+    "credential": "openrelayproject",
+    "description": "A public free TURN server provided by metered.ca for testing purposes. Not recommended for high-bandwidth gaming.",
+    "region": "Global",
+    "author": "metered.ca"
+  }
+]
