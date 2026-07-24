@@ -449,7 +449,12 @@ def _emit_kbm_event(pad_id: str, vid: str, key: str, is_down: bool, binds: dict)
                 return
 
             _btn_held[held_key] = is_down
-            gp.emit(btn_const, dn)
+            if target == "BTN_TL2":
+                gp.emit(uinput.ABS_Z, 255 if is_down else 0)
+            elif target == "BTN_TR2":
+                gp.emit(uinput.ABS_RZ, 255 if is_down else 0)
+            else:
+                gp.emit(btn_const, dn)
 
         elif target.startswith("ABS_"):
             # Stop axes from spamming the kernel during key-repeats
@@ -489,7 +494,12 @@ def _emit_kbm_event(pad_id: str, vid: str, key: str, is_down: bool, binds: dict)
                 return
 
             _btn_held[held_key] = is_down
-            gp.emit(btn_const, dn)
+            if btn_target == "BTN_TL2":
+                gp.emit(uinput.ABS_Z, 255 if is_down else 0)
+            elif btn_target == "BTN_TR2":
+                gp.emit(uinput.ABS_RZ, 255 if is_down else 0)
+            else:
+                gp.emit(btn_const, dn)
 
         for section in ["left_stick", "dpad"]:
             m = binds.get(section, {}).get(key)

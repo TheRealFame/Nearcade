@@ -544,6 +544,10 @@ function _emitKbmBinding(padId, key, isDown, binds) {
             if (btnBit !== undefined) {
                 if (isDown) state.buttons |= btnBit;
                 else state.buttons &= ~btnBit;
+            } else if (resolved === 'BTN_TL2') {
+                state.lt = isDown ? 1.0 : 0.0;
+            } else if (resolved === 'BTN_TR2') {
+                state.rt = isDown ? 1.0 : 0.0;
             }
         } else if (resolved.startsWith('ABS_')) {
             // Apply axis values
@@ -761,12 +765,18 @@ function _sendKbmStateToBuffer(slotIndex, state) {
 const MAX_PAYLOAD_BYTES = 4096;
 
 function _clampAxis(val) {
-    // Axes: -32767..+32767 as integers (already scaled by viewer.js)
-    return Math.max(-32767, Math.min(32767, Number(val) || 0));
+    // Axes: -32767..+32767 as integers.
+    let v = Number(val) || 0;
+    // Fix viewers sending unscaled -1.0..1.0 floats
+    if (v > -2.0 && v < 2.0 && !Number.isInteger(v)) v = v * 32767;
+    return Math.max(-32767, Math.min(32767, Math.round(v)));
 }
 function _clampTrigger(val) {
     // Triggers: 0..1 float range
-    return Math.max(0, Math.min(1, Number(val) || 0));
+    let v = Number(val) || 0;
+    // Fix viewers that mistakenly divided the 0..1 float by 255
+    if (v > 0 && v < 0.004) v = v * 255.0;
+    return Math.max(0, Math.min(1, v));
 }
 function _clampButtons(val) {
     // 16-bit bitmask. Strip 0x4000 (GUIDE/HOME button) so viewers cannot open system menus.

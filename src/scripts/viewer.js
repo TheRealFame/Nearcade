@@ -1698,12 +1698,12 @@ function _packGamepadJson(vIndex, state) {
         pad_id: myId + '_' + vIndex,
         padIndex: vIndex,
         buttons: btnMask,
-        lx: state.axes[0] || 0,
-        ly: state.axes[1] || 0,
-        rx: state.axes[2] || 0,
-        ry: state.axes[3] || 0,
-        lt: (state.buttons[6]?.value || 0) / 255.0,
-        rt: (state.buttons[7]?.value || 0) / 255.0
+        lx: Math.round((state.axes[0] || 0) * 32767),
+        ly: Math.round((state.axes[1] || 0) * 32767),
+        rx: Math.round((state.axes[2] || 0) * 32767),
+        ry: Math.round((state.axes[3] || 0) * 32767),
+        lt: state.buttons[6]?.value || 0,
+        rt: state.buttons[7]?.value || 0
     });
 }
 

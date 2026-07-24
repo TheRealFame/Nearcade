@@ -159,6 +159,9 @@ SUBSYSTEM=="input", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ce6", TAG+="uac
 # Xbox One Virtual Pad — force joystick identity, suppress mouse/keyboard confusion
 SUBSYSTEM=="input", ATTRS{name}=="Microsoft Xbox*", \
   ENV{ID_INPUT_JOYSTICK}="1", ENV{ID_INPUT_MOUSE}="0", ENV{ID_INPUT_KEY}="0"
+# PlayStation Virtual Pads — force joystick identity
+SUBSYSTEM=="input", ATTRS{name}=="Sony *Controller", \
+  ENV{ID_INPUT_JOYSTICK}="1", ENV{ID_INPUT_MOUSE}="0", ENV{ID_INPUT_KEY}="0"
 RULES
 
 udevadm control --reload-rules && udevadm trigger

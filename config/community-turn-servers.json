@@ -1,10 +1,10 @@
 [
   {
-    "name": "Metered.ca Public TURN",
-    "url": "turn:openrelay.metered.ca:80",
+    "name": "Metered.ca TURN (Default)",
+    "url": "turn:openrelayproject.metered.ca:443?transport=tcp",
     "username": "openrelayproject",
     "credential": "openrelayproject",
-    "description": "A public free TURN server provided by metered.ca.",
+    "description": "The default community TURN server provided by metered.ca.",
     "region": "Global",
     "author": "metered.ca"
   }

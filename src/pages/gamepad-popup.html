@@ -138,10 +138,16 @@
     // ── Normalize a stored calibration map ──
     // Supports both old number formats (rsx: 2) and new object formats (rsx: {type: 'btn', idx: 3})
     function normalizeStoredMap(m) {
-      if (!m || !m.lt || !m.rt || m.rsx == null) return null;
+      if (!m || m.lt == null || m.rt == null || m.rsx == null) return null;
       
       let rsx = m.rsx;
       let rsy = m.rsy;
+      let lt = m.lt;
+      let rt = m.rt;
+
+      // Migrate legacy raw integer mappings to the modern object schema
+      if (typeof lt === 'number') lt = { type: 'btn', idx: lt };
+      if (typeof rt === 'number') rt = { type: 'btn', idx: rt };
       
       // Auto-derive rsy if missing (legacy support)
       if (rsy == null) {
@@ -149,7 +155,7 @@
           else if (rsx && rsx.type) rsy = { type: rsx.type, idx: rsx.idx + 1 };
       }
       
-      return { lt: m.lt, rt: m.rt, rsx, rsy };
+      return { lt, rt, rsx, rsy };
     }
 
     // Descriptive per-step prompts
@@ -268,7 +274,7 @@
         if (idLower.includes('xbox') || idLower.includes('playstation') || 
             idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box')) {
           // Standard controllers don't need calibration
-          savedMap = { lt: 6, rt: 7, rsx: 2, rsy: 3 };
+          savedMap = { lt: {type: 'btn', idx: 6}, rt: {type: 'btn', idx: 7}, rsx: 2, rsy: 3 };
         } else {
           // Clear any stale localStorage entry that normalizeStoredMap rejected
           localStorage.removeItem(STORAGE_PREFIX + safeId);
