@@ -56,11 +56,11 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
-            npx electron-builder --mac --universal
+            npx electron-builder --mac --universal --publish never
           elif [ "$RUNNER_OS" == "Linux" ]; then
-            npx electron-builder --linux
+            npx electron-builder --linux --publish never
           else
-            npx electron-builder --win
+            npx electron-builder --win --publish never
           fi
           
           if [ "$RUNNER_OS" == "Windows" ]; then
@@ -75,7 +75,9 @@ jobs:
             fi
             
             for file in dist/*.exe; do
-              if [[ "$file" != *"Setup"* ]]; then
+              if [[ "$file" == *"Setup"* ]]; then
+                mv "$file" "dist/Nearcade-Setup-${{ github.ref_name }}.exe"
+              else
                 mv "$file" "dist/Nearcade-Portable.exe"
               fi
             done
@@ -90,11 +92,10 @@ jobs:
             APPIMAGE=$(find dist -maxdepth 1 -name "*.AppImage" | head -n 1)
             if [ -n "$APPIMAGE" ]; then
               mv "$APPIMAGE" dist/Nearcade-Linux.AppImage
-              cp dist/Nearcade-Linux.AppImage dist/Nearcade-latest.AppImage
             fi
           fi
           
-          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.yml dist/*.yaml; do
+          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pacman dist/*.yml dist/*.yaml dist/*.blockmap dist/*.zip; do
             if [ -f "$file" ]; then
               echo "Uploading $file..."
               gh release upload ${{ github.ref_name }} "$file" --clobber || true
