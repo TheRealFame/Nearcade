@@ -237,9 +237,14 @@ const PROFILES = {
     nintendo: { vendor: 0x0500, product: 0x2009, version: 0x8111, name: "Nintendo Switch Pro Controller" }
 };
 
-// ── Initialization ─────────────────────────────────────────────────────────────
 const isWin = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
+
+// Resiliency feature toggles
+let decayEnabled = true;
+let tournamentMode = false;
+let lastPacketTime = new Map();
+let lastGamepadVars = new Map();
 
 function init(screenWidth, screenHeight) {
     _loadProfiles();
@@ -476,6 +481,12 @@ function _handleGamepad(msg) {
     if (!viewerId) return;
 
     if (!_bridge && !_pythonProc) return;
+
+    lastGamepadVars.set(viewerId, {
+        buttons: msg.buttons || 0,
+        lt: msg.lt || 0,
+        rt: msg.rt || 0
+    });
 
     const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
@@ -806,6 +817,8 @@ function _validateGamepadMsg(msg) {
         ly: _clampAxis(msg.ly),
         rx: _clampAxis(msg.rx),
         ry: _clampAxis(msg.ry),
+        history: Array.isArray(msg.history) ? msg.history : [],
+        _ts: Number(msg._ts) || 0,
         axes: Array.isArray(msg.axes) ? msg.axes.map(_clampAxis) : [],
         btns: Array.isArray(msg.btns) ? msg.btns.map(b => ({ pressed: !!b.pressed, value: Math.max(0, Math.min(255, Number(b.value) || 0)) })) : []
     };
@@ -841,8 +854,6 @@ function send(msg) {
             console.warn(`[DEBUG GP] DROPPED by validator — pad_id="${msg.pad_id}" lx=${msg.lx} btns=${msg.buttons}`);
             return; // drop
         }
-        // Diagnostics: print bridge/python state so we know which path runs
-        console.log(`[DEBUG GP] pad_id="${validated.pad_id}" bridge=${!!_bridge} python=${!!_pythonProc} hybrid=${_hybridInputEnabled}`);
     } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
         validated = _validateKbmMsg(msg);
         if (!validated) return; // drop
@@ -877,7 +888,26 @@ function send(msg) {
     }
 
     if (validated.type === 'gamepad') {
-        _handleGamepad(validated);
+        const pId = validated.pad_id;
+        const lastTs = lastPacketTime.get(pId) || 0;
+        
+        if (validated.history && validated.history.length > 0) {
+            validated.history.forEach(histMsg => {
+                if (histMsg._ts && histMsg._ts > lastTs) {
+                    let v = _validateGamepadMsg(histMsg);
+                    if (v) _handleGamepad(v);
+                    lastPacketTime.set(pId, histMsg._ts);
+                }
+            });
+        }
+        
+        if (validated._ts && validated._ts > (lastPacketTime.get(pId) || 0)) {
+            _handleGamepad(validated);
+            lastPacketTime.set(pId, validated._ts);
+        } else if (!validated._ts) {
+            _handleGamepad(validated);
+            lastPacketTime.set(pId, Date.now()); 
+        }
     } else if (validated.type === 'kbm' || validated.type === 'keyboard') {
         console.log(`[DEBUG KBM] Orchestrator send() routing to _handleKbm`);
         _handleKbm(validated);
@@ -892,6 +922,9 @@ function send(msg) {
         viewerModes.set(msg.viewerId, msg.mode);
     } else if (msg.type === 'disconnect_viewer') {
         _freeSlot(msg.viewer_id);
+    } else if (msg.type === 'tournament-mode') {
+        tournamentMode = !!msg.enabled;
+        console.log(`[input] Tournament mode set to ${tournamentMode}. Resiliency disabled if true.`);
     } else if (msg.type === 'flush_neutral') {
         const slot = viewerSlots.get(msg.viewer_id);
         if (slot !== undefined && _bridge) {
@@ -954,5 +987,27 @@ function destroy() {
 function getViewerForSlot(slot) {
     return slotViewers.get(Number(slot)) || null;
 }
+
+// ── CONFIDENCE DECAY LOOP ────────────────────────────────────────────────────
+setInterval(() => {
+    if (!decayEnabled || tournamentMode) return;
+    const now = Date.now();
+    for (const padId of viewerSlots.keys()) {
+        const lastT = lastPacketTime.get(padId) || 0;
+        if (now - lastT > 60 && lastT !== 0) {
+            const lastVars = lastGamepadVars.get(padId) || { buttons: 0, lt: 0, rt: 0 };
+            const lastMask = typeof lastVars === 'number' ? lastVars : (lastVars.buttons || 0); 
+            _handleGamepad({
+                pad_id: padId, 
+                buttons: lastMask, 
+                lx: 0, ly: 0, rx: 0, ry: 0, 
+                lt: lastVars.lt || 0, 
+                rt: lastVars.rt || 0
+            });
+            // Prevent spamming the buffer
+            lastPacketTime.set(padId, 0); 
+        }
+    }
+}, 16);
 
 module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, get _bridge() { return _bridge; } };

@@ -124,24 +124,6 @@ if (urlParamsGlobal.has('preview')) {
 standbyWs.onmessage = (e) => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
-    if (msg.type === 'stream-idle') {
-        const pinScreen = document.getElementById('pinScreen');
-        const onPinScreen = pinScreen && !pinScreen.classList.contains('gone');
-        if (!onPinScreen || _nsHostConnected) return;
-        let sf = document.getElementById('_nsStandbyFrame');
-        if (!sf) {
-            sf = document.createElement('iframe');
-            sf.id = '_nsStandbyFrame';
-            sf.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:none;z-index:9000;background:#080808;';
-            sf.src = '/standby.html';
-            document.body.appendChild(sf);
-        } else {
-            sf.style.display = 'block';
-        }
-    } else if (msg.type === 'stream-active') {
-        const sf = document.getElementById('_nsStandbyFrame');
-        if (sf) sf.style.display = 'none';
-    }
     if (msg.pinRequired !== undefined) {
         pinRequired = msg.pinRequired;
         const pw = document.getElementById('pinWrap');
@@ -152,6 +134,20 @@ standbyWs.onmessage = (e) => {
             document.getElementById('pinScreen')?.classList.add('gone');
             submitPin();
         }
+    }
+    
+    if (msg.type === 'stream-idle') {
+        const pinScreen = document.getElementById('pinScreen');
+        if (pinScreen && !pinScreen.classList.contains('gone')) return;
+        showOverlay(true);
+        setStatus('Host is not sharing their screen yet...');
+        const sp = document.getElementById('spinner'); if (sp) sp.style.display = 'none';
+        
+        const sf = document.getElementById('_nsStandbyFrame');
+        if (sf) sf.style.display = 'none';
+    } else if (msg.type === 'stream-active') {
+        const sf = document.getElementById('_nsStandbyFrame');
+        if (sf) sf.style.display = 'none';
     }
 };
 standbyWs.onerror = () => { };
@@ -820,7 +816,15 @@ function closeViewerSettings() {
 }
 
 let storedDz = localStorage.getItem('ns_deadzone');
-window._globalDeadzone = storedDz !== null ? parseFloat(storedDz) : 0.10;
+if (!storedDz) { localStorage.setItem('ns_deadzone', '0.01'); storedDz = '0.01'; }
+window._globalDeadzone = parseFloat(storedDz);
+window.electronAPI?.saveGlobalSetting('ns_deadzone', storedDz);
+
+let storedSens = localStorage.getItem('ns_analog_sens');
+if (!storedSens) { localStorage.setItem('ns_analog_sens', '1.00'); storedSens = '1.00'; }
+window._globalSens = parseFloat(storedSens);
+window.electronAPI?.saveGlobalSetting('ns_analog_sens', storedSens);
+
 function updateDeadzone(val) {
     const num = parseFloat(val);
     window._globalDeadzone = num;
@@ -829,14 +833,29 @@ function updateDeadzone(val) {
     if (valEl) valEl.textContent = num.toFixed(2);
 }
 
+function updateAnalogSens(val) {
+    const num = parseFloat(val).toFixed(2);
+    document.getElementById('vSensVal').textContent = num;
+    window._globalSens = parseFloat(num);
+    localStorage.setItem('ns_analog_sens', num);
+    window.electronAPI?.saveGlobalSetting('ns_analog_sens', num);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Restore saved settings on load
     let savedStoredDz = localStorage.getItem('ns_deadzone');
-    const savedDz = savedStoredDz !== null ? parseFloat(savedStoredDz) : 0.10;
+    const savedDz = savedStoredDz !== null ? parseFloat(savedStoredDz) : 0.01;
     const dzSlider = document.getElementById('vDeadzoneSlider');
     const dzVal = document.getElementById('vDeadzoneVal');
     if (dzSlider) dzSlider.value = savedDz;
     if (dzVal) dzVal.textContent = savedDz.toFixed(2);
+
+    let savedStoredSens = localStorage.getItem('ns_analog_sens');
+    const savedSens = savedStoredSens !== null ? parseFloat(savedStoredSens) : 1.00;
+    const sensSlider = document.getElementById('vSensSlider');
+    const sensVal = document.getElementById('vSensVal');
+    if (sensSlider) sensSlider.value = savedSens;
+    if (sensVal) sensVal.textContent = savedSens.toFixed(2);
     
     const savedBw = localStorage.getItem('ns_bw_profile') || 'auto';
     const bwSel = document.getElementById('vBwSelect');
@@ -1377,6 +1396,8 @@ function applyCalibration(gp, state) {
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
 let gpPolling = false, lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
+window.nsRedundancyEnabled = localStorage.getItem('ns_redundancy') !== 'false';
+window.tournamentMode = false;
 let gpDeadzones = {};
 let sentGpid = new Set();
 
@@ -1563,11 +1584,13 @@ function pollGamepad() {
     let changed = false;
 
     if (!isTouch && bestGp) {
-        let dz = window._globalDeadzone !== undefined ? window._globalDeadzone : (gpDeadzones[bestGp.index] !== undefined ? gpDeadzones[bestGp.index] : 0.05);
+        let dz = window._globalDeadzone !== undefined ? window._globalDeadzone : (gpDeadzones[bestGp.index] !== undefined ? gpDeadzones[bestGp.index] : 0.01);
         for (let i = 0; i < 4; i++) {
             let val = bestGp.axes[i] || 0;
             if (Math.abs(val) < dz) val = 0;
             else val = Math.sign(val) * ((Math.abs(val) - dz) / (1 - dz));
+            
+            val = Math.max(-1.0, Math.min(1.0, val * (window._globalSens || 1.0)));
             
             let finalVal = Math.round(val * 32767);
             // Micro-jitter filter: ignore axis changes smaller than 32/32767 (~0.09%)
@@ -1666,7 +1689,9 @@ function pollGamepad() {
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
     if (changed || forceHb) {
         lastGpSend[vIndex] = now;
-        if (useVps || (inputWs && inputWs.readyState === 1 && !window._fastLaneChannel)) {
+        
+        let forceJson = window.nsRedundancyEnabled && !window.tournamentMode;
+        if (forceJson || useVps || (inputWs && inputWs.readyState === 1 && !window._fastLaneChannel)) {
             sendInputData(_packGamepadJson(vIndex, state));
         } else {
             sendInputData(_packGamepadBinary(vIndex, state));
@@ -1692,7 +1717,7 @@ function _packGamepadJson(vIndex, state) {
     if (state.buttons[15]?.pressed) btnMask |= 0x0080;
     if (state.buttons[16]?.pressed) btnMask |= 0x4000;
 
-    return JSON.stringify({
+    let obj = {
         type: 'gamepad',
         viewerId: myId,
         pad_id: myId + '_' + vIndex,
@@ -1704,7 +1729,17 @@ function _packGamepadJson(vIndex, state) {
         ry: Math.round((state.axes[3] || 0) * 32767),
         lt: state.buttons[6]?.value || 0,
         rt: state.buttons[7]?.value || 0
-    });
+    };
+
+    if (window.nsRedundancyEnabled && !window.tournamentMode) {
+        if (!window._gpH) window._gpH = {};
+        if (!window._gpH[vIndex]) window._gpH[vIndex] = [];
+        window._gpH[vIndex].push(Object.assign({}, obj, { _ts: performance.now() }));
+        if (window._gpH[vIndex].length > 4) window._gpH[vIndex].shift();
+        obj.history = window._gpH[vIndex].slice(0, -1);
+    }
+
+    return JSON.stringify(obj);
 }
 
 function _packGamepadBinary(vIndex, state) {
@@ -1731,13 +1766,13 @@ function _packGamepadBinary(vIndex, state) {
     if (state.buttons[16]?.pressed) btnMask |= 0x4000;
 
     view.setUint16(2, btnMask, true);
-    view.setInt16(4, state.axes[0] || 0, true);
-    view.setInt16(6, state.axes[1] || 0, true);
-    view.setInt16(8, state.axes[2] || 0, true);
-    view.setInt16(10, state.axes[3] || 0, true);
+    view.setInt16(4, Math.round((state.axes[0] || 0) * 32767), true);
+    view.setInt16(6, Math.round((state.axes[1] || 0) * 32767), true);
+    view.setInt16(8, Math.round((state.axes[2] || 0) * 32767), true);
+    view.setInt16(10, Math.round((state.axes[3] || 0) * 32767), true);
     
-    buf[12] = state.buttons[6]?.value || 0;
-    buf[13] = state.buttons[7]?.value || 0;
+    buf[12] = Math.round((state.buttons[6]?.value || 0) * 255);
+    buf[13] = Math.round((state.buttons[7]?.value || 0) * 255);
     
     return buf;
 }
@@ -2088,19 +2123,14 @@ async function connect() {
         // If the viewer is already watching, this message is silently ignored.
         if (msg.type === 'stream-idle') {
             const pinScreen = document.getElementById('pinScreen');
-            const onPinScreen = pinScreen && !pinScreen.classList.contains('gone');
-            if (!onPinScreen || _nsHostConnected) return;
-            let sf = document.getElementById('_nsStandbyFrame');
-            if (!sf) {
-                sf = document.createElement('iframe');
-                sf.id = '_nsStandbyFrame';
-                sf.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;border:none;z-index:9000;background:#080808;';
-                sf.src = '/standby.html';
-                document.body.appendChild(sf);
-            } else {
-                sf.style.display = 'block';
-            }
-            showOverlay(false);
+            if (pinScreen && !pinScreen.classList.contains('gone')) return;
+            
+            showOverlay(true);
+            setStatus('Host is not sharing their screen yet...');
+            const sp = document.getElementById('spinner'); if (sp) sp.style.display = 'none';
+
+            const sf = document.getElementById('_nsStandbyFrame');
+            if (sf) sf.style.display = 'none';
             return;
         }
 
@@ -2115,13 +2145,66 @@ async function connect() {
 
 
         if (msg.type === 'host-connected') {
+            if (window.sessionEndedByHost) {
+                window.location.reload();
+                return;
+            }
             _nsHostConnected = true;
+            window.sessionEndedByHost = false; // Reset session ended state
             if (pc) { try { pc.close(); } catch { } pc = null; }
             const videoEl = document.getElementById('video');
             if (videoEl?.srcObject) { videoEl.srcObject.getTracks().forEach(t => t.stop()); videoEl.srcObject = null; }
             document.getElementById('frameCanvas').style.display = 'none';
-            showOverlay(true); setStatus('Host reconnected, waiting for stream...');
-            const sp1 = document.getElementById('spinner'); if (sp1) sp1.style.display = 'block';
+            
+            // Rebuild the standard translucent overlay structure
+            const overlay = document.getElementById('overlay');
+            if (overlay) {
+                overlay.style.backgroundColor = 'var(--surface)';
+                overlay.innerHTML = `
+    <div class="brand-wrap">
+      <img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;">
+      <div class="brand-name" style="font-size:11px;">Nearcade</div>
+    </div>
+    <div id="sessionHostName" style="display:${window._hostName ? 'block' : 'none'};font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted2);font-family:var(--mono);">
+      HOST SESSION — ${window._hostName || ''}
+    </div>
+    <div class="spin" id="spinner" style="display:block;"></div>
+    <div id="overlayStatus">Waiting for host...</div>
+    <div id="gpPrompt" onclick="activateGamepad()">
+      Tap to activate gamepad<br>
+      <span style="font-size:9px;color:var(--muted2);">(Required once by browser)</span>
+    </div>`;
+            }
+            showOverlay(true);
+            
+            const sfOld = document.getElementById('_nsStandbyFrame');
+            if (sfOld) sfOld.style.display = 'none';
+            
+            const nsBar = document.getElementById('nsBar');
+            if (nsBar) nsBar.style.display = 'flex';
+            
+            const vcp2 = document.getElementById('vcPanel');
+            if (vcp2) vcp2.style.display = '';
+
+            // Re-announce ourselves to the host so we get pulled back in the game!
+            // We directly dispatch the packet rather than calling connect() to avoid infinite event loops.
+            if (_autoJoinedVps && ws && ws.readyState === 1) {
+                const liveName = (document.getElementById('nameInput')?.value || myName || '').trim();
+                ws.send(JSON.stringify({
+                    type: 'join', 
+                    viewerId: typeof myId !== 'undefined' ? myId : null, 
+                    name: liveName, 
+                    pin: enteredPin || '',
+                    password: enteredPassword || '',
+                    viewerRegion: window._myRegion || '',
+                    clientVersion: typeof CLIENT_VERSION !== 'undefined' ? CLIENT_VERSION : '3.0.4',
+                    platform: typeof viewerPlatform !== 'undefined' ? viewerPlatform : 'web',
+                    color: localStorage.getItem('ns_chat_color') || '',
+                    avatar: localStorage.getItem('ns_avatar') || '',
+                    isDesktopApp: window.location.search.includes('compat')
+                }));
+            }
+
             // Display the host's saved name in both the overlay and the topbar pill
             if (msg.hostName) {
                 window._hostName = msg.hostName;
@@ -2142,6 +2225,7 @@ async function connect() {
             return;
         }
         if (msg.type === 'tournament-mode') {
+            window.tournamentMode = !!msg.enabled;
             if (typeof window.vcSetTournament === 'function') window.vcSetTournament(msg.enabled);
             return;
         }
@@ -2231,6 +2315,7 @@ async function connect() {
                 myId = msg.viewer_id;
                 sessionStorage.setItem('ns_viewer_id', myId);
             }
+            if (typeof window.showVoiceOverlay === 'function') window.showVoiceOverlay();
             if (msg.pin_required === false && !_autoJoinedVps) {
                 _autoJoinedVps = true;
                 pinRequired = false;
@@ -2334,12 +2419,25 @@ async function connect() {
             const overlay = document.getElementById('overlay');
             if (overlay) {
                 overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.85)';
-                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session.</div><button class="pin-submit-btn" onclick="if(window.electronAPI){window.electronAPI.backToDashboard(\'arcade\')}else if(new URLSearchParams(window.location.search).get(\'client\')){history.back()}else{window.close();setTimeout(()=>{location.href=\'/\'},200)}" style="margin-top:8px;">Leave Session</button>';
+                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session. You may now close this tab.</div><button class="pin-submit-btn" onclick="if(window.electronAPI){window.electronAPI.backToDashboard(\'arcade\')}else{window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'about:blank\'; }, 50);}" style="margin-top:8px;">Leave Session</button>';
             }
             
             showOverlay(true);
             const sp = document.getElementById('spinner');
             if (sp) sp.style.display = 'none';
+
+            // Hide the entire sidebar and voice chat 
+            const nsBar = document.getElementById('nsBar');
+            if (nsBar) nsBar.style.display = 'none';
+
+            if (typeof window.teardownVoiceChat === 'function') window.teardownVoiceChat();
+            const vcBtn = document.getElementById('btnVcToggle');
+            if (vcBtn) { vcBtn.style.display = 'none'; vcBtn.classList.remove('active'); }
+            const vcp = document.getElementById('vcPanel');
+            if (vcp) {
+                vcp.classList.remove('open');
+                vcp.style.display = 'none';
+            }
 
             if (pc) { pc.close(); pc = null; }
             if (video) video.srcObject = null;
@@ -2897,7 +2995,6 @@ async function updateStats() {
             }
         }
         if (rtt !== null) {
-            statsHud.style.display = 'flex';
 
             // ── Quality tier from RTT + packet loss ──────────────────────────
             const rttN = parseInt(rtt);
@@ -3265,7 +3362,7 @@ function _reportWcHealth(type, data) {
     if (typeof myId !== 'undefined') payload.viewerId = myId;
     try { if (window.wcChannel?.readyState === 'open') wcChannel.send(JSON.stringify(payload)); } catch (_) {}
     try { if (ws?.readyState === 1) ws.send(JSON.stringify(payload)); } catch (_) {}
-    if (type === 'frozen' || type === 'black-screen') {
+    if (type === 'frozen') {
         _wcHealth.criticalFailures++;
         if (_wcHealth.criticalFailures >= _wcHealth.maxCriticalFailures) {
             console.warn('[WcHealth] Critical — falling back to standard WebRTC');
@@ -3301,6 +3398,15 @@ function initWebCodecsViewer(config) {
         wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10; display: block; overflow: hidden;';
         document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
         
+        // Ensure KBM pointer lock works on the experimental WebCodecs canvas
+        if (typeof requestPointerLock === 'function') {
+            wcCanvas.addEventListener('click', requestPointerLock);
+        }
+    }
+    
+    wcCanvas.style.display = 'block';
+
+    if (!wcCtx) {
         if (CUSTOM_WEBCODECS) {
             wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
             if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
@@ -3314,15 +3420,6 @@ function initWebCodecsViewer(config) {
             wcCtx = wcCanvas.getContext('2d', { alpha: false });
             wcGlTexture = null;
         }
-        
-        // Ensure KBM pointer lock works on the experimental WebCodecs canvas
-        if (typeof requestPointerLock === 'function') {
-            wcCanvas.addEventListener('click', requestPointerLock);
-        }
-
-        wcCanvas.style.display = 'block';
-    } else {
-        wcCanvas.style.display = 'block';
     }
 
     if (window._wcResizeHandler) {
@@ -3339,18 +3436,6 @@ function initWebCodecsViewer(config) {
     window.addEventListener('resize', window._wcResizeHandler);
     window._wcResizeHandler();
 
-    if (!wcCtx) {
-        if (CUSTOM_WEBCODECS) {
-            wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
-            if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
-        }
-        if (wcCtx) {
-            wcGlTexture = _setupWebGL(wcCtx);
-        } else {
-            wcCtx = wcCanvas.getContext('2d', { alpha: false });
-            wcGlTexture = null;
-        }
-    }
 
     // Clean up any existing decoder before creating a new one.
     // Leaving the old instance open causes "Decoder already closed" exceptions
@@ -3397,7 +3482,6 @@ function initWebCodecsViewer(config) {
                 }
                 const overlay = document.getElementById('overlay');
                 if (overlay) overlay.style.backgroundColor = '';
-                if (_latencyOverlayEl) _latencyOverlayEl.style.display = 'block';
             }
         },
         error: (e) => {
