@@ -11,6 +11,7 @@ const { registerIpcHandlers } = require('./src/main/ipc');
 
 powerSaveBlocker.start('prevent-app-suspension');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
+app.setName('Nearcade');
 
 const isArcadeWorker = process.argv.includes('--arcade-worker');
 const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
@@ -129,10 +130,11 @@ try {
       const rawConfig = fs.readFileSync(configFile, 'utf8');
       const parsedConfig = JSON.parse(rawConfig);
       if (!process.argv.includes('--webcodecs') && !process.argv.includes('--ffmpeg') && !process.argv.includes('--webrtc')) {
-        if (parsedConfig.captureMethod === 'webcodecs' || parsedConfig.captureMethod === 'custom_webcodecs') isWebCodecs = true;
-        if (parsedConfig.captureMethod === 'ffmpeg') isFFmpegCapture = true;
-        if (parsedConfig.captureMethod === 'gstreamer_webrtc') isGstWebRTC = true;
-        console.log(`[Main] Loaded capture method from config: ${parsedConfig.captureMethod || 'native'}`);
+        const method = parsedConfig.captureMethod || 'webcodecs';
+        if (method === 'webcodecs' || method === 'custom_webcodecs') isWebCodecs = true;
+        if (method === 'ffmpeg') isFFmpegCapture = true;
+        if (method === 'gstreamer_webrtc') isGstWebRTC = true;
+        console.log(`[Main] Loaded capture method from config: ${method}`);
       } else {
         console.log(`[Main] Capture method forced by CLI arguments.`);
       }
@@ -222,6 +224,26 @@ if (isArcadeWorker && process.platform === 'linux') {
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
   }
   app.commandLine.appendSwitch('enable-zero-copy');
+  
+  // Auto-detect if OS restricts unprivileged namespaces (e.g. Ubuntu 24.04 AppArmor) or running as root
+  let autoNoSandbox = false;
+  if (process.getuid && process.getuid() === 0) autoNoSandbox = true;
+  else {
+    try {
+      if (fs.existsSync('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')) {
+        if (fs.readFileSync('/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 'utf8').trim() === '1') autoNoSandbox = true;
+      }
+      if (fs.existsSync('/proc/sys/kernel/unprivileged_userns_clone')) {
+        if (fs.readFileSync('/proc/sys/kernel/unprivileged_userns_clone', 'utf8').trim() === '0') autoNoSandbox = true;
+      }
+    } catch (_) {}
+  }
+  
+  if (autoNoSandbox) {
+    console.log('[electron] OS restricts user namespaces or running as root. Auto-applying --no-sandbox.');
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-gpu-sandbox');
+  }
 }
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
@@ -275,9 +297,12 @@ async function createWindow() {
   const port = await startServer();
   console.log('[electron] server ready on port', port);
 
+  const safeW = (typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280;
+  const safeH = (typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800;
+
   win = new BrowserWindow({
-    width: Math.max(settings.w, 600),
-    height: Math.max(settings.h, 500),
+    width: Math.max(safeW, 600),
+    height: Math.max(safeH, 500),
     minWidth: 600,
     minHeight: 500,
     title: 'Nearcade',

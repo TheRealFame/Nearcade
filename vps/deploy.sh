@@ -36,8 +36,7 @@ TUNNEL=vps
 # P2P TURN/STUN Configuration (Auto-populated if you install coturn)
 STUN_URL=
 TURN_URL=
-TURN_USERNAME=
-TURN_CREDENTIAL=
+TURN_SECRET=
 EOF
 fi
 
@@ -53,8 +52,12 @@ if ! command -v turnserver &> /dev/null; then
             PUBLIC_IP=$(curl -s https://api.ipify.org || echo "YOUR_VPS_IP")
             sed -i "s|^STUN_URL=.*|STUN_URL=stun:${PUBLIC_IP}:3478|" "$PROJECT_ROOT/.env"
             sed -i "s|^TURN_URL=.*|TURN_URL=turn:${PUBLIC_IP}:3478|" "$PROJECT_ROOT/.env"
-            sed -i "s|^TURN_USERNAME=.*|TURN_USERNAME=nearsec|" "$PROJECT_ROOT/.env"
-            sed -i "s|^TURN_CREDENTIAL=.*|TURN_CREDENTIAL=nearsec_turn_secret_change_me|" "$PROJECT_ROOT/.env"
+            # Remove static credentials if present
+            sed -i "/^TURN_USERNAME/d" "$PROJECT_ROOT/.env"
+            sed -i "/^TURN_CREDENTIAL/d" "$PROJECT_ROOT/.env"
+            # Append TURN_SECRET if not exists
+            grep -q "^TURN_SECRET=" "$PROJECT_ROOT/.env" || echo "TURN_SECRET=nearcade_turn_secret_change_me" >> "$PROJECT_ROOT/.env"
+            sed -i "s|^TURN_SECRET=.*|TURN_SECRET=nearcade_turn_secret_change_me|" "$PROJECT_ROOT/.env"
             echo "      .env file automatically configured with IP $PUBLIC_IP."
         else
             echo "      Error: bin/setup_turn.sh not found."
@@ -67,7 +70,7 @@ echo ""
 
 
 # Step 3: Build the Rust router if the binary is missing or the source is newer
-RUST_BIN="$VPS_DIR/target/release/nearsec-router"
+RUST_BIN="$VPS_DIR/target/release/nearcade-router"
 echo "[3/5] Checking Rust router binary..."
 cd "$VPS_DIR"
 if [ ! -f "$RUST_BIN" ] || find "$VPS_DIR/src" -name "*.rs" -newer "$RUST_BIN" | grep -q .; then
@@ -98,7 +101,7 @@ echo "      Setting permissions on project directory..."
 chmod -R 755 "$PROJECT_ROOT"
 
 # Node.js application server on port 3001
-PORT=3001 node "$PROJECT_ROOT/src/scripts/server.js" \
+nohup env PORT=3001 node "$PROJECT_ROOT/src/scripts/server.js" \
     > "$VPS_DIR/node.log" 2>&1 &
 NODE_PID=$!
 echo "      Node.js server started (PID $NODE_PID, port 3001)"
@@ -110,7 +113,7 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 # Rust SFU router on port 3000
-PORT=3000 "$RUST_BIN" \
+nohup env PORT=3000 "$RUST_BIN" \
     > "$VPS_DIR/router.log" 2>&1 &
 RUST_PID=$!
 echo "      Rust router started  (PID $RUST_PID, port 3000)"

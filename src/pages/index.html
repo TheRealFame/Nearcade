@@ -28,29 +28,43 @@
   <style>
     /* ─── DESIGN TOKENS (matches host) ─────────────────────────────────── */
     :root {
-      accent-color: #8b5cf6;
-      --bg: #090a0e;
-      --surface: #0f111a;
-      --card: rgba(15, 17, 26, 0.92);
-      --hover: rgba(255, 255, 255, 0.05);
+      accent-color: #06b6d4;
+      --bg: #ecfeff;
+      --surface: #ffffff;
+      --card: rgba(255, 255, 255, 0.92);
+      --hover: rgba(0, 0, 0, 0.05);
 
-      --accent: #8b5cf6;
-      --accent2: #a78bfa;
-      --accent-dim: rgba(139, 92, 246, 0.14);
-      --accent-glow: rgba(139, 92, 246, 0.35);
+      --accent: #06b6d4;
+      --accent2: #22d3ee;
+      --accent-dim: rgba(6, 182, 212, 0.14);
+      --accent-glow: rgba(6, 182, 212, 0.35);
 
-      --text: #eef0ff;
-      --muted: #7c85a2;
-      --muted2: #4a5070;
+      --text: #083344;
+      --muted: #0e7490;
+      --muted2: #164e63;
 
       --green: #34d399;
       --warn: #fbbf24;
       --danger: #f87171;
 
-      --border: rgba(255, 255, 255, 0.07);
-      --border2: rgba(255, 255, 255, 0.12);
+      --border: rgba(6, 182, 212, 0.2);
+      --border2: rgba(6, 182, 212, 0.3);
 
       --mono: 'IBM Plex Mono', monospace;
+    }
+
+    [data-theme="dark"] {
+      --bg: #1c1c1e;
+      --surface: #2c2c2e;
+      --card: rgba(44, 44, 46, 0.92);
+      --hover: rgba(255, 255, 255, 0.05);
+
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --muted2: #71717a;
+
+      --border: rgba(255, 255, 255, 0.07);
+      --border2: rgba(255, 255, 255, 0.12);
     }
 
     *,
@@ -75,18 +89,23 @@
       caret-color: transparent;
     }
 
-    /* Subtle ambient glow matching host */
+    /* Light gradient background for viewer to emulate Nord aesthetic */
     body {
-      background-image:
-        radial-gradient(ellipse 60% 40% at 10% 0%, rgba(139, 92, 246, 0.08) 0%, transparent 55%),
-        radial-gradient(ellipse 40% 60% at 90% 100%, rgba(99, 62, 200, 0.05) 0%, transparent 50%);
+      background: linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%);
+    }
+
+    [data-theme="dark"] body {
+      background: var(--bg);
     }
 
     /* ─── VIDEO LAYER (always full-screen behind everything) ────────────── */
     #video-container {
       position: fixed;
-      inset: 0;
-      background: #000;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      background: var(--bg);
       z-index: 0;
     }
 
@@ -100,7 +119,10 @@
     #frameCanvas {
       display: none;
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: contain;
@@ -109,11 +131,14 @@
     #webcodecs-canvas {
       display: none;
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       object-fit: contain;
-      background: #000;
+      background: var(--bg);
       z-index: 1;
     }
 
@@ -131,13 +156,18 @@
     /* ─── PIN SCREEN ────────────────────────────────────────────────────── */
     #pinScreen {
       position: fixed;
-      inset: 0;
-      background: var(--bg);
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      background: radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.15) 0%, transparent 60%),
+                  radial-gradient(circle at 10% 90%, rgba(52, 211, 153, 0.08) 0%, transparent 50%),
+                  var(--bg);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 14px;
+      gap: 16px;
       z-index: 500;
       padding: 24px;
     }
@@ -176,16 +206,24 @@
     }
 
     .pin-card {
-      background: var(--card);
-      border: 1px solid var(--border2);
+      background: linear-gradient(145deg, rgba(45, 30, 75, 0.75), rgba(15, 15, 28, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 20px;
       padding: 28px 32px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      width: 320px;
+      gap: 16px;
+      width: 340px;
       max-width: 95vw;
-      backdrop-filter: blur(16px);
+      backdrop-filter: blur(20px);
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+      animation: floatIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    @keyframes floatIn {
+      0% { opacity: 0; transform: translateY(20px) scale(0.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
     }
 
     .pin-field-label {
@@ -198,21 +236,22 @@
 
     .pin-input {
       background: rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border2);
-      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
       color: var(--text);
       font-family: inherit;
-      font-size: 14px;
-      padding: 10px 14px;
+      font-size: 15px;
+      padding: 12px 16px;
       width: 100%;
-      transition: border-color 0.15s;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) inset;
     }
 
     .pin-input:focus {
-      border-color: var(--accent);
-      outline: 2px auto Highlight;
-      outline: 2px auto -webkit-focus-ring-color;
-      outline-offset: 0;
+      border-color: var(--accent2);
+      outline: none;
+      background: rgba(0, 0, 0, 0.6);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) inset, 0 0 0 3px var(--accent-dim);
     }
 
     .pin-input::placeholder {
@@ -286,25 +325,30 @@
     }
 
     .pin-submit-btn {
-      background: var(--accent);
+      background: linear-gradient(135deg, var(--accent), #0284c7);
       border: none;
       border-radius: 12px;
       color: #fff;
       font-family: inherit;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
-      padding: 12px;
+      padding: 14px;
+      margin-top: 4px;
       cursor: pointer;
-      transition: filter 0.15s, transform 0.1s;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       letter-spacing: 0.04em;
+      box-shadow: 0 6px 16px var(--accent-dim), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
     }
 
     .pin-submit-btn:hover {
+      transform: translateY(-2px);
       filter: brightness(1.15);
+      box-shadow: 0 8px 24px var(--accent-glow), 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
     }
 
     .pin-submit-btn:active {
-      transform: scale(0.98);
+      transform: scale(0.97) translateY(0);
+      box-shadow: 0 4px 12px var(--accent-dim);
     }
 
     #pinErr {
@@ -318,7 +362,10 @@
     /* ─── CONNECTING OVERLAY ────────────────────────────────────────────── */
     #overlay {
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -837,7 +884,10 @@
     #chatBackdrop {
       display: none;
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       z-index: 399;
     }
 
@@ -879,6 +929,8 @@
       flex-direction: column;
       gap: 4px;
       font-size: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--accent) transparent;
     }
 
     #chatLog::-webkit-scrollbar {
@@ -1181,7 +1233,10 @@
     /* ─── TOUCH UI ──────────────────────────────────────────────────────── */
     #touchUI {
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       z-index: 250;
       pointer-events: none;
       touch-action: none;
@@ -1382,7 +1437,10 @@
     /* ─── CONTROLLER GUIDE MODAL ────────────────────────────────────────── */
     #controllerGuideModal {
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       background: rgba(0, 0, 0, 0.75);
       backdrop-filter: blur(8px);
       display: flex;
@@ -1450,7 +1508,7 @@
       flex: 1;
       width: 100%;
       border: none;
-      background: #000;
+      background: var(--bg);
     }
 
     #controllerGuideConfirm {
@@ -1781,7 +1839,10 @@
     #quickHostBackdrop {
       display: none;
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       z-index: 899;
       background: rgba(0, 0, 0, 0.3);
     }
@@ -2468,6 +2529,10 @@
 
     <div class="pin-card-wrap">
       <div class="pin-card">
+        <div style="text-align:center;margin-bottom:8px;">
+          <h2 style="font-size:20px;font-weight:700;color:var(--text);margin:0;letter-spacing:-0.02em;">Join Session</h2>
+          <p style="font-size:12px;color:var(--muted);margin:4px 0 0 0;">Enter your details to connect</p>
+        </div>
         <div class="pin-field-label">Your Name</div>
         <input id="nameInput" type="text" placeholder="Guest" maxlength="16" class="pin-input" autocomplete="off"
           data-1p-ignore="true" data-lpignore="true" data-form-type="other" spellcheck="false"
@@ -2488,10 +2553,7 @@
         </div>
 
         <button class="pin-submit-btn" onclick="submitPin()">Join Stream →</button>
-        <button class="pin-submit-btn client-only-btn"
-          style="display:none;background:var(--surface);color:var(--text);border:1px solid var(--border);margin-top:8px;"
-          onclick="window.electronAPI ? window.electronAPI.backToDashboard() : window.location.href='/'">← Cancel & Go
-          Back</button>
+        <!-- Cancel button removed per user request for P2P viewers -->
         <div id="pinErr"></div>
       </div>
 
@@ -2644,7 +2706,7 @@
         </button>
         <span id="chatBadge"></span>
       </div>
-      <button class="ns-bar-btn" style="color:var(--danger);font-weight:bold;margin-top:8px;"
+      <button class="ns-bar-btn" id="disconnectBtn" style="color:var(--danger);font-weight:bold;margin-top:8px;"
         onclick="window.electronAPI?.backToDashboard('arcade') || (window.location.href='/')">
         Disconnect
       </button>
@@ -2821,7 +2883,10 @@
   <style>
     #viewerSettingsModal {
       position: fixed;
-      inset: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
       background: rgba(9, 10, 14, 0.75);
       backdrop-filter: blur(12px);
       display: flex;
@@ -3033,7 +3098,16 @@
 
         <div class="v-settings-group">
           <div class="v-settings-label">Controller & Input</div>
-
+          <div class="v-settings-row">
+            <div class="v-settings-row-title">Analog Sensitivity</div>
+            <div class="v-settings-row-subtitle" style="font-size:10px; color:var(--muted); margin-bottom:4px;">
+              Multiplier for joystick inputs.</div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span id="vSensVal" style="font-size:11px;font-family:var(--mono);color:var(--muted);">1.00</span>
+              <input type="range" class="v-range" id="vSensSlider" min="0.10" max="5.0" step="0.05" value="1.00"
+                oninput="updateAnalogSens(this.value)">
+            </div>
+          </div>
           <div class="v-settings-row">
             <div class="v-settings-row-info">
               <div class="v-settings-row-title">Analog Deadzone</div>
@@ -3117,7 +3191,44 @@
             </div>
           </div>
 
+          <div class="v-settings-row">
+            <div class="v-settings-row-info">
+              <div class="v-settings-row-title">Dark Mode</div>
+              <div class="v-settings-row-desc">Switch between the Light Nord and Dark themes.</div>
+            </div>
+            <div class="v-settings-control">
+              <div class="v-toggle" id="vThemeToggle" onclick="toggleThemeSetting()"></div>
+            </div>
+          </div>
+
           <script>
+            window.nsTheme = 'light';
+            function toggleThemeSetting() {
+              window.nsTheme = window.nsTheme === 'dark' ? 'light' : 'dark';
+              const toggle = document.getElementById('vThemeToggle');
+              if (window.nsTheme === 'dark') {
+                toggle.classList.add('on');
+                document.documentElement.setAttribute('data-theme', 'dark');
+              } else {
+                toggle.classList.remove('on');
+                document.documentElement.removeAttribute('data-theme');
+              }
+              try { localStorage.setItem('ns_theme', window.nsTheme); } catch(e){}
+            }
+            
+            // Load theme on startup
+            document.addEventListener('DOMContentLoaded', () => {
+              try {
+                const savedTheme = localStorage.getItem('ns_theme');
+                if (savedTheme === 'dark') {
+                  window.nsTheme = 'dark';
+                  document.documentElement.setAttribute('data-theme', 'dark');
+                  const toggle = document.getElementById('vThemeToggle');
+                  if (toggle) toggle.classList.add('on');
+                }
+              } catch(e){}
+            });
+            
             window.kbmHintEnabled = false;
             function toggleKbmHintSetting() {
               window.kbmHintEnabled = !window.kbmHintEnabled;
@@ -3370,7 +3481,8 @@
   <!-- ── Quick Host (desktop only) ── -->
   <script>
     (function initQuickHost() {
-      if (!window.electronAPI) return;
+      const isClient = new URLSearchParams(window.location.search).has('client');
+      if (!window.electronAPI || isClient) return;
       document.body.classList.add('electron');
 
       const LAUNCHER_LABELS = {
