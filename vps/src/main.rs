@@ -72,6 +72,7 @@ type ViewerTx = mpsc::UnboundedSender<Message>;
 
 struct RouterState {
     host_tx:             Option<mpsc::UnboundedSender<Message>>,
+    active_host_id:      Option<String>,
     unverified_viewers:  HashMap<String, ViewerTx>,
     active_viewers:      HashMap<String, ViewerTx>,
     /// Standby connections (?standby=true) — only receive stream-active / stream-idle
@@ -85,6 +86,7 @@ impl RouterState {
     fn new() -> Self {
         RouterState {
             host_tx:            None,
+            active_host_id:     None,
             unverified_viewers: HashMap::new(),
             active_viewers:     HashMap::new(),
             standby_viewers:    HashMap::new(),
@@ -436,28 +438,32 @@ async fn handle_connection(
     };
 
     if is_host {
-        {
-            let r = state.read().await;
-            if r.host_tx.is_some() {
-                eprintln!("[nearsec-router] {} attempted host auth but host already connected", peer);
-                let _ = ws_tx.send(Message::Text(
-                    serde_json::to_string(&ServerMsg::AuthFail { message: "host already connected" }).unwrap()
-                )).await;
-                return;
-            }
-        }
+        // Generate a unique ID for this host connection
+        let conn_id = uuid::Uuid::new_v4().to_string();
 
         let (host_input_tx, mut host_input_rx) = mpsc::unbounded_channel::<Message>();
         {
             let mut w = state.write().await;
+            if w.host_tx.is_some() {
+                eprintln!("[nearsec-router] {} hot-swapped existing host connection", peer);
+                // We don't need to explicitly close the old one here, 
+                // dropping the old sender will eventually close it.
+            }
             w.host_tx = Some(host_input_tx);
             w.last_config = None;
+            w.active_host_id = Some(conn_id.clone());
         }
 
         println!("[nearsec-router] Host authenticated from {}", peer);
         let _ = ws_tx.send(Message::Text(
             serde_json::to_string(&ServerMsg::AuthOk { message: "host authenticated" }).unwrap()
         )).await;
+
+        {
+            let r = state.read().await;
+            r.broadcast_text(r#"{"type":"host-connected"}"#.to_string());
+            r.broadcast_standby(r#"{"type":"host-connected"}"#.to_string());
+        }
 
         let state_a = Arc::clone(&state);
 
@@ -526,10 +532,13 @@ async fn handle_connection(
 
         {
             let mut w = state.write().await;
-            w.host_tx     = None;
-            w.last_config = None;
-            w.broadcast_text(r#"{"type":"host-disconnected"}"#.to_string());
-            w.broadcast_standby(r#"{"type":"stream-idle"}"#.to_string());
+            if w.active_host_id.as_ref() == Some(&conn_id) {
+                w.host_tx     = None;
+                w.last_config = None;
+                w.active_host_id = None;
+                w.broadcast_text(r#"{"type":"host-disconnected"}"#.to_string());
+                w.broadcast_standby(r#"{"type":"stream-idle"}"#.to_string());
+            }
         }
         println!("[nearsec-router] Host disconnected from {}", peer);
 

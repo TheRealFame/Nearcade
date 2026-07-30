@@ -96,14 +96,32 @@ function loadControllers() {
      _saveTimer = null;
      try {
        if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-       fs.writeFileSync(CONFIG_FILE, JSON.stringify(s, null, 2));
+       let current = {};
+       if (fs.existsSync(CONFIG_FILE)) {
+         try { current = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (_) {}
+       }
+       const merged = Object.assign(current, s);
+       fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2));
      } catch (e) { console.error('saveSettings:', e.message); }
    }, 250);
+ }
+
+ function saveSettingsSync(s) {
+   if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
+   try {
+     if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+     let current = {};
+     if (fs.existsSync(CONFIG_FILE)) {
+       try { current = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (_) {}
+     }
+     const merged = Object.assign(current, s);
+     fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2));
+   } catch (e) { console.error('saveSettingsSync:', e.message); }
  }
 
 module.exports = {
   getConfigDir, CONFIG_DIR, CONFIG_FILE, ROOT_DIR,
   BUNDLED_CONTROLLERS, USER_CONTROLLERS, LOG_FILE,
   DEFAULT_CONTROLLERS, DEFAULTS,
-  loadSettings, loadControllers, saveSettings,
+  loadSettings, loadControllers, saveSettings, saveSettingsSync,
 };

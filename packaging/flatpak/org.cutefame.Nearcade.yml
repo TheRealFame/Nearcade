@@ -32,6 +32,7 @@ modules:
   - name: nearcade
     buildsystem: simple
     build-commands:
+      - rm -rf .git vps/target dist src/tools/wivrn-src drafts
       - npm install --offline
       - cp -r . /app/main
       - install -Dm755 run.sh /app/bin/nearcade

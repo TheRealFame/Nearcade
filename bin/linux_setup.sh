@@ -139,7 +139,7 @@ fi
 # ── udev rules for virtual controllers ───────────────────────────────────────
 echo ""
 echo "${BOLD}Writing udev rules for virtual controllers...${RESET}"
-RULE_FILE="/etc/udev/rules.d/99-nearsec-input.rules"
+RULE_FILE="/etc/udev/rules.d/99-nearcade-input.rules"
 
 cat > "$RULE_FILE" << 'RULES'
 # Nearcade — virtual controller udev rules

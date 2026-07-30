@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readDoc:     (filename)         => ipcRenderer.invoke('read-doc', filename),
   getSettings:                    () => ipcRenderer.invoke('get-settings'),
   saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),
+  saveSettingsSync:               (s) => ipcRenderer.invoke('save-settings-sync', s),
   // hydrateSettings: pushes localStorage-resident values into the config file
   // without overwriting keys the renderer doesn't manage. Bridges the split
   // between localStorage-only state and the persistent config file.

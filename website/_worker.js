@@ -57,6 +57,7 @@ export default {
         try {
           const session = await request.json();
           if (!session?.id) return new Response("Missing session ID", { status: 400, headers: CORS });
+          if (session.inputOnly) return json({ error: "Input Only mode cannot be listed on the public Arcade." }, 403);
 
           // Whitelist tunnel domains to prevent webhook spam from arbitrary URLs
           if (session.url) {

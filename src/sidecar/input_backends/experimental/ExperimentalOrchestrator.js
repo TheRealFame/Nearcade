@@ -21,7 +21,8 @@ function send(msg) {
         'adaptive': 'backend_adaptive.py',
         'android': 'backend_android.py',
         'webhid': 'backend_webhid.py',
-        'host_delay': 'backend_hostdelay.py'
+        'virtualmic': 'backend_virtualmic.py',
+        'host_delay': isWin ? 'backend_hostdelay_win.py' : 'backend_hostdelay.py'
     };
 
     const scriptName = typeMap[msg.type];
@@ -61,7 +62,10 @@ function send(msg) {
 function destroy() {
     for (const [type, proc] of _procs.entries()) {
         if (proc) {
-            proc.kill();
+            try { proc.stdin.end(); } catch (e) {}
+            setTimeout(() => {
+                try { proc.kill(); } catch (e) {}
+            }, 500);
         }
     }
     _procs.clear();

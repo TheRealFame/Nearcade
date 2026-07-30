@@ -1,6 +1,6 @@
 {
   "name": "Nearcade",
-  "version": "3.0.4",
+  "version": "3.0.5",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
   "main": "electron-main.js",
@@ -78,6 +78,9 @@
       "!**/*.md",
       "!.github",
       "!packaging",
+      "!vps",
+      "!drafts",
+      "!src/tools/wivrn-src",
       "!**/build/Release/.deps",
       "!**/build/Release/obj.target",
       "!**/build/Release/*.a",

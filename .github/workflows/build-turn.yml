@@ -3,8 +3,8 @@ name: Build Custom TURN Server
 on:
   push:
     branches: [ "main" ]
-    paths:
-      - 'server/**'
+    tags:
+      - 'v*'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -61,7 +61,9 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -70,5 +72,14 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
 
-      - name: Create Release Placeholder
-        run: echo "This step would create a release or upload to a server."
+      - name: Upload Artifacts to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The artifacts are downloaded into directories matching their artifact name
+          for file in artifacts/*/*; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file to release ${{ github.ref_name }}..."
+              gh release upload ${{ github.ref_name }} "$file" --clobber || true
+            fi
+          done

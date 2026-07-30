@@ -1,6 +1,6 @@
 # Getting Started with Nearcade
 
-Nearcade lets you share local games with friends over the internet using WebRTC.
+Nearcade lets you share local games with friends over the internet using WebCodecs and WebRTC.
 
 ## Hosting Options
 You have two ways to host a session.

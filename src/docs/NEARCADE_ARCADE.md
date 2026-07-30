@@ -14,7 +14,7 @@ Nearsec Arcade is a decentralized, public matchmaking directory designed to conn
 To maintain the quality and safety of the public directory, the following automated rules are enforced on the Arcade backend:
 
 * **The 80-Minute "Reaper" Rule**: Every session has a strict lifespan of **1 hour and 20 minutes**. Once this window expires, the session is automatically unlisted to prevent "ghost links" and ensure the lobby only contains active, reachable games.
-* **WebRTC Active-Stream Check**: A session will only remain visible if it reports an active WebRTC data/video stream. If the host stops capturing their screen, the listing is hidden until capture resumes.
+* **Active-Stream Check**: A session will only remain visible if it reports an active WebCodecs/WebRTC data and video stream. If the host stops capturing their screen, the listing is hidden until capture resumes.
 * **Infrastructure Requirements**: Arcade hosts must use verified tunneling (Cloudflared/zrok) to prevent raw IP exposure.
 > **Note**: Hosting via VPS is currently restricted for Arcade listings to ensure the lowest possible input-to-pixel latency.
 
@@ -37,7 +37,7 @@ To prevent phishing or malicious redirects, the Arcade frontend strictly enforce
 
 ### 2. Mandatory Disclaimer
 
-Every join attempt is met with a security modal. Users are reminded that while the transport is encrypted via WebRTC, they are connecting to a third-party machine and should never enter personal credentials or download unknown files during a session.
+Every join attempt is met with a security modal. Users are reminded that while the transport is encrypted via WebCodecs/WebRTC, they are connecting to a third-party machine and should never enter personal credentials or download unknown files during a session.
 
 ### 3. Version Parity
 

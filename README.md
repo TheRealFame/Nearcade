@@ -34,13 +34,13 @@ You need specific software installed on your machine to run the host application
 * You must install the ViGEmBus driver manually to enable gamepad support on Windows.
 
 ### Bundled Dependencies
-The app bundles Cloudflared and Zrok binaries for tunneling and runs them natively. You do not need to install these manually. The network routing relies on an external Rust VPS Router for signaling, while media streaming happens over WebRTC.
+The app bundles Cloudflared and Zrok binaries for tunneling and runs them natively. You do not need to install these manually. The network routing relies on an external Rust VPS Router for signaling, while media streaming happens primarily over ultra low-latency WebCodecs pipelines or WebRTC.
 
 ## Platform Support Matrix
 
 | Feature | Linux | Windows | macOS |
 |---|---|---|---|
-| WebRTC Streaming | Full | Full | Full |
+| Platform Streaming (WebCodecs / WebRTC) | Full | Full | Full |
 | Gamepad Support | Full | Conditional | None |
 | Keyboard and Mouse Input | Full | Limited | Full |
 | Multi-Controller | Full | Limited | None |

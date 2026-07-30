@@ -1,12 +1,12 @@
 [package]
-name        = "nearsec-router"
-version     = "3.0.4"
+name        = "nearcade-router"
+version     = "3.0.5"
 edition     = "2021"
 description = "Nearcade VPS SFU — dumb-pipe WebSocket router"
 authors     = ["Nearcade"]
 
 [[bin]]
-name = "nearsec-router"
+name = "nearcade-router"
 path = "src/main.rs"
 
 [dependencies]

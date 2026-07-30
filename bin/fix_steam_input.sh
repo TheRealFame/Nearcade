@@ -3,7 +3,7 @@
 # This script creates a udev rule to ensure virtual controllers are 
 # accessible to the system but ignored by Steam's auto-configurator.
 
-RULE_FILE="/etc/udev/rules.d/99-nearsec-input.rules"
+RULE_FILE="/etc/udev/rules.d/99-nearcade-input.rules"
 
 echo "--- Creating udev rules for virtual controllers ---"
 

@@ -7,7 +7,7 @@ const {
   systemPreferences, dialog, nativeImage, nativeTheme
 } = require('electron');
 const { CONFIG_DIR, CONFIG_FILE, LOG_FILE, ROOT_DIR } = require('./config');
-const { loadControllers, saveSettings } = require('./config');
+const { loadControllers, saveSettings, saveSettingsSync } = require('./config');
 
 // #1: Direct input forwarding — bypass local WS relay
 // Lazy-require InputOrchestrator so it's available after init()
@@ -52,9 +52,12 @@ function registerIpcHandlers(ctx) {
     const pyExec = process.platform === 'win32' ? path.join(basePath, 'bin', 'python', 'python.exe') : 'python3';
     const actualExec = (process.platform === 'win32' && !fs.existsSync(pyExec)) ? 'python' : pyExec;
 
-    gamepadProc = spawn(actualExec, [pyScript]);
+    gamepadProc = spawn(actualExec, ['-u', pyScript]);
+    let lineBuffer = '';
     gamepadProc.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n');
+      lineBuffer += data.toString();
+      let lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop(); // Keep the last incomplete line in the buffer
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
@@ -135,6 +138,13 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle('save-settings', (_, s) => {
     ctx.settings = Object.assign(ctx.settings, s);
     saveSettings(ctx.settings);
+    if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send('settings-updated', ctx.settings);
+    return ctx.settings;
+  });
+
+  ipcMain.handle('save-settings-sync', (_, s) => {
+    ctx.settings = Object.assign(ctx.settings, s);
+    saveSettingsSync(ctx.settings);
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send('settings-updated', ctx.settings);
     return ctx.settings;
   });
@@ -446,7 +456,7 @@ function registerIpcHandlers(ctx) {
   });
 
   ipcMain.on('open-dir', () => {
-    shell.openPath(ROOT_DIR);
+    shell.openPath(CONFIG_DIR);
   });
 
   ipcMain.on('window-close', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.close(); });

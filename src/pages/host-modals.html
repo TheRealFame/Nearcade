@@ -1,3 +1,21 @@
+  <!-- Error / Warning Popup Overlay -->
+  <div id="ns-error-popup" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
+    <span id="ns-error-text">Critical Error occurred.</span>
+    <button onclick="this.parentElement.style.display='none'" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
+  </div>
+  <script>
+    window.showError = function(msg, severity = 'red') {
+      const popup = document.getElementById('ns-error-popup');
+      const text = document.getElementById('ns-error-text');
+      if (!popup || !text) return;
+      popup.style.background = severity === 'yellow' ? '#f59e0b' : '#d32f2f';
+      popup.style.color = severity === 'yellow' ? '#000' : '#fff';
+      text.innerText = msg;
+      popup.style.display = 'flex';
+      if (severity === 'yellow') setTimeout(() => { popup.style.display = 'none'; }, 10000);
+    };
+  </script>
+
   <div class="modal-bg gone" id="appSettingsModal">
     <div class="modal" style="position:relative;width:560px;max-height:85vh;display:flex;flex-direction:column;">
       <div class="modal-head" style="flex-shrink:0;">
@@ -123,7 +141,11 @@
           style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
           System Log</div>
         <div id="log"
-          style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:8px;height:300px;overflow-y:auto;font-family:var(--mono);">
+          style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:8px;height:300px;overflow-y:auto;font-family:var(--mono);user-select:text;-webkit-user-select:text;">
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button onclick="navigator.clipboard.writeText(document.getElementById('log').innerText); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy Log', 2000);" style="background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 10px; border-radius:6px; font-size:10px; cursor:pointer;">Copy Log</button>
+          <button onclick="if(window.electronAPI) window.electronAPI.openLog()" style="background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 10px; border-radius:6px; font-size:10px; cursor:pointer;">Open Log File</button>
         </div>
       </div>
 
@@ -475,16 +497,28 @@
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;">
             <div class="ctrl-row-text">
               <div class="ctrl-row-label">Decoding Pipeline</div>
-              <div class="ctrl-row-desc">WebRTC uses standard browser jitter buffers. The custom WebCodecs + WebGL option achieves true zero-buffer latency, but is highly experimental.</div>
+              <div class="ctrl-row-desc">WebRTC uses standard browser jitter buffers. The WebCodecs pipelines bypass this for lightning-fast, ultra-low latency hardware rendering.</div>
             </div>
             <select id="pipelineSelect" class="form-select" onchange="saveCaptureMethod(this.value)">
-              <option value="native" selected>WebRTC (Standard / Stable)</option>
+              <option value="webcodecs" selected>WebCodecs (Latency Focused / Recommended)</option>
+              <option value="native">WebRTC (Standard / Compatibility Fallback)</option>
+              <option value="custom_webcodecs" style="color:var(--warn);">Nearcade Gen 2 (Raw Hardware GL / Sub-Millisecond)</option>
               <option id="optGstreamer" value="gstreamer_webrtc" style="color:var(--warn); display:none;">GStreamer WebRTC (NOT-FUNCTIONING)</option>
-              <option value="webcodecs">WebCodecs Experimental (Latency Focused)</option>
-              <option value="custom_webcodecs" style="color:var(--warn);">Custom WebCodecs + WebGL (Unstable / High Reward)</option>
               <option id="optWebTransport" value="webtransport" style="display:none;" disabled>WebTransport (VPS Only)</option>
             </select>
           </div>
+          <div class="ctrl-modal-row" id="ctrlRowInputOnly" onclick="document.getElementById('inputOnlyToggle').click()" style="margin-top:12px;">
+            <div class="ctrl-toggle-track" id="ctrlTrackInputOnly">
+              <div class="ctrl-toggle-thumb"></div>
+            </div>
+            <div class="ctrl-row-text">
+              <div class="ctrl-row-label">Input Only Mode</div>
+              <div class="ctrl-row-desc">Stops capturing your screen and broadcasts a lightweight static image. Ideal for when you want to stream video externally.</div>
+            </div>
+            <input type="checkbox" id="inputOnlyToggle" style="display:none;" onchange="localStorage.setItem('ns_input_only', this.checked); document.getElementById('ctrlTrackInputOnly').classList.toggle('on', this.checked)">
+          </div>
+          <script>if(localStorage.getItem('ns_input_only') === 'true') { document.getElementById('inputOnlyToggle').checked = true; document.getElementById('ctrlTrackInputOnly').classList.add('on'); }</script>
+          
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
             <div class="ctrl-row-text">
               <div class="ctrl-row-label">Codec</div>
@@ -527,6 +561,9 @@
               <option value="1080">1080p</option>
               <option value="720">720p</option>
               <option value="480">480p</option>
+              <option value="360">360p</option>
+              <option value="240">240p</option>
+              <option value="144">144p (Extreme Low Bandwidth)</option>
             </select>
           </div>
           <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
@@ -643,6 +680,25 @@
               <option value="pulseaudio">Legacy PulseAudio (pactl)</option>
             </select>
           </div>
+
+          <div id="experimentalMicUI" style="display:none; margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+            <div class="ctrl-row-label" style="margin-bottom:4px;color:var(--accent);">Active Experimental: Virtual Microphone</div>
+            <div class="ctrl-row-desc" style="margin-bottom:10px;">Route viewer voices to virtual microphones for games.</div>
+            
+            <div style="display:flex; gap:16px; margin-bottom:12px; font-size:11px;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="vmic_mode" value="shared" checked onchange="vMicSetMode('shared')"> Shared Mic
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input type="radio" name="vmic_mode" value="split" onchange="vMicSetMode('split')"> Split Mics
+              </label>
+              <button class="btn-retry" style="margin-left:auto; padding:4px 8px; font-size:10px; background:rgba(52,211,153,0.1); color:var(--green); border:1px solid rgba(52,211,153,0.25); border-radius:4px;" onclick="vMicSyncSinks()">Apply / Sync Routing</button>
+            </div>
+
+            <div id="vMicListContainer" style="display:flex; flex-direction:column; gap:8px; max-height: 200px; overflow-y:auto;">
+              <!-- Populated by JS -->
+            </div>
+          </div>
         </div>
 
         <!-- INPUT TAB (contents of old ctrlModal) -->
@@ -725,7 +781,7 @@
             </div>
             <div class="ctrl-row-text">
               <div class="ctrl-row-label">Equalize Host Latency</div>
-              <div class="ctrl-row-desc">Automatically delays the physical host controller to match viewer latency (Linux only).</div>
+              <div class="ctrl-row-desc">Automatically delays the physical host controller to match viewer latency.</div>
             </div>
             <input type="checkbox" id="hostDelayToggle" style="display:none;" onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked); document.getElementById('ctrlTrackHostDelay').classList.toggle('on', this.checked)">
           </div>
@@ -870,6 +926,7 @@
             <option value="lightgun">Light Guns</option>
             <option value="adaptive">Adaptive Controllers</option>
             <option value="android">Android Host (Root)</option>
+            <option value="virtualmic">Virtual Microphone (Linux)</option>
           </select>
           <button class="btn-confirm" onclick="addExpDevice()" style="padding:8px 16px; border-radius:8px;">Add</button>
         </div>

@@ -1,6 +1,6 @@
 :root {
     accent-color: #8b5cf6;
-    --bg:         #090a0e;
+    --bg:         #0d0f18;
     --surface:    #0f111a;
     --card:       rgba(15, 17, 26, 0.92);
     --card2:      rgba(20, 22, 33, 0.95);
@@ -38,6 +38,8 @@ html, body {
     background: var(--bg);
     color: var(--text);
     font-family: Outfit, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 body {
@@ -241,7 +243,7 @@ width: 100%;
 height: 100%;
 object-fit: contain;
 display: block;
-background: #000;
+background: var(--bg);
 }
 
 .preview-empty {
@@ -631,6 +633,8 @@ padding: 14px;
 display: flex;
 flex-direction: column;
 gap: 4px;
+user-select: text;
+-webkit-user-select: text;
 }
 
 #chatLog::-webkit-scrollbar { width: 3px; }
@@ -1040,7 +1044,7 @@ flex-direction: column;
 }
 
 /* VPS input */
-#vpsHostInput, #vpsUrlInput, #vpsKeyInput {
+.form-input, #vpsHostInput, #vpsUrlInput, #vpsKeyInput {
 width: 100%;
 box-sizing: border-box;
 background: rgba(0,0,0,0.5);
@@ -1050,7 +1054,10 @@ font-size: 12px;
 padding: 8px;
 border-radius: 6px;
 font-family: inherit;
+outline: none;
+transition: border-color 0.15s;
 }
+.form-input:focus, #vpsHostInput:focus, #vpsUrlInput:focus, #vpsKeyInput:focus { border-color: var(--accent); }
 #vpsKeyInput { font-family: var(--mono); }
 
 /* ── INLINE HTML OVERRIDES ── */

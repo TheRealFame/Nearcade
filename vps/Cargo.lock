@@ -931,8 +931,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nearsec-router"
-version = "3.0.4"
+name = "nearcade-router"
+version = "3.0.5"
 dependencies = [
  "futures",
  "self_update",

@@ -28,7 +28,7 @@ This document outlines the standardized error codes used across the Nearcade eco
 | Code | Severity | Context | Description | UI Action |
 |---|---|---|---|---|
 | **E300** | Red | Host | **Virtual Audio Cable Failed:** PipeWire/PulseAudio failed to create the `NearsecVirtualCapture` loopback. Stream audio will not work. | Shows a red critical popup on the host dashboard. |
-| **E301** | Red | Viewer | **WebRTC Handshake Failed:** The WebRTC peer connection to the host failed to negotiate. | Shows a red critical popup overlay on the viewer stream. |
+| **E301** | Red | Viewer | **Streaming Handshake Failed:** The WebCodecs/WebRTC peer connection to the host failed to negotiate. | Shows a red critical popup overlay on the viewer stream. |
 | **E302** | Red | Host | **Desktop Capture Blocked:** OS-level screen recording permissions are denied, or PipeWire capturer crashed. | Shows a red critical popup on the host dashboard. |
 
 ## 4. Tunneling & Network Errors

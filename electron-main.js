@@ -215,6 +215,8 @@ if (isArcadeWorker && process.platform === 'linux') {
     process.env.SteamGamepadUI === '1';
 
   if (isGamescope) {
+    // Prevent Steam Deck virtual keyboard from constantly popping up and crashing the app
+    process.env.GTK_IM_MODULE = 'None';
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization');
     app.commandLine.appendSwitch('no-sandbox');

@@ -13,8 +13,9 @@ const CONGESTION_KEYFRAME_THRESHOLD_MS = 20; // was 40
 
 const BW_PROFILES = {
     auto: { label: 'Auto', maxBitrate: null, maxHeight: null, scaleDown: 1 },
-    low: { label: 'Low', maxBitrate: 1_500_000, maxHeight: 720, scaleDown: 2 },
     high: { label: 'High', maxBitrate: 8_000_000, maxHeight: 2160, scaleDown: 1 },
+    low: { label: 'Low', maxBitrate: 1_500_000, maxHeight: 720, scaleDown: 2 },
+    lowest: { label: '480p (Data Saver)', maxBitrate: 800_000, maxHeight: 480, scaleDown: 3 },
 };
 
 let _bwProfile = localStorage.getItem('ns_bw_profile') || 'auto';
@@ -105,6 +106,10 @@ let _autoJoinedVps = false;
 // which is perfectly fine. If we are on the VPS, it connects and instantly checks state.
 const urlParamsGlobal = new URLSearchParams(window.location.search);
 const standbyWs = new WebSocket(`${proto}://${host}/vps?standby=true`);
+
+// Hide host-specific UI elements when loading the viewer client
+if (document.getElementById('quickHostBtn')) document.getElementById('quickHostBtn').style.display = 'none';
+if (document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = 'none';
 
 // ?preview=1 opens standalone lobby preview window
 if (urlParamsGlobal.has('preview')) {
@@ -470,6 +475,10 @@ async function createPC() {
                 if ('requestVideoFrameCallback' in videoEl) {
                     function vfc() { if (window._trackViewerFrame) window._trackViewerFrame(); videoEl.requestVideoFrameCallback(vfc); }
                     videoEl.requestVideoFrameCallback(vfc);
+                } else {
+                    // Firefox Fallback
+                    function rafLoop() { if (window._trackViewerFrame) window._trackViewerFrame(); requestAnimationFrame(rafLoop); }
+                    requestAnimationFrame(rafLoop);
                 }
                 videoEl.onplaying = () => {
                     if (typeof showOverlay === 'function') showOverlay(false);
@@ -562,6 +571,14 @@ async function createPC() {
                             timestamp: timestamp,
                             data: chunkData
                         });
+                        
+                        // Prevent viewer hardware decode latency from building up
+                        if (wcDecoder.decodeQueueSize > 5) {
+                            console.warn(`[WebCodecs] Decoder queue overwhelmed (${wcDecoder.decodeQueueSize}). Dropping to kill latency...`);
+                            recoverWebCodecsDecoder();
+                            return;
+                        }
+                        
                         wcDecoder.decode(chunk);
                     } catch (err) {
                         console.error('[WebCodecs] Decode error, dropping frame...', err);
@@ -1431,6 +1448,13 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
             if (str !== lastGpStr[vIndex] || forceHb) {
                 lastGpStr[vIndex] = str; lastGpSend[vIndex] = now; sendInputData(str);
             }
+        } else if (msg.type === 'gamepad_disconnected') {
+            const vIndex = msg.index + 100;
+            knownNativePads = knownNativePads.filter(p => p.padIndex !== vIndex);
+            // Send one last explicitly zeroed state so the host releases all buttons/axes
+            const zeroState = { type: 'gamepad', viewerId: myId, pad_id: myId + '_' + vIndex, padIndex: vIndex, axes: [0,0,0,0], buttons: Array.from({length: 16}, () => ({pressed: false, value: 0})) };
+            const str = JSON.stringify(zeroState);
+            lastGpStr[vIndex] = str; lastGpSend[vIndex] = Date.now(); sendInputData(str);
         }
     });
     window.electronAPI.startNativeGamepadCapture();
@@ -1555,7 +1579,17 @@ function pollGamepad() {
     }
     if (!bestGp && touchMode) isTouch = true;
     
-    if (!bestGp && !isTouch) return; // No inputs available
+    if (!bestGp && !isTouch) {
+        // If the standard gamepad was just disconnected, zero its state so the host doesn't stick
+        if (gpStateObj[0] && !gpStateObj[0]._disconnectedSent) {
+            const zeroState = { type: 'gamepad', viewerId: myId, pad_id: myId + '_0', padIndex: 0, axes: [0,0,0,0], buttons: Array.from({length: 16}, () => ({pressed: false, value: 0})) };
+            gpStateObj[0] = zeroState;
+            gpStateObj[0]._disconnectedSent = true;
+            gpCache[0] = { axes: new Int32Array(4), btns: new Int32Array(16) }; // clear cache
+            sendInputData(JSON.stringify(zeroState));
+        }
+        return; 
+    }
 
     if (window.currentInputMode === 'webhid' && hidDevice) return; // Managed exclusively by handleHIDReport
 
@@ -1580,6 +1614,7 @@ function pollGamepad() {
     }
     state.viewerId = myId;
     state.pad_id = myId + '_' + vIndex;
+    state._disconnectedSent = false;
 
     let changed = false;
 
@@ -1879,17 +1914,35 @@ async function connect() {
         
         // Provide progressive feedback for long P2P discovery times
         window._p2pProgression1 = setTimeout(() => {
-            const current = document.getElementById('status')?.innerText || '';
+            const current = document.getElementById('overlayStatus')?.innerText || '';
             if (current.includes('Discovering') && typeof setStatus === 'function') {
                 setStatus('Scanning trackers for host session...');
             }
-        }, 7000);
+        }, 4000);
         window._p2pProgression2 = setTimeout(() => {
-            const current = document.getElementById('status')?.innerText || '';
+            const current = document.getElementById('overlayStatus')?.innerText || '';
             if (current.includes('Scanning') && typeof setStatus === 'function') {
+                setStatus('Connecting to signaling swarm...');
+            }
+        }, 8000);
+        window._p2pProgression3 = setTimeout(() => {
+            const current = document.getElementById('overlayStatus')?.innerText || '';
+            if (current.includes('Connecting to signaling') && typeof setStatus === 'function') {
                 setStatus('Still searching, please wait...');
             }
-        }, 14000);
+        }, 12000);
+        window._p2pProgression4 = setTimeout(() => {
+            const current = document.getElementById('overlayStatus')?.innerText || '';
+            if (current.includes('Still searching') && typeof setStatus === 'function') {
+                setStatus('Bypassing firewalls (ICE negotiation)...');
+            }
+        }, 16000);
+        window._p2pProgression5 = setTimeout(() => {
+            const current = document.getElementById('overlayStatus')?.innerText || '';
+            if (current.includes('Bypassing firewalls') && typeof setStatus === 'function') {
+                setStatus('Almost there, establishing P2P route...');
+            }
+        }, 22000);
         
         // Emulate WebSocket interface for P2PManager
         ws = {
@@ -1923,6 +1976,9 @@ async function connect() {
             }, () => {
                 clearTimeout(window._p2pProgression1);
                 clearTimeout(window._p2pProgression2);
+                clearTimeout(window._p2pProgression3);
+                clearTimeout(window._p2pProgression4);
+                clearTimeout(window._p2pProgression5);
                 if (typeof setStatus === 'function') setStatus('Host found, negotiating P2P connection...');
                 if (typeof ws.onopen === 'function') ws.onopen();
             });
@@ -2055,6 +2111,12 @@ async function connect() {
                     const timestamp = view.getFloat64(1, true);
                     const chunkData = new Uint8Array(e.data, 9);
                     try {
+                        // Prevent viewer hardware decode latency from building up
+                        if (wcDecoder.decodeQueueSize > 5) {
+                            console.warn(`[WebCodecs/VPS] Decoder queue overwhelmed (${wcDecoder.decodeQueueSize}). Dropping to kill latency...`);
+                            recoverWebCodecsDecoder();
+                            return;
+                        }
                         wcDecoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp, data: chunkData }));
                     } catch (err) {
                         console.error('[WebCodecs/VPS] Decode error:', err);

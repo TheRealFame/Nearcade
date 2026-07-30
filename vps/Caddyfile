@@ -24,9 +24,14 @@ publicnearcade.cutefame.net {
 
     # API and dynamic routes served by the Node.js application server
     reverse_proxy /api/*         localhost:3001
-    reverse_proxy /js/version.js localhost:3001
+    
+    # Delegate all static assets to the Node.js express server (Zero-maintenance mapping)
+    reverse_proxy /js/*          localhost:3001
+    reverse_proxy /css/*         localhost:3001
+    reverse_proxy /assets/*      localhost:3001
+    reverse_proxy /favicon*      localhost:3001
 
-    # Static file rewrites
+    # Static file rewrites (for root pages)
     root * /home/ubuntu/Nearcade
 
     rewrite /               /src/pages/index.html
@@ -35,13 +40,6 @@ publicnearcade.cutefame.net {
     rewrite /dashboard.html /src/pages/dashboard.html
     rewrite /gamepad-popup.html /src/pages/gamepad-popup.html
     rewrite /standby.html   /src/pages/standby.html
-
-    rewrite /js/viewer.js       /src/scripts/viewer.js
-    rewrite /js/host.js         /src/scripts/host.js
-    rewrite /js/i18n.js         /src/scripts/i18n.js
-    rewrite /scripts/i18n.js    /src/scripts/i18n.js
-    rewrite /scripts/viewer.js  /src/scripts/viewer.js
-    rewrite /scripts/host.js    /src/scripts/host.js
 
     file_server
 }

@@ -33,10 +33,10 @@ if command -v turnserver &> /dev/null; then
 listening-port=3478
 tls-listening-port=5349
 
-# Use long-term credentials for WebRTC
+# Use time-limited credentials (REST API) to prevent unauthorized bandwidth usage
 use-auth-secret
-static-auth-secret=nearsec_turn_secret_change_me
-realm=nearsec.local
+static-auth-secret=nearcade_turn_secret_change_me
+realm=nearcade.local
 
 # Performance limits
 total-quota=100
@@ -64,8 +64,7 @@ EOF
     echo ""
     echo "STUN_URL=stun:YOUR_VPS_IP:3478"
     echo "TURN_URL=turn:YOUR_VPS_IP:3478"
-    echo "TURN_USERNAME=username (can be anything when using auth secret)"
-    echo "TURN_CREDENTIAL=nearsec_turn_secret_change_me"
+    echo "TURN_SECRET=nearcade_turn_secret_change_me"
     echo "=========================================================="
     echo "(Replace YOUR_VPS_IP with this VPS's public IP address)"
 else

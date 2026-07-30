@@ -12,6 +12,7 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        GM_listValues
+// @grant        window.close
 // @run-at       document-start
 // @license      MIT
 // ==/UserScript==
@@ -80,6 +81,10 @@
                 }
             }
         }, 500);
+    });
+
+    window.addEventListener('ns-close-tab', () => {
+        window.close();
     });
 
 })();

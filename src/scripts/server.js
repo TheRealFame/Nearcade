@@ -17,16 +17,16 @@ console.log = function (...args) {
     if (typeof a === 'string') return a;
     try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
   }).join(' ');
-  
+
   // Blur IPv4 addresses (except localhost)
   msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
-  
+
   // Blur Cloudflare tunnel URLs
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
-  
+
   // Blur Zrok / Playit / localhost.run / serveo URLs
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net|serveousercontent\.com)/g, 'https://********.$1');
-  
+
   // Blur VPS SSH strings
   msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
 
@@ -493,7 +493,7 @@ function sanitize(str) {
   return String(str).replace(/[<>&"'`]/g, c =>
     ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c])).slice(0, 300);
 }
-function makePin() { 
+function makePin() {
   return String(crypto.randomInt(1000, 10000));
 }
 
@@ -584,7 +584,7 @@ function loadConfig() {
             console.log("[config] Migrated from legacy config:", lp);
             fs.renameSync(lp, lp + '.bak');
           }
-        } catch (_) {}
+        } catch (_) { }
         break;
       }
     }
@@ -636,7 +636,7 @@ async function main() {
     const { protectSelf } = require('@nearcade/launcher-detect');
     protectSelf();
     console.log("  PRIORITY: Boosting Nearcade process priority & OOM protection");
-  } catch {}
+  } catch { }
   console.log("");
 
   activePort = await findFreePort(3000);
@@ -646,8 +646,9 @@ async function main() {
   const initialCfg = loadConfig();
   initArcadeHeartbeat(initialCfg);
   let sessionPassword = initialCfg.persistentPassword || '';
-  let PIN = sessionPassword ? sessionPassword : makePin();
-  let pinEnabled = true;
+  let PIN = sessionPassword ? sessionPassword : (initialCfg.lastPin || makePin());
+  if (!sessionPassword && !initialCfg.lastPin) saveConfig({ lastPin: PIN });
+  let pinEnabled = true; // Always require PIN on fresh server boot
 
   console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
@@ -762,7 +763,7 @@ async function main() {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
     const isForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
-    
+
     if (isLocal && !isForwarded) {
       next();
     } else {
@@ -790,14 +791,14 @@ async function main() {
   app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
-  
-  app.post("/api/save-custom-host", adminMiddleware, express.json({limit: '10mb'}), (req, res) => {
+
+  app.post("/api/save-custom-host", adminMiddleware, express.json({ limit: '10mb' }), (req, res) => {
     const htmlContent = req.body.html;
-    if (typeof htmlContent !== 'string') return res.status(400).json({error: 'Invalid content'});
-    if (htmlContent.length > 10485760) return res.status(400).json({error: 'Content too large'});
+    if (typeof htmlContent !== 'string') return res.status(400).json({ error: 'Invalid content' });
+    if (htmlContent.length > 10485760) return res.status(400).json({ error: 'Content too large' });
     try {
       const targetPath = path.join(pagesDir, "host-custom.html");
-      if (!targetPath.startsWith(pagesDir)) return res.status(403).json({error: 'Invalid path'});
+      if (!targetPath.startsWith(pagesDir)) return res.status(403).json({ error: 'Invalid path' });
       fs.writeFileSync(targetPath, htmlContent);
       res.json({ ok: true });
     } catch (e) {
@@ -809,7 +810,7 @@ async function main() {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
     const infoCfg = loadConfig();
-    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
   app.post("/api/fe-log", express.json(), (req, res) => {
     const clientIp = req.socket.remoteAddress || 'unknown';
@@ -848,17 +849,18 @@ async function main() {
     const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
     if (newCfg.tournamentMode && pusher) {
-      try { pusher.disconnect(); } catch (_) {}
+      try { pusher.disconnect(); } catch (_) { }
       pusher = null;
       if (_arcadeWorker) {
-        try { _arcadeWorker.terminate(); } catch (_) {}
+        try { _arcadeWorker.terminate(); } catch (_) { }
         _arcadeWorker = null;
       }
       console.log('[Tournament] Pusher disconnected & heartbeat worker terminated via config endpoint');
     }
     broadcast(JSON.stringify({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode }));
     if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode }));
-    
+    inputDriver.send({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode });
+
     // Broadcast roster if host identity changed
     if (oldCfg.hostColor !== newCfg.hostColor || oldCfg.hostAvatar !== newCfg.hostAvatar || oldCfg.hostName !== newCfg.hostName) {
       if (hostWS && hostWS.readyState === 1) {
@@ -866,7 +868,7 @@ async function main() {
       }
       broadcastRoster();
     }
-    
+
     res.json(newCfg);
   });
   app.post("/api/system-chat", adminMiddleware, express.json(), (req, res) => {
@@ -924,8 +926,22 @@ async function main() {
       const entry = { urls: [] };
       entry.urls.push(process.env.TURN_URL);
       if (process.env.TURN_URL_TLS) entry.urls.push(process.env.TURN_URL_TLS);
-      if (process.env.TURN_USERNAME) entry.username = process.env.TURN_USERNAME;
-      if (process.env.TURN_CREDENTIAL) entry.credential = process.env.TURN_CREDENTIAL;
+      
+      if (process.env.TURN_SECRET) {
+        // Use TURN REST API to generate time-limited (24 hour) credentials
+        const crypto = require('crypto');
+        const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
+        const usernameBase = process.env.TURN_USERNAME || 'nearcade';
+        entry.username = `${unixTimeStamp}:${usernameBase}`;
+        
+        const hmac = crypto.createHmac('sha1', process.env.TURN_SECRET);
+        hmac.update(entry.username);
+        entry.credential = hmac.digest('base64');
+      } else {
+        // Fallback to static credentials if secret is not provided
+        if (process.env.TURN_USERNAME) entry.username = process.env.TURN_USERNAME;
+        if (process.env.TURN_CREDENTIAL) entry.credential = process.env.TURN_CREDENTIAL;
+      }
       iceServers.push(entry);
     }
 
@@ -962,7 +978,7 @@ async function main() {
     if (gamesCache.data && Date.now() - gamesCache.time < gamesCache.TTL) {
       return res.json({ games: gamesCache.data });
     }
-    
+
     const { Worker } = require('worker_threads');
     const worker = new Worker(`
       const { parentPort } = require('worker_threads');
@@ -1263,13 +1279,13 @@ async function main() {
       bore: tunnels.startTunnelBore,
       ngrok: tunnels.startTunnelNgrok,
       frp: tunnels.startTunnelFrp,
-'tailscale-funnel': tunnels.startTunnelTailscaleFunnel,
+      'tailscale-funnel': tunnels.startTunnelTailscaleFunnel,
       'tailscale-serve': tunnels.startTunnelTailscaleServe,
       'tailscale-mesh': tunnels.startTunnelTailscaleMesh,
       zerotier: tunnels.startTunnelZeroTier,
       netmaker: tunnels.startTunnelNetmaker,
       'wireguard-direct': tunnels.startTunnelWireguardDirect,
-      }[provider] || (() => tunnels.startTunnel(PORT, provider));
+    }[provider] || (() => tunnels.startTunnel(PORT, provider));
 
     if (provider === 'vps' && resolvedVpsHost) {
       saveConfig({ vpsHost: resolvedVpsHost });
@@ -1535,6 +1551,7 @@ async function main() {
       _hostDisplayName = hCfgAtConnect.hostName || 'Host';
       broadcast(JSON.stringify({ type: "host-connected", hostName: _hostDisplayName, hostRegion }));
       broadcast(JSON.stringify({ type: 'tournament-mode', enabled: !!hCfgAtConnect.tournamentMode }));
+      inputDriver.send({ type: 'tournament-mode', enabled: !!hCfgAtConnect.tournamentMode });
 
       // Start audio routing as soon as the host session opens
       if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
@@ -1545,17 +1562,17 @@ async function main() {
       ws.on("message", (raw, isBinary) => {
         if (isBinary) {
           if (raw[0] === 0x80) { // Binary Input from Host
-             const vidLen = raw[1];
-             const viewerId = raw.toString('utf8', 2, 2 + vidLen);
-             const payload = raw.subarray(2 + vidLen);
-             
-             const padIndex = payload[1];
-             const padId = viewerId + '_' + padIndex;
-             const perms = inputPerms.get(padId) || inputPerms.get(viewerId + '_0') || { gp: true, kb: false };
-             if (!perms.gp) return; // Dropped by perms
+            const vidLen = raw[1];
+            const viewerId = raw.toString('utf8', 2, 2 + vidLen);
+            const payload = raw.subarray(2 + vidLen);
 
-             if (inputDriver.sendBinary) inputDriver.sendBinary(viewerId, payload);
-             return;
+            const padIndex = payload[1];
+            const padId = viewerId + '_' + padIndex;
+            const perms = inputPerms.get(padId) || inputPerms.get(viewerId + '_0') || { gp: true, kb: false };
+            if (!perms.gp) return; // Dropped by perms
+
+            if (inputDriver.sendBinary) inputDriver.sendBinary(viewerId, payload);
+            return;
           }
 
           // Tunnel WebCodecs binary frames from Host -> Node.js Server -> Viewers
@@ -1691,7 +1708,13 @@ async function main() {
             return;
           }
 
-          if (msg.type === "set-pin") { pinEnabled = !!msg.enabled; return; }
+          if (msg.type === "set-pin") { 
+            pinEnabled = !!msg.enabled; 
+            if (hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify({ type: "set-pin", enabled: pinEnabled }));
+            }
+            return; 
+          }
 
           if (msg.type === "set-input") {
             const cur = inputPerms.get(msg.viewerId) || { gp: true, kb: false, slot: null, mode: 'gamepad' };
@@ -1845,6 +1868,7 @@ async function main() {
           if (msg.type === "regen-pin") {
             if (!sessionPassword) {
               PIN = makePin();
+              saveConfig({ lastPin: PIN });
               console.log("[host] PIN regenerated: ****");
             }
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
@@ -1983,7 +2007,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay', 'virtualmic'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
@@ -1998,6 +2022,7 @@ async function main() {
       });
 
       ws.on("close", () => {
+        if (hostWS !== ws) return;
         console.log("[host] disconnected");
         hostWS = null;
         hostStreaming = false;
@@ -2067,7 +2092,7 @@ async function main() {
       if (sessionPassword && !(pinEnabled && requirePin)) {
         const provided = url.searchParams.get('password') || url.searchParams.get('pin') || '';
         if (provided !== sessionPassword) {
-          try { ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' })); } catch {}
+          try { ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' })); } catch { }
           ws.close(4004, "SESSION_PASSWORD_REJECTED");
           console.log(`[viewer] rejected — wrong session password (non-PIN path) from ${clientIp}`);
           return;
@@ -2177,12 +2202,12 @@ async function main() {
 
             // If GStreamer is running, replay the cached offer to this new viewer.
             if (_gstOfferStr) {
-                // host-stream-ready signals the viewer to show "Host found, connecting..."
-                ws.send(JSON.stringify({ type: 'host-stream-ready' }));
-                ws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
-                for (const c of _gstIceCandidates) {
-                    ws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
-                }
+              // host-stream-ready signals the viewer to show "Host found, connecting..."
+              ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+              ws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
+              for (const c of _gstIceCandidates) {
+                ws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
+              }
             }
 
             // ctrl-settings and host-stream-ready for non-GStreamer mode
@@ -2363,12 +2388,12 @@ async function main() {
             const h = msg.head, l = msg.left, r = msg.right;
             if (h && l && r) {
               wivrnInt.injectVirtualTracking(
-                { qx: h.qx||0, qy: h.qy||0, qz: h.qz||0, qw: h.qw||1, px: h.px||0, py: h.py||0, pz: h.pz||0 },
-                { qx: l.qx||0, qy: l.qy||0, qz: l.qz||0, qw: l.qw||1, px: l.px||0, py: l.py||0, pz: l.pz||0 },
-                { qx: r.qx||0, qy: r.qy||0, qz: r.qz||0, qw: r.qw||1, px: r.px||0, py: r.py||0, pz: r.pz||0 },
+                { qx: h.qx || 0, qy: h.qy || 0, qz: h.qz || 0, qw: h.qw || 1, px: h.px || 0, py: h.py || 0, pz: h.pz || 0 },
+                { qx: l.qx || 0, qy: l.qy || 0, qz: l.qz || 0, qw: l.qw || 1, px: l.px || 0, py: l.py || 0, pz: l.pz || 0 },
+                { qx: r.qx || 0, qy: r.qy || 0, qz: r.qz || 0, qw: r.qw || 1, px: r.px || 0, py: r.py || 0, pz: r.pz || 0 },
                 l.trigger ?? 0, l.grip ?? 0, r.trigger ?? 0, r.grip ?? 0,
                 l.buttons ?? 0, r.buttons ?? 0
-              ).catch(() => {});
+              ).catch(() => { });
             }
             return;
           }
@@ -2526,7 +2551,7 @@ async function main() {
             if (seq > _inputSeq) _inputSeq = seq;
             toUinput(normalizeGamepadMsg(msg));
             if (seq > 0 && seq % 10 === 0) {
-              try { ws.send(JSON.stringify({ type: 'input-ack', seq: _inputSeq })); } catch (_) {}
+              try { ws.send(JSON.stringify({ type: 'input-ack', seq: _inputSeq })); } catch (_) { }
             }
             return;
           }
@@ -2547,7 +2572,7 @@ async function main() {
             return;
           }
 
-          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay'];
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay', 'virtualmic'];
           if (expTypes.includes(msg.type)) {
             experimentalDriver.send(msg);
             return;
@@ -2569,6 +2594,7 @@ async function main() {
 
   server.listen(PORT, async () => {
     console.log("Listening on port " + PORT);
+    try { require('fs').writeFileSync('/tmp/nearcade_port.txt', String(PORT), 'utf8'); } catch(e){}
     if (!process.env.ELECTRON_MODE) openBrowser("http://localhost:" + PORT + "/host");
 
     const cfg = loadConfig();
@@ -2596,15 +2622,12 @@ async function main() {
     } else if (cfg.neverAsk && cfg.tunnelProvider === 'portforward') {
       console.log("  ~ Tunnel: port forward mode (saved).");
     } else if (cfg.neverAsk && cfg.tunnelProvider) {
-      // .last-provider may have a more recent choice than the stale config
-      const last = tunnels.getLastProvider();
-      const provider = (last && last !== cfg.tunnelProvider) ? last : cfg.tunnelProvider;
-      if (provider !== cfg.tunnelProvider) saveConfig({ tunnelProvider: provider, neverAsk: true });
+      const provider = cfg.tunnelProvider;
 
       console.log("  ~ Tunnel: using saved provider '" + provider + "'");
       if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider }));
 
-            const fn = {
+      const fn = {
         zrok: tunnels.startTunnelZrok,
         cloudflared: tunnels.startTunnelCloudflared,
         playit: tunnels.startTunnelPlayit,
@@ -2677,7 +2700,7 @@ async function main() {
             bannedIps.set(hash, { bannedAt: now, expiresAt: now + 86400000, reason: 'remote-ban' });
           }
           console.log(`[bans] Synced ${list.length} banned IP(s) from directory`);
-        } catch (_) {}
+        } catch (_) { }
       }
       syncBans();
       setInterval(syncBans, 300000); // every 5 minutes
@@ -2722,7 +2745,7 @@ function cleanup(isElectron = false) {
 
   // Stop WiVRn
   if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
-  try { wivrnInt.stopServer(); } catch {}
+  try { wivrnInt.stopServer(); } catch { }
 
   // Cleanly destroy the input driver (whether it's using C++ or Python)
   try {
