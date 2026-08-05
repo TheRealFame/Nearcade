@@ -125,12 +125,12 @@ jobs:
         run: cargo build --release
         
       - name: Rename Binary
-        run: mv vps/target/release/nearsec-router nearsec-router
+        run: mv vps/target/release/nearcade-router nearcade-router
 
       - name: Upload Router to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: nearsec-router
+          files: nearcade-router
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
