@@ -41,18 +41,18 @@ Um die Host-Anwendung auszuführen, muss auf Ihrem Computer eine spezielle Softw
 
 ### Gebündelte Abhängigkeiten
 
-Die App bündelt Cloudflared- und Zrok-Binärdateien für das Tunneln und führt sie nativ aus. Sie müssen diese nicht manuell installieren. Das Netzwerkrouting basiert zur Signalisierung auf einem externen Rust VPS-Router, während das Medienstreaming über WebRTC erfolgt.
+Die App bündelt Cloudflared- und Zrok-Binärdateien für das Tunneln und führt sie nativ aus. Sie müssen diese nicht manuell installieren. Das Netzwerkrouting basiert auf einem externen Rust VPS-Router für die Signalisierung, während das Medienstreaming hauptsächlich über WebCodecs-Pipelines oder WebRTC mit extrem niedriger Latenz erfolgt.
 
 ## Plattformunterstützungsmatrix
 
-| Besonderheit              | Linux      | Windows      | macOS        |
-| ------------------------- | ---------- | ------------ | ------------ |
-| WebRTC-Streaming          | Voll       | Voll         | Voll         |
-| Gamepad-Unterstützung     | Voll       | Bedingt      | Keiner       |
-| Tastatur- und Mauseingabe | Voll       | Beschränkt   | Voll         |
-| Multi-Controller          | Voll       | Beschränkt   | Keiner       |
-| Audiowiedergabe           | Voll       | Voll         | Voll         |
-| Stabilitätsniveau         | Produktion | Experimental | Experimental |
+| Besonderheit                             | Linux      | Windows      | macOS        |
+| ---------------------------------------- | ---------- | ------------ | ------------ |
+| Plattform-Streaming (WebCodecs / WebRTC) | Voll       | Voll         | Voll         |
+| Gamepad-Unterstützung                    | Voll       | Bedingt      | Keiner       |
+| Tastatur- und Mauseingabe                | Voll       | Beschränkt   | Voll         |
+| Multi-Controller                         | Voll       | Beschränkt   | Keiner       |
+| Audiowiedergabe                          | Voll       | Voll         | Voll         |
+| Stabilitätsniveau                        | Produktion | Experimental | Experimental |
 
 ## Installation und Dokumentation
 

@@ -41,18 +41,18 @@ Necesita un software específico instalado en su máquina para ejecutar la aplic
 
 ### Dependencias agrupadas
 
-La aplicación incluye binarios de Cloudflared y Zrok para crear túneles y los ejecuta de forma nativa. No es necesario instalarlos manualmente. El enrutamiento de la red se basa en un enrutador Rust VPS externo para la señalización, mientras que la transmisión de medios se realiza a través de WebRTC.
+La aplicación incluye binarios de Cloudflared y Zrok para crear túneles y los ejecuta de forma nativa. No es necesario instalarlos manualmente. El enrutamiento de la red se basa en un enrutador Rust VPS externo para la señalización, mientras que la transmisión de medios se realiza principalmente a través de canalizaciones WebCodecs o WebRTC de latencia ultrabaja.
 
 ## Matriz de soporte de plataforma
 
-| Característica             | linux      | ventanas     | macos        |
-| -------------------------- | ---------- | ------------ | ------------ |
-| Transmisión WebRTC         | Lleno      | Lleno        | Lleno        |
-| Soporte para mandos        | Lleno      | Condicional  | Ninguno      |
-| Entrada de teclado y mouse | Lleno      | Limitado     | Lleno        |
-| Controlador múltiple       | Lleno      | Limitado     | Ninguno      |
-| Reproducción de audio      | Lleno      | Lleno        | Lleno        |
-| Nivel de estabilidad       | Producción | Experimental | Experimental |
+| Característica                                 | linux      | ventanas     | macos        |
+| ---------------------------------------------- | ---------- | ------------ | ------------ |
+| Transmisión de plataforma (WebCodecs / WebRTC) | Lleno      | Lleno        | Lleno        |
+| Soporte para mandos                            | Lleno      | Condicional  | Ninguno      |
+| Entrada de teclado y mouse                     | Lleno      | Limitado     | Lleno        |
+| Controlador múltiple                           | Lleno      | Limitado     | Ninguno      |
+| Reproducción de audio                          | Lleno      | Lleno        | Lleno        |
+| Nivel de estabilidad                           | Producción | Experimental | Experimental |
 
 ## Instalación y documentación
 

@@ -41,18 +41,18 @@ Vous avez besoin d'un logiciel spécifique installé sur votre machine pour exé
 
 ### Dépendances groupées
 
-L'application regroupe les binaires Cloudflared et Zrok pour le tunneling et les exécute de manière native. Vous n'avez pas besoin de les installer manuellement. Le routage réseau s'appuie sur un routeur Rust VPS externe pour la signalisation, tandis que le streaming multimédia s'effectue via WebRTC.
+L'application regroupe les binaires Cloudflared et Zrok pour le tunneling et les exécute de manière native. Vous n'avez pas besoin de les installer manuellement. Le routage réseau s'appuie sur un routeur Rust VPS externe pour la signalisation, tandis que le streaming multimédia s'effectue principalement via des pipelines WebCodecs à très faible latence ou WebRTC.
 
 ## Matrice de prise en charge de la plateforme
 
-| Fonctionnalité                      | Linux      | Fenêtres     | macOS        |
-| ----------------------------------- | ---------- | ------------ | ------------ |
-| Diffusion WebRTC                    | Complet    | Complet      | Complet      |
-| Prise en charge des manettes de jeu | Complet    | Conditionnel | Aucun        |
-| Entrée au clavier et à la souris    | Complet    | Limité       | Complet      |
-| Multi-contrôleur                    | Complet    | Limité       | Aucun        |
-| Lecture audio                       | Complet    | Complet      | Complet      |
-| Niveau de stabilité                 | Production | Expérimental | Expérimental |
+| Fonctionnalité                               | Linux      | Fenêtres     | macOS        |
+| -------------------------------------------- | ---------- | ------------ | ------------ |
+| Plateforme de streaming (WebCodecs / WebRTC) | Complet    | Complet      | Complet      |
+| Prise en charge des manettes de jeu          | Complet    | Conditionnel | Aucun        |
+| Entrée au clavier et à la souris             | Complet    | Limité       | Complet      |
+| Multi-contrôleur                             | Complet    | Limité       | Aucun        |
+| Lecture audio                                | Complet    | Complet      | Complet      |
+| Niveau de stabilité                          | Production | Expérimental | Expérimental |
 
 ## Installation et documentation
 

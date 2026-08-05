@@ -41,18 +41,18 @@ Você precisa de um software específico instalado em sua máquina para executar
 
 ### Dependências agrupadas
 
-O aplicativo agrupa binários Cloudflared e Zrok para tunelamento e os executa nativamente. Você não precisa instalá-los manualmente. O roteamento da rede depende de um roteador Rust VPS externo para sinalização, enquanto o streaming de mídia ocorre por meio de WebRTC.
+O aplicativo agrupa binários Cloudflared e Zrok para tunelamento e os executa nativamente. Você não precisa instalá-los manualmente. O roteamento de rede depende de um roteador Rust VPS externo para sinalização, enquanto o streaming de mídia ocorre principalmente em pipelines WebCodecs de latência ultrabaixa ou WebRTC.
 
 ## Matriz de suporte da plataforma
 
-| Recurso                    | Linux    | Windows      | macOS        |
-| -------------------------- | -------- | ------------ | ------------ |
-| Transmissão WebRTC         | Completo | Completo     | Completo     |
-| Suporte para gamepad       | Completo | Condicional  | Nenhum       |
-| Entrada de teclado e mouse | Completo | Limitado     | Completo     |
-| Multicontrolador           | Completo | Limitado     | Nenhum       |
-| Reprodução de áudio        | Completo | Completo     | Completo     |
-| Nível de estabilidade      | Produção | Experimental | Experimental |
+| Recurso                                    | Linux    | Windows      | macOS        |
+| ------------------------------------------ | -------- | ------------ | ------------ |
+| Streaming de plataforma (WebCodecs/WebRTC) | Completo | Completo     | Completo     |
+| Suporte para gamepad                       | Completo | Condicional  | Nenhum       |
+| Entrada de teclado e mouse                 | Completo | Limitado     | Completo     |
+| Multicontrolador                           | Completo | Limitado     | Nenhum       |
+| Reprodução de áudio                        | Completo | Completo     | Completo     |
+| Nível de estabilidade                      | Produção | Experimental | Experimental |
 
 ## Instalação e Documentação
 
