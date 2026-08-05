@@ -620,9 +620,7 @@
         <div>
           <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Avatar</label>
           <div style="display:flex; align-items:center; gap:12px;">
-            <div style="width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,0.4);border:1px solid var(--border);overflow:hidden;flex-shrink:0;">
-              <img id="profileAvatarPreview" src="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'">
-            </div>
+            <img id="profileAvatarPreview" src="" style="width:48px;height:48px;border-radius:50%;border:1px solid var(--border);flex-shrink:0;object-fit:cover;" onerror="this.style.display='none'">
             <button onclick="randomizeProfileAvatar()" style="background:var(--surface-hover); border:1px solid var(--border); color:var(--text); padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:700; font-size:13px;">Randomize</button>
             <input type="hidden" id="profileAvatar" value="">
           </div>
