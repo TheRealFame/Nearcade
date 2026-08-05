@@ -721,7 +721,8 @@
 
   function openProfile() {
     document.getElementById('profileName').value = localStorage.getItem('ns_name') || '';
-    const avatarId = localStorage.getItem('ns_avatar') || '1';
+    let avatarId = parseInt(localStorage.getItem('ns_avatar'));
+    if (!avatarId || avatarId < 1 || avatarId > 100) avatarId = 1;
     document.getElementById('profileAvatar').value = avatarId;
     document.getElementById('profileAvatarPreview').src = '/assets/avatars/avatar-' + avatarId + '.svg';
     document.getElementById('profileColor').value = localStorage.getItem('ns_chat_color') || '#ffffff';
