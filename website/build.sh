@@ -48,7 +48,7 @@ if [ -n "$MIN_CLIENT_VERSION" ] || [ -n "$LATEST_CLIENT_VERSION" ]; then
   echo "[build] MIN_CLIENT_VERSION=${MIN_CLIENT_VERSION:-unset} LATEST_CLIENT_VERSION=${LATEST_CLIENT_VERSION:-unset}"
 fi
 
-# 5. Extract worker
-mv website/_worker.js ./_worker.js 2>/dev/null || true
+# 5. Copy worker to root for wrangler deploy (keep source in website/)
+cp website/_worker.js ./_worker.js 2>/dev/null || true
 
 echo "Build complete. Ready for deployment."
