@@ -2,6 +2,7 @@ import sys
 import json
 import subprocess
 import atexit
+import signal
 
 loaded_modules = []
 current_sinks = {} # sink_id -> {'mod_sink': '1', 'mod_loop': '2', 'desc': 'Name'}
@@ -26,15 +27,36 @@ def cleanup():
 
 atexit.register(cleanup)
 
+def sig_handler(signum, frame):
+    sys.exit(0) # sys.exit triggers atexit hooks
+
+signal.signal(signal.SIGINT, sig_handler)
+signal.signal(signal.SIGTERM, sig_handler)
+
 def cleanup_orphans():
     out = run_pactl(['list', 'short', 'modules'])
     if not out: return
+    
+    loopbacks = []
+    sinks = []
+    
     for line in out.splitlines():
         if 'NearcadeMic_' in line:
             parts = line.split()
             if len(parts) > 0 and parts[0].isdigit():
-                run_pactl(['unload-module', parts[0]])
-                print(f"[backend_virtualmic] Unloaded orphaned module {parts[0]}", flush=True)
+                if 'module-loopback' in line:
+                    loopbacks.append(parts[0])
+                else:
+                    sinks.append(parts[0])
+                    
+    # MUST unload loopback before null-sink to prevent permanent audio buzz
+    for mod in loopbacks:
+        run_pactl(['unload-module', mod])
+        print(f"[backend_virtualmic] Unloaded orphaned loopback module {mod}", flush=True)
+        
+    for mod in sinks:
+        run_pactl(['unload-module', mod])
+        print(f"[backend_virtualmic] Unloaded orphaned sink module {mod}", flush=True)
 
 def sync_sinks(requested_sinks):
     hw_sink = run_pactl(['get-default-sink'])

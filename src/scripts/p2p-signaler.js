@@ -32,8 +32,12 @@ class P2PSignaler {
 
         action.onMessage = (data, meta) => {
             if (this.onMessageCallback) {
-                data.viewer_id = meta.peerId; // inject peerId as viewer_id
-                this.onMessageCallback(data);
+                // If it's a JSON object, try injecting viewer_id for backwards compatibility
+                if (typeof data === 'object' && !(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) {
+                    data.viewer_id = meta.peerId; 
+                }
+                // ALWAYS pass peerId as the second argument so binary handlers can use it
+                this.onMessageCallback(data, meta.peerId);
             }
         };
     }

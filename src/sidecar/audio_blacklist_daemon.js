@@ -3,12 +3,12 @@
  * Nearcade — Audio Blacklist Ejection Daemon
  *
  * TOPOLOGY:
- *   NearsecAppAudio (virtual null-sink)
+ *   NearcadeAppAudio (virtual null-sink)
  *       │
- *       ├─ module-remap-source  →  NearsecAppMic  →  WebRTC capture (viewers hear this)
+ *       ├─ module-remap-source  →  NearcadeAppMic  →  WebRTC capture (viewers hear this)
  *       └─ module-loopback      →  Hardware sink  →  Host's headphones (host hears this)
  *
- * The daemon watches every sink-input currently landing on NearsecAppAudio.
+ * The daemon watches every sink-input currently landing on NearcadeAppAudio.
  * When a blacklisted app is found there it immediately issues:
  *
  *   pactl move-sink-input <id> <hardware-sink>
@@ -21,7 +21,7 @@
  *
  * HARDWARE SINK RESOLUTION:
  *   Calls `pactl get-default-sink` at every tick, falling back to the first
- *   non-Nearsec sink in `pactl list short sinks`. This survives Bluetooth
+ *   non-Nearcade sink in `pactl list short sinks`. This survives Bluetooth
  *   device disconnections / reconnections without any restart.
  *
  * EJECTION PERSISTENCE:
@@ -45,7 +45,7 @@ const DEFAULT_BLACKLIST = [
 ];
 
 // Target the new virtual sink architecture
-const VIRTUAL_SINK  = 'NearsecVirtual';
+const VIRTUAL_SINK  = 'NearcadeVirtual';
 const POLL_MS       = 1500;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ async function tick(blacklist) {
   let hwSink = null;
   const defaultSink = (await run('pactl', ['get-default-sink'])).trim();
 
-  if (defaultSink && !defaultSink.includes('Nearsec')) {
+  if (defaultSink && !defaultSink.includes('Nearcade')) {
     hwSink = defaultSink;
   } else {
     // Track the Loopback Destination (Broadened for WirePlumber compatibility)

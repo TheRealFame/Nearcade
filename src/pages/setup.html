@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
@@ -7,9 +8,18 @@
   <script src="/js/native-theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      width: 100%; height: 100%;
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
       background: #080808;
       color: #e8e8e8;
       font-family: 'Inter', sans-serif;
@@ -17,6 +27,7 @@
       align-items: center;
       justify-content: center;
     }
+
     .wizard {
       background: #121416;
       border: 1px solid #1e2024;
@@ -24,11 +35,12 @@
       width: 780px;
       max-width: 92vw;
       max-height: 90vh;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
+
     /* ── Header / Dots ── */
     .wizard-header {
       display: flex;
@@ -37,19 +49,32 @@
       gap: 10px;
       padding: 28px 32px 0;
     }
+
     .dot {
-      width: 8px; height: 8px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       background: #333;
       transition: background 0.3s;
     }
-    .dot.active { background: #c084fc; }
-    .dot.done { background: #4ade80; }
+
+    .dot.active {
+      background: #c084fc;
+    }
+
+    .dot.done {
+      background: #4ade80;
+    }
+
     .dot-line {
-      width: 48px; height: 1px;
+      width: 48px;
+      height: 1px;
       background: #333;
     }
-    .dot-line.done { background: #4ade80; }
+
+    .dot-line.done {
+      background: #4ade80;
+    }
 
     /* ── Steps ── */
     .step {
@@ -58,14 +83,20 @@
       flex: 1;
       flex-direction: column;
     }
-    .step.active { display: flex; }
+
+    .step.active {
+      display: flex;
+    }
 
     .step-icon {
-      width: 48px; height: 48px;
+      width: 48px;
+      height: 48px;
       margin-bottom: 16px;
     }
+
     .step-icon svg {
-      width: 100%; height: 100%;
+      width: 100%;
+      height: 100%;
       stroke: #c084fc;
       stroke-width: 1.8;
       fill: none;
@@ -77,6 +108,7 @@
       color: #f0f3f5;
       margin-bottom: 6px;
     }
+
     .step p {
       font-size: 13px;
       color: #888;
@@ -95,6 +127,7 @@
       gap: 12px;
       flex-wrap: wrap;
     }
+
     .os-card {
       flex: 1;
       min-width: 140px;
@@ -106,14 +139,30 @@
       cursor: default;
       transition: border-color 0.2s;
     }
-    .os-card:hover { border-color: #c084fc; }
-    .os-card img, .os-card svg {
-      width: 32px; height: 32px;
+
+    .os-card:hover {
+      border-color: #c084fc;
+    }
+
+    .os-card img,
+    .os-card svg {
+      width: 32px;
+      height: 32px;
       margin-bottom: 8px;
       stroke: #c084fc;
     }
-    .os-card h4 { font-size: 13px; color: #e8e8e8; margin-bottom: 4px; }
-    .os-card p { font-size: 11px; color: #666; margin: 0; }
+
+    .os-card h4 {
+      font-size: 13px;
+      color: #e8e8e8;
+      margin-bottom: 4px;
+    }
+
+    .os-card p {
+      font-size: 11px;
+      color: #666;
+      margin: 0;
+    }
 
     /* ── Step 3: Tunnel cards ── */
     .tunnel-grid {
@@ -121,6 +170,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
+
     .tunnel-card {
       background: #1a1c20;
       border: 1px solid #2a2c30;
@@ -134,17 +184,39 @@
       position: relative;
       overflow: hidden;
     }
-    .tunnel-card:hover { border-color: #c084fc; background: #1e2024; }
-    .tunnel-card.installed { border-color: #4ade80; }
+
+    .tunnel-card:hover {
+      border-color: #c084fc;
+      background: #1e2024;
+    }
+
+    .tunnel-card.installed {
+      border-color: #4ade80;
+    }
+
     .tunnel-card svg {
-      width: 28px; height: 28px;
+      width: 28px;
+      height: 28px;
       flex-shrink: 0;
       stroke: #c084fc;
       fill: none;
     }
-    .tunnel-card .info { flex: 1; }
-    .tunnel-card .info h4 { font-size: 13px; color: #e8e8e8; }
-    .tunnel-card .info p { font-size: 11px; color: #666; margin: 0; }
+
+    .tunnel-card .info {
+      flex: 1;
+    }
+
+    .tunnel-card .info h4 {
+      font-size: 13px;
+      color: #e8e8e8;
+    }
+
+    .tunnel-card .info p {
+      font-size: 11px;
+      color: #666;
+      margin: 0;
+    }
+
     .tunnel-card .status {
       font-size: 10px;
       padding: 3px 8px;
@@ -152,13 +224,31 @@
       font-weight: 600;
       white-space: nowrap;
     }
-    .status.bundled { background: #0a2e1a; color: #4ade80; }
-    .status.missing { background: #2e0a0a; color: #f87171; }
-    .status.manual { background: #2e2a0a; color: #facc15; }
-    .status.downloading { background: #2e2a0a; color: #facc15; }
+
+    .status.bundled {
+      background: #0a2e1a;
+      color: #4ade80;
+    }
+
+    .status.missing {
+      background: #2e0a0a;
+      color: #f87171;
+    }
+
+    .status.manual {
+      background: #2e2a0a;
+      color: #facc15;
+    }
+
+    .status.downloading {
+      background: #2e2a0a;
+      color: #facc15;
+    }
+
     .tunnel-card .badge-installed {
       position: absolute;
-      top: 0; right: 0;
+      top: 0;
+      right: 0;
       background: #4ade80;
       color: #000;
       font-size: 9px;
@@ -167,7 +257,10 @@
       border-radius: 0 10px 0 8px;
       display: none;
     }
-    .tunnel-card.installed .badge-installed { display: block; }
+
+    .tunnel-card.installed .badge-installed {
+      display: block;
+    }
 
     /* ── Step 4: module grid ── */
     .module-grid {
@@ -175,6 +268,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
+
     .module-card {
       background: #1a1c20;
       border: 1px solid #2a2c30;
@@ -184,15 +278,29 @@
       align-items: center;
       gap: 12px;
     }
+
     .module-card svg {
-      width: 26px; height: 26px;
+      width: 26px;
+      height: 26px;
       flex-shrink: 0;
       stroke: #888;
       fill: none;
     }
-    .module-card .info { flex: 1; }
-    .module-card .info h4 { font-size: 13px; color: #e8e8e8; }
-    .module-card .info p { font-size: 11px; color: #666; margin: 0; }
+
+    .module-card .info {
+      flex: 1;
+    }
+
+    .module-card .info h4 {
+      font-size: 13px;
+      color: #e8e8e8;
+    }
+
+    .module-card .info p {
+      font-size: 11px;
+      color: #666;
+      margin: 0;
+    }
 
     /* ── Footer / Buttons ── */
     .wizard-footer {
@@ -202,7 +310,12 @@
       padding: 16px 40px 24px;
       border-top: 1px solid #1e2024;
     }
-    .wizard-footer .left { display: flex; gap: 8px; }
+
+    .wizard-footer .left {
+      display: flex;
+      gap: 8px;
+    }
+
     .btn {
       padding: 9px 20px;
       border-radius: 8px;
@@ -213,30 +326,85 @@
       border: none;
       transition: all 0.2s;
     }
-    .btn-primary { background: #c084fc; color: #000; }
-    .btn-primary:hover { background: #d495ff; transform: scale(1.02); }
-    .btn-primary:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
-    .btn-secondary { background: #222; color: #aaa; border: 1px solid #333; }
-    .btn-secondary:hover { background: #333; color: #fff; border-color: #555; }
-    .btn-ghost { background: transparent; color: #666; }
-    .btn-ghost:hover { color: #aaa; }
+
+    .btn-primary {
+      background: #c084fc;
+      color: #000;
+    }
+
+    .btn-primary:hover {
+      background: #d495ff;
+      transform: scale(1.02);
+    }
+
+    .btn-primary:disabled {
+      background: #444;
+      color: #888;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: #222;
+      color: #aaa;
+      border: 1px solid #333;
+    }
+
+    .btn-secondary:hover {
+      background: #333;
+      color: #fff;
+      border-color: #555;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: #666;
+    }
+
+    .btn-ghost:hover {
+      color: #aaa;
+    }
 
     #setupStatus {
       font-size: 12px;
       color: #facc15;
       min-height: 16px;
     }
-    #setupStatus.err { color: #f87171 !important; }
-    #setupStatus.ok { color: #4ade80 !important; }
+
+    #setupStatus.err {
+      color: #f87171 !important;
+    }
+
+    #setupStatus.ok {
+      color: #4ade80 !important;
+    }
 
     @media (max-width: 600px) {
-      .wizard { width: 100%; max-width: 100vw; border-radius: 0; max-height: 100vh; }
-      .step { padding: 24px 20px 20px; }
-      .wizard-footer { padding: 12px 20px 20px; flex-wrap: wrap; gap: 8px; }
-      .tunnel-grid, .module-grid { grid-template-columns: 1fr; }
+      .wizard {
+        width: 100%;
+        max-width: 100vw;
+        border-radius: 0;
+        max-height: 100vh;
+      }
+
+      .step {
+        padding: 24px 20px 20px;
+      }
+
+      .wizard-footer {
+        padding: 12px 20px 20px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .tunnel-grid,
+      .module-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
+
 <body>
   <div class="wizard" id="wizard">
     <!-- Header dots -->
@@ -253,16 +421,21 @@
     <!-- Step 0: Welcome -->
     <div class="step active" data-step="0">
       <div class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <polyline points="9 22 9 12 15 12 15 22"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
         </svg>
       </div>
       <h2>Welcome to Nearcade</h2>
-      <p>This quick setup will get your system ready for hosting and playing local co-op games over the internet. You'll set up system dependencies, choose your tunnel provider, and explore optional modules.</p>
+      <p>This quick setup will get your system ready for hosting and playing local co-op games over the internet. You'll
+        set up system dependencies, choose your tunnel provider, and explore optional modules.</p>
       <div class="step-body">
         <div style="background:#1a1c20;border-radius:10px;padding:16px;margin-top:8px;">
-          <p style="margin:0;font-size:12px;color:#888;">Nearcade is an open-source platform that lets you play local co-op games over the internet with friends. It uses secure tunnel technology so your friends can connect directly to your game session from anywhere in the world, no port forwarding or complex network setup needed.</p>
+          <p style="margin:0;font-size:12px;color:#888;">Nearcade is an open-source platform that lets you play local
+            co-op games over the internet with friends. It uses secure tunnel technology so your friends can connect
+            directly to your game session from anywhere in the world, no port forwarding or complex network setup
+            needed.</p>
         </div>
       </div>
     </div>
@@ -270,33 +443,41 @@
     <!-- Step 1: System Setup -->
     <div class="step" data-step="1">
       <div class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
       </div>
       <h2>System Setup</h2>
-      <p>Nearcade needs system dependencies (drivers and virtual controllers) to run properly. Choose how you'd like to proceed.</p>
+      <p>Nearcade needs system dependencies (drivers and virtual controllers) to run properly. Choose how you'd like to
+        proceed.</p>
       <div class="step-body">
         <div class="os-cards">
           <div class="os-card" id="osLinux">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;">
-              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" style="width:32px;height:32px;">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
             </svg>
             <h4>Linux</h4>
             <p>Run the terminal setup script to install udev rules, PipeWire routing, and uinput drivers.</p>
           </div>
           <div class="os-card" id="osWindows">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" style="width:32px;height:32px;">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
             </svg>
             <h4>Windows</h4>
             <p>Run the PowerShell setup script as Administrator to install ViGEmBus and configure audio.</p>
           </div>
           <div class="os-card" id="osMac">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;">
-              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" style="width:32px;height:32px;">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="4" />
             </svg>
             <h4>macOS</h4>
             <p>Manual steps are available in the documentation. No automated setup script exists yet.</p>
@@ -304,7 +485,9 @@
         </div>
         <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
           <button class="btn btn-primary" onclick="runSetup()" id="setupBtn">Run Setup Script</button>
-          <a href="https://github.com/TheRealFame/Nearcade/blob/main/src/docs/GETTING_STARTED.md" target="_blank" class="btn btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center;">Manual Instructions</a>
+          <a href="https://github.com/TheRealFame/Nearcade/blob/main/src/docs/GETTING_STARTED.md" target="_blank"
+            class="btn btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center;">Manual
+            Instructions</a>
         </div>
         <div id="setupStatus" style="margin-top:12px;"></div>
       </div>
@@ -313,24 +496,36 @@
     <!-- Step 2: Tunnel Setup -->
     <div class="step" data-step="2">
       <div class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
         </svg>
       </div>
       <h2>Tunnel Setup</h2>
-      <p>Click a tunnel card below to download or view install instructions. Nearcade uses tunnels to let friends connect from anywhere.</p>
+      <p>Click a tunnel card below to download or view install instructions. Nearcade uses tunnels to let friends
+        connect from anywhere.</p>
       <div class="step-body">
         <div class="tunnel-grid" id="tunnelGrid"></div>
+        <p
+          style="font-size:11px;color:#facc15;margin-top:14px;background:rgba(250,204,21,0.1);padding:8px;border-radius:6px;border:1px solid rgba(250,204,21,0.2);">
+          <b>Note:</b> Public tunnels (Zrok, Cloudflared, Serveo) route your traffic through public infrastructure. When
+          viewers connect, the website will normally display a message that talks about the viewer's safety (a
+          phishing/security warning screen) before they can join the session. See the docs for more info.</p>
         <p id="tunnelStatus" style="font-size:11px;color:#555;margin-top:14px;"></p>
-        <pre id="tunnelInstallCmd" style="display:none;margin-top:12px;background:#0a0c0e;border:1px solid #1e2024;border-radius:8px;padding:12px;font-size:12px;color:#4ade80;overflow-x:auto;white-space:pre-wrap;word-break:break-all;"></pre>
+        <pre id="tunnelInstallCmd"
+          style="display:none;margin-top:12px;background:#0a0c0e;border:1px solid #1e2024;border-radius:8px;padding:12px;font-size:12px;color:#4ade80;overflow-x:auto;white-space:pre-wrap;word-break:break-all;"></pre>
       </div>
     </div>
 
     <!-- Step 3: Advanced -->
     <div class="step" data-step="3">
       <div class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+          <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+          <line x1="6" y1="6" x2="6.01" y2="6" />
+          <line x1="6" y1="18" x2="6.01" y2="18" />
         </svg>
       </div>
       <h2>Advanced Modules</h2>
@@ -338,8 +533,10 @@
       <div class="step-body">
         <div class="module-grid">
           <div class="module-card">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
             </svg>
             <div class="info">
               <h4>VR Streaming</h4>
@@ -347,8 +544,10 @@
             </div>
           </div>
           <div class="module-card">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path
+                d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
             </svg>
             <div class="info">
               <h4>Discord RPC</h4>
@@ -356,8 +555,10 @@
             </div>
           </div>
           <div class="module-card">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+              <polyline points="22,6 12,13 2,6" />
             </svg>
             <div class="info">
               <h4>Arcade Directory</h4>
@@ -365,8 +566,10 @@
             </div>
           </div>
           <div class="module-card">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
             </svg>
             <div class="info">
               <h4>Viewer Accounts</h4>
@@ -374,8 +577,12 @@
             </div>
           </div>
           <div class="module-card">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <div class="info">
               <h4>Multi-Controller</h4>
@@ -383,16 +590,23 @@
             </div>
           </div>
           <div class="module-card">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+              <line x1="8" y1="21" x2="16" y2="21" />
+              <line x1="12" y1="17" x2="12" y2="21" />
             </svg>
-            <div class="info">
-              <h4>Voice Chat</h4>
-              <p>Built-in viewer voice with per-viewer volume control.</p>
+            <div class="info" style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <h4>Voice Chat</h4>
+                <p>Built-in viewer voice with per-viewer volume control.</p>
+              </div>
+              <button id="vbCableSetupBtn" onclick="if(window.electronAPI) window.electronAPI.runVbCableSetup()" class="btn btn-secondary" style="display:none; padding: 4px 8px; font-size: 10px;">Install Driver</button>
             </div>
           </div>
         </div>
-        <p style="font-size:11px;color:#555;margin-top:14px;">All options are configurable from the Settings tab in the Host dashboard.</p>
+        <p style="font-size:11px;color:#555;margin-top:14px;">All options are configurable from the Settings tab in the
+          Host dashboard.</p>
       </div>
     </div>
 
@@ -400,7 +614,7 @@
     <div class="wizard-footer">
       <div class="left">
         <button class="btn btn-ghost" onclick="prevStep()" id="backBtn" style="visibility:hidden;">Back</button>
-        
+
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="skipAll()" id="skipBtn">Skip</button>
@@ -413,6 +627,13 @@
   <script>
     let currentStep = 0;
     const totalSteps = 4;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (navigator.platform.toLowerCase().includes('win')) {
+        const btn = document.getElementById('vbCableSetupBtn');
+        if (btn) btn.style.display = 'block';
+      }
+    });
 
     function updateUI() {
       // Steps
@@ -486,7 +707,11 @@
         window.electronAPI.runSetup();
         window.electronAPI.onSetupSuccess(() => {
           status.className = 'ok';
-          status.textContent = 'Setup complete!';
+          if (navigator.platform.toLowerCase().includes('win')) {
+            status.textContent = 'Setup complete! A system reboot is strongly recommended to use the new drivers.';
+          } else {
+            status.textContent = 'Setup complete!';
+          }
           btn.textContent = 'Done';
         });
         window.electronAPI.onSetupFailed((err) => {
@@ -592,18 +817,18 @@
 
     const INSTALL_CMDS = {
       cloudflared: {
-        linux:  'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" -o ~/.config/Nearcade/bin/cloudflared && chmod +x ~/.config/Nearcade/bin/cloudflared',
-        win32:  'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\cloudflared.exe"',
+        linux: 'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" -o ~/.config/Nearcade/bin/cloudflared && chmod +x ~/.config/Nearcade/bin/cloudflared',
+        win32: 'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\cloudflared.exe"',
         darwin: 'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64" -o ~/.config/Nearcade/bin/cloudflared && chmod +x ~/.config/Nearcade/bin/cloudflared',
       },
       zrok: {
-        linux:  'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_linux_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
-        win32:  null,
+        linux: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_linux_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
+        win32: null,
         darwin: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_darwin_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
       },
       playit: {
-        linux:  'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-cli-linux-amd64" -o ~/.config/Nearcade/bin/playit && chmod +x ~/.config/Nearcade/bin/playit',
-        win32:  'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x86_64-signed.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\playit.exe"',
+        linux: 'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-cli-linux-amd64" -o ~/.config/Nearcade/bin/playit && chmod +x ~/.config/Nearcade/bin/playit',
+        win32: 'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x86_64-signed.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\playit.exe"',
         darwin: null,
       },
     };
@@ -672,11 +897,11 @@
     // Check tunnel status when stepping into tunnel step
     const _origNextStep = nextStep;
     const _origPrevStep = prevStep;
-    nextStep = function() {
+    nextStep = function () {
       if (currentStep === 1) refreshTunnelStatus();
       _origNextStep();
     };
-    prevStep = function() {
+    prevStep = function () {
       if (currentStep === 3) refreshTunnelStatus();
       _origPrevStep();
     };
@@ -684,4 +909,5 @@
     updateUI();
   </script>
 </body>
+
 </html>

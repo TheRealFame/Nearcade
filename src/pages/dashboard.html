@@ -1,22 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Nearcade</title>
   <script src="/js/native-theme.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
+
 <body>
   <!-- Error / Warning Popup Overlay -->
-  <div id="ns-error-popup" style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
+  <div id="ns-error-popup"
+    style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
     <span id="ns-error-text">Critical Error occurred.</span>
-    <button onclick="this.parentElement.style.display='none'" style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
+    <button onclick="this.parentElement.style.display='none'"
+      style="background:rgba(255,255,255,0.2); border:none; color:white; padding:4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; display:inline-block; margin-left:12px;">✕</button>
   </div>
   <script>
-    window.showError = function(msg, severity = 'red') {
+    window.showError = function (msg, severity = 'red') {
       const popup = document.getElementById('ns-error-popup');
       const text = document.getElementById('ns-error-text');
       if (!popup || !text) return;
@@ -32,10 +38,13 @@
   <div id="updateModal">
     <div class="modal-content">
       <h2>Update Available</h2>
-      <p>A new version of Nearcade (<span id="updateVersion"></span>) is available! You are currently on v<span id="currentVersionModal"></span>.</p>
+      <p>A new version of Nearcade (<span id="updateVersion"></span>) is available! You are currently on v<span
+          id="currentVersionModal"></span>.</p>
       <div class="modal-actions">
-        <button class="btn-secondary" onclick="document.getElementById('updateModal').style.display='none'">Dismiss</button>
-        <button class="btn-primary" onclick="if(window.electronAPI) window.electronAPI.openBrowser('https://github.com/TheRealFame/Nearcade/releases/latest'); document.getElementById('updateModal').style.display='none'">Download</button>
+        <button class="btn-secondary"
+          onclick="document.getElementById('updateModal').style.display='none'">Dismiss</button>
+        <button class="btn-primary"
+          onclick="if(window.electronAPI) window.electronAPI.openBrowser('https://github.com/TheRealFame/Nearcade/releases/latest'); document.getElementById('updateModal').style.display='none'">Download</button>
       </div>
     </div>
   </div>
@@ -48,43 +57,225 @@
       document.getElementById('ns-splash-screen').style.display = 'none';
     }
   </script>
-<div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex; gap: 8px;">
-    <button onclick="openAbout()" title="About Nearcade" style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; font-family: inherit;">
-      <img src="../../assets/icons/info.svg" style="width: 20px; filter: invert(1);" onerror="this.style.display='none'; this.parentElement.textContent='?'" />
+  <div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex; gap: 8px;">
+    <button id="friendFloatBtn" onclick="toggleFriendPanel()" title="Friends"
+      style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #fff; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; position: relative; font-family: inherit;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="width: 20px;">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9" cy="7" r="4"></circle>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+      </svg>
+      <span id="friendPingBadge"
+        style="display:none; position:absolute; top:-4px; right:-4px; background:#f44; color:#fff; border-radius:10px; font-size:10px; min-width:18px; height:18px; line-height:18px; padding:0 4px; font-weight:bold;"></span>
     </button>
-    <button onclick="openDocs()" title="Documentation & Help" style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
+    <button id="friendEnableFloatBanner" onclick="toggleFriendPanel()" title="Enable the friend list"
+      style="display:none; background: transparent; border: 1px dashed var(--accent-glow,rgba(192,132,252,0.45)); border-radius: 8px; padding: 0 12px; cursor: pointer; color: var(--accent,#c084fc); align-items: center; justify-content: center; height: 40px; font-size: 12px; font-weight: 700; font-family: inherit; white-space: nowrap;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; margin-right: 6px;">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9" cy="7" r="4"></circle>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+      </svg>
+      Enable Friends
+    </button>
+    <button onclick="openAbout()" title="About Nearcade"
+      style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; font-family: inherit;">
+      <img src="../../assets/icons/info.svg" style="width: 20px; filter: invert(1);"
+        onerror="this.style.display='none'; this.parentElement.textContent='?'" />
+    </button>
+    <button onclick="openDocs()" title="Documentation & Help"
+      style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
       <img src="../../assets/icons/book.svg" style="width: 20px; filter: invert(1);" />
     </button>
   </div>
 
   <style>
     /* Nearcade-style About Modal CSS */
-    .ns-about-bg { background: var(--bg); color: var(--text); font-family: 'IBM Plex Mono', monospace; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; width: 750px; max-width: 95vw; height: 500px; max-height: 90vh; border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
-    .ns-about-header { display: flex; align-items: center; padding: 24px 30px; background: var(--surface); gap: 24px; position: relative; border-bottom: 1px solid var(--border); }
-    .ns-about-header img { width: 90px; height: 90px; filter: drop-shadow(0 0 20px rgba(192, 132, 252, 0.4)); }
-    .ns-about-header-text h2 { margin: 0 0 6px 0; font-size: 26px; font-weight: 700; color: var(--text); display: flex; align-items: baseline; gap: 8px; letter-spacing: 0.05em; }
-    .ns-about-header-text h2 span { font-size: 16px; font-weight: 500; color: var(--accent); }
-    .ns-about-header-text p { margin: 4px 0; font-size: 13px; color: var(--muted); }
-    .ns-about-close { position: absolute; top: 16px; right: 20px; background: var(--surface-hover); border: 1px solid var(--border); border-radius: 6px; width: 28px; height: 28px; color: var(--muted); display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; transition: all 0.2s; }
-    .ns-about-close:hover { color: #fff; border-color: #555; }
-    .ns-about-tabs { display: flex; background: var(--bg); padding: 0 10px; border-bottom: 1px solid var(--border); }
-    .ns-about-tab { padding: 12px 20px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; transition: all 0.2s; font-family: inherit; }
-    .ns-about-tab:hover { color: var(--text); background: rgba(255,255,255,0.02); }
-    .ns-about-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .ns-about-content { flex: 1; padding: 24px; background: var(--bg); overflow-y: auto; }
-    .ns-about-section { display: none; }
-    .ns-about-section.active { display: block; }
-    .ns-about-category { margin-bottom: 24px; }
-    .ns-about-category h4 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 0 0 10px 4px; text-transform: uppercase; letter-spacing: 0.1em; }
-    .ns-about-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; font-size: 14px; color: var(--text); line-height: 1.6; }
-    .ns-about-box span { display: block; padding: 4px 0; }
-    .ns-about-footer { background: var(--surface); padding: 16px; display: flex; justify-content: center; border-top: 1px solid var(--border); }
-    .ns-about-btn { background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 8px 36px; font-weight: 700; font-size: 14px; cursor: pointer; transition: transform 0.1s, filter 0.2s; font-family: inherit; }
-    .ns-about-btn:hover { filter: brightness(1.15); box-shadow: 0 0 15px rgba(192, 132, 252, 0.3); }
-    .ns-about-btn:active { transform: scale(0.96); }
+    .ns-about-bg {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      width: 750px;
+      max-width: 95vw;
+      height: 500px;
+      max-height: 90vh;
+      border: 1px solid var(--border);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+    }
+
+    .ns-about-header {
+      display: flex;
+      align-items: center;
+      padding: 24px 30px;
+      background: var(--surface);
+      gap: 24px;
+      position: relative;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ns-about-header img {
+      width: 90px;
+      height: 90px;
+      filter: drop-shadow(0 0 20px rgba(192, 132, 252, 0.4));
+    }
+
+    .ns-about-header-text h2 {
+      margin: 0 0 6px 0;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      letter-spacing: 0.05em;
+    }
+
+    .ns-about-header-text h2 span {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--accent);
+    }
+
+    .ns-about-header-text p {
+      margin: 4px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .ns-about-close {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .ns-about-close:hover {
+      color: #fff;
+      border-color: #555;
+    }
+
+    .ns-about-tabs {
+      display: flex;
+      background: var(--bg);
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ns-about-tab {
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    .ns-about-tab:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .ns-about-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .ns-about-content {
+      flex: 1;
+      padding: 24px;
+      background: var(--bg);
+      overflow-y: auto;
+    }
+
+    .ns-about-section {
+      display: none;
+    }
+
+    .ns-about-section.active {
+      display: block;
+    }
+
+    .ns-about-category {
+      margin-bottom: 24px;
+    }
+
+    .ns-about-category h4 {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      margin: 0 0 10px 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .ns-about-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .ns-about-box span {
+      display: block;
+      padding: 4px 0;
+    }
+
+    .ns-about-footer {
+      background: var(--surface);
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      border-top: 1px solid var(--border);
+    }
+
+    .ns-about-btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 36px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.1s, filter 0.2s;
+      font-family: inherit;
+    }
+
+    .ns-about-btn:hover {
+      filter: brightness(1.15);
+      box-shadow: 0 0 15px rgba(192, 132, 252, 0.3);
+    }
+
+    .ns-about-btn:active {
+      transform: scale(0.96);
+    }
   </style>
 
-  <div id="aboutModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px);">
+  <div id="aboutModal"
+    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px);">
     <div class="ns-about-bg">
       <div class="ns-about-header">
         <button class="ns-about-close" onclick="closeAbout()">×</button>
@@ -95,7 +286,7 @@
           <p>Powered by WebRTC & Electron.</p>
         </div>
       </div>
-      
+
       <div class="ns-about-tabs">
         <button class="ns-about-tab active" onclick="switchAboutTab('authors', this)">Authors</button>
         <button class="ns-about-tab" onclick="switchAboutTab('license', this)">License</button>
@@ -120,8 +311,11 @@
           <div class="ns-about-category">
             <h4>Asset Credits</h4>
             <div class="ns-about-box">
-              <span>Avatars generated via <a href="#" onclick="window.electronAPI ? window.electronAPI.openExternal('https://www.dicebear.com/') : window.open('https://www.dicebear.com/')" style="color:var(--accent);text-decoration:none;">DiceBear</a></span>
-              <span style="font-size:11px;color:var(--muted);margin-top:2px;display:block;">Style: "Big Smile" by Ashley Seo / Ashley McNamara (CC BY 4.0)</span>
+              <span>Avatars generated via <a href="#"
+                  onclick="window.electronAPI ? window.electronAPI.openExternal('https://www.dicebear.com/') : window.open('https://www.dicebear.com/')"
+                  style="color:var(--accent);text-decoration:none;">DiceBear</a></span>
+              <span style="font-size:11px;color:var(--muted);margin-top:2px;display:block;">Style: "Big Smile" by Ashley
+                Seo / Ashley McNamara (CC BY 4.0)</span>
             </div>
           </div>
         </div>
@@ -129,11 +323,16 @@
         <div id="about-tab-license" class="ns-about-section">
           <div class="ns-about-category">
             <h4>Software License</h4>
-            <div class="ns-about-box" style="white-space: pre-wrap;">Nearcade is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+            <div class="ns-about-box" style="white-space: pre-wrap;">Nearcade is free software: you can redistribute it
+              and/or modify it under the terms of the GNU General Public License as published by the Free Software
+              Foundation, either version 3 of the License, or (at your option) any later version.
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+              This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+              implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+              License for more details.
 
-You should have received a copy of the GNU General Public License along with this program. If not, see https://www.gnu.org/licenses/.</div>
+              You should have received a copy of the GNU General Public License along with this program. If not, see
+              https://www.gnu.org/licenses/.</div>
           </div>
         </div>
       </div>
@@ -144,24 +343,56 @@ You should have received a copy of the GNU General Public License along with thi
     </div>
   </div>
 
-  <div id="docsModal" onclick="if(event.target === this) closeDocs()" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center;">
-    <div style="background: var(--surface); border: 1px solid var(--border); width: 80%; max-width: 800px; height: 80vh; border-radius: 12px; display: flex; flex-direction: column;">
-      <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+  <div id="docsModal" onclick="if(event.target === this) closeDocs()"
+    style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center;">
+    <div
+      style="background: var(--surface); border: 1px solid var(--border); width: 80%; max-width: 800px; height: 80vh; border-radius: 12px; display: flex; flex-direction: column;">
+      <div
+        style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; color: var(--accent);">Nearcade Documentation</h3>
-        <button class="ns-about-close" onclick="closeDocs()" style="position: relative; top: auto; right: auto;">×</button>
+        <button class="ns-about-close" onclick="closeDocs()"
+          style="position: relative; top: auto; right: auto;">×</button>
       </div>
       <div style="display: flex; flex: 1; overflow: hidden;">
-        <div style="width: 200px; border-right: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 8px;">
-          <button onclick="loadDoc('GETTING_STARTED.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Getting Started</button>
-          <button onclick="loadDoc('HOST_USAGE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Host Usage</button>
-          <button onclick="loadDoc('API_AND_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">API & Setup</button>
-          <button onclick="loadDoc('VPS_SETUP.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">VPS Setup</button>
-          <button onclick="loadDoc('NEARSEC_ARCADE.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearcade</button>
-          <button onclick="loadDoc('ERROR_CODES.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Error Codes</button>
-          <button onclick="loadDoc('ADVANCED_LOGIC.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Advanced Logic</button>
-          <button onclick="loadDoc('AUTOMATED_SETUP_LEGALITY.md')" style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Setup Legality</button>
+        <div
+          style="width: 200px; border-right: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+          <button onclick="loadDoc('GETTING_STARTED.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Getting
+            Started</button>
+          <button onclick="loadDoc('HOST_USAGE.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Host
+            Usage</button>
+          <button onclick="loadDoc('API_AND_SETUP.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">API &
+            Setup</button>
+          <button onclick="loadDoc('VPS_SETUP.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">VPS
+            Setup</button>
+          <button onclick="loadDoc('NEARSEC_ARCADE.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearcade</button>
+          <button onclick="loadDoc('ERROR_CODES.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Error
+            Codes</button>
+          <button onclick="loadDoc('TROUBLESHOOTING.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Troubleshooting</button>
+          <button onclick="loadDoc('ADVANCED_LOGIC.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Advanced
+            Logic</button>
+          <button onclick="loadDoc('AUTOMATED_SETUP_LEGALITY.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Setup
+            Legality</button>
         </div>
-        <div id="docContent" style="flex: 1; padding: 24px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap; font-family: sans-serif;">
+        <div id="docContent"
+          style="flex: 1; padding: 24px; overflow-y: auto; line-height: 1.6; white-space: pre-wrap; font-family: sans-serif;">
           Select a document to read.
         </div>
       </div>
@@ -176,7 +407,7 @@ You should have received a copy of the GNU General Public License along with thi
         <button class="collapse-btn" onclick="toggleSidebar()" title="Toggle Sidebar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="6"  x2="21" y2="6"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
             <line x1="3" y1="18" x2="21" y2="18"></line>
           </svg>
         </button>
@@ -205,7 +436,7 @@ You should have received a copy of the GNU General Public License along with thi
       <button class="nav-btn" onclick="launchHostSession()" id="tab-host">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-          <line x1="8"  y1="21" x2="16" y2="21"></line>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
           <line x1="12" y1="17" x2="12" y2="21"></line>
         </svg>
         <span class="btn-text">Host Session</span>
@@ -221,7 +452,8 @@ You should have received a copy of the GNU General Public License along with thi
       </button>
 
       <button class="nav-btn" onclick="switchTab('turnlist')" id="tab-turnlist">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
           <polyline points="21 8 21 21 3 21 3 8"></polyline>
           <rect x="1" y="3" width="22" height="5"></rect>
           <line x1="10" y1="12" x2="14" y2="12"></line>
@@ -230,7 +462,8 @@ You should have received a copy of the GNU General Public License along with thi
       </button>
 
       <button class="nav-btn" onclick="switchTab('containers')" id="tab-containers">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
           <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
           <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
           <line x1="6" y1="6" x2="6.01" y2="6"></line>
@@ -252,7 +485,9 @@ You should have received a copy of the GNU General Public License along with thi
       <button class="nav-btn" onclick="switchTab('settings')" id="tab-settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+          </path>
         </svg>
         <span class="btn-text">App Settings</span>
       </button>
@@ -260,7 +495,7 @@ You should have received a copy of the GNU General Public License along with thi
       <div class="lang-switcher">
         <img src="../../assets/icons/globe.svg" class="globe-icon" alt="Lang" onerror="this.style.display='none'">
         <select id="langSelect" onchange="saveLangAndReload(this.value)">
-          </select>
+        </select>
       </div>
     </div>
 
@@ -268,7 +503,8 @@ You should have received a copy of the GNU General Public License along with thi
       <div class="panel active" id="panel-connect">
         <div class="connect-container">
           <h1>Connect to Session</h1>
-          <p class="sub">Paste a tunnel URL to instantly join a private session, or browse public games in the Live Arcade.</p>
+          <p class="sub">Paste a tunnel URL to instantly join a private session, or browse public games in the Live
+            Arcade.</p>
 
           <div class="connect-card">
             <h2>
@@ -280,9 +516,11 @@ You should have received a copy of the GNU General Public License along with thi
             </h2>
             <div class="input-row" style="margin-bottom: 12px;">
               <div class="input-wrapper">
-                <input type="text" id="directLinkInput" placeholder="URL (https://) or Room Code" onkeydown="if(event.key==='Enter')joinDirectLink()">
+                <input type="text" id="directLinkInput" placeholder="URL (https://) or Room Code"
+                  onkeydown="if(event.key==='Enter')joinDirectLink()">
                 <button class="btn-paste" onclick="pasteFromClipboard()" title="Paste from Clipboard">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                   </svg>
@@ -291,7 +529,8 @@ You should have received a copy of the GNU General Public License along with thi
             </div>
             <div class="input-row">
               <div class="input-wrapper">
-                <input type="text" id="pinInput" placeholder="PIN Code (if required)" autocomplete="off" maxlength="32" onkeydown="if(event.key==='Enter')joinDirectLink()">
+                <input type="text" id="pinInput" placeholder="PIN Code (if required)" autocomplete="off" maxlength="32"
+                  onkeydown="if(event.key==='Enter')joinDirectLink()">
               </div>
               <button class="btn-connect" onclick="joinDirectLink()">Join</button>
             </div>
@@ -301,11 +540,13 @@ You should have received a copy of the GNU General Public License along with thi
           <div class="info-grid">
             <div class="info-card">
               <h3>Quick Tip</h3>
-              <p>Connect a controller and press any button. The app will automatically switch to gamepad navigation mode.</p>
+              <p>Connect a controller and press any button. The app will automatically switch to gamepad navigation
+                mode.</p>
             </div>
             <div class="info-card">
               <h3>Discord RPC</h3>
-              <p>Your Discord status automatically updates when you host or join a session, showing the game you are playing.</p>
+              <p>Your Discord status automatically updates when you host or join a session, showing the game you are
+                playing.</p>
             </div>
           </div>
         </div>
@@ -324,23 +565,30 @@ You should have received a copy of the GNU General Public License along with thi
             <h2>Deploy New Game</h2>
             <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
               <h4 style="margin: 0;">Game/Lobby Name</h4>
-              <input type="text" id="autoName" placeholder="e.g., Sonic the Fighters 24/7" style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+              <input type="text" id="autoName" placeholder="e.g., Sonic the Fighters 24/7"
+                style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
             </div>
             <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
               <h4 style="margin: 0;">Terminal Launch Command</h4>
-              <input type="text" id="autoCmd" placeholder="steam steam://rungameid/APPID  (or any shell command)" style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+              <input type="text" id="autoCmd" placeholder="steam steam://rungameid/APPID  (or any shell command)"
+                style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
             </div>
             <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
               <h4 style="margin: 0;">Dedicated Tunnel Provider</h4>
-              <select id="autoTunnel" style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+              <select id="autoTunnel"
+                style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
                 <option value="default">Use Global App Default</option>
                 <option value="cloudflared">Cloudflare (Random URL)</option>
                 <option value="zrok">zrok.io (Best Performance)</option>
                 <option value="playit">playit.gg</option>
               </select>
             </div>
-            <button class="btn-confirm" onclick="saveAutoHost()" style="width:100%;padding:12px;margin-top:12px;border-radius:6px;cursor:pointer;background:var(--accent);color:#000;font-weight:bold;border:none;">Save Configuration</button>
-            <button id="btnOpenTerminal" onclick="openAutoHostTerminal()" style="display:none;width:100%;padding:10px;margin-top:8px;border-radius:6px;cursor:pointer;background:rgba(52,211,153,0.12);color:#34d399;font-weight:bold;border:1px solid rgba(52,211,153,0.3);font-family:inherit;font-size:12px;">⌘ Open Terminal for Auto-Host</button>
+            <button class="btn-confirm" onclick="saveAutoHost()"
+              style="width:100%;padding:12px;margin-top:12px;border-radius:6px;cursor:pointer;background:var(--accent);color:#000;font-weight:bold;border:none;">Save
+              Configuration</button>
+            <button id="btnOpenTerminal" onclick="openAutoHostTerminal()"
+              style="display:none;width:100%;padding:10px;margin-top:8px;border-radius:6px;cursor:pointer;background:rgba(52,211,153,0.12);color:#34d399;font-weight:bold;border:1px solid rgba(52,211,153,0.3);font-family:inherit;font-size:12px;">⌘
+              Open Terminal for Auto-Host</button>
           </div>
 
           <div class="settings-section" id="activeAutoHostsList">
@@ -354,16 +602,22 @@ You should have received a copy of the GNU General Public License along with thi
           <h1>Community STUN Servers</h1>
           <p class="sub">Browse and select public STUN servers hosted by the community.</p>
 
-          <div style="background: rgba(255, 166, 0, 0.1); border-left: 4px solid orange; padding: 12px; margin-bottom: 16px; border-radius: 4px; font-size: 13px; color: var(--text);">
-            <strong>What is a STUN server?</strong><br/>
-            A STUN server is a tiny relay used by WebRTC strictly to discover your public IP address so you can establish a direct Peer-to-Peer connection with other players. It does <b>not</b> route your video, audio, or game inputs.<br/><br/>
-            <strong>Privacy Warning:</strong><br/>
-            If you select a Community STUN Server, the person hosting that server will be able to see your public IP address. They cannot see or intercept any game data, but they will know your IP address connected to them.
+          <div
+            style="background: rgba(255, 166, 0, 0.1); border-left: 4px solid orange; padding: 12px; margin-bottom: 16px; border-radius: 4px; font-size: 13px; color: var(--text);">
+            <strong>What is a STUN server?</strong><br />
+            A STUN server is a tiny relay used by WebRTC strictly to discover your public IP address so you can
+            establish a direct Peer-to-Peer connection with other players. It does <b>not</b> route your video, audio,
+            or game inputs.<br /><br />
+            <strong>Privacy Warning:</strong><br />
+            If you select a Community STUN Server, the person hosting that server will be able to see your public IP
+            address. They cannot see or intercept any game data, but they will know your IP address connected to them.
           </div>
           <div class="settings-section">
             <div id="serverListContainer" style="display:flex;flex-direction:column;gap:12px;">
               <!-- Servers would populate here -->
-              <div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">Loading community servers...</div>
+              <div
+                style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">
+                Loading community servers...</div>
             </div>
           </div>
         </div>
@@ -374,16 +628,23 @@ You should have received a copy of the GNU General Public License along with thi
           <h1>Community TURN Servers</h1>
           <p class="sub">Browse and select public TURN servers hosted by the community.</p>
 
-          <div style="background: rgba(255, 69, 58, 0.1); border-left: 4px solid #ff453a; padding: 12px; margin-bottom: 16px; border-radius: 4px; font-size: 13px; color: var(--text);">
-            <strong>What is a TURN server?</strong><br/>
-            A TURN server is a high-bandwidth relay used by WebRTC when a direct Peer-to-Peer connection fails. <b>It routes ALL of your video, audio, and game input traffic.</b><br/><br/>
-            <strong>CRITICAL PRIVACY WARNING:</strong><br/>
-            If you select a Community TURN Server, the person hosting that server will be routing your entire game stream. While WebRTC is end-to-end encrypted (meaning they cannot decrypt your video/audio or intercept passwords), they can see your public IP address and measure your exact bandwidth usage. <b>Only select TURN servers from hosts you trust.</b>
+          <div
+            style="background: rgba(255, 69, 58, 0.1); border-left: 4px solid #ff453a; padding: 12px; margin-bottom: 16px; border-radius: 4px; font-size: 13px; color: var(--text);">
+            <strong>What is a TURN server?</strong><br />
+            A TURN server is a high-bandwidth relay used by WebRTC when a direct Peer-to-Peer connection fails. <b>It
+              routes ALL of your video, audio, and game input traffic.</b><br /><br />
+            <strong>CRITICAL PRIVACY WARNING:</strong><br />
+            If you select a Community TURN Server, the person hosting that server will be routing your entire game
+            stream. While WebRTC is end-to-end encrypted (meaning they cannot decrypt your video/audio or intercept
+            passwords), they can see your public IP address and measure your exact bandwidth usage. <b>Only select TURN
+              servers from hosts you trust.</b>
           </div>
           <div class="settings-section">
             <div id="turnListContainer" style="display:flex;flex-direction:column;gap:12px;">
               <!-- Servers would populate here -->
-              <div style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">Loading community TURN servers...</div>
+              <div
+                style="padding: 20px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">
+                Loading community TURN servers...</div>
             </div>
           </div>
         </div>
@@ -402,7 +663,8 @@ You should have received a copy of the GNU General Public License along with thi
                 <p>Your name shown in sessions and Discord. Leave blank to randomize.</p>
               </div>
               <div class="input-wrapper" style="max-width: 200px;">
-                <input type="text" id="settingHostName" placeholder="Guest" onchange="saveHostName(this.value)" style="padding-right: 18px; text-align: center;">
+                <input type="text" id="settingHostName" placeholder="Guest" onchange="saveHostName(this.value)"
+                  style="padding-right: 18px; text-align: center;">
               </div>
             </div>
             <div class="setting-row">
@@ -411,10 +673,13 @@ You should have received a copy of the GNU General Public License along with thi
                 <p>Your avatar shown in voice chat. Click Randomize to generate a new one.</p>
               </div>
               <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.4);border:1px solid var(--border);overflow:hidden;flex-shrink:0;">
-                   <img id="hostAvatarPreview" src="" style="width:100%;height:100%;object-fit:cover;display:none;" onload="this.style.display='block'">
+                <div
+                  style="width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.4);border:1px solid var(--border);overflow:hidden;flex-shrink:0;">
+                  <img id="hostAvatarPreview" src="" style="width:100%;height:100%;object-fit:cover;display:none;"
+                    onload="this.style.display='block'">
                 </div>
-                <button onclick="window.randomizeHostAvatar()" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-weight:600;padding:8px 12px;cursor:pointer;transition:all 0.15s;font-family:inherit;">Randomize</button>
+                <button onclick="window.randomizeHostAvatar()"
+                  style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-weight:600;padding:8px 12px;cursor:pointer;transition:all 0.15s;font-family:inherit;">Randomize</button>
               </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('rumble')">
@@ -422,49 +687,68 @@ You should have received a copy of the GNU General Public License along with thi
                 <h4>Controller Rumble</h4>
                 <p>Allow the host to send vibration data to connected clients.</p>
               </div>
-              <div class="toggle" id="settingTrackRumble"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackRumble">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('useSystemAccent')">
               <div class="setting-info">
-                <h4>Use System Accent Color <span id="sysAccentIndicator" style="display:none;font-size:9px;font-weight:400;color:var(--accent);background:var(--accent-dim);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span></h4>
+                <h4>Use System Accent Color <span id="sysAccentIndicator"
+                    style="display:none;font-size:9px;font-weight:400;color:var(--accent);background:var(--accent-dim);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span>
+                </h4>
                 <p>Follow your desktop's accent color instead of the default theme.</p>
               </div>
-              <div class="toggle" id="settingTrackSystemAccent"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackSystemAccent">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('useNativeTheme')">
               <div class="setting-info">
-                <h4>Native OS Theming <span id="nativeThemeIndicator" style="display:none;font-size:9px;font-weight:400;color:var(--bg);background:var(--text);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span></h4>
+                <h4>Native OS Theming <span id="nativeThemeIndicator"
+                    style="display:none;font-size:9px;font-weight:400;color:var(--bg);background:var(--text);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span>
+                </h4>
                 <p>Dynamically follow your system's background, surface, and text colors.</p>
               </div>
-              <div class="toggle" id="settingTrackNativeTheme"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackNativeTheme">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" id="settingRowHidMaestro" style="display:none;" onclick="toggleHidMaestro()">
               <div class="setting-info">
                 <h4>HIDMaestro Virtual Controller</h4>
-                <p>Experimental Windows backend. Uses HIDMaestro instead of ViGEmBus for virtual gamepads.<br><strong style="color:var(--warn);">Not compatible with Arcade mode.</strong></p>
+                <p>Experimental Windows backend. Uses HIDMaestro instead of ViGEmBus for virtual gamepads.<br><strong
+                    style="color:var(--warn);">Not compatible with Arcade mode.</strong></p>
               </div>
-              <div class="toggle" id="settingTrackHidMaestro"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackHidMaestro">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" id="settingRowDiscordRPC" onclick="toggleAppSetting('discordRPC')">
               <div class="setting-info">
                 <h4>Discord Rich Presence</h4>
                 <p>Show your friends what game you're playing on Nearcade Arcade.</p>
               </div>
-              <div class="toggle" id="settingTrackDiscordRPC"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackDiscordRPC">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('checkForUpdates')" id="settingRowUpdates">
               <div class="setting-info">
                 <h4>Check for Updates</h4>
                 <p>Automatically check for a new version of Nearcade on startup.</p>
               </div>
-              <div class="toggle" id="settingTrackCheckForUpdates"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackCheckForUpdates">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('tray')">
               <div class="setting-info">
                 <h4>Minimize to Tray</h4>
                 <p>Closing the window hides to the system tray instead of quitting.</p>
               </div>
-              <div class="toggle" id="settingTrackTray"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackTray">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" id="settingRowOpenLog" style="cursor:default;">
               <div class="setting-info">
@@ -472,8 +756,12 @@ You should have received a copy of the GNU General Public License along with thi
                 <p>View diagnostic logs or open the install folder to edit .env</p>
               </div>
               <div style="display: flex; gap: 8px;">
-                <button style="padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text);" onclick="window.electronAPI.openLog()">Open Log</button>
-                <button style="padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text);" onclick="window.electronAPI.openInstallDir()">Open Folder</button>
+                <button
+                  style="padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text);"
+                  onclick="window.electronAPI.openLog()">Open Log</button>
+                <button
+                  style="padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text);"
+                  onclick="window.electronAPI.openInstallDir()">Open Folder</button>
               </div>
             </div>
             <div class="setting-row" id="settingRowSetupWizard" style="cursor:default;">
@@ -481,7 +769,25 @@ You should have received a copy of the GNU General Public License along with thi
                 <h4>Setup Wizard</h4>
                 <p>Re-open the first-time setup wizard to install drivers or review options.</p>
               </div>
-              <button onclick="window.location.href='/setup'" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Open Setup</button>
+              <button onclick="window.location.href='/setup'"
+                style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Open
+                Setup</button>
+            </div>
+            <div class="setting-row" id="settingRowVBCable" style="cursor:default; display:none;">
+              <div class="setting-info">
+                <h4>Virtual Audio Setup (Windows)</h4>
+                <p>Installs the VB-Audio Cable driver required for Virtual Microphone Routing.</p>
+              </div>
+              <button onclick="if(window.electronAPI) window.electronAPI.runVbCableSetup()"
+                style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Install Driver</button>
+            </div>
+            <div class="setting-row" id="settingRowLinuxSetup" style="cursor:default; display:none;">
+              <div class="setting-info">
+                <h4>Advanced Setup (Linux)</h4>
+                <p>Installs the experimental SteamVR NearsecVR driver for Linux headsets.</p>
+              </div>
+              <button onclick="if(window.electronAPI) window.electronAPI.runAdvancedLinuxSetup()"
+                style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Run Setup</button>
             </div>
           </div>
           <div class="setting-row" id="settingRowUISelect">
@@ -490,7 +796,8 @@ You should have received a copy of the GNU General Public License along with thi
               <p>Select the layout for the Host screen. Selecting Custom prompts for a file.</p>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
-              <select id="hostUISelect" onchange="setHostUI(this.value)" style="padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px; font-family: inherit;">
+              <select id="hostUISelect" onchange="setHostUI(this.value)"
+                style="padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px; font-family: inherit;">
                 <option value="default">Default</option>
                 <option value="playground">Playground</option>
                 <option value="minimal">Minimal</option>
@@ -504,16 +811,20 @@ You should have received a copy of the GNU General Public License along with thi
               <h4>Auto-Start Host Mode</h4>
               <p>Skips this dashboard and jumps straight into hosting on startup.</p>
             </div>
-            <div class="toggle" id="settingTrackAutoHost"><div class="toggle-thumb"></div></div>
+            <div class="toggle" id="settingTrackAutoHost">
+              <div class="toggle-thumb"></div>
+            </div>
           </div>
           <div class="settings-section host-only" id="tunnelsSection">
             <h2>Additional Tunnels</h2>
-            <p style="font-size:12px;color:var(--muted);margin:-4px 0 12px 0">Extra tunnel providers not shown in the host page. Click to activate.</p>
+            <p style="font-size:12px;color:var(--muted);margin:-4px 0 12px 0">Extra tunnel providers not shown in the
+              host page. Click to activate.</p>
             <button class="more-tunnels-btn" id="moreTunnelsBtn" onclick="toggleTunnelGrid()">
               <span class="arrow">&#9654;</span> <span id="moreTunnelsLabel">Show available tunnel providers</span>
             </button>
             <div id="tunnelGridContainer">
-              <div id="tunnelGridLoading" style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">Loading...</div>
+              <div id="tunnelGridLoading" style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">
+                Loading...</div>
               <div id="tunnelGridContent" style="display:none;"></div>
               <div id="tunnelStatus" class="tunnel-status" style="display:none"></div>
             </div>
@@ -523,31 +834,43 @@ You should have received a copy of the GNU General Public License along with thi
             <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
               <div class="setting-info" style="flex:1;min-width:200px;">
                 <h4>Mod API Endpoint</h4>
-                <p>Your Cloudflare Worker URL for the arcade moderation API (e.g. https://your-worker.workers.dev/api/mod)</p>
+                <p>Your Cloudflare Worker URL for the arcade moderation API (e.g.
+                  https://your-worker.workers.dev/api/mod)</p>
               </div>
-              <input type="url" id="settingModEndpoint" placeholder="https://your-worker.workers.dev/api/mod" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+              <input type="url" id="settingModEndpoint" placeholder="https://your-worker.workers.dev/api/mod"
+                onchange="saveModSettings()"
+                style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
             </div>
             <div class="setting-row" style="cursor:default;flex-wrap:wrap;">
               <div class="setting-info" style="flex:1;min-width:200px;">
                 <h4>Mod Secret Token</h4>
                 <p>The token generated by the mod console. Grants access to ban/unban API.</p>
               </div>
-              <input type="password" id="settingModSecret" placeholder="64-char hex token" onchange="saveModSettings()" style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+              <input type="password" id="settingModSecret" placeholder="64-char hex token" onchange="saveModSettings()"
+                style="flex:1;min-width:200px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
             </div>
             <div class="setting-row" style="cursor:default; gap:8px;">
-              <button onclick="verifyModConnection()" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Verify Connection</button>
+              <button onclick="verifyModConnection()"
+                style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);">Verify
+                Connection</button>
               <span id="modConnectionStatus" style="font-size:12px;color:var(--muted2);"></span>
             </div>
             <div id="banManagementArea" style="display:none;margin-top:12px;">
               <div style="display:flex;gap:8px;margin-bottom:8px;">
-                <input type="text" id="banIPInput" placeholder="IP address to ban" style="flex:1;min-width:120px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
-                <button onclick="executeBan()" style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--danger);background:transparent;color:var(--danger);font-family:inherit;">Ban</button>
+                <input type="text" id="banIPInput" placeholder="IP address to ban"
+                  style="flex:1;min-width:120px;padding:8px;background:#000;border:1px solid var(--border);color:#fff;border-radius:4px;font-family:inherit;">
+                <button onclick="executeBan()"
+                  style="padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--danger);background:transparent;color:var(--danger);font-family:inherit;">Ban</button>
               </div>
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                <button onclick="fetchBanList()" style="padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-family:inherit;">Refresh Ban List</button>
+                <button onclick="fetchBanList()"
+                  style="padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-family:inherit;">Refresh
+                  Ban List</button>
                 <span id="banStatus" style="font-size:12px;color:var(--muted);"></span>
               </div>
-              <div id="banListContainer" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#000;"></div>
+              <div id="banListContainer"
+                style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:#000;">
+              </div>
             </div>
           </div>
           <div class="settings-section">
@@ -558,28 +881,47 @@ You should have received a copy of the GNU General Public License along with thi
                 <h4>Hardware Decoding</h4>
                 <p>Use your GPU to decode video for lower latency and battery usage.</p>
               </div>
-              <div class="toggle" id="settingTrackHWDecode"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackHWDecode">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('fpsUnlock')">
               <div class="setting-info">
                 <h4>Unlock Framerate (120Hz+)</h4>
                 <p>Disables the standard 60fps cap for high refresh rate streaming.</p>
               </div>
-              <div class="toggle" id="settingTrackFpsUnlock"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackFpsUnlock">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('vsyncOff')">
               <div class="setting-info">
                 <h4>Disable V-Sync</h4>
                 <p>Disables vertical sync for the absolute lowest latency. May cause screen tearing.</p>
               </div>
-              <div class="toggle" id="settingTrackVsyncOff"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackVsyncOff">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
             <div class="setting-row" onclick="toggleAppSetting('zeroCopy')">
               <div class="setting-info">
-                <h4>Zero-Copy Video Capture</h4>
-                <p>Bypasses system memory and keeps video frames entirely on the GPU. Extremely fast, but may glitch on some hardware.</p>
+                <h4>GPU-Direct Capture (DRM/KMS)</h4>
+                <p>Uses native DRM/KMS capture, reading frames straight from the display controller. May glitch on
+                  some hardware; disable to allow the standard portal fallback.</p>
               </div>
-              <div class="toggle" id="settingTrackZeroCopy"><div class="toggle-thumb"></div></div>
+              <div class="toggle" id="settingTrackZeroCopy">
+                <div class="toggle-thumb"></div>
+              </div>
+            </div>
+            
+            <div class="setting-row" id="settingRowWindowsExperimental" onclick="toggleAppSetting('windowsExperimental')">
+              <div class="setting-info">
+                <h4>Windows Experimental Features</h4>
+                <p>Enables Windows implementations of Linux-only features: Local Co-op Launcher, Virtual Microphone Routing, Window-Title Auto-Mapping, and Native Desktop Portals for Capture.</p>
+              </div>
+              <div class="toggle" id="settingTrackWindowsExperimental">
+                <div class="toggle-thumb"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -593,25 +935,125 @@ You should have received a copy of the GNU General Public License along with thi
         <span>Controller Settings</span>
         <button class="close-modal" onclick="document.getElementById('gpModal').classList.remove('open')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6"  x2="6"  y2="18"></line>
-            <line x1="6"  y1="6"  x2="18" y2="18"></line>
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
       </div>
       <iframe src="gamepad-popup.html" style="flex:1; border:none;"></iframe>
     </div>
-    </div>
+  </div>
   </div>
 
-  <div id="version-display" style="position:fixed; bottom: 12px; right: 16px; font-size: 11px; color: var(--muted); cursor: pointer; text-align: right; z-index: 100; user-select: none;" onclick="copyVersion()" title="Click to copy version">
+  <div id="version-display"
+    style="position:fixed; bottom: 12px; right: 16px; font-size: 11px; color: var(--muted); cursor: pointer; text-align: right; z-index: 100; user-select: none;"
+    onclick="copyVersion()" title="Click to copy version">
     <div id="version-text"></div>
     <div id="commit-hash" style="font-size: 9px; opacity: 0.7;"></div>
+  </div>
+
+  <!-- Friend list side menu -->
+  <div id="friendOverlay" onclick="closeFriendPanel()"
+    style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index: 1500;"></div>
+  <div id="friendPanel"
+    style="position:fixed; top:0; right:0; bottom:0; width:min(340px, 90vw); background:var(--surface,#16151d); border-left:1px solid var(--border,#2a2833); z-index:1501; transform:translateX(105%); transition:transform 0.25s ease; display:flex; flex-direction:column; box-shadow:-8px 0 30px rgba(0,0,0,0.4);">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid var(--border,#2a2833);">
+      <span style="font-weight:700; font-size:15px;">Friends</span>
+      <button onclick="closeFriendPanel()" title="Close"
+        style="background:transparent; border:none; color:var(--muted,#888); cursor:pointer; font-size:20px; line-height:1; padding:2px 6px;">×</button>
+    </div>
+
+    <!-- Enable popup — shown when the friend ping feature is OFF -->
+    <div id="friendEnablePopup" style="display:none; padding:14px 18px; border-bottom:1px solid var(--border,#2a2833);">
+      <div style="background:var(--accent-dim,rgba(192,132,252,0.12)); border:1px solid var(--accent-glow,rgba(192,132,252,0.35)); border-radius:10px; padding:14px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px; color:var(--text,#e8e6ef);">Enable the friend list?</div>
+        <div style="font-size:12px; line-height:1.5; color:var(--muted,#a6adc8); margin-bottom:12px;">
+          Turning this on will enable you to be pinged from others who want to check using the app. Your IP address is exposed while this is enabled. Only friends you have added (by their friend ID) can ping you.
+        </div>
+        <button onclick="setFriendPingEnabled(true)"
+          style="width:100%; background:#fff; border:none; border-radius:8px; padding:10px; color:#111; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit;">Enable</button>
+      </div>
+    </div>
+
+    <!-- Friends UI — only shown once the feature is enabled -->
+    <div id="friendEnabledSection" style="display:none; flex-direction:column; flex:1; overflow-y:auto;">
+      <div style="padding:14px 18px; border-bottom:1px solid var(--border,#2a2833);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <span style="font-size:13px; font-weight:600;">Allow friends to ping you</span>
+          <label style="position:relative; display:inline-block; width:40px; height:22px; cursor:pointer;">
+            <input type="checkbox" id="friendPingToggle" onchange="setFriendPingEnabled(this.checked)"
+              style="opacity:0; width:0; height:0;">
+            <span id="friendPingToggleBg"
+              style="position:absolute; inset:0; background:#3a3745; border-radius:11px; transition:background 0.2s;"></span>
+            <span id="friendPingToggleKnob"
+              style="position:absolute; top:2px; left:2px; width:18px; height:18px; background:#fff; border-radius:50%; transition:transform 0.2s;"></span>
+          </label>
+        </div>
+        <div id="friendWarning" style="display:none; background:rgba(255,170,60,0.12); border:1px solid rgba(255,170,60,0.35); color:#ffb45e; border-radius:8px; padding:9px 11px; font-size:12px; line-height:1.5;">
+          Turning this on will enable you to be pinged from others who want to check using the app. Your IP address is exposed while this is enabled. Only friends you have added (by their friend ID) can ping you.
+        </div>
+      </div>
+
+      <!-- Your own friend ID — the non-replicable ID others use to add you -->
+      <div style="padding:12px 18px; border-bottom:1px solid var(--border,#2a2833);">
+        <div style="font-size:12px; font-weight:600; margin-bottom:6px;">Your Friend ID</div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <code id="myFriendUuid" style="flex:1; min-width:0; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--accent,#c084fc); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">…</code>
+          <button id="myFriendUuidCopy" onclick="copyFriendUuid()"
+            style="background:#fff; border:none; border-radius:6px; padding:8px 12px; color:#111; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit; flex-shrink:0;">Copy</button>
+        </div>
+        <div style="font-size:11px; color:var(--muted,#888); margin-top:6px; line-height:1.4;">
+          Give this to your friends so they can add you. When they add you, send them your pairing code too — that is what proves their pings really come from them.
+        </div>
+      </div>
+
+      <div style="padding:12px 18px; border-bottom:1px solid var(--border,#2a2833);">
+        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Add Friend</div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input id="friendUuidInput" type="text" placeholder="Their friend ID (full UUID)" spellcheck="false"
+            onkeydown="if(event.key==='Enter')addFriend()"
+            style="flex:1; min-width:0; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:13px; font-family:inherit;">
+          <button onclick="addFriend()"
+            style="background:#fff; border:none; border-radius:6px; padding:8px 14px; color:#111; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit;">Add</button>
+        </div>
+        <div id="friendAddErr" style="color:#f66; font-size:11px; margin-top:6px; min-height:1.2em;"></div>
+        <div id="friendPairNotice" style="display:none; margin-top:8px; background:#1c1a24; border:1px solid var(--border,#2a2833); border-radius:8px; padding:10px; font-size:11px; line-height:1.5; color:var(--text,#e8e6ef);"></div>
+      </div>
+
+      <div style="padding:12px 18px; border-top:1px solid var(--border,#2a2833);">
+        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Enter Pairing Code</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input id="friendPairUuidInput" type="text" placeholder="Their friend ID (full UUID)" spellcheck="false"
+            onkeydown="if(event.key==='Enter')enterPairCode()"
+            style="flex:1; min-width:160px; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:13px; font-family:inherit;">
+          <input id="friendPairSecretInput" type="password" placeholder="Their 48-char pairing code" spellcheck="false"
+            onkeydown="if(event.key==='Enter')enterPairCode()"
+            style="flex:1; min-width:160px; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:13px; font-family:inherit;">
+          <button onclick="enterPairCode()"
+            style="background:#fff; border:none; border-radius:6px; padding:8px 14px; color:#111; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit;">Save</button>
+        </div>
+        <div id="friendPairErr" style="color:#f66; font-size:11px; margin-top:6px; min-height:1.2em;"></div>
+      </div>
+
+      <div style="padding:12px 18px;">
+        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Your Friends</div>
+        <div id="friendList" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <div id="friendEmpty" style="display:none; color:var(--muted,#888); font-size:12px; padding:12px 0; text-align:center;">
+          No friends yet — add someone by their friend ID.
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border,#2a2833); padding:12px 18px;">
+        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Recent Pings</div>
+        <div id="friendPingList" style="display:flex; flex-direction:column; gap:6px; font-size:12px; color:var(--muted,#888);"></div>
+      </div>
+    </div>
   </div>
 
   <script src="/js/i18n.js"></script>
   <script src="/js/dashboard-main.js"></script>
 
-<script>
+  <script>
     function toggleUIVersion() {
       const current = localStorage.getItem('ns_ui_version') || 'new';
       const next = current === 'new' ? 'old' : 'new';
@@ -622,7 +1064,7 @@ You should have received a copy of the GNU General Public License along with thi
     function openAbout() {
       document.getElementById('aboutModal').style.display = 'flex';
     }
-    
+
     function closeAbout() { document.getElementById('aboutModal').style.display = 'none'; }
 
     function switchAboutTab(tabId, btnEl) {
@@ -645,8 +1087,8 @@ You should have received a copy of the GNU General Public License along with thi
           const inner = m.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
           return `<pre style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 14px;overflow-x:auto;font-size:11px;line-height:1.6;margin:8px 0;">${inner}</pre>`;
         })
-        .replace(/^# (.+)$/gm,   '<h2 style="color:var(--accent);font-size:16px;font-weight:700;margin:16px 0 6px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:6px;">$1</h2>')
-        .replace(/^## (.+)$/gm,  '<h3 style="color:var(--text);font-size:13px;font-weight:600;margin:12px 0 4px;">$1</h3>')
+        .replace(/^# (.+)$/gm, '<h2 style="color:var(--accent);font-size:16px;font-weight:700;margin:16px 0 6px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:6px;">$1</h2>')
+        .replace(/^## (.+)$/gm, '<h3 style="color:var(--text);font-size:13px;font-weight:600;margin:12px 0 4px;">$1</h3>')
         .replace(/^### (.+)$/gm, '<h4 style="color:var(--muted);font-size:11px;font-weight:600;margin:10px 0 3px;text-transform:uppercase;letter-spacing:.08em;">$1</h4>')
         .replace(/`([^`\n]+)`/g, '<code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:11px;font-family:monospace;">$1</code>')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -663,21 +1105,34 @@ You should have received a copy of the GNU General Public License along with thi
       // Dashboard is loaded as file:// by Electron; build an absolute URL to the
       // express server using the port injected as a query parameter.
       const port = new URLSearchParams(window.location.search).get('port') || '3000';
-      const url  = `http://localhost:${port}/docs/${filename}`;
+
+      // Translated docs live in /docs/<lang>/. Try the current language first,
+      // then fall back to the English original.
+      const targetLang = (typeof I18N !== 'undefined' && I18N.targetLang) || 'en';
+      const candidates = targetLang !== 'en'
+        ? [`${targetLang}/${filename}`, filename]
+        : [filename];
 
       try {
-        let raw;
+        let raw = null, used = null;
         if (window.electronAPI && window.electronAPI.readDoc) {
-          raw = await window.electronAPI.readDoc(filename);
+          for (const cand of candidates) {
+            try { raw = await window.electronAPI.readDoc(cand); used = cand; break; } catch (_) { }
+          }
+          if (raw === null) throw new Error('Not found');
         } else {
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          raw = await res.text();
+          for (const cand of candidates) {
+            const url = `http://localhost:${port}/docs/${cand}`;
+            const res = await fetch(url);
+            if (res.ok) { raw = await res.text(); used = cand; break; }
+          }
+          if (raw === null) throw new Error('Not found');
         }
 
         const html = parseMarkdown(raw);
         contentDiv.innerHTML = `<div style="line-height:1.7;font-size:13px;color:var(--muted);">${html}</div>`;
       } catch (e) {
+        const url = `http://localhost:${port}/docs/${filename}`;
         contentDiv.innerHTML =
           `<span style="color:var(--danger)">Could not load <strong>${filename}</strong> from <code style="font-size:11px;">${url}</code>.<br><br>` +
           `<span style="color:var(--muted);font-size:11px;">Error: ${e.message}</span></span>`;
@@ -713,7 +1168,7 @@ You should have received a copy of the GNU General Public License along with thi
   <script>
     // ── Games Launcher ──
     (function initGamesLauncher() {
-      window.openGamesOverlay = function() {
+      window.openGamesOverlay = function () {
         const panel = document.querySelector('#gamesOverlay .go-panel');
         if (!panel.querySelector('iframe')) {
           const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'c084fc';
@@ -722,15 +1177,15 @@ You should have received a copy of the GNU General Public License along with thi
         document.getElementById('gamesOverlay').classList.add('open');
       };
 
-      window.closeGamesOverlay = function() {
+      window.closeGamesOverlay = function () {
         document.getElementById('gamesOverlay').classList.remove('open');
       };
 
-      document.addEventListener('keydown', function(e) {
+      document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') closeGamesOverlay();
       });
 
-      window.addEventListener('message', function(e) {
+      window.addEventListener('message', function (e) {
         if (e.data && e.data.type === 'close-games') {
           closeGamesOverlay();
           return;
@@ -757,5 +1212,6 @@ You should have received a copy of the GNU General Public License along with thi
       });
     })();
   </script>
-  </body>
+</body>
+
 </html>

@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-  <link rel="icon" type="image/x-icon" href="../favicon.ico">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
   <meta name="viewport"
@@ -29,42 +29,42 @@
     /* ─── DESIGN TOKENS (matches host) ─────────────────────────────────── */
     :root {
       accent-color: #06b6d4;
-      --bg: #ecfeff;
-      --surface: #ffffff;
-      --card: rgba(255, 255, 255, 0.92);
-      --hover: rgba(0, 0, 0, 0.05);
+      --bg: #1c1c1e;
+      --surface: #2c2c2e;
+      --card: rgba(44, 44, 46, 0.92);
+      --hover: rgba(255, 255, 255, 0.05);
 
       --accent: #06b6d4;
       --accent2: #22d3ee;
       --accent-dim: rgba(6, 182, 212, 0.14);
       --accent-glow: rgba(6, 182, 212, 0.35);
 
-      --text: #083344;
-      --muted: #0e7490;
-      --muted2: #164e63;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --muted2: #71717a;
 
       --green: #34d399;
       --warn: #fbbf24;
       --danger: #f87171;
 
-      --border: rgba(6, 182, 212, 0.2);
-      --border2: rgba(6, 182, 212, 0.3);
+      --border: rgba(255, 255, 255, 0.07);
+      --border2: rgba(255, 255, 255, 0.12);
 
       --mono: 'IBM Plex Mono', monospace;
     }
 
-    [data-theme="dark"] {
-      --bg: #1c1c1e;
-      --surface: #2c2c2e;
-      --card: rgba(44, 44, 46, 0.92);
-      --hover: rgba(255, 255, 255, 0.05);
+    [data-theme="light"] {
+      --bg: #cbd5e1;
+      --surface: #94a3b8;
+      --card: rgba(148, 163, 184, 0.92);
+      --hover: rgba(0, 0, 0, 0.15);
 
-      --text: #f4f4f5;
-      --muted: #a1a1aa;
-      --muted2: #71717a;
+      --text: #0f172a;
+      --muted: #334155;
+      --muted2: #475569;
 
-      --border: rgba(255, 255, 255, 0.07);
-      --border2: rgba(255, 255, 255, 0.12);
+      --border: rgba(0, 0, 0, 0.2);
+      --border2: rgba(0, 0, 0, 0.3);
     }
 
     *,
@@ -73,6 +73,11 @@
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+    }
+
+    select option {
+      background: var(--bg);
+      color: var(--text);
     }
 
     html,
@@ -89,14 +94,19 @@
       caret-color: transparent;
     }
 
-    /* Light gradient background for viewer to emulate Nord aesthetic */
     body {
-      background: linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%);
-    }
-
-    [data-theme="dark"] body {
       background: var(--bg);
     }
+
+    .v-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text); padding: 8px 12px;
+      border-radius: 6px; cursor: pointer;
+      font-family: 'Outfit', sans-serif; font-size: 11px;
+      font-weight: 600; transition: 0.2s;
+    }
+    .v-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
 
     /* ─── VIDEO LAYER (always full-screen behind everything) ────────────── */
     #video-container {
@@ -105,7 +115,7 @@
       right: 0;
       bottom: 0;
       left: 0;
-      background: var(--bg);
+      background: #000;
       z-index: 0;
     }
 
@@ -138,7 +148,7 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
-      background: var(--bg);
+      background: #000;
       z-index: 1;
     }
 
@@ -206,8 +216,8 @@
     }
 
     .pin-card {
-      background: linear-gradient(145deg, rgba(45, 30, 75, 0.75), rgba(15, 15, 28, 0.85));
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 20px;
       padding: 28px 32px;
       display: flex;
@@ -224,7 +234,6 @@
       0% { opacity: 0; transform: translateY(20px) scale(0.98); }
       100% { opacity: 1; transform: translateY(0) scale(1); }
     }
-    }
 
     .pin-field-label {
       font-size: 10px;
@@ -239,7 +248,7 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
       color: var(--text);
-      font-family: inherit;
+      font-family: var(--mono);
       font-size: 15px;
       padding: 12px 16px;
       width: 100%;
@@ -348,7 +357,7 @@
 
     .pin-submit-btn:active {
       transform: scale(0.97) translateY(0);
-      box-shadow: 0 4px 12px var(--accent-dim);
+      box-shadow: none;
     }
 
     #pinErr {
@@ -371,7 +380,7 @@
       align-items: center;
       justify-content: center;
       gap: 16px;
-      background: var(--bg);
+      background: #000;
       z-index: 100;
       transition: opacity 0.4s;
     }
@@ -2507,6 +2516,11 @@
 
   <!-- ════ PIN / JOIN SCREEN ════ -->
   <div id="pinScreen">
+    <button onclick="toggleThemeSetting()" title="Toggle Light/Dark Mode" style="position:absolute; top:24px; right:24px; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:50%; width:36px; height:36px; color:var(--text); cursor:pointer; display:flex; align-items:center; justify-content:center;">
+      <svg id="pinThemeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;">
+        <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    </button>
     <div class="brand-wrap">
       <img src="/assets/NearcadeLogo.png" alt="Nearcade" class="brand-img">
       <div class="brand-name">Nearcade</div>
@@ -2591,6 +2605,28 @@
             </svg></button>
         </div>
         <div id="profileIdVal" class="pp-id-val" style="display:none;"></div>
+
+        <div class="pp-label" style="margin-top:10px;">Your Friend ID (from your own app)</div>
+        <input id="friendUuidInput" type="text" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false"
+          value=""
+          onchange="localStorage.setItem('ns_friend_uuid', this.value.trim().toLowerCase())"
+          style="width:100%; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:12px; font-family:inherit; margin-top:4px;">
+
+        <div class="pp-label" style="margin-top:10px;">Your Session Link (only if you are hosting)</div>
+        <input id="friendUrlInput" type="text" placeholder="https://…" spellcheck="false"
+          value=""
+          onchange="localStorage.setItem('ns_friend_url', this.value.trim())"
+          style="width:100%; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:12px; font-family:inherit; margin-top:4px;">
+
+        <div class="pp-label" style="margin-top:10px;">Pairing Code (the host sent you this)</div>
+        <input id="friendSecretInput" type="password" placeholder="Their 48-character pairing code" spellcheck="false"
+          value=""
+          onchange="localStorage.setItem('ns_friend_secret', this.value.trim().toLowerCase())"
+          style="width:100%; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:12px; font-family:inherit; margin-top:4px;">
+
+        <button id="pingHostBtn" onclick="pingHost()" title="Ping the host"
+          style="width:100%; margin-top:12px; background:var(--accent,#c084fc); border:none; border-radius:6px; padding:9px; color:#111; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit;">Ping Host</button>
+        <div id="pingResult" style="font-size:11px; margin-top:6px; min-height:1.2em; color:var(--muted,#888);"></div>
       </div>
     </div>
   </div>
@@ -2632,6 +2668,7 @@
 
   <!-- ════ TOP HUD ════ -->
   <div id="topbar">
+
     <!-- Single pill: shows "Connecting…" until live, then switches to LIVE dot -->
     <div class="hud-pill" id="statusPill">
       <span id="liveDot"></span>
@@ -2696,6 +2733,9 @@
 
       <button class="ns-bar-btn" id="guideBtn" onclick="openControllerGuide()">
         Controller Guide
+      </button>
+      <button class="ns-bar-btn" id="recordBtn" onclick="if(window.toggleRecording) window.toggleRecording()">
+        Record Session
       </button>
       <button class="ns-bar-btn" id="voiceToggleBtn" onclick="vcToggleConnection()" style="display:none">
         Voice
@@ -3132,6 +3172,16 @@
 
           <div class="v-settings-row">
             <div class="v-settings-row-info">
+              <div class="v-settings-row-title">Gamepad UI Navigation</div>
+              <div class="v-settings-row-desc">Press Start+Guide to control a virtual mouse pointer.</div>
+            </div>
+            <div class="v-settings-control">
+              <div class="v-toggle on" id="vGpUiNavToggle" onclick="toggleGpUiNav()"></div>
+            </div>
+          </div>
+
+          <div class="v-settings-row">
+            <div class="v-settings-row-info">
               <div class="v-settings-row-title">Input API Mode</div>
               <div class="v-settings-row-desc">Change if your gamepad inputs are completely incorrect.</div>
             </div>
@@ -3140,6 +3190,16 @@
                 onchange="window.updateInputMode && window.updateInputMode(this.value)">
                 <option value="gamepad">Standard HTML5</option>
               </select>
+            </div>
+          </div>
+
+          <div class="v-settings-row">
+            <div class="v-settings-row-info">
+              <div class="v-settings-row-title">Keyboard Binds</div>
+              <div class="v-settings-row-desc">Customize keyboard controls or apply presets.</div>
+            </div>
+            <div class="v-settings-control">
+              <button class="v-btn" style="font-size:11px;" onclick="document.getElementById('viewerSettingsModal').classList.remove('open'); document.getElementById('keybindModal').style.display='flex'; if(window.renderKeybindList) window.renderKeybindList();">Edit Binds</button>
             </div>
           </div>
         </div>
@@ -3156,10 +3216,38 @@
               <select class="v-select" id="vBwSelect" onchange="setBandwidthProfile(this.value)">
                 <option value="auto">Auto (Recommended)</option>
                 <option value="high">High Quality</option>
+                <option value="qhd">540p (Balanced)</option>
                 <option value="low">Low Bandwidth</option>
+                <option value="input-priority">Input Prioritized (Lowest Latency)</option>
               </select>
             </div>
           </div>
+
+          <div class="v-settings-row">
+            <div class="v-settings-row-info">
+              <div class="v-settings-row-title">WebGL Upscaler</div>
+              <div class="v-settings-row-desc">Enhances low-resolution streams on large screens.</div>
+            </div>
+            <div class="v-settings-control">
+              <select class="v-select" id="vUpscaleSelect" onchange="setUpscaleMode(this.value)">
+                <option value="-1">Auto (Sharp for &lt;720p)</option>
+                <option value="0">Standard (Blurry)</option>
+                <option value="1">Crisp (Sharp Bilinear)</option>
+                <option value="2">Pixel Perfect (Blocky)</option>
+                <option value="3">Ultra (FSR/Bicubic)</option>
+              </select>
+            </div>
+          </div>
+          <div class="v-settings-row">
+            <div class="v-settings-row-info">
+              <div class="v-settings-row-title">Display Color Tweaks</div>
+              <div class="v-settings-row-desc">Adjust brightness, contrast, and saturation.</div>
+            </div>
+            <div class="v-settings-control">
+              <button class="v-btn" style="font-size:11px;" onclick="document.getElementById('viewerSettingsModal').classList.remove('open'); document.getElementById('displayTweaksModal').style.display='flex';">Open Tuner</button>
+            </div>
+          </div>
+
 
           <div class="v-settings-row">
             <div class="v-settings-row-info">
@@ -3168,16 +3256,6 @@
             </div>
             <div class="v-settings-control">
               <div class="v-toggle" id="vNetStatsToggle" onclick="toggleNetStats()"></div>
-            </div>
-          </div>
-
-          <div class="v-settings-row">
-            <div class="v-settings-row-info">
-              <div class="v-settings-row-title">On-Screen Touch Controls</div>
-              <div class="v-settings-row-desc">Enable virtual buttons for touchscreen devices.</div>
-            </div>
-            <div class="v-settings-control">
-              <div class="v-toggle" id="vTouchToggle" onclick="toggleTouch()"></div>
             </div>
           </div>
 
@@ -3202,16 +3280,22 @@
           </div>
 
           <script>
-            window.nsTheme = 'light';
+            window.nsTheme = 'dark';
             function toggleThemeSetting() {
               window.nsTheme = window.nsTheme === 'dark' ? 'light' : 'dark';
               const toggle = document.getElementById('vThemeToggle');
-              if (window.nsTheme === 'dark') {
-                toggle.classList.add('on');
-                document.documentElement.setAttribute('data-theme', 'dark');
+              const icon = document.getElementById('themeIcon');
+              const icon2 = document.getElementById('pinThemeIcon');
+              if (window.nsTheme === 'light') {
+                if (toggle) toggle.classList.remove('on');
+                document.documentElement.setAttribute('data-theme', 'light');
+                if (icon) icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
+                if (icon2) icon2.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
               } else {
-                toggle.classList.remove('on');
+                if (toggle) toggle.classList.add('on');
                 document.documentElement.removeAttribute('data-theme');
+                if (icon) icon.innerHTML = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
+                if (icon2) icon2.innerHTML = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
               }
               try { localStorage.setItem('ns_theme', window.nsTheme); } catch(e){}
             }
@@ -3219,11 +3303,22 @@
             // Load theme on startup
             document.addEventListener('DOMContentLoaded', () => {
               try {
-                const savedTheme = localStorage.getItem('ns_theme');
-                if (savedTheme === 'dark') {
-                  window.nsTheme = 'dark';
-                  document.documentElement.setAttribute('data-theme', 'dark');
-                  const toggle = document.getElementById('vThemeToggle');
+                let savedTheme = localStorage.getItem('ns_theme');
+                if (!savedTheme && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                    savedTheme = 'light';
+                }
+                
+                const toggle = document.getElementById('vThemeToggle');
+                const icon = document.getElementById('themeIcon');
+                const icon2 = document.getElementById('pinThemeIcon');
+
+                if (savedTheme === 'light') {
+                  window.nsTheme = 'light';
+                  document.documentElement.setAttribute('data-theme', 'light');
+                  if (toggle) toggle.classList.remove('on');
+                  if (icon) icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
+                  if (icon2) icon2.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
+                } else {
                   if (toggle) toggle.classList.add('on');
                 }
               } catch(e){}
@@ -3353,6 +3448,89 @@
           window.vcUpdateSelf(undefined, undefined, newAv);
         }
       };
+
+      // ── Ping the host (friend list feature) ───────────────────────────
+      // One-way ping: tells the host you're here. The friend ID is YOUR OWN
+      // persistent UUID (from your app) — the non-replicable identity the
+      // host added. Display name/avatar are display-only. Your session link
+      // lets the host join YOUR session. NO popups, invites, or popups ever
+      // appear here — the host decides to join you from their side.
+      const friendUuidInput = document.getElementById('friendUuidInput');
+      const friendUrlInput = document.getElementById('friendUrlInput');
+      const friendSecretInput = document.getElementById('friendSecretInput');
+      if (friendUuidInput) {
+        friendUuidInput.value = localStorage.getItem('ns_friend_uuid') || '';
+        friendUuidInput.addEventListener('input', () => {
+          localStorage.setItem('ns_friend_uuid', friendUuidInput.value.trim().toLowerCase());
+        });
+      }
+      if (friendUrlInput) {
+        friendUrlInput.value = localStorage.getItem('ns_friend_url') || '';
+        friendUrlInput.addEventListener('input', () => {
+          localStorage.setItem('ns_friend_url', friendUrlInput.value.trim());
+        });
+      }
+      if (friendSecretInput) {
+        friendSecretInput.value = localStorage.getItem('ns_friend_secret') || '';
+        friendSecretInput.addEventListener('input', () => {
+          localStorage.setItem('ns_friend_secret', friendSecretInput.value.trim().toLowerCase());
+        });
+      }
+
+      // HMAC-SHA256 of the payload using the pairing code. This proves to the
+      // host's server that we really hold the secret for our UUID — a stolen
+      // friend ID alone is not enough to impersonate anyone.
+      async function hmacSign(secret, payload) {
+        const enc = new TextEncoder();
+        const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+        return [...new Uint8Array(sigBuf)].map(b => b.toString(16).padStart(2, '0')).join('');
+      }
+
+      window.pingHost = async function () {
+        const btn = document.getElementById('pingHostBtn');
+        const res = document.getElementById('pingResult');
+        const avatar = parseInt(localStorage.getItem('ns_avatar') || '1', 10);
+        const name = (document.getElementById('nameInput')?.value.trim() || localStorage.getItem('ns_name') || 'Guest').slice(0, 32);
+        const uuid = (localStorage.getItem('ns_friend_uuid') || '').trim().toLowerCase();
+        const url = (localStorage.getItem('ns_friend_url') || '').trim();
+        const secret = (localStorage.getItem('ns_friend_secret') || '').trim().toLowerCase();
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) {
+          if (res) res.textContent = I18N.t('Enter your Friend ID above — it is how the host verifies it is really you.');
+          return;
+        }
+        if (!/^[0-9a-f]{48}$/.test(secret)) {
+          if (res) res.textContent = I18N.t('Enter the pairing code the host gave you — it proves this Friend ID is really yours.');
+          return;
+        }
+        if (btn) { btn.disabled = true; btn.style.opacity = 0.5; }
+        if (res) res.textContent = I18N.t('Pinging...');
+        try {
+          const ts = Date.now();
+          const sig = await hmacSign(secret, [uuid, ts, url].join(':'));
+          const r = await fetch('/api/ping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uuid, name, avatar, url, ts, sig })
+          });
+          const data = await r.json().catch(() => ({}));
+          if (r.ok && data.ok) {
+            if (res) res.textContent = I18N.t('Host is online!');
+          } else if (r.status === 403 && data.needsPairing) {
+            if (res) res.textContent = I18N.t('The host has not paired you yet — ask them for their pairing code.');
+          } else if (r.status === 403) {
+            if (res) res.textContent = I18N.t('Host is not accepting pings.');
+          } else if (r.status === 429) {
+            if (res) res.textContent = I18N.t('Too many pings — wait a minute.');
+          } else {
+            if (res) res.textContent = I18N.t('No response from host.');
+          }
+        } catch (_) {
+          if (res) res.textContent = I18N.t('Could not reach the host.');
+        }
+        setTimeout(() => { if (btn) { btn.disabled = false; btn.style.opacity = 1; } }, 3000);
+      };
+
 
       let saved = localStorage.getItem('ns_chat_color');
       if (!saved) {
@@ -3538,6 +3716,22 @@
   <script>
     // ── showOverlay patch: switch status pill to LIVE when stream starts ──
     // viewer.js defines showOverlay as a plain function; we wrap it here.
+    // viewer.js defines showOverlay as a plain function; we wrap it here.
+    
+    window.gpUiNavEnabled = localStorage.getItem('ns_gp_ui_nav') !== 'false';
+    if (!window.gpUiNavEnabled) {
+      setTimeout(() => {
+        const toggle = document.getElementById('vGpUiNavToggle');
+        if (toggle) toggle.classList.remove('on');
+      }, 100);
+    }
+    window.toggleGpUiNav = function() {
+      window.gpUiNavEnabled = !window.gpUiNavEnabled;
+      localStorage.setItem('ns_gp_ui_nav', window.gpUiNavEnabled);
+      const toggle = document.getElementById('vGpUiNavToggle');
+      if (toggle) toggle.classList.toggle('on', window.gpUiNavEnabled);
+    };
+
     // Restore saved bandwidth profile button state
     (function restoreBwProfile() {
       const saved = localStorage.getItem('ns_bw_profile') || 'auto';
@@ -3818,6 +4012,134 @@
 
       header.addEventListener('mousedown', onDown);
     })();
+  </script>
+
+  <div id="keybindModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:10005;align-items:center;justify-content:center;">
+    <div style="background:var(--surface);width:900px;height:85%;max-height:600px;max-width:95vw;border-radius:12px;border:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.8);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:rgba(0,0,0,0.2);border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div style="font-weight:bold;font-size:16px;color:var(--accent);">Keyboard Settings</div>
+        <button onclick="document.getElementById('keybindModal').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:24px;line-height:1;padding:0;">&times;</button>
+      </div>
+      <iframe id="keybindFrame" src="/keyboard-popup.html" style="flex:1;border:none;width:100%;background:transparent;"></iframe>
+    </div>
+  </div>
+
+  <!-- ════ DISPLAY COLOR TWEAKS MODAL ════ -->
+  <div id="displayTweaksModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.2);z-index:10005;align-items:center;justify-content:center;">
+    <iframe src="/display-color-tweaks.html" style="width:450px;max-width:90%;height:450px;max-height:90%;border:1px solid rgba(255,255,255,0.1);background:var(--surface);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.8);"></iframe>
+  </div>
+
+  <script>
+    window.addEventListener('message', e => {
+      if (e.data?.type === 'UPDATE_DISPLAY_COLOR') {
+        const b = e.data.brightness;
+        const c = e.data.contrast;
+        const s = e.data.saturation;
+        const filter = `brightness(${b}%) contrast(${c}%) saturate(${s}%)`;
+        document.getElementById('video-container').style.filter = filter;
+        return;
+      }
+      
+      const frame = document.getElementById('keybindFrame');
+      const win = frame && frame.contentWindow;
+      if (!win || e.source !== win) return; // Only process messages from this iframe
+      
+      if (e.data?.type === 'REQ_KEYBINDS') {
+        win.postMessage({ type: 'SYNC_KEYBINDS', map: window.keyMap || {} }, '*');
+      } else if (e.data?.type === 'SET_KEY_PRESET') {
+        if (window.setKeyPreset) window.setKeyPreset(e.data.preset);
+        win.postMessage({ type: 'SYNC_KEYBINDS', map: window.keyMap || {} }, '*');
+      } else if (e.data?.type === 'RESET_KEYBINDS') {
+        if (window.resetKeybinds) window.resetKeybinds();
+        win.postMessage({ type: 'SYNC_KEYBINDS', map: window.keyMap || {} }, '*');
+      } else if (e.data?.type === 'UPDATE_KEYBIND') {
+        if (window.updateSingleKeybind) window.updateSingleKeybind(e.data.oldKey, e.data.newKey);
+        win.postMessage({ type: 'SYNC_KEYBINDS', map: window.keyMap || {} }, '*');
+      }
+    });
+
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    window.toggleRecording = function() {
+      const btn = document.getElementById('recordBtn');
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        try { mediaRecorder.stop(); } catch(e) {}
+        return;
+      }
+      
+      const videoEl = document.getElementById('video');
+      const canvasEl = document.getElementById('webcodecs-canvas');
+      let recStream;
+      
+      if (canvasEl.style.display !== 'none' && window.wcActive) {
+        recStream = new MediaStream();
+        const vStream = canvasEl.captureStream ? canvasEl.captureStream(30) : (canvasEl.mozCaptureStream ? canvasEl.mozCaptureStream(30) : null);
+        if (vStream) vStream.getVideoTracks().forEach(t => recStream.addTrack(t));
+        if (window.pc) window.pc.getReceivers().filter(r => r.track.kind==='audio').forEach(r => recStream.addTrack(r.track));
+      } else {
+        // Firefox yields 0 byte blobs if recording remote WebRTC srcObject directly.
+        // It MUST be captured from the rendering surface via mozCaptureStream.
+        if (videoEl.mozCaptureStream) {
+            recStream = videoEl.mozCaptureStream(30);
+        } else if (videoEl.captureStream) {
+            recStream = videoEl.captureStream(30);
+        } else {
+            recStream = videoEl.srcObject;
+        }
+      }
+      
+      if (!recStream || recStream.getTracks().length === 0) {
+        alert("No active stream found to record.");
+        return;
+      }
+      
+      try {
+        mediaRecorder = new MediaRecorder(recStream, { mimeType: 'video/webm; codecs=vp8,opus' });
+      } catch(e) {
+        try { mediaRecorder = new MediaRecorder(recStream); } 
+        catch(err) { alert("Recording not supported: " + err.message); return; }
+      }
+      
+      recordedChunks = [];
+      mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Nearcade_Session_${Date.now()}.webm`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if(btn) { btn.style.color = ''; btn.textContent = 'Record Session'; }
+        
+        const inp = document.getElementById('chatMsg');
+        if (inp && window.sendChat) {
+          const old = inp.value;
+          inp.value = '*stopped recording the session!*';
+          window.sendChat();
+          inp.value = old;
+        }
+      };
+      
+      try {
+        mediaRecorder.start(1000);
+      } catch(err) {
+        alert("Failed to start recording: " + err.message);
+        return;
+      }
+      
+      if(btn) { btn.style.color = '#ff4a4a'; btn.textContent = 'Stop Recording'; }
+      
+      const inp = document.getElementById('chatMsg');
+      if (inp && window.sendChat) {
+        const old = inp.value;
+        inp.value = '*started recording the session!*';
+        window.sendChat();
+        inp.value = old;
+      }
+    };
   </script>
   <script src="/js/voice-chat.js"></script>
 </body>

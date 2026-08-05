@@ -152,7 +152,7 @@
 
     .action-row {
       display: grid;
-      grid-template-columns: 2fr 1fr 1fr;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
       gap: 16px;
       height: 100px;
       flex-shrink: 0;
@@ -386,6 +386,12 @@
           </svg>
           <span style="display:block; font-size:18px; font-weight:600; letter-spacing:0.02em;">Select a source to start streaming</span>
         </div>
+        
+        <!-- Voice Chat Overlay for Host Preview -->
+        <div id="hostVcOverlay" style="display:none; position:absolute; top:80px; right:24px; z-index:100; pointer-events:none; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); backdrop-filter:blur(4px);">
+          <div style="font-size:10px; font-weight:bold; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.1em;">Voice Activity</div>
+          <div id="hostVcList" style="display:flex; flex-direction:column; gap:4px;"></div>
+        </div>
       </div>
 
       <!-- Quick Action Tiles (Stadia Style OS Tiles) -->
@@ -398,6 +404,16 @@
           <span class="tile-title">Stop Stream</span>
           <span class="tile-subtitle">End broadcast</span>
         </button>
+        <button class="action-tile" id="btnHostMic" onclick="toggleHostMicUI()">
+          <span class="tile-title" style="display:flex;align-items:center;gap:6px;">
+            <svg id="iconHostMic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+            </svg> Host Mic
+          </span>
+          <span class="tile-subtitle">Toggle Voice</span>
+        </button>
         <button class="action-tile" onclick="showSettingsModal('audio')">
           <span class="tile-title">Mixer</span>
           <span class="tile-subtitle">Audio levels</span>
@@ -405,6 +421,17 @@
         <button class="action-tile" onclick="showSettingsModal('video')">
           <span class="tile-title">Settings</span>
           <span class="tile-subtitle">Configuration</span>
+        </button>
+        <button class="action-tile" id="btnInviteFriend" onclick="showInviteFriendModal()">
+          <span class="tile-title" style="display:flex;align-items:center;gap:6px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="22" y1="11" x2="16" y2="11" />
+            </svg> Invite
+          </span>
+          <span class="tile-subtitle">P2P with a friend</span>
         </button>
       </div>
     </div>
@@ -459,6 +486,7 @@
   <script src="/js/emoji-data.js"></script>
   <script src="/js/signaling.js"></script>
   <script src="/js/gamepad-nav.js"></script>
+  <script src="/js/host-engine.js"></script>
   <script src="/js/host.js"></script>
 
 </body>

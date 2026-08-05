@@ -18,6 +18,8 @@ function processHtml(srcPath, destPath, extraHead = '') {
     content = content.replace(/\.\.\/css\//g, 'css/');
     content = content.replace(/\.\.\/\.\.\/assets\//g, 'assets/');
     content = content.replace(/\/assets\//g, 'assets/');
+    content = content.replace(/\/css\//g, 'css/');
+    content = content.replace(/\/js\//g, 'js/');
     if (extraHead) {
         content = content.replace(/<\/head>/, extraHead + '</head>');
     }
@@ -37,6 +39,16 @@ const scripts = fs.readdirSync(path.join(src, 'scripts'));
 for (const s of scripts) {
     if (s.endsWith('.js') || s.endsWith('.mjs')) {
         fs.copyFileSync(path.join(src, 'scripts', s), path.join(dist, 'js', s));
+    }
+}
+
+// Copy CSS
+console.log('Copying CSS...');
+fs.mkdirSync(path.join(dist, 'css'));
+const cssFiles = fs.readdirSync(path.join(src, 'css'));
+for (const c of cssFiles) {
+    if (c.endsWith('.css')) {
+        fs.copyFileSync(path.join(src, 'css', c), path.join(dist, 'css', c));
     }
 }
 

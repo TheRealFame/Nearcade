@@ -78,8 +78,8 @@ function _jsBtnsToCpp(jsBtns) {
 // ── State ──────────────────────────────────────────────────────────────────────
 const viewerSlots = new Map();
 const slotViewers = new Map();
-const viewerCtrlType = new Map();
-const viewerModes = new Map();
+const viewerCtrlType = new Map(); // maps padId -> profileKey
+const viewerHostSlots = new Map(); // maps padId -> requested slot (0..15)
 
 // KBM Emulation State
 const kbmStates = new Map();
@@ -96,6 +96,11 @@ let _pythonUdpPort = 0;
 let _hidmaestroEnabled = false;
 function setHidMaestroEnabled(enabled) {
     _hidmaestroEnabled = !!enabled;
+}
+
+let _windowsExperimentalEnabled = false;
+function setWindowsExperimentalEnabled(enabled) {
+    _windowsExperimentalEnabled = !!enabled;
 }
 
 let GAME_PROFILES = {};
@@ -189,6 +194,8 @@ function _resolveWindowTitle(title) {
 }
 
 function _handleWindowFocus(title) {
+    if (isWin && !_windowsExperimentalEnabled) return;
+    
     if (title === _lastWindowTitle) return;
     _lastWindowTitle = title;
     const binds = _resolveWindowTitle(title);
@@ -391,6 +398,12 @@ function _allocateSlot(viewerId, profileKey) {
         const s = viewerSlots.get(viewerId);
         slotLastUsed.set(s, Date.now());
         return s;
+    }
+
+    if (viewerHostSlots.has(viewerId)) {
+        const requestedSlot = viewerHostSlots.get(viewerId);
+        _claimSlot(requestedSlot, viewerId, profileKey);
+        return requestedSlot;
     }
 
     for (let i = 0; i < 16; i++) {
@@ -603,7 +616,11 @@ function _emitKbmBinding(padId, key, isDown, binds) {
     _gpBuf.writeInt8(kbmHy, 14);
     _gpBuf[15] = slotIdx;
 
-    _bridge.submitInputPacket(_gpBuf);
+    if (_bridge && !_hybridInputEnabled) {
+        _bridge.submitInputPacket(_gpBuf);
+    } else if (_pythonUdpPort > 0 && _udpSocket) {
+        _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
+    }
 }
 
 function _handleKbm(msg) {
@@ -632,10 +649,11 @@ function _handleKbm(msg) {
     // --- THE FIX: Built-in default layout matching viewer.js 'KEY_' prefix ---
     const defaultKeys = {
         'KEY_W': 'LS_UP', 'KEY_A': 'LS_LEFT', 'KEY_S': 'LS_DOWN', 'KEY_D': 'LS_RIGHT',
-        'KEY_SPACE': 'A', 'KEY_LEFTSHIFT': 'L3', 'KEY_LEFTCTRL': 'B', 'KEY_ESC': 'START', 'KEY_TAB': 'SELECT',
-        'KEY_E': 'X', 'KEY_R': 'Y', 'KEY_F': 'LB', 'KEY_G': 'RB', 'KEY_C': 'R3',
-        'KEY_UP': 'UP', 'KEY_DOWN': 'DOWN', 'KEY_LEFT': 'LEFT', 'KEY_RIGHT': 'RIGHT',
-        'BTN_LEFT': 'RT', 'BTN_RIGHT': 'LT', 'BTN_MIDDLE': 'RB'
+        'KEY_SPACE': 'A', 'KEY_L': 'B', 'KEY_J': 'X', 'KEY_K': 'Y',
+        'KEY_U': 'LB', 'KEY_I': 'RB', 'KEY_O': 'LT', 'KEY_P': 'RT',
+        'KEY_ENTER': 'START', 'KEY_TAB': 'SELECT', 'KEY_ESC': 'HOME',
+        'KEY_M': 'L3', 'KEY_N': 'R3',
+        'KEY_UP': 'UP', 'KEY_DOWN': 'DOWN', 'KEY_LEFT': 'LEFT', 'KEY_RIGHT': 'RIGHT'
     };
 
     let flatKeys = { ...defaultKeys };
@@ -741,7 +759,7 @@ function _handleKbm(msg) {
 
 // Ensure this helper function exists right below _handleKbm
 function _sendKbmStateToBuffer(slotIndex, state) {
-    if (!_bridge) return;
+    if (!_bridge && !(_pythonUdpPort > 0)) return;
 
     // state.buttons uses JS KBM_BTN_MAP format — convert to C++ W3C_BTN and extract dpad
     const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(state.buttons);
@@ -759,7 +777,11 @@ function _sendKbmStateToBuffer(slotIndex, state) {
     _gpBuf.writeInt8(hy, 14);
     _gpBuf[15] = slotIndex;
 
-    _bridge.submitInputPacket(_gpBuf);
+    if (_bridge && !_hybridInputEnabled) {
+        _bridge.submitInputPacket(_gpBuf);
+    } else if (_pythonUdpPort > 0 && _udpSocket) {
+        _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
+    }
     events.emit('input-packet', {
         source: 'kbm', slotIndex,
         buttons: state.buttons,
@@ -918,6 +940,14 @@ function send(msg) {
     } else if (msg.type === 'ctrl-settings-hybrid') {
         _hybridInputEnabled = !!msg.enabled;
         console.log(`[input] Hybrid mode ${msg.enabled ? 'ENABLED: Routing via Python' : 'DISABLED: Restoring C++ bridge'}`);
+    } else if (msg.type === 'force-slot') {
+        const padId = msg.pad_id || (msg.viewerId + '_0');
+        if (msg.slot == null || msg.slot === -1) {
+            viewerHostSlots.delete(padId);
+        } else {
+            viewerHostSlots.set(padId, msg.slot);
+        }
+        if (viewerSlots.has(padId)) _freeSlot(padId);
     } else if (msg.type === 'set-input-mode') {
         viewerModes.set(msg.viewerId, msg.mode);
     } else if (msg.type === 'disconnect_viewer') {
@@ -936,6 +966,36 @@ function send(msg) {
     }
 }
 
+const viewerSeq = new Map();
+
+function _processBinaryFrame(viewerId, padId, slotIndex, buf, offset) {
+    const jsBtns = buf.readUInt16LE(offset + 2);
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(jsBtns);
+    
+    // Confidence Decay tracking
+    lastPacketTime.set(padId, Date.now());
+    lastGamepadVars.set(padId, {
+        buttons: jsBtns,
+        lt: buf[offset + 12] / 255.0,
+        rt: buf[offset + 13] / 255.0
+    });
+
+    _gpBuf[0] = 0x01;
+    buf.copy(_gpBuf, 1, offset + 4, offset + 12);
+    _gpBuf[9] = buf[offset + 12];
+    _gpBuf[10] = buf[offset + 13];
+    _gpBuf.writeUInt16LE(cppBtns, 11);
+    _gpBuf.writeInt8(hx, 13);
+    _gpBuf.writeInt8(hy, 14);
+    _gpBuf[15] = slotIndex;
+    
+    if (_bridge && !_hybridInputEnabled) {
+        _bridge.submitInputPacket(_gpBuf);
+    } else if (_pythonUdpPort > 0 && _udpSocket) {
+        _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
+    }
+}
+
 function sendBinary(viewerId, buf) {
     if (buf[0] !== 0x01) return; // Only GAMEPAD for now
     
@@ -944,26 +1004,45 @@ function sendBinary(viewerId, buf) {
     const profileKey = viewerCtrlType.get(padId) || viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(padId, profileKey);
     if (slotIndex < 0) return;
-    
-    const jsBtns = buf.readUInt16LE(2);
-    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(jsBtns);
-    
-    _gpBuf[0] = 0x01;
-    buf.copy(_gpBuf, 1, 4, 12);
-    _gpBuf[9] = buf[12];
-    _gpBuf[10] = buf[13];
-    _gpBuf.writeUInt16LE(cppBtns, 11);
-    _gpBuf.writeInt8(hx, 13);
-    _gpBuf.writeInt8(hy, 14);
-    _gpBuf[15] = slotIndex;
-    
-    if (_bridge && !_hybridInputEnabled) {
-        _bridge.submitInputPacket(_gpBuf);
+
+    if (tournamentMode) {
+        _processBinaryFrame(viewerId, padId, slotIndex, buf, 0);
         return;
     }
-    
-    if (_pythonUdpPort > 0 && _udpSocket) {
-        _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
+
+    const baseLen = 16;
+    if (buf.byteLength >= baseLen) {
+        const currentSeq = buf.readUInt16LE(14);
+        const lastSeq = viewerSeq.get(padId) ?? (currentSeq - 1);
+        const diff = (currentSeq - lastSeq) % 65535;
+
+        if (diff > 0 && diff < 10) {
+            // We missed packets! Reconstruct from history
+            const numHistory = Math.floor((buf.byteLength - baseLen) / baseLen);
+            const framesToProcess = [{ offset: 0, seq: currentSeq }];
+
+            // History is ordered newest-first starting after baseLen
+            for (let i = 0; i < numHistory; i++) {
+                const offset = baseLen + (i * baseLen);
+                const hSeq = buf.readUInt16LE(offset + 14);
+                const hDiff = (hSeq - lastSeq) % 65535;
+                if (hDiff > 0 && hDiff < diff) {
+                    framesToProcess.unshift({ offset, seq: hSeq });
+                }
+            }
+
+            for (const f of framesToProcess) {
+                _processBinaryFrame(viewerId, padId, slotIndex, buf, f.offset);
+            }
+        } else if (diff !== 0) {
+            // Out of order or massive jump, just process current
+            _processBinaryFrame(viewerId, padId, slotIndex, buf, 0);
+        }
+        
+        viewerSeq.set(padId, currentSeq);
+    } else {
+        // Legacy 14-byte frame
+        _processBinaryFrame(viewerId, padId, slotIndex, buf, 0);
     }
 }
 
@@ -1010,4 +1089,4 @@ setInterval(() => {
     }
 }, 16);
 
-module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, get _bridge() { return _bridge; } };
+module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, setWindowsExperimentalEnabled, get _bridge() { return _bridge; } };

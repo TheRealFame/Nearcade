@@ -313,6 +313,41 @@ background: var(--bg);
 .rcard:hover { background: rgba(255,255,255,0.08); border-color: var(--border2); }
 .rcard.drag-over { border-top: 2px solid var(--accent); }
 
+/* ── VIEWER STAT TOOLTIP ──────────────────────────────────────── */
+.rcard { position: relative; }
+
+.rstat-tip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(9, 10, 16, 0.94);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 50;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    letter-spacing: 0.02em;
+}
+/* arrow */
+.rstat-tip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--border2);
+}
+
+.rcard:hover .rstat-tip { display: block; }
+
 .rnum {
     width: 20px; height: 20px;
     border-radius: 6px;
@@ -734,7 +769,7 @@ user-select: text;
 
 .form-select:hover { border-color: rgba(139,92,246,0.4); }
 .form-select:focus { border-color: var(--accent); }
-.form-select option { background: #0f111a; color: var(--text); }
+.form-select option, select option { background: #0f111a; color: var(--text); }
 
 /* ── LOG LINES ───────────────────────────────────────────────────── */
 .ll {
@@ -1379,4 +1414,12 @@ body.client-only .host-only { display: none !important; }
 @media (max-width: 480px) {
     .quality-grid { grid-template-columns: 1fr; }
     .app-shell, html, body { height: 100dvh; }
+}
+
+.ns-crash-banner {
+    animation: nsCrashIn 0.3s ease-out;
+}
+@keyframes nsCrashIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

@@ -115,14 +115,28 @@ function buildUrl(launcherId, gameId) {
 }
 
 function launch(launcherId, gameId) {
+  // Fix for js/command-line-injection (CodeQL)
+  // Ensure gameId only contains safe alphanumeric characters, dashes, dots, and underscores.
+  if (!/^[a-zA-Z0-9\-_\.]+$/.test(String(gameId))) {
+    throw new Error('Invalid gameId format: unsafe characters detected');
+  }
+
   const url = buildUrl(launcherId, gameId);
   const platform = os.platform();
-  if (platform === 'win32') {
-    tryExec(`start /low "" "${url}"`);
-  } else if (platform === 'darwin') {
-    tryExec(`open "${url}"`);
-  } else {
-    tryExec(`xdg-open "${url}"`);
+  const { execFileSync } = require('child_process');
+
+  try {
+    if (platform === 'win32') {
+      // Still using tryExec (which uses execSync) because Windows 'start' is a cmd-builtin.
+      // The gameId is now strictly sanitized above, so injection is impossible.
+      tryExec(`start /low "" "${url}"`);
+    } else if (platform === 'darwin') {
+      execFileSync('open', [url], { timeout: 3000 });
+    } else {
+      execFileSync('xdg-open', [url], { timeout: 3000 });
+    }
+  } catch (e) {
+    console.error('[launcher-detect] launch failed:', e.message);
   }
 }
 

@@ -96,6 +96,66 @@ let _turnFetchPromise = (async () => {
     } catch (e) { console.warn('Failed to fetch TURN credentials:', e); }
 })();
 
+// ── COMMUNITY TURN LADDER (reliable → fallback → additional fallbacks) ──
+// Fetched once, filtered to entries that respond on their real TURN port, and
+// used only as the *additional* fallback tier (after server + custom TURN) so a
+// dead public relay can never again gate the whole ICE handshake.
+let _communityTurnLadder = [];
+let _communityTurnFetchPromise = null;
+const busyTurnUrls = new Set();
+async function _loadCommunityTurnLadder() {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const hostParam = urlParams.get('host') ? `?host=${urlParams.get('host')}` : '';
+        const scheme = location.protocol === 'file:' ? 'http://localhost:3000' : '';
+        const res = await fetch(`${scheme}/api/community-turn-servers${hostParam}`);
+        if (!res.ok) { _communityTurnLadder = []; return; }
+        const servers = await res.json();
+        const results = [];
+        // Live-ping each registry entry (short timeout) so we only ladder in
+        // relays that are actually reachable right now.
+        await Promise.all((Array.isArray(servers) ? servers : []).map(async (s) => {
+            if (!s || !s.url || busyTurnUrls.has(s.url)) return;
+            busyTurnUrls.add(s.url);
+            try {
+                let alive = false;
+                try {
+                    const pc = new RTCPeerConnection({
+                        iceServers: [{ urls: [s.url], username: s.username || '', credential: s.credential || '' }],
+                        bundlePolicy: 'max-bundle'
+                    });
+                    pc.createDataChannel('ladder-ping');
+                    alive = await new Promise((resolve) => {
+                        let done = false;
+                        const finish = (ok) => { if (!done) { done = true; try { pc.close(); } catch (_) {} resolve(ok); } };
+                        pc.onicecandidate = (ev) => {
+                            if (ev.candidate) {
+                                if (ev.candidate.type === 'relay' || ev.candidate.candidate.includes('typ relay')) finish(true);
+                            } else {
+                                finish(false);
+                            }
+                        };
+                        pc.oniceconnectionstatechange = () => {
+                            if (pc.iceConnectionState === 'failed') finish(false);
+                        };
+                        setTimeout(() => finish(false), 3000);
+                        try { pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => finish(false)); } catch (_) { finish(false); }
+                    });
+                } catch (_) { alive = false; }
+                if (alive) results.push(s);
+            } finally {
+                busyTurnUrls.delete(s.url);
+            }
+        }));
+        _communityTurnLadder = results;
+        if (results.length) console.log('[WebRTC] Community TURN ladder:', results.map(r => r.name || r.url).join(', '));
+    } catch (e) {
+        console.warn('[WebRTC] Failed to load community TURN ladder:', e);
+        _communityTurnLadder = [];
+    }
+}
+_communityTurnFetchPromise = _loadCommunityTurnLadder();
+
 // ── EARLY PIN / CONNECT STATE (must be declared before async standby handler) ──
 let pinRequired = true;
 let _autoJoinedVps = false;
@@ -302,6 +362,13 @@ let _nsHostConnected = false;
 document.addEventListener('click', unlockAudio, { once: true, passive: true });
 document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
 
+// Human-interaction flag for the server's auth heuristics check. Set on any
+// real pointer/key/touch so the auth-response can prove the page is being
+// used by an actual person rather than a headless bot.
+['pointerdown', 'keydown', 'touchstart'].forEach(evt =>
+    window.addEventListener(evt, () => { window.__nsHumanInteraction = true; }, { once: true, passive: true })
+);
+
 function unlockAudio() {
     if (!sysAudioCtx) sysAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (sysAudioCtx.state === 'suspended') sysAudioCtx.resume();
@@ -350,56 +417,62 @@ async function createPC() {
         await _turnFetchPromise;
     }
 
-    // Initialize with custom STUN if selected, else default to Google
+    // ── ICE SERVER LADDER ───────────────────────────────────────────────────
+    // Ordered tiers: reliable → fallback → additional fallbacks. WebRTC gathers
+    // from every entry in parallel, so a healthy list shortens recursion by
+    // giving ICE multiple live paths immediately. Dead entries no longer gate
+    // the whole connection (they used to burn the full ~10s ICE timeout).
     const iceServers = [];
+
+    // TIER 1 — reliable: the user's explicit custom STUN (if any) goes first,
+    // otherwise the canonical Google resolver.
     const customStun = localStorage.getItem('ns_custom_stun');
     if (customStun) {
-        console.log('[WebRTC] Using Custom Community STUN:', customStun);
+        console.log('[WebRTC] Using Custom Community STUN (reliable tier):', customStun);
         iceServers.push({ urls: customStun });
     }
-    
-    // Always include Google STUN as a reliable fallback
     iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
 
-    // Pick a second from trusted alternates
-    const trustedPool = [
-        'stun:stun1.l.google.com:19302',
-        'stun:stun2.l.google.com:19302',
-        'stun:stun3.l.google.com:19302',
-        'stun:stun4.l.google.com:19302',
-    ];
-    iceServers.push({ urls: trustedPool.sort(() => 0.5 - Math.random())[0] });
+    // TIER 2 — fallback: Google's alternate resolvers (no single point of choice).
+    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun2.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun3.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun4.l.google.com:19302' });
 
-    // Last-resort fallback for restricted networks
-    const fallbackPool = [
-        'stun:stun.twilio.com:3478',
-        'stun:global.stun.twilio.com:3478',
-        'stun:stun.miwifi.com:3478',
-    ];
-    iceServers.push({ urls: fallbackPool.sort(() => 0.5 - Math.random())[0] });
+    // TIER 3 — additional fallback STUNs (kept to trusted infrastructure only).
+    iceServers.push({ urls: 'stun:stun.cloudflare.com:3478' });
 
-    // Inject Custom Community TURN if selected, overriding host defaults
-    const customTurnUrl = localStorage.getItem('ns_custom_turn_url');
-    if (customTurnUrl) {
-        console.log('[WebRTC] Using Custom Community TURN:', customTurnUrl);
-        iceServers.push({
-            urls: customTurnUrl,
-            username: localStorage.getItem('ns_custom_turn_username') || '',
-            credential: localStorage.getItem('ns_custom_turn_credential') || ''
-        });
-    } else if (_turnCredentials) {
-        // If array, push all elements, else push object directly
+    // ── TURN LADDER ──────────────────────────────────────────────────────────
+    // Reliable TURN: server-configured credentials (host-provided /api/turn).
+    if (_turnCredentials) {
         if (Array.isArray(_turnCredentials)) {
             iceServers.push(..._turnCredentials);
         } else {
             iceServers.push(_turnCredentials);
         }
-    } else {
+    }
+
+    // Fallback TURN: the user's explicit community pick (dashboard selection).
+    const customTurnUrl = localStorage.getItem('ns_custom_turn_url');
+    if (customTurnUrl) {
+        console.log('[WebRTC] Using Custom Community TURN (fallback tier):', customTurnUrl);
         iceServers.push({
-            urls: 'turn:openrelayproject.metered.ca:443?transport=tcp',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+            urls: customTurnUrl,
+            username: localStorage.getItem('ns_custom_turn_username') || '',
+            credential: localStorage.getItem('ns_custom_turn_credential') || ''
         });
+    }
+
+    // Additional TURN fallbacks: live-pinged community registry entries that
+    // are reachable right now. Kept strictly after the verified entries.
+    if (_communityTurnLadder && _communityTurnLadder.length) {
+        for (const entry of _communityTurnLadder) {
+            if (entry && entry.url) {
+                if (busyTurnUrls.has(entry.url)) continue;
+                busyTurnUrls.add(entry.url);
+                iceServers.push({ urls: entry.url, username: entry.username || '', credential: entry.credential || '' });
+            }
+        }
     }
 
     pc = new RTCPeerConnection({
@@ -2078,7 +2151,7 @@ async function connect() {
         const existing = document.querySelector(`.clr-opt[data-clr="${_savedClr}"]`);
         if (existing) existing.style.borderColor = '#fff';
     }
-    ws.onopen = () => {
+    function sendJoinToWS() {
         const liveName = (document.getElementById('nameInput')?.value || myName || '').trim();
         ws.send(JSON.stringify({
             type: 'join', viewerId: myId, name: liveName, pin: enteredPin,
@@ -2088,6 +2161,9 @@ async function connect() {
             isDesktopApp: urlParamsGlobal.has('compat')
         }));
         knownNativePads.forEach(pInfo => ws.send(JSON.stringify(Object.assign({ type: 'gpid' }, pInfo))));
+    }
+    ws.onopen = () => {
+        sendJoinToWS();
     };
 
     ws.onmessage = async (e) => {
@@ -2147,6 +2223,21 @@ async function connect() {
 
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
+
+        // ── AUTH HANDSHAKE ────────────────────────────────────────────────────
+        // The server challenges every new viewer with a nonce; we must reply with
+        // sha256(nonce + "nearcade_client_v3") before it accepts any other message.
+        if (msg.type === 'auth-challenge' && msg.nonce) {
+            try {
+                const data = new TextEncoder().encode(msg.nonce + "nearcade_client_v3");
+                const digest = await crypto.subtle.digest('SHA-256', data);
+                const hash = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+                ws.send(JSON.stringify({ type: 'auth-response', hash, human: !!window.__nsHumanInteraction }));
+            } catch (err) {
+                console.error('[auth] Failed to solve challenge:', err);
+            }
+            return;
+        }
 
         if (msg.type === 'pong') { if (typeof onPong === 'function') onPong(); return; }
 
@@ -2394,6 +2485,11 @@ async function connect() {
             sessionStorage.setItem('ns_viewer_id', myId);
             const nameEl = document.querySelector('#talkingMe .talking-name');
             if (nameEl) nameEl.textContent = myName + ' (You)';
+
+            // Re-send the name handshake now that we're authenticated. The
+            // server drops the onopen 'join' while the auth handshake is still
+            // pending, and expects it again after your-id (see server.js).
+            if (typeof sendJoinToWS === 'function') sendJoinToWS();
 
             // If the input WS already connected (early start above),
             // send identify now that we know our ID.

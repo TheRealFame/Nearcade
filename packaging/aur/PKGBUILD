@@ -2,7 +2,7 @@
 # Contributor: Fame <support@cutefame.net>
 
 pkgname=nearcade
-pkgver=3.0.3
+pkgver=3.0.5
 pkgrel=1
 pkgdesc="Browser-based game streaming host — low-latency remote play"
 arch=('x86_64')

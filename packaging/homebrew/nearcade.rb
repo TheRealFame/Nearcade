@@ -1,5 +1,5 @@
 cask "nearcade" do
-  version "3.0.3"
+  version "3.0.5"
   sha256 "UPDATE_ME_WITH_DMG_SHA256"
 
   url "https://github.com/TheRealFame/Nearcade/releases/download/v#{version}/Nearcade-#{version}-universal.dmg"

@@ -149,6 +149,42 @@ rl.on('line', async (line) => {
             }
             break;
 
+        case 'whitelist':
+            if (!args[1]) {
+                writeLog('ERROR', 'Usage: whitelist <IP_OR_DOMAIN> [ttl_seconds]');
+                writeLog('INFO', '  Omit ttl for permanent, or specify seconds for temporary (e.g. whitelist 1.2.3.4 3600)');
+            } else {
+                const ttl = args[2] ? parseInt(args[2]) : null;
+                writeLog('INFO', `Whitelisting ${args[1]}${ttl ? ' for ' + ttl + 's' : ' permanently'}...`);
+                const body = { action: 'whitelist', ipOrDomain: args[1] };
+                if (ttl) body.ttlSeconds = ttl;
+                const res = await sendModRequest('POST', body);
+                if (res) writeLog('SUCCESS', res.message || `Whitelisted: ${args[1]}`);
+            }
+            break;
+
+        case 'unwhitelist':
+            if (!args[1]) {
+                writeLog('ERROR', 'Usage: unwhitelist <IP_OR_DOMAIN>');
+            } else {
+                writeLog('INFO', `Removing whitelist for: ${args[1]}...`);
+                const res = await sendModRequest('POST', { action: 'unwhitelist', ipOrDomain: args[1] });
+                if (res) writeLog('SUCCESS', res.message || `Unwhitelisted: ${args[1]}`);
+            }
+            break;
+
+        case 'listwl':
+        case 'list-whitelist':
+            writeLog('INFO', 'Fetching whitelist...');
+            const wlList = await sendModRequest('POST', { action: 'list-whitelist' });
+            if (wlList) {
+                console.log('\n--- WHITELIST ---');
+                console.table(wlList);
+                console.log('-------------------\n');
+                writeLog('SUCCESS', `Fetched ${wlList.length || 0} whitelisted entries.`);
+            }
+            break;
+
         case 'list':
             writeLog('INFO', 'Fetching active ban list...');
             const list = await sendModRequest('GET');
@@ -171,7 +207,7 @@ rl.on('line', async (line) => {
             break;
 
         default:
-            if (command) writeLog('ERROR', `Unknown command: ${command}. Available: setup, ban, unban, list, clear, exit.`);
+            if (command) writeLog('ERROR', `Unknown command: ${command}. Available: setup, ban, unban, whitelist, unwhitelist, listwl, list, clear, exit.`);
             break;
     }
     rl.prompt();

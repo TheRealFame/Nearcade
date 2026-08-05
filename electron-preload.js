@@ -12,10 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVersion:    ()               => ipcRenderer.invoke('get-app-version'),
   getAccentColor: ()              => ipcRenderer.invoke('get-accent-color'),
   getNativeTheme: ()              => ipcRenderer.invoke('get-native-theme'),
-  // FIX #7: openHost now accepts an optional version string ('new' | 'old')
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   openLog:     ()                 => ipcRenderer.send('open-log'),
   openInstallDir: ()              => ipcRenderer.send('open-dir'),
+  openOBSWindow: ()               => ipcRenderer.send('open-obs-window'),
   readDoc:     (filename)         => ipcRenderer.invoke('read-doc', filename),
   getSettings:                    () => ipcRenderer.invoke('get-settings'),
   saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),
@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Setup Hooks ──
   runSetup:                       () => ipcRenderer.send('run-setup'),
+  runVbCableSetup:                () => ipcRenderer.send('run-vbcable-setup'),
+  runAdvancedLinuxSetup:          () => ipcRenderer.send('run-advanced-linux-setup'),
   continueBoot:                   () => ipcRenderer.send('continue-boot'),
   checkSystemSetup:               () => ipcRenderer.invoke('check-system-setup'),
   downloadTunnel:                 (name, url) => ipcRenderer.invoke('download-tunnel', { name, url }),

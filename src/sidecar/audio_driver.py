@@ -1,7 +1,7 @@
 """
 Nearcade — Cross-platform audio capture sidecar
 Global Mirror architecture: dynamically discovers the Default Sink Monitor
-via `pactl get-default-sink` and bridges it into NearsecAppAudio via
+via `pactl get-default-sink` and bridges it into NearcadeVirtual via
 module-loopback. This survives Bluetooth device reconnections because
 we never hardcode a sink name like `bluez_output.*`.
 """
@@ -14,7 +14,7 @@ RATE  = 48000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STARTUP PURGE — kill any stale NearsecVirtual / loopback modules
+# STARTUP PURGE — kill any stale NearcadeVirtual / loopback modules
 # left over from a prior crash before we create anything new.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -40,10 +40,10 @@ def unload_stale_modules():
 
     stale = []
     for line in out.splitlines():
-        # Match: NearsecVirtual*, NearsecAppAudio, NearsecAppMic, or any
+        # Match: NearcadeVirtual*, NearcadeVirtualCapture, or any
         # loopback whose argument string references our sinks.
         if any(tok in line for tok in (
-            'NearsecVirtual', 'NearsecAppAudio', 'NearsecAppMic',
+            'NearcadeVirtual', 'NearcadeVirtualCapture',
         )):
             parts = line.split()
             if parts and parts[0].isdigit():
@@ -73,14 +73,14 @@ def get_default_sink():
     even after a Bluetooth device disconnects/reconnects.
     """
     rc, out, _ = _pactl('get-default-sink')
-    if rc == 0 and out and out != 'NearsecAppAudio':
+    if rc == 0 and out and out != 'NearcadeVirtual':
         return out
-    # Fallback: find the first non-Nearsec sink in the list
+    # Fallback: find the first non-Nearcade sink in the list
     rc2, sinks, _ = _pactl('list', 'short', 'sinks')
     if rc2 == 0:
         for line in sinks.splitlines():
             parts = line.split()
-            if len(parts) >= 2 and 'NearsecAppAudio' not in parts[1]:
+            if len(parts) >= 2 and 'NearcadeVirtual' not in parts[1]:
                 return parts[1]
     return None
 
@@ -89,7 +89,7 @@ def load_global_mirror(default_sink):
     """
     Create a module-loopback that reads from `<default_sink>.monitor`
     (whatever the system is currently playing) and outputs into
-    NearsecAppAudio (our virtual null-sink).
+    NearcadeVirtual (our virtual null-sink).
 
     Because we resolve the sink at runtime rather than hardcoding it,
     this survives Bluetooth reconnections and output device changes.
@@ -98,15 +98,15 @@ def load_global_mirror(default_sink):
     rc, mod_id, err = _pactl(
         'load-module', 'module-loopback',
         f'source={monitor}',
-        'sink=NearsecAppAudio',
+        'sink=NearcadeVirtual',
         'latency_msec=20',
-        'sink_input_properties=media.name=NearsecVirtualCapture',
+        'sink_input_properties=media.name=NearcadeVirtualCapture',
         timeout=6,
     )
     if rc == 0 and mod_id.isdigit():
         sys.stderr.write(
             f'[audio_driver] Global Mirror: loopback {mod_id} '
-            f'({monitor} → NearsecAppAudio)\n'
+            f'({monitor} → NearcadeVirtual)\n'
         )
         return mod_id
     sys.stderr.write(
@@ -135,7 +135,7 @@ def run_capture_loop(loopback_id):
     for i in range(p.get_device_count()):
         dev  = p.get_device_info_by_index(i)
         name = dev.get('name', '').lower()
-        if 'nearsecappmic' in name or 'nearsecappaudio' in name or 'monitor' in name:
+        if 'nearcadevirtualcapture' in name or 'nearcadevirtual' in name or 'monitor' in name:
             if dev.get('maxInputChannels', 0) > 0:
                 device_index = i
                 sys.stderr.write(
@@ -190,7 +190,7 @@ def main():
     else:
         sys.stderr.write(
             '[audio_driver] WARNING: Could not determine default sink. '
-            'Will attempt direct capture from NearsecAppAudio monitor.\n'
+            'Will attempt direct capture from NearcadeVirtual monitor.\n'
         )
 
     # 3. Create the Global Mirror loopback

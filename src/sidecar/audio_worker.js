@@ -1,7 +1,7 @@
 /**
  * audio_worker.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Worker thread for Nearsec virtual-audio lifecycle management.
+ * Worker thread for Nearcade virtual-audio lifecycle management.
  * NUCLEAR OPTION: Pure pactl move-and-loopback architecture.
  */
 
@@ -36,8 +36,8 @@ async function cleanupStaleSinks() {
   for (const line of list.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    if (trimmed.includes('NearsecAppAudio') || trimmed.includes('NearsecAppMic') ||
-      trimmed.includes('NearsecVirtual')  || trimmed.includes('NearsecVirtualCapture')) {
+    if (trimmed.includes('NearcadeVirtual')  || trimmed.includes('NearcadeVirtualCapture') ||
+      trimmed.includes('NearcadeMic_')) {
       const id = trimmed.split(/\s+/)[0];
     if (id && /^\d+$/.test(id)) staleIds.push(id);
       }
@@ -62,34 +62,34 @@ async function initVirtualAudio() {
 
   // 1. Create Virtual Sink
   _vAudioModules.sink = await _pactlExec(
-    'pactl load-module module-null-sink sink_name=NearsecVirtual sink_properties=device.description="NearsecVirtual"'
+    'pactl load-module module-null-sink sink_name=NearcadeVirtual sink_properties=device.description="NearcadeVirtual"'
   );
 
   // 2. Create WebRTC Monitor Remap
   _vAudioModules.remap = await _pactlExec(
-    'pactl load-module module-remap-source master=NearsecVirtual.monitor source_name=NearsecVirtualCapture source_properties=device.description="NearsecVirtualCapture"'
+    'pactl load-module module-remap-source master=NearcadeVirtual.monitor source_name=NearcadeVirtualCapture source_properties=device.description="NearcadeVirtualCapture"'
   );
 
   // 3. THE GHOST MUTE FIX (Ensure OS doesn't auto-mute the new sink)
-  await _pactlExec('pactl set-sink-mute NearsecVirtual 0');
-  await _pactlExec('pactl set-sink-volume NearsecVirtual 100%');
-  await _pactlExec('pactl set-source-mute NearsecVirtual.monitor 0');
-  await _pactlExec('pactl set-source-volume NearsecVirtual.monitor 100%');
-  await _pactlExec('pactl set-source-mute NearsecVirtualCapture 0');
-  await _pactlExec('pactl set-source-volume NearsecVirtualCapture 100%');
+  await _pactlExec('pactl set-sink-mute NearcadeVirtual 0');
+  await _pactlExec('pactl set-sink-volume NearcadeVirtual 100%');
+  await _pactlExec('pactl set-source-mute NearcadeVirtual.monitor 0');
+  await _pactlExec('pactl set-source-volume NearcadeVirtual.monitor 100%');
+  await _pactlExec('pactl set-source-mute NearcadeVirtualCapture 0');
+  await _pactlExec('pactl set-source-volume NearcadeVirtualCapture 100%');
 
   // 4. Resolve Hardware Sink (Your headphones/speakers)
   let hwSink = (await _pactlExec('pactl get-default-sink')).trim();
-  if (!hwSink || hwSink.includes('Nearsec')) {
+  if (!hwSink || hwSink.includes('Nearcade')) {
     const sinksRaw = await _pactlExec('pactl list short sinks');
-    const fallback = (sinksRaw || '').split('\n').find(l => !l.includes('Nearsec') && l.trim() !== '');
+    const fallback = (sinksRaw || '').split('\n').find(l => !l.includes('Nearcade') && l.trim() !== '');
     if (fallback) hwSink = fallback.trim().split(/\s+/)[1];
   }
 
   // 5. Establish the Loopback Mirror (Sends game audio from virtual cable BACK to your ears)
   if (hwSink) {
     _vAudioModules.loopback = await _pactlExec(
-      `pactl load-module module-loopback source=NearsecVirtual.monitor sink=${hwSink} latency_msec=30`
+      `pactl load-module module-loopback source=NearcadeVirtual.monitor sink=${hwSink} latency_msec=30`
     );
     startLoopbackWatcher();
     log(`Loopback mirror successfully attached to: ${hwSink}`);
@@ -116,20 +116,20 @@ async function destroyVirtualAudio() {
   // Move the apps back to the hardware sink before destroying the virtual cable
   const defaultSink = (await _pactlExec('pactl get-default-sink')).trim();
   const sinks = await _pactlExec('pactl list short sinks');
-  const nearsecLine = (sinks || '').split('\n').find(l => l.includes('NearsecVirtual') && !l.includes('NearsecVirtualCapture'));
-  if (nearsecLine && defaultSink && defaultSink !== 'NearsecVirtual') {
-    const nearsecId = nearsecLine.trim().split(/\s+/)[0];
+  const nearcadeLine = (sinks || '').split('\n').find(l => l.includes('NearcadeVirtual') && !l.includes('NearcadeVirtualCapture'));
+  if (nearcadeLine && defaultSink && defaultSink !== 'NearcadeVirtual') {
+    const nearcadeId = nearcadeLine.trim().split(/\s+/)[0];
     const inputs = await _pactlExec('pactl list short sink-inputs');
     for (const line of (inputs || '').split('\n').filter(Boolean)) {
       const parts = line.trim().split(/\s+/);
-      if (parts[1] === nearsecId && /^\d+$/.test(parts[0])) {
+      if (parts[1] === nearcadeId && /^\d+$/.test(parts[0])) {
         await _pactlExec(`pactl move-sink-input ${parts[0]} ${defaultSink}`);
       }
     }
   }
 
   // ── THE SCREECH FIX ──
-  await _pactlExec('pactl set-sink-mute NearsecVirtual 1');
+  await _pactlExec('pactl set-sink-mute NearcadeVirtual 1');
   await new Promise(r => setTimeout(r, 60));
 
   for (const key of ['loopback', 'remap', 'sink']) {
@@ -152,16 +152,17 @@ function startLoopbackWatcher() {
   _loopbackWatchInterval = setInterval(async () => {
     try {
       const current = (await _pactlExec('pactl get-default-sink')).trim();
-      if (!current || current.includes('Nearsec') || current === _lastLoopbackSink) return;
+      if (!current || current.includes('Nearcade') || current === _lastLoopbackSink) return;
 
       // Device changed! Move loopback silently.
-      await _pactlExec('pactl set-sink-mute NearsecVirtual 1');
+      await _pactlExec('pactl set-sink-mute NearcadeVirtual 1');
       await new Promise(r => setTimeout(r, 40));
       if (_vAudioModules.loopback) {
         await _pactlExec(`pactl unload-module ${_vAudioModules.loopback}`);
       }
-      _vAudioModules.loopback = await _pactlExec(`pactl load-module module-loopback source=NearsecVirtual.monitor sink=${current} latency_msec=30`);
-      await _pactlExec('pactl set-sink-mute NearsecVirtual 0');
+      _vAudioModules.loopback = await _pactlExec(`pactl load-module module-loopback source=NearcadeVirtual.monitor sink=${current} latency_msec=30`);
+      parentPort.postMessage({ type: 'module-ids', ids: { loopback: _vAudioModules.loopback }});
+      await _pactlExec('pactl set-sink-mute NearcadeVirtual 0');
       _lastLoopbackSink = current;
       log(`Loopback automatically moved to new default device: ${current}`);
     } catch (e) {}
@@ -204,9 +205,9 @@ function stopRoutingDaemon() {
 function _routeViaPatctl() {
   if (process.platform !== 'linux') return;
   exec('pactl list short sinks', (e0, sinksOut) => {
-    const nearsecLine = (sinksOut || '').split('\n').find(l => l.includes('NearsecVirtual'));
-    if (!nearsecLine) return;
-    const nearsecSinkId = nearsecLine.trim().split(/\s+/)[0];
+    const nearcadeLine = (sinksOut || '').split('\n').find(l => l.includes('NearcadeVirtual'));
+    if (!nearcadeLine) return;
+    const nearcadeSinkId = nearcadeLine.trim().split(/\s+/)[0];
 
     exec('pactl list sink-inputs', (e1, verbose) => {
       const blocks = (verbose || '').split(/(?=Sink Input #\d+)/g);
@@ -214,12 +215,12 @@ function _routeViaPatctl() {
         const inputId = (block.match(/^Sink Input #(\d+)/) || [])[1];
         if (!inputId) continue;
         const currentSink = (block.match(/^\s*Sink:\s*(\d+)/m) || [])[1];
-        if (currentSink === nearsecSinkId) continue;
+        if (currentSink === nearcadeSinkId) continue;
 
         const identifier = ((block.match(/application\.process\.binary\s*=\s*"([^"]+)"/) || [])[1] || (block.match(/application\.name\s*=\s*"([^"]+)"/) || [])[1] || '').toLowerCase();
 
         // Skip hidden/system streams
-        if (!identifier || identifier.includes('nearsec')) continue;
+        if (!identifier || identifier.includes('nearcade')) continue;
 
         // Apply blacklist
         if (AUDIO_BLACKLIST.some(b => identifier.includes(b.toLowerCase()))) continue;
@@ -228,8 +229,8 @@ function _routeViaPatctl() {
         if (_targetProcess && !identifier.includes(_targetProcess)) continue;
 
         // The move command
-        exec(`pactl move-sink-input ${inputId} ${nearsecSinkId}`, e2 => {
-          if (!e2) log(`Moved audio [${identifier}] → NearsecVirtual`);
+        exec(`pactl move-sink-input ${inputId} ${nearcadeSinkId}`, e2 => {
+          if (!e2) log(`Moved audio [${identifier}] → NearcadeVirtual`);
         });
       }
     });

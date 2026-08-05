@@ -13,6 +13,21 @@ const WS_URL = (() => {
 })();
 const POLL_INTERVAL = 4500;
 
+// ── Minimum client version required for Arcade ──────────────────────────
+// Bump this to lock out older clients from the directory.
+// Set to "0.0.0" to allow all clients that have a version field.
+const MIN_ARCADE_VERSION = "3.0.3";
+
+function versionGte(a, b) {
+    const ap = String(a || "0.0.0").split('.').map(Number);
+    const bp = String(b || "0.0.0").split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if ((ap[i] || 0) > (bp[i] || 0)) return true;
+        if ((ap[i] || 0) < (bp[i] || 0)) return false;
+    }
+    return true; // equal
+}
+
 // ── Security: only sessions from these tunnel providers are shown ─────────────
 // Enforced client-side as a second layer; server validates before broadcasting.
 const ARCADE_ALLOWED_DOMAINS = [
@@ -25,8 +40,14 @@ const ARCADE_ALLOWED_DOMAINS = [
 ];
 
 // Inside your web i18n script's targetLang definition:
+// Safe localStorage access for Discord Activities (cross-origin iframe restriction)
+function safeGetLS(key, fallback = null) {
+    try { return localStorage.getItem(key) || fallback; }
+    catch (e) { return fallback; }
+}
+
 const urlParams = new URLSearchParams(window.location.search);
-const targetLang = urlParams.get('lang') || localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
+const targetLang = urlParams.get('lang') || safeGetLS('ns_lang', navigator.language.split('-')[0]) || 'en';
 function isAllowedArcadeUrl(rawUrl) {
     try {
         const u = new URL(rawUrl);
@@ -116,8 +137,8 @@ arcadeChannel.bind('client-session-ping', (data) => {
     console.log(`[Arcade Debug]  INCOMING PING | ID: ${data.id} | Game: ${data.game || data.gameTitle}`);
     console.debug('[Arcade Debug] Raw Payload:', JSON.stringify(data));
 
-    if (!data.version) {
-        console.warn(`[Arcade Debug]  REJECTED: Session from outdated client (no version field) -> ${data.id}`);
+    if (!data.version || !versionGte(data.version, MIN_ARCADE_VERSION)) {
+        console.warn(`[Arcade Debug]  REJECTED: Session from outdated client (version: ${data.version || 'none'}, required: ${MIN_ARCADE_VERSION}) -> ${data.id}`);
         return;
     }
 
@@ -198,8 +219,8 @@ setInterval(() => {
 }, 5000);
 
 function addSessionToGrid(session) {
-    if (!session?.version) {
-        console.warn('[Arcade] Blocked session from outdated client (no version):', session?.id);
+    if (!session?.version || !versionGte(session.version, MIN_ARCADE_VERSION)) {
+        console.warn('[Arcade] Blocked session from outdated client (version:', session?.version || 'none', 'required:', MIN_ARCADE_VERSION + ')', session?.id);
         return;
     }
     if (!isAllowedArcadeUrl(session?.url)) {
@@ -441,6 +462,10 @@ function buildCard(s, index) {
     ${codecBadge}
     ${customTagsHtml}
     </div>
+    ${s.region && s.players !== undefined && s.maxPlayers !== undefined ? `<div class="card-players">${s.region}</div>` : ''}
+    ${s.kickCount >= 3 ? `<div class="card-warn" style="color:var(--warn);font-size:10px;margin-top:4px;">⚠ ${I18N.t('Host may kick players')}</div>` : ''}
+    ${s.reportCount >= 3 ? `<div class="card-warn" style="color:var(--danger);font-size:10px;margin-top:4px;">⚠ Reported ${s.reportCount}× — may be timed out</div>` : ''}
+    ${s.kickCount > 0 || s.reportCount > 0 ? `<div class="card-tooltip" style="display:none;position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:10px;color:var(--text-sec);z-index:10;box-shadow:0 4px 12px rgba(0,0,0,0.5);">Host Activity: ${s.kickCount || 0} kick(s)${s.reportCount ? ', ' + s.reportCount + ' report(s)' : ''}</div>` : ''}
     </div>`;
 
     return card;
@@ -474,6 +499,27 @@ function openJoin(session) {
         t.className = 'modal-tag'; t.textContent = text;
         meta.appendChild(t);
     });
+
+    const warnEl = document.getElementById('mKickWarning');
+    if (warnEl) warnEl.style.display = (session.kickCount >= 3) ? 'block' : 'none';
+
+    const trustEl = document.getElementById('mTrustStatus');
+    const trustText = document.getElementById('mTrustText');
+    if (trustEl && trustText) {
+        const kicks = session.kickCount || 0;
+        if (kicks > 0) {
+            trustEl.style.display = 'block';
+            if (kicks >= 10) {
+                trustText.innerHTML = '<strong style="color:var(--danger);">⚠ HIGH ACTIVITY:</strong> Host has kicked ' + kicks + ' viewers. Use caution.';
+            } else if (kicks >= 5) {
+                trustText.innerHTML = '<strong style="color:var(--warn);">⚠ Moderate Activity:</strong> Host has kicked ' + kicks + ' viewers.';
+            } else {
+                trustText.innerHTML = '<strong style="color:var(--text-sec);">⚡ Low Activity:</strong> Host has kicked ' + kicks + ' viewers.';
+            }
+        } else {
+            trustEl.style.display = 'none';
+        }
+    }
 
     document.getElementById('pinSection').classList.toggle('show', !!session.hasPin);
     document.getElementById('joinModal').classList.add('open');
@@ -549,7 +595,7 @@ async function _doJoin() {
         joinUrl += (joinUrl.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin);
     }
 
-    const currentLang = localStorage.getItem('ns_lang') || 'en';
+    const currentLang = safeGetLS('ns_lang', 'en');
     joinUrl += (joinUrl.includes('?') ? '&' : '?') + 'lang=' + currentLang;
 
     closeJoin();

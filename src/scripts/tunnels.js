@@ -4,6 +4,21 @@ const path = require("path");
 const os = require("os");
 const which = require("which");
 
+let currentTunnelProc = null;
+let currentTunnelUrl = null;
+let currentTunnelProvider = null;
+
+function stopCurrentTunnel() {
+  if (currentTunnelProc) {
+    try {
+      currentTunnelProc.kill();
+    } catch (e) {}
+    currentTunnelProc = null;
+  }
+  currentTunnelUrl = null;
+  currentTunnelProvider = null;
+}
+
 // ── Last-Provider Persistence ────────────────────────────────────────────────
 
 const LAST_PROV_FILE = path.join(os.homedir(), '.config', 'Nearcade', '.last-provider');
@@ -251,7 +266,6 @@ function startTunnelLocalhostRun(port) {
       const proc = spawn(sshPath, [
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
         "-o", "ServerAliveInterval=30",
         "-R", "80:localhost:" + port,
         "nokey@localhost.run"
@@ -259,7 +273,7 @@ function startTunnelLocalhostRun(port) {
       let done = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-z0-9\-]+\.(?:lhr\.life|localhost\.run)/);
-        if (m && !done) { done = true; resolve({ url: m[0], proc }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); }
+        if (m && !done) { done = true; process.env.USING_TUNNEL = "true"; resolve({ url: m[0], proc }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); }
       };
       proc.stdout.on("data", check); proc.stderr.on("data", check);
       proc.on("close", c => { if (!done) { resolve(null); console.log("  \x1b[33m!\x1b[0m localhost.run closed (code " + c + ")"); } });
@@ -277,7 +291,6 @@ function startTunnelServeo(port) {
       const proc = spawn(sshPath, [
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
         "-o", "ServerAliveInterval=30",
         "-R", "80:localhost:" + port,
         "serveo.net"
@@ -285,7 +298,7 @@ function startTunnelServeo(port) {
       let done = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-z0-9\-]+\.(serveo\.net|serveousercontent\.com)/);
-        if (m && !done) { done = true; resolve({ url: m[0], proc }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); }
+        if (m && !done) { done = true; process.env.USING_TUNNEL = "true"; resolve({ url: m[0], proc }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); }
       };
       proc.stdout.on("data", check); proc.stderr.on("data", check);
       proc.on("close", c => { if (!done) { resolve(null); console.log("  \x1b[33m!\x1b[0m serveo closed (code " + c + ")"); } });
@@ -294,8 +307,19 @@ function startTunnelServeo(port) {
   });
 }
 
-function startTunnelZrok(port, retries = 3) {
+function startTunnelZrok(port, retries = 3, token = '') {
   return new Promise(async (resolve) => {
+    // Reuse a still-alive zrok share instead of releasing it and being handed
+    // a brand-new random token (zrok re-tokens every fresh public share).
+    if (currentTunnelProc && currentTunnelProvider === 'zrok' && currentTunnelUrl) {
+      const alive = currentTunnelProc.exitCode === null &&
+        !currentTunnelProc.killed &&
+        (currentTunnelProc.signalCode === null || currentTunnelProc.signalCode === undefined);
+      if (alive) {
+        console.log(`  \x1b[33m~\x1b[0m Reusing live zrok share: ${currentTunnelUrl}`);
+        return resolve({ url: currentTunnelUrl, proc: currentTunnelProc });
+      }
+    }
     const zrokPath = await findBinaryPath('zrok').then(p => p).catch(() => null)
       || await findBinaryPath('zrok2').then(p => p).catch(() => null)
       || (function () {
@@ -313,16 +337,40 @@ function startTunnelZrok(port, retries = 3) {
     if (!zrokPath) { resolve({ error: 'NOT_FOUND', provider: 'zrok' }); return; }
     ensureExecutable(zrokPath);
 
+    if (token && token.toLowerCase() !== 'skip') {
+      console.log(`  \x1b[33m~\x1b[0m Enabling Zrok with provided token...`);
+      const enableProc = spawn(zrokPath, ['enable', token], { stdio: 'ignore' });
+      await new Promise(r => enableProc.on('close', r));
+    }
+
+    const shareFile = path.join(__dirname, '..', '..', '.zrok_last_share');
+    try {
+      if (fs.existsSync(shareFile)) {
+        const oldToken = fs.readFileSync(shareFile, 'utf8').trim();
+        if (oldToken && oldToken.length >= 3) {
+          console.log(`  \x1b[33m~\x1b[0m Cleaning up previous zrok share (${oldToken})...`);
+          if (zrokPath.includes('zrok2')) {
+            spawn(zrokPath, ['delete', 'share', oldToken], { stdio: 'ignore' });
+          } else {
+            spawn(zrokPath, ['release', oldToken], { stdio: 'ignore' });
+          }
+        }
+      }
+    } catch (e) {}
+
     console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})... (Retries left: ${retries})`);
     const args = ["share", "public", "http://localhost:" + port, "--backend-mode", "proxy", "--headless"];
     const proc = spawn(zrokPath, args, { stdio: ["ignore", "pipe", "pipe"] });
     let done = false;
     const check = data => {
       const out = data.toString();
-      const m = out.match(/(https:\/\/)?([a-z0-9\-]+\.shares?\.zrok\.io)/i);
+      const m = out.match(/(https:\/\/)?(([a-z0-9\-]+)\.shares?\.zrok\.io)/i);
       if (m && !done) {
         done = true;
         const url = m[1] ? m[0] : "https://" + m[2];
+        const token = m[3];
+        try { fs.writeFileSync(shareFile, token, 'utf8'); } catch (e) {}
+        
         process.env.USING_TUNNEL = "true";
         resolve({ url, proc });
         console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
@@ -695,11 +743,27 @@ function startTunnelWireguardDirect(port) {
 
 // ── Orchestrator ─────────────────────────────────────────────────────────────
 
-async function startTunnel(port, provider) {
+async function startTunnel(port, provider, options = {}) {
   if (!provider) provider = getLastProvider();
+
+  // If the SAME provider's tunnel is still alive, reuse it rather than killing
+  // the live share and being assigned a brand-new random URL (zrok re-tokens on
+  // every new share). This keeps viewers connecting to a stable address.
+  if (currentTunnelProc && currentTunnelProvider === provider && currentTunnelUrl) {
+    const alive = currentTunnelProc.exitCode === null &&
+      !currentTunnelProc.killed &&
+      (currentTunnelProc.signalCode === null || currentTunnelProc.signalCode === undefined);
+    if (alive) {
+      console.log(`  \x1b[33m~\x1b[0m Reusing already-running ${provider} tunnel: ${currentTunnelUrl}`);
+      return { url: currentTunnelUrl, proc: currentTunnelProc };
+    }
+  }
+
+  stopCurrentTunnel();
+  currentTunnelProvider = provider; // provisionally claim, set a live URL below
   if (provider) {
     const fn = {
-      zrok: startTunnelZrok,
+      zrok: (p) => startTunnelZrok(p, 3, options.zrokToken),
       cloudflared: startTunnelCloudflared,
       playit: startTunnelPlayit,
       localhostrun: startTunnelLocalhostRun,
@@ -715,10 +779,11 @@ async function startTunnel(port, provider) {
       netmaker: startTunnelNetmaker,
       'wireguard-direct': startTunnelWireguardDirect,
     }[provider] || startTunnelAuto;
-    if (fn) { const r = await fn(port); if (r && r.url) saveLastProvider(provider); return r; }
+    if (fn) { const r = await fn(port); if (r && r.url) { saveLastProvider(provider); currentTunnelProc = r.proc; currentTunnelUrl = r.url; currentTunnelProvider = provider; } return r; }
     return null;
   }
   const r = await startTunnelAuto(port);
+  if (r && r.url) { currentTunnelProc = r.proc; currentTunnelUrl = r.url; currentTunnelProvider = r.provider || null; }
   return r;
 }
 
@@ -764,7 +829,22 @@ const PROVIDERS = [
     start: (port) => startTunnelZrok(port),
     detect: async () => {
       const p = await findBinaryPath('zrok') || await findBinaryPath('zrok2');
-      return { found: !!p, path: p };
+      let authenticated = false;
+      if (p) {
+        try {
+          const { execSync } = require('child_process');
+          const statusOut = execSync(`"${p}" status`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+          // zrok classic (v0.x) prints "Environment:" + "Contact:" rows only
+          // when enabled. zrok2 (v2) prints a local "Environment" table with an
+          // "Account Token" row only when enabled. Check both so whichever
+          // binary is installed reports authentication correctly.
+          if (statusOut.includes('Account Token') ||
+              (statusOut.includes('Environment') && statusOut.includes('Contact'))) {
+             authenticated = true;
+          }
+        } catch(e) {}
+      }
+      return { found: !!p, path: p, authenticated };
     },
   },
   {
@@ -804,7 +884,7 @@ const PROVIDERS = [
     },
   },
   {
-    id: 'serveo', name: 'serveo.net', type: 'reverse', category: 'primary', integrated: true,
+    id: 'serveo', name: 'serveo.net', type: 'reverse', category: 'primary', integrated: false,
     pricing: 'free', difficulty: 'easy',
     description: 'SSH-based like localhost.run. Custom subdomain on paid plan.',
     tags: ['ssh'],
@@ -976,4 +1056,5 @@ module.exports = {
   startTunnelZeroTier,
   startTunnelNetmaker,
   startTunnelWireguardDirect,
+  stopCurrentTunnel,
 };

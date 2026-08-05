@@ -76,6 +76,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # The release may not exist yet (other workflows create it in parallel).
+          # Create it idempotently so gh release upload never silently fails.
+          gh release create ${{ github.ref_name }} --verify-tag --latest=false || true
           # The artifacts are downloaded into directories matching their artifact name
           for file in artifacts/*/*; do
             if [ -f "$file" ]; then

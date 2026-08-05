@@ -400,3 +400,11 @@
   box-shadow: none;
   cursor: not-allowed;
 }
+
+.ns-crash-banner {
+    animation: nsCrashIn 0.3s ease-out;
+}
+@keyframes nsCrashIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

@@ -1201,6 +1201,12 @@
         <div class="roster" id="roster"></div>
         <div class="rcard empty" id="rosterEmpty">No viewers yet</div>
       </div>
+      
+      <!-- Voice Chat Overlay for Host Preview -->
+      <div id="hostVcOverlay" style="display:none; position:absolute; top:24px; right:24px; z-index:100; pointer-events:none; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); backdrop-filter:blur(4px);">
+        <div style="font-size:10px; font-weight:bold; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.1em;">Voice Activity</div>
+        <div id="hostVcList" style="display:flex; flex-direction:column; gap:4px;"></div>
+      </div>
     </div>
 
     <div class="sidebar">
@@ -1240,6 +1246,9 @@
             <button class="btn" id="btnArcade" onclick="showArcadeModal()" style="flex:1;margin:0;" title="Arcade Mode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;stroke-linecap:round;stroke-linejoin:round;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="9" x2="16" y2="9"></line></svg> Arcade
             </button>
+            <button class="btn" id="btnInviteFriend" onclick="showInviteFriendModal()" style="flex:1;margin:0;" title="Invite a Friend">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;stroke-linecap:round;stroke-linejoin:round;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg> Invite
+            </button>
           </div>
           <button class="btn" id="btnSwitch" onclick="showSourceSelectionModal()" disabled>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1264,6 +1273,13 @@
               <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
               <line x1="1" y1="1" x2="23" y2="23"/>
             </svg> Hide Preview
+          </button>
+          <button class="btn" id="btnHostMic" onclick="toggleHostMicUI()">
+            <svg id="iconHostMic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+            </svg> Host Mic
           </button>
         </div>
 
@@ -1401,6 +1417,7 @@
   </script>
   <script src="/js/emoji-data.js"></script>
   <script src="/js/signaling.js"></script>
+  <script src="/js/host-engine.js"></script>
   <script src="/js/host.js"></script>
   <script>
     (function patchTunnelCommandsForPlatform() {
@@ -1425,11 +1442,11 @@
         zrok: {
           win: {
             cmd:     'https://github.com/openziti/zrok/releases',
-            comment: '# Download the Windows zip, extract, add to PATH, then: zrok enable [token]',
+            comment: '# Download the Windows zip, extract, add to PATH, then paste your token when the app asks.',
           },
           mac: {
             cmd:     'brew install openziti/homebrew-openziti/zrok',
-            comment: '# Then: zrok enable [token]',
+            comment: '# Then paste your token when the app asks.',
           },
         },
         localhostrun: {

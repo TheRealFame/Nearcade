@@ -70,7 +70,7 @@ const I18N = {
 
             for (const key in enDict) {
                 if (targetDict[key]) {
-                    this.translationMap[enDict[key]] = targetDict[key];
+                    this.translationMap[this.norm(enDict[key])] = targetDict[key];
                 }
             }
 
@@ -118,6 +118,12 @@ const I18N = {
         }
     },
 
+    // Collapse whitespace/newlines so multi-line HTML text nodes match the
+    // single-line English strings stored in the locale dictionaries.
+    norm(text) {
+        return String(text).replace(/\s+/g, ' ').trim();
+    },
+
     autoTranslateDOM() {
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
         const textNodes = [];
@@ -126,8 +132,9 @@ const I18N = {
 
         textNodes.forEach(node => {
             const originalText = node.nodeValue.trim();
-            if (this.translationMap[originalText]) {
-                node.nodeValue = node.nodeValue.replace(originalText, this.translationMap[originalText]);
+            const translated = this.translationMap[this.norm(originalText)];
+            if (translated) {
+                node.nodeValue = node.nodeValue.replace(originalText, translated);
             }
         });
 
@@ -145,21 +152,20 @@ const I18N = {
             }
         });
         
-        // Rewrite Documentation Links
+        // Rewrite Documentation Links — translated docs live in /docs/<lang>/ folders
         document.querySelectorAll('a[href^="/docs/"]').forEach(a => {
             let href = a.getAttribute('href');
-            // Strip any existing language tag (e.g. _es, _fr) before appending the current one
-            href = href.replace(/_[a-z]{2}\.md$/, '.md');
-            
+            // Strip any existing language folder before appending the current one
+            href = href.replace(/\/docs\/[a-z]{2}\//, '/docs/');
             if (this.targetLang !== 'en') {
-                href = href.replace('.md', `_${this.targetLang}.md`);
+                href = href.replace('/docs/', `/docs/${this.targetLang}/`);
             }
             a.setAttribute('href', href);
         });
     },
 
     t(englishText) {
-        return this.translationMap[englishText] || englishText;
+        return this.translationMap[this.norm(englishText)] || englishText;
     },
 
     changeLanguage(langCode) {

@@ -12,6 +12,7 @@ const { registerIpcHandlers } = require('./src/main/ipc');
 powerSaveBlocker.start('prevent-app-suspension');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 app.setName('Nearcade');
+app.userAgentFallback = app.userAgentFallback + ' Nearcade/' + app.getVersion();
 
 const isArcadeWorker = process.argv.includes('--arcade-worker');
 const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
@@ -91,7 +92,7 @@ try {
   })();
   _discordClientId = _earlySettings.discordClientId || '1522864642953711776';
   if (!isArcadeWorker) registerDiscordProtocol(_discordClientId);
-} catch (_) {}
+} catch (_) { }
 
 try {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -149,11 +150,28 @@ if (!gotTheLock) {
   process.exit(0);
 }
 
-process.on('uncaughtException', (e) => console.error('\n[electron] ⚠ Uncaught Exception:', e));
+process.on('uncaughtException', (e) => {
+  const msg = e?.message || String(e);
+  console.error('\n[electron] ⚠ Uncaught Exception:', msg);
+  try {
+    if (win && !win.isDestroyed()) {
+      win.webContents.executeJavaScript(`
+        (function showErrorBanner() {
+          if (document.getElementById('ns-crash-banner')) return;
+          var b = document.createElement('div');
+          b.id = 'ns-crash-banner';
+          b.style.cssText = 'animation:nsCrashIn 0.3s ease-out;@keyframes nsCrashIn{from{opacity:0;transform:translateX(-50%) translateY(-20px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}';
+          b.innerHTML = '<div style="padding:12px 20px;background:rgba(211,47,47,0.9);color:#fff;font-family:monospace;font-size:12px;text-align:center;border-radius:0 0 6px 6px;position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:999999;max-width:90vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⚠ Nearcade Error: ' + ${JSON.stringify(msg.replace(/"/g,'\\"').substring(0,120))} + '</div>';
+          document.body.appendChild(b);
+        })();
+      `).catch(() => {});
+    }
+  } catch (_) {}
+});
 process.on('unhandledRejection', (e) => {
-  if (!e?.message?.includes('could not be cloned') && !e?.message?.includes('no video stream')) {
-    console.error('\n[electron] ⚠ Unhandled Rejection:', e);
-  }
+  const msg = e?.message || String(e);
+  if (msg.includes('could not be cloned') || msg.includes('no video stream')) return;
+  console.error('\n[electron] ⚠ Unhandled Rejection:', msg);
 });
 
 function _electronSignalCleanup(signal) {
@@ -226,7 +244,7 @@ if (isArcadeWorker && process.platform === 'linux') {
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
   }
   app.commandLine.appendSwitch('enable-zero-copy');
-  
+
   // Auto-detect if OS restricts unprivileged namespaces (e.g. Ubuntu 24.04 AppArmor) or running as root
   let autoNoSandbox = false;
   if (process.getuid && process.getuid() === 0) autoNoSandbox = true;
@@ -238,9 +256,9 @@ if (isArcadeWorker && process.platform === 'linux') {
       if (fs.existsSync('/proc/sys/kernel/unprivileged_userns_clone')) {
         if (fs.readFileSync('/proc/sys/kernel/unprivileged_userns_clone', 'utf8').trim() === '0') autoNoSandbox = true;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
-  
+
   if (autoNoSandbox) {
     console.log('[electron] OS restricts user namespaces or running as root. Auto-applying --no-sandbox.');
     app.commandLine.appendSwitch('no-sandbox');
@@ -417,7 +435,7 @@ async function createWindow() {
   win.on('resize', () => {
     const [w, h] = win.getSize();
     settings.w = w; settings.h = h;
-    saveSettings(settings);
+    saveSettings({ w, h });
   });
 
   win.on('closed', () => { win = null; ctx.win = null; });
@@ -451,7 +469,7 @@ async function createWindow() {
   try { os.setPriority(process.pid, os.constants.priority.PRIORITY_HIGH); } catch (_) { }
 
   win.webContents.setWindowOpenHandler(({ url, features }) => {
-    if (url.includes('localhost:') || url.includes('127.0.0.1:')) {
+    if (url.includes('localhost:') || url.includes('127.0.0.1:') || url === 'about:blank') {
       let width = 600, height = 500;
       if (features) {
         const wMatch = features.match(/width=(\d+)/);
@@ -464,9 +482,11 @@ async function createWindow() {
         overrideBrowserWindowOptions: {
           width, height,
           autoHideMenuBar: true,
+          frame: !features?.includes('frame=no'),
+          backgroundColor: '#000000',
           webPreferences: {
-            nodeIntegration: features.includes('nodeIntegration=yes'),
-            contextIsolation: !features.includes('contextIsolation=no')
+            nodeIntegration: features?.includes('nodeIntegration=yes') || false,
+            contextIsolation: !features?.includes('contextIsolation=no')
           }
         }
       };
@@ -526,7 +546,7 @@ app.whenReady().then(() => {
               btn.onclick = () => window.electronAPI.installUpdate();
               document.body.appendChild(btn);
             }
-          `).catch(() => {});
+          `).catch(() => { });
         }
       });
 

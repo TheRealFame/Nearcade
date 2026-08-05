@@ -57,6 +57,15 @@
         </svg>
       </button>
 
+      <button class="rail-btn" id="btnInviteFriend" onclick="showInviteFriendModal()" title="Invite a Friend">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <line x1="19" y1="8" x2="19" y2="14" />
+          <line x1="22" y1="11" x2="16" y2="11" />
+        </svg>
+      </button>
+
       <button class="rail-btn" id="ctrlSettingsBtn" onclick="showSettingsModal('input')" title="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path
@@ -73,14 +82,7 @@
         </svg>
       </button>
 
-      <button class="rail-btn" id="btnMasterMic" onclick="toggleGlobalMicKill()" title="Mute All Viewer Mics">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <line x1="12" y1="19" x2="12" y2="23" />
-          <line x1="8" y1="23" x2="16" y2="23" />
-        </svg>
-      </button>
+
 
       <!-- Master Audio Killswitch: zeroes the desktop gain node to cut audio from the WebRTC stream -->
       <button class="rail-btn" id="btnMasterAudioKill" onclick="window.toggleMasterMute()"
@@ -132,6 +134,12 @@
           <div class="roster-title">Connected Controllers</div>
           <div id="rosterOverlayList" style="display:flex; flex-direction:column; gap:4px;"></div>
           <div class="empty-note" id="rosterOverlayEmpty">Waiting for viewers...</div>
+        </div>
+
+        <!-- Voice Chat Overlay for Host Preview -->
+        <div id="hostVcOverlay" style="display:none; position:absolute; top:20px; left:20px; z-index:100; pointer-events:none; flex-direction:column; gap:6px; background:rgba(0,0,0,0.5); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); backdrop-filter:blur(4px);">
+          <div style="font-size:10px; font-weight:bold; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.1em;">Voice Activity</div>
+          <div id="hostVcList" style="display:flex; flex-direction:column; gap:4px;"></div>
         </div>
       </section>
 
@@ -193,7 +201,7 @@
           <div class="url-card-inner">
             <div id="urlList"></div>
             <div class="pin-row">
-              <div class="pin-num" id="pinVal">----</div>
+              <div class="pin-num" id="pinVal" onclick="copyText('pinVal')" style="cursor:pointer;" title="Click to copy">----</div>
               <button class="pin-regen" title="Regenerate PIN" onclick="regeneratePin()">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
                   stroke-linejoin="round">
@@ -223,7 +231,14 @@
               <span class="dock-slider-val" id="desktopVolVal">100</span>
             </div>
             <div class="dock-slider-row">
-              <span class="dock-slider-label">Mic</span>
+              <button id="btnHostMic" onclick="toggleHostMicUI()" title="Toggle Host Mic (Mute/Unmute)" style="background:transparent; border:none; padding:0; display:flex; align-items:center; cursor:pointer; gap:4px; font-family:inherit; color:var(--muted); width:45px; justify-content:space-between;">
+                <span class="dock-slider-label" style="margin:0;">Mic</span>
+                <svg id="iconHostMic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px; height:12px; margin-right:2px;">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                </svg>
+              </button>
               <input type="range" id="hostMicSlider" class="dock-slider"
                 min="0" max="100" value="100"
                 oninput="document.getElementById('hostMicVal').textContent = this.value; setHostMicGain(this.value)">
@@ -284,6 +299,7 @@
   <script type="module" src="/js/p2p-signaler.js"></script>
   <script src="/js/emoji-data.js"></script>
   <script src="/js/signaling.js?v=1"></script>
+  <script src="/js/host-engine.js?v=1"></script>
   <script src="/js/host.js?v=1"></script>
 
   <script>

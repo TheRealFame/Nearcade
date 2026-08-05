@@ -1,11 +1,12 @@
 [
   {
     "name": "Metered.ca TURN (Default)",
-    "url": "turn:openrelayproject.metered.ca:443?transport=tcp",
+    "url": "turn:openrelay.metered.ca:443?transport=tcp",
     "username": "openrelayproject",
     "credential": "openrelayproject",
-    "description": "The default community TURN server provided by metered.ca.",
+    "description": "The default community TURN server provided by metered.ca. Live-probed at connect time and only added to the ICE ladder if it actually allocates a relay.",
     "region": "Global",
-    "author": "metered.ca"
+    "author": "metered.ca",
+    "enabled": true
   }
 ]

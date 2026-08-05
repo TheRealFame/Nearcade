@@ -225,6 +225,9 @@
     .card-title { font-size: 18px; font-weight: 800; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .card-host { font-size: 13px; color: var(--text-sec); margin-bottom: 6px; font-weight: 500; }
     .card-info { font-size: 13px; color: var(--text-sec); display: flex; gap: 8px; flex-wrap: wrap; font-weight: 500; }
+    .card-players { font-size: 11px; color: var(--accent); margin-top: 6px; font-weight: 600; }
+    .card-warn { font-size: 10px; color: var(--warn); margin-top: 4px; }
+    .client-card:hover .card-tooltip { display: block !important; }
     .tag { background: var(--surface); padding: 4px 10px; border-radius: 6px; display: flex; align-items: center; gap: 6px;}
 
     /* ── Modals & Voice Config (Unchanged structure, updated aesthetics) ── */
@@ -462,6 +465,16 @@
         <select id="langSelect" onchange="I18N.changeLanguage(this.value)"></select>
       </div>
 
+      <button id="btnProfile" class="icon-btn" onclick="openProfile()" title="Your Profile" style="display:none;background:var(--accent);color:#fff;border-radius:var(--radius-pill);width:auto;padding:0 16px;font-weight:700;font-size:13px;gap:8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>Profile</span>
+      </button>
+
+      <button id="btnInstallPwa" class="icon-btn" onclick="installApp()" title="Install Extension" style="display:none;background:var(--green);color:#fff;border-radius:var(--radius-pill);width:auto;padding:0 16px;font-weight:700;font-size:13px;gap:8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Install Extension</span>
+      </button>
+
       <div class="live-badge">
         <div class="live-dot" id="liveDot" style="background:var(--text-sec); box-shadow:none;"></div>
         <span id="liveCount">—</span>
@@ -510,15 +523,24 @@
         <div class="modal-meta" id="mMeta"></div>
         <div class="audio-config">
           <label>Voice Comms Setup</label>
-          <select class="audio-select" id="voiceModeSelect">
+          <select class="audio-select" id="voiceModeSelect" onchange="localStorage.setItem('ns_arcade_voice_mode', this.value)">
             <option value="muted">Muted (Listen Only)</option>
             <option value="ptt">Push-to-Talk (Hold 'V')</option>
             <option value="open">Open Mic</option>
           </select>
+          <script>
+            if (localStorage.getItem('ns_arcade_voice_mode')) {
+              document.getElementById('voiceModeSelect').value = localStorage.getItem('ns_arcade_voice_mode');
+            }
+          </script>
         </div>
         <div class="pin-section" id="pinSection">
           <label>Host PIN Required</label>
           <input type="text" id="pinInput" maxlength="6" placeholder="••••" autocomplete="off">
+        </div>
+        <div id="mKickWarning" style="display:none;color:var(--warn);font-size:10px;margin:4px 0 8px 0;">⚠ Host may kick players often</div>
+        <div id="mTrustStatus" style="display:none;font-size:11px;color:var(--text-sec);margin:4px 0 8px 0;padding:8px;border-radius:6px;background:var(--bg);">
+          <div id="mTrustText">Host Status: —</div>
         </div>
         <button class="join-btn" onclick="joinSession()">Connect to Session</button>
         <span class="close-link" onclick="closeJoin()">Cancel</span>
@@ -586,11 +608,35 @@
     </button>
   </div>
 </div>
+
+  <div class="modal-bg" id="profileModal" onclick="if(event.target===this)closeProfile()">
+    <div class="modal-content" style="padding: 32px; background: var(--surface);">
+      <h2 style="color:var(--text); margin-bottom: 16px; font-weight: 800; font-size: 24px;">Your Profile</h2>
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div>
+          <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Display Name</label>
+          <input type="text" id="profileName" placeholder="Enter name..." style="width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:12px; border-radius:8px; font-family:inherit; font-size:15px; outline:none;" onchange="saveProfile()">
+        </div>
+        <div>
+          <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Avatar URL</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="profileAvatar" placeholder="https://..." style="flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:12px; border-radius:8px; font-family:inherit; font-size:15px; outline:none;" onchange="saveProfile()">
+            <button onclick="randomizeAvatar()" style="background:var(--surface-hover); border:1px solid var(--border); color:var(--text); padding:0 16px; border-radius:8px; cursor:pointer; font-weight:700;">🎲</button>
+          </div>
+        </div>
+        <div>
+          <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Chat Color</label>
+          <input type="color" id="profileColor" style="width:100%; height:40px; background:var(--bg); border:1px solid var(--border); border-radius:8px; cursor:pointer;" onchange="saveProfile()">
+        </div>
+      </div>
+      <button class="join-btn" onclick="closeProfile()" style="margin-top:24px;">Save & Close</button>
+    </div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/@widgetbot/html-embed"></script>
   <script src="./js/i18n.js" onerror="
     if (!window.I18N) {
       window.I18N = {
-        changeLanguage: function(lang) { localStorage.setItem('ns_lang', lang); },
+        changeLanguage: function(lang) { try { localStorage.setItem('ns_lang', lang); } catch(e){} },
         t: function(key) { return key; }
       };
       console.warn('[i18n] Could not load i18n.js — using no-op fallback');
@@ -626,6 +672,52 @@
       popup.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Discord — Nearcade</title><style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}body{background:#090a0c;color:#fff;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;height:100vh;overflow:hidden}.bar{width:100%;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;flex-shrink:0}.bar h3{font-size:13px;font-weight:700;color:#9ba1a6;letter-spacing:.05em;text-transform:uppercase}.bar button{background:#2a2e35;border:none;color:#fff;padding:6px 16px;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s}.bar button:hover{background:#3a3e45}widgetbot{flex:1;width:800px;max-width:100%;border-radius:0;overflow:hidden}@media(max-width:840px){widgetbot{width:100%}}</style></head><body><div class="bar"><h3>Nearcade Community</h3><button onclick="window.close()">Close</button></div><widgetbot server="1523838043969028096" channel="1523838046359912571" width="800" height="600"></widgetbot><script src="https://cdn.jsdelivr.net/npm/@widgetbot/html-embed"><\/script></body></html>`);
       popup.document.close();
     }
+  }
+
+  // --- Profile & Tampermonkey UI Logic ---
+  function checkInstallState() {
+    const isInstalled = document.documentElement.dataset.nsPersist === 'true';
+    const btnInstall = document.getElementById('btnInstallPwa');
+    const btnProfile = document.getElementById('btnProfile');
+    
+    if (isInstalled) {
+      if (btnInstall) btnInstall.style.display = 'none';
+      if (btnProfile) btnProfile.style.display = 'flex';
+    } else {
+      if (btnProfile) btnProfile.style.display = 'none';
+      if (btnInstall) btnInstall.style.display = 'flex';
+    }
+  }
+
+  // Check periodically in case the userscript injects slightly after DOM load
+  setInterval(checkInstallState, 1000);
+  checkInstallState();
+  
+  function installApp() {
+    window.open('https://github.com/TheRealFame/Nearcade/raw/refs/heads/main/src/scripts/nearcade-identity-persist.user.js', '_blank');
+  }
+
+  function openProfile() {
+    document.getElementById('profileName').value = localStorage.getItem('ns_name') || '';
+    document.getElementById('profileAvatar').value = localStorage.getItem('ns_avatar') || '';
+    document.getElementById('profileColor').value = localStorage.getItem('ns_chat_color') || '#ffffff';
+    document.getElementById('profileModal').classList.add('open');
+  }
+
+  function closeProfile() {
+    document.getElementById('profileModal').classList.remove('open');
+  }
+
+  function saveProfile() {
+    localStorage.setItem('ns_name', document.getElementById('profileName').value);
+    localStorage.setItem('ns_avatar', document.getElementById('profileAvatar').value);
+    localStorage.setItem('ns_chat_color', document.getElementById('profileColor').value);
+  }
+
+  function randomizeAvatar() {
+    const r = Math.floor(Math.random() * 100000);
+    document.getElementById('profileAvatar').value = `https://api.dicebear.com/7.x/avataaars/svg?seed=${r}`;
+    saveProfile();
   }
   </script>
   

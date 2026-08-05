@@ -107,6 +107,7 @@
     const STORAGE_PREFIX = 'nearsec_map_';
     const MAX_VISIBLE_CONTROLLERS = 1;
     const PARENT_ORIGIN = (() => { try { return new URL(document.referrer).origin; } catch { return '*'; } })();
+    const T = (s) => (typeof I18N !== 'undefined' && typeof I18N.t === 'function' ? I18N.t(s) : s);
     let smartDb = {};
 
     window.addEventListener('message', e => {
@@ -144,6 +145,10 @@
       let rsy = m.rsy;
       let lt = m.lt;
       let rt = m.rt;
+      let ldz = m.ldz ?? 0.05;
+      let lsens = m.lsens ?? 1.5;
+      let rdz = m.rdz ?? 0.05;
+      let rsens = m.rsens ?? 1.5;
 
       // Migrate legacy raw integer mappings to the modern object schema
       if (typeof lt === 'number') lt = { type: 'btn', idx: lt };
@@ -155,7 +160,7 @@
           else if (rsx && rsx.type) rsy = { type: rsx.type, idx: rsx.idx + 1 };
       }
       
-      return { lt, rt, rsx, rsy };
+      return { lt, rt, rsx, rsy, ldz, lsens, rdz, rsens };
     }
 
     // Descriptive per-step prompts
@@ -167,10 +172,10 @@
       if (state.calibStep === 0) return; // Keep "DONE" visible for the timeout
       const steps = [
         '',
-        '1 of 4 — PULL LEFT TRIGGER',
-        '2 of 4 — PULL RIGHT TRIGGER',
-        '3 of 4 — PUSH RIGHT STICK RIGHT',
-        '4 of 4 — PUSH RIGHT STICK DOWN',
+        T('1 of 4 — PULL LEFT TRIGGER'),
+        T('2 of 4 — PULL RIGHT TRIGGER'),
+        T('3 of 4 — PUSH RIGHT STICK RIGHT'),
+        T('4 of 4 — PUSH RIGHT STICK DOWN'),
       ];
       promptEl.textContent = steps[state.calibStep] || '';
     }
@@ -185,6 +190,17 @@
       } catch (e) {}
     }
 
+    // ── Steal Accent Colors from Parent (Arcade Index) ──
+    try {
+      if (window.parent && window.parent !== window) {
+        const pStyle = window.parent.getComputedStyle(window.parent.document.documentElement);
+        const pAcc1 = pStyle.getPropertyValue('--accent').trim();
+        const pAcc2 = pStyle.getPropertyValue('--accent2').trim();
+        if (pAcc1) document.documentElement.style.setProperty('--accent', pAcc1);
+        if (pAcc2) document.documentElement.style.setProperty('--blue', pAcc2);
+      }
+    } catch(e) {}
+
     // ── Build widget DOM for one controller ───────────────────────────────────
     function buildWidget(idx) {
       const p = `c${idx}`; // prefix for element IDs
@@ -193,17 +209,17 @@
       card.id = `card-${idx}`;
       card.innerHTML = `
         <div class="calib-overlay" id="${p}-calib">
-          <div class="calib-step" id="${p}-prompt">WAITING...</div>
-          <div class="calib-desc">Hold the requested input fully.</div>
-          <div class="calib-verified" id="${p}-verified">Calibration Verified</div>
+          <div class="calib-step" id="${p}-prompt">${T('WAITING...')}</div>
+          <div class="calib-desc">${T('Hold the requested input fully.')}</div>
+          <div class="calib-verified" id="${p}-verified">${T('Calibration Verified')}</div>
         </div>
         <div class="header">
           <div class="controller-id">
             <span class="status-dot active" id="${p}-dot"></span>
             <span class="port-badge">P${idx + 1}</span>
-            <span id="${p}-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Controller ${idx + 1}</span>
+            <span id="${p}-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${T('Controller ')}${idx + 1}</span>
           </div>
-          <button class="btn-recal" onclick="startCalibration(${idx})">RECALIBRATE</button>
+          <button class="btn-recal" onclick="startCalibration(${idx})">${T('RECALIBRATE')}</button>
         </div>
         <svg class="controller-svg" viewBox="0 0 440 300">
           <path class="shell" d="M110,70 L330,70 C390,70 430,110 420,185 C410,240 360,260 330,250 L280,232 L160,232 L110,250 C80,260 30,240 20,185 C10,110 50,70 110,70 Z"/>
@@ -236,22 +252,66 @@
           </g>
         </svg>
         <div class="info-tray">
-          <div>L-STICK: <span id="${p}-vl"  class="stick-val">0.00, 0.00</span></div>
-          <div>L-TRIG:  <span id="${p}-vlt" class="stick-val">0.00</span></div>
-          <div>R-TRIG:  <span id="${p}-vrt" class="stick-val">0.00</span></div>
-          <div>R-STICK: <span id="${p}-vr"  class="stick-val">0.00, 0.00</span></div>
+          <div>${T('L-STICK:')} <span id="${p}-vl"  class="stick-val">0.00, 0.00</span></div>
+          <div>${T('L-TRIG:')}  <span id="${p}-vlt" class="stick-val">0.00</span></div>
+          <div>${T('R-TRIG:')}  <span id="${p}-vrt" class="stick-val">0.00</span></div>
+          <div>${T('R-STICK:')} <span id="${p}-vr"  class="stick-val">0.00, 0.00</span></div>
         </div>
-        <div style="margin-top:14px; padding: 0 10px; display:flex; align-items:center; gap:10px;">
-           <span style="font-size:10px; color:var(--muted); font-weight:700;">DEADZONE</span>
-           <input type="range" id="${p}-deadzone" min="0" max="0.5" step="0.01" value="0.05" style="flex:1; accent-color:var(--accent);" oninput="updateDeadzone(${idx}, this.value)">
-           <span id="${p}-dz-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:30px; text-align:right;">5%</span>
+        <div style="margin-top:14px; padding: 0 10px; display:flex; flex-direction:column; gap:8px;">
+           <div style="display:flex; align-items:center; gap:10px;">
+<span style="font-size:10px; color:var(--muted); font-weight:700; width:55px;">${T('L-DEAD')}</span>
+              <input type="range" id="${p}-ldz" min="0" max="0.5" step="0.01" value="0.05" style="flex:1; accent-color:var(--accent);" oninput="updateStickCfg(${idx})">
+              <span id="${p}-ldz-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:35px; text-align:right;">5%</span>
+              <span style="font-size:10px; color:var(--muted); font-weight:700; width:45px; margin-left:10px;">${T('L-SENS')}</span>
+             <input type="range" id="${p}-lsens" min="0.5" max="3.0" step="0.05" value="1.50" style="flex:1; accent-color:var(--blue);" oninput="updateStickCfg(${idx})">
+             <span id="${p}-lsens-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:35px; text-align:right;">1.50</span>
+           </div>
+           <div style="display:flex; align-items:center; gap:10px;">
+<span style="font-size:10px; color:var(--muted); font-weight:700; width:55px;">${T('R-DEAD')}</span>
+              <input type="range" id="${p}-rdz" min="0" max="0.5" step="0.01" value="0.05" style="flex:1; accent-color:var(--accent);" oninput="updateStickCfg(${idx})">
+              <span id="${p}-rdz-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:35px; text-align:right;">5%</span>
+              <span style="font-size:10px; color:var(--muted); font-weight:700; width:45px; margin-left:10px;">${T('R-SENS')}</span>
+             <input type="range" id="${p}-rsens" min="0.5" max="3.0" step="0.05" value="1.50" style="flex:1; accent-color:var(--blue);" oninput="updateStickCfg(${idx})">
+             <span id="${p}-rsens-val" style="font-size:10px; font-family:monospace; font-weight:700; color:var(--text); width:35px; text-align:right;">1.50</span>
+           </div>
         </div>`;
       return card;
     }
 
-    function updateDeadzone(idx, val) {
-        document.getElementById(`c${idx}-dz-val`).textContent = Math.round(val * 100) + '%';
-        try { window.parent.postMessage({ type: 'NEARSEC_DEADZONE', index: idx, value: parseFloat(val) }, PARENT_ORIGIN); } catch (e) {}
+    function updateStickCfg(idx, skipStorage) {
+        const ldz = parseFloat(document.getElementById(`c${idx}-ldz`).value);
+        const lsens = parseFloat(document.getElementById(`c${idx}-lsens`).value);
+        const rdz = parseFloat(document.getElementById(`c${idx}-rdz`).value);
+        const rsens = parseFloat(document.getElementById(`c${idx}-rsens`).value);
+
+        document.getElementById(`c${idx}-ldz-val`).textContent = Math.round(ldz * 100) + '%';
+        document.getElementById(`c${idx}-lsens-val`).textContent = lsens.toFixed(2);
+        document.getElementById(`c${idx}-rdz-val`).textContent = Math.round(rdz * 100) + '%';
+        document.getElementById(`c${idx}-rsens-val`).textContent = rsens.toFixed(2);
+
+        try { 
+            window.parent.postMessage({ 
+                type: 'NEARSEC_STICK_CFG', 
+                index: idx, 
+                ldz, lsens, rdz, rsens
+            }, PARENT_ORIGIN); 
+        } catch (e) {}
+
+        if (!skipStorage) {
+            const state = gpStates.get(idx);
+            if (state && state.mapCache) {
+                state.mapCache.ldz = ldz;
+                state.mapCache.lsens = lsens;
+                state.mapCache.rdz = rdz;
+                state.mapCache.rsens = rsens;
+                const gp = navigator.getGamepads()[idx];
+                if (gp) {
+                    const safeId = getSafeId(gp);
+                    localStorage.setItem(STORAGE_PREFIX + safeId, JSON.stringify(state.mapCache));
+                    broadcastConfigExternally(safeId, state.mapCache);
+                }
+            }
+        }
     }
 
     // ── Register a new controller ─────────────────────────────────────────────
@@ -271,7 +331,7 @@
 
       if (!savedMap) {
         const idLower = gp.id.toLowerCase();
-        if (idLower.includes('xbox') || idLower.includes('playstation') || 
+        if (gp.mapping === 'standard' || idLower.includes('xbox') || idLower.includes('playstation') || 
             idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box')) {
           // Standard controllers don't need calibration
           savedMap = { lt: {type: 'btn', idx: 6}, rt: {type: 'btn', idx: 7}, rsx: 2, rsy: 3 };
@@ -297,6 +357,14 @@
           hardwareId: safeId,
           map: savedMap
         }, PARENT_ORIGIN);
+        
+        // Initialize sliders from map
+        const p = `c${gp.index}`;
+        document.getElementById(`${p}-ldz`).value = savedMap.ldz ?? 0.05;
+        document.getElementById(`${p}-lsens`).value = savedMap.lsens ?? 1.5;
+        document.getElementById(`${p}-rdz`).value = savedMap.rdz ?? 0.05;
+        document.getElementById(`${p}-rsens`).value = savedMap.rsens ?? 1.5;
+        updateStickCfg(gp.index, true); // Update labels and send to parent immediately
       } else {
         document.getElementById(`c${gp.index}-calib`)?.classList.add('active');
         updatePrompt(gp.index);
@@ -379,7 +447,7 @@
         
         const promptEl = document.getElementById(`c${gp.index}-prompt`);
         if (promptEl) {
-          promptEl.textContent = 'DONE!';
+          promptEl.textContent = T('DONE!');
           setTimeout(() => {
             const currentState = gpStates.get(gp.index);
             if (currentState && currentState.calibStep === 0) {

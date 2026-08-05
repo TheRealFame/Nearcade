@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const { spawn, execFileSync, exec, execSync } = require('child_process');
 const {
-  app, ipcMain, shell, clipboard, desktopCapturer,
+  app, BrowserWindow, ipcMain, shell, clipboard, desktopCapturer,
   systemPreferences, dialog, nativeImage, nativeTheme
 } = require('electron');
 const { CONFIG_DIR, CONFIG_FILE, LOG_FILE, ROOT_DIR } = require('./config');
@@ -122,10 +122,11 @@ function registerIpcHandlers(ctx) {
   }));
 
   ipcMain.handle('save-vps-config', (_, cfg) => {
-    if (typeof cfg.vpsEnabled !== 'undefined') ctx.settings.vpsEnabled = !!cfg.vpsEnabled;
-    if (typeof cfg.vpsUrl !== 'undefined') ctx.settings.vpsUrl = String(cfg.vpsUrl).slice(0, 512);
-    if (typeof cfg.vpsMasterKey !== 'undefined') ctx.settings.vpsMasterKey = String(cfg.vpsMasterKey).slice(0, 256);
-    saveSettings(ctx.settings);
+    const delta = {};
+    if (typeof cfg.vpsEnabled !== 'undefined') delta.vpsEnabled = ctx.settings.vpsEnabled = !!cfg.vpsEnabled;
+    if (typeof cfg.vpsUrl !== 'undefined') delta.vpsUrl = ctx.settings.vpsUrl = String(cfg.vpsUrl).slice(0, 512);
+    if (typeof cfg.vpsMasterKey !== 'undefined') delta.vpsMasterKey = ctx.settings.vpsMasterKey = String(cfg.vpsMasterKey).slice(0, 256);
+    saveSettings(delta);
     return {
       vpsEnabled: !!ctx.settings.vpsEnabled,
       vpsUrl: String(ctx.settings.vpsUrl || ''),
@@ -137,14 +138,14 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('save-settings', (_, s) => {
     ctx.settings = Object.assign(ctx.settings, s);
-    saveSettings(ctx.settings);
+    saveSettings(s);
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send('settings-updated', ctx.settings);
     return ctx.settings;
   });
 
   ipcMain.handle('save-settings-sync', (_, s) => {
     ctx.settings = Object.assign(ctx.settings, s);
-    saveSettingsSync(ctx.settings);
+    saveSettingsSync(s);
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send('settings-updated', ctx.settings);
     return ctx.settings;
   });
@@ -152,7 +153,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle('hydrate-settings', (_, patch) => {
     if (!patch || typeof patch !== 'object') return ctx.settings;
     ctx.settings = Object.assign(ctx.settings, patch);
-    saveSettings(ctx.settings);
+    saveSettings(patch);
     return ctx.settings;
   });
 
@@ -161,7 +162,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle('toggle-always-on-top', () => {
     ctx.settings.alwaysOnTop = !ctx.settings.alwaysOnTop;
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.setAlwaysOnTop(ctx.settings.alwaysOnTop);
-    saveSettings(ctx.settings);
+    saveSettings({ alwaysOnTop: ctx.settings.alwaysOnTop });
     return ctx.settings.alwaysOnTop;
   });
 
@@ -252,6 +253,37 @@ function registerIpcHandlers(ctx) {
     }
   });
 
+  ipcMain.on('run-vbcable-setup', (event) => {
+    if (os.platform() === 'win32') {
+      let scriptPath = path.join(ROOT_DIR, 'bin', 'install_vbcable.ps1');
+      if (__dirname.includes('app.asar')) {
+        scriptPath = path.join(process.resourcesPath, 'bin', 'install_vbcable.ps1');
+      }
+      if (!fs.existsSync(scriptPath)) {
+        console.error('[Setup] install_vbcable.ps1 not found at', scriptPath);
+        return;
+      }
+      const psCommand = `Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File ""${scriptPath}""' -Verb RunAs`;
+      exec(`powershell -NoProfile -Command "${psCommand}"`, (error) => {
+        if (error) console.error('[Setup] VB-Cable setup failed to launch:', error.message);
+      });
+    }
+  });
+
+  ipcMain.on('run-advanced-linux-setup', (event) => {
+    if (os.platform() === 'linux') {
+      let scriptPath = path.join(ROOT_DIR, 'bin', 'linux_advanced_setup.sh');
+      if (__dirname.includes('app.asar')) {
+        scriptPath = path.join(process.resourcesPath, 'bin', 'linux_advanced_setup.sh');
+      }
+      if (!fs.existsSync(scriptPath)) return;
+      const command = `x-terminal-emulator -e "bash ${scriptPath}" || konsole -e "bash ${scriptPath}" || gnome-terminal -- bash ${scriptPath} || xterm -e "bash ${scriptPath}"`;
+      exec(command, (error) => {
+        if (error) console.error('[Setup] Linux advanced setup failed to launch:', error.message);
+      });
+    }
+  });
+
   ipcMain.handle('clipboard-write', (_, text) => {
     try { clipboard.writeText(String(text)); return true; } catch (_) { return false; }
   });
@@ -327,8 +359,12 @@ function registerIpcHandlers(ctx) {
   });
 
   ipcMain.handle('read-doc', async (event, filename) => {
-    if (!filename || filename.includes('..') || filename.includes('/')) throw new Error('Invalid filename');
-    return fs.promises.readFile(path.join(ROOT_DIR, 'src', 'docs', filename), 'utf8');
+    if (!filename || typeof filename !== 'string') throw new Error('Invalid filename');
+    const docPath = path.resolve(path.join(__dirname, '..', '..', 'assets', 'locales', 'docs'), filename);
+    if (!docPath.startsWith(path.resolve(path.join(__dirname, '..', '..', 'assets', 'locales', 'docs')))) {
+      throw new Error('Invalid filename');
+    }
+    return fs.promises.readFile(docPath, 'utf8');
   });
 
   ipcMain.on('back-to-dashboard-from-host', (_, tab) => {
@@ -372,7 +408,7 @@ function registerIpcHandlers(ctx) {
     if (artifactsFound) {
       ctx.settings.firstRunComplete = true;
       ctx.settings.neverBotherSetup = true;
-      saveSettings(ctx.settings);
+      saveSettings({ firstRunComplete: true, neverBotherSetup: true });
       return { needsSetup: false };
     }
     return { needsSetup: true };
@@ -381,7 +417,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.on('continue-boot', () => {
     ctx.settings.firstRunComplete = true;
     ctx.settings.neverBotherSetup = true;
-    saveSettings(ctx.settings);
+    saveSettings({ firstRunComplete: true, neverBotherSetup: true });
     if (ctx.win && !ctx.win.isDestroyed()) {
       ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}`);
     }
@@ -459,6 +495,22 @@ function registerIpcHandlers(ctx) {
     shell.openPath(CONFIG_DIR);
   });
 
+  ipcMain.on('open-obs-window', () => {
+    const obsWin = new BrowserWindow({
+      width: 1280, height: 720,
+      frame: false,
+      transparent: false,
+      backgroundColor: '#000000',
+      alwaysOnTop: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      }
+    });
+    // Load the main viewer page but pass &obs=1 to trigger the CSS hiding
+    obsWin.loadURL(`http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent(ctx.settings.vpsUrl || 'http://localhost:' + ctx.serverPort)}&obs=1`);
+  });
+
   ipcMain.on('window-close', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.close(); });
   ipcMain.on('window-minimize', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.minimize(); });
   ipcMain.on('window-maximize', () => { if (ctx.win && !ctx.win.isDestroyed()) { ctx.win.isMaximized() ? ctx.win.unmaximize() : ctx.win.maximize(); } });
@@ -483,6 +535,130 @@ function registerIpcHandlers(ctx) {
   let rpcReady = false;
   let latestActivity = null;
 
+  // ── Discord RPC socket bridge helpers ─────────────────────────────────────
+  // discord-rpc only probes `$XDG_RUNTIME_DIR/discord-ipc-0..9`. This fixes
+  // three real-world failures:
+  //   1. Stale sockets: after a crash the socket file remains but nothing is
+  //      listening — ECONNREFUSED forever. We unlink stale files first.
+  //   2. Vesktop (Flatpak): its arRPC socket lives in a sandbox path
+  //      ($XDG_RUNTIME_DIR/.flatpak/dev.vencord.Vesktop/xdg-run/discord-ipc-0).
+  //      We bridge it to the standard path so the library can connect.
+  //   3. Vesktop (any build) exposes a websocket on 127.0.0.1:6463 as an
+  //      alternative — we fall back to the 'websocket' transport when IPC
+  //      cannot connect at all.
+  function _runtimeDir() {
+    if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
+    if (typeof process.getuid === 'function') return `/run/user/${process.getuid()}`;
+    return null;
+  }
+
+  function _probeSocket(path, timeoutMs = 800) {
+    return new Promise((resolve) => {
+      const net = require('net');
+      const sock = net.createConnection({ path });
+      const done = (ok) => {
+        try { sock.destroy(); } catch (_) { }
+        resolve(ok);
+      };
+      sock.setTimeout(timeoutMs, () => done(false));
+      sock.on('connect', () => done(true));
+      sock.on('error', () => done(false));
+      sock.on('timeout', () => done(false));
+    });
+  }
+
+  function _unlinkStaleSocket(path) {
+    const fs = require('fs');
+    try {
+      const st = fs.lstatSync(path);
+      if (!st.isSocket() && !st.isSymbolicLink()) return;
+      // Reached only after probing failed (ECONNREFUSED): nothing is listening.
+      fs.unlinkSync(path);
+      console.log(`[Discord RPC] Removed stale socket ${path}`);
+    } catch (_) { }
+  }
+
+  function _bridgeVesktopSockets() {
+    const fs = require('fs');
+    const runtimeDir = _runtimeDir();
+    if (!runtimeDir || !fs.existsSync(runtimeDir)) return;
+
+    // Sandboxed sockets that OTHER Discord clients may be listening on.
+    const bridges = [
+      { label: 'Vesktop (Flatpak)', socket: `${runtimeDir}/.flatpak/dev.vencord.Vesktop/xdg-run/discord-ipc-0` },
+      { label: 'Vesktop (Flatpak, legacy)', socket: `${runtimeDir}/app/dev.vencord.Vesktop/discord-ipc-0` },
+      { label: 'Discord (Flatpak)', socket: `${runtimeDir}/app/com.discordapp.Discord/discord-ipc-0` },
+    ];
+
+    for (const b of bridges) {
+      try {
+        if (!fs.existsSync(b.socket)) continue;
+        const target = `${runtimeDir}/discord-ipc-0`;
+        if (fs.existsSync(target)) continue; // real listener already there
+        // Only bridge if the sandbox socket is actually alive
+        _probeSocket(b.socket).then((alive) => {
+          if (!alive) return;
+          try {
+            fs.symlinkSync(b.socket, target, 'socket');
+            console.log(`[Discord RPC] Bridged ${b.label} socket → ${target}`);
+          } catch (e) {
+            if (e.code !== 'EEXIST') console.log(`[Discord RPC] Bridge ${b.label} failed:`, e.message);
+          }
+        });
+      } catch (_) { }
+    }
+  }
+
+  async function _findLiveSocketPath() {
+    const fs = require('fs');
+    const runtimeDir = _runtimeDir();
+    if (!runtimeDir) return null;
+    for (let i = 0; i < 10; i++) {
+      const p = `${runtimeDir}/discord-ipc-${i}`;
+      try {
+        if (!fs.existsSync(p)) continue;
+        if (!fs.lstatSync(p).isSocket() && !fs.lstatSync(p).isSymbolicLink()) continue;
+        if (await _probeSocket(p)) return p;
+        _unlinkStaleSocket(p);
+      } catch (_) { }
+    }
+    return null;
+  }
+
+  async function _createDiscordClient() {
+    const DiscordRPC = require('discord-rpc');
+
+    _bridgeVesktopSockets();
+    const livePath = await _findLiveSocketPath();
+    if (livePath) {
+      console.log(`[Discord RPC] IPC socket found: ${livePath}`);
+      return new DiscordRPC.Client({ transport: 'ipc' });
+    }
+
+    // Check if Vesktop arRPC websocket 6463 is actually up before trying
+    const wsPort = 6463;
+    const wsAlive = await new Promise(resolve => {
+      const sock = new (require('net')).Socket();
+      sock.setTimeout(800);
+      sock.on('connect', () => { sock.destroy(); resolve(true); });
+      sock.on('error', () => resolve(false));
+      sock.on('timeout', () => { sock.destroy(); resolve(false); });
+      sock.connect(wsPort, '127.0.0.1');
+    });
+    if (!wsAlive) {
+      console.log('[Discord RPC] No IPC socket and ws 6463 not listening — skipping RPC');
+      return null;
+    }
+
+    console.log('[Discord RPC] No live IPC socket; trying websocket transport (6463)…');
+    try {
+      return new DiscordRPC.Client({ transport: 'websocket' });
+    } catch (err) {
+      console.log('[Discord RPC] Failed to create websocket client:', err.message);
+      return null;
+    }
+  }
+
   ipcMain.on('discord-set-activity', (event, activity) => {
     console.log('[Discord RPC] Requested activity:', JSON.stringify(activity));
     if (!ctx.settings.discordRPC) {
@@ -493,50 +669,59 @@ function registerIpcHandlers(ctx) {
 
     if (!rpc) {
       console.log('[Discord RPC] Initializing new client...');
-      const DiscordRPC = require('discord-rpc');
-      rpc = new DiscordRPC.Client({ transport: 'ipc' });
-
-      rpc.on('ready', () => {
-        console.log('[Discord RPC] Client Ready');
-        rpcReady = true;
-
-        try {
-          rpc.subscribe('ACTIVITY_JOIN', (args) => {
-            console.log('[Discord RPC] Received ACTIVITY_JOIN:', JSON.stringify(args));
-            if (args && args.secret && ctx.win && !ctx.win.isDestroyed()) {
-              const isUrl = args.secret.startsWith('http://') || args.secret.startsWith('https://');
-              const viewerUrl = isUrl
-                ? `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent(args.secret)}`
-                : `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + args.secret)}`;
-              console.log('[Discord RPC] Navigating to session via ACTIVITY_JOIN:', viewerUrl);
-              ctx.win.loadURL(viewerUrl);
-            }
-          });
-          rpc.subscribe('ACTIVITY_JOIN_REQUEST', (args) => {
-            console.log('[Discord RPC] Received ACTIVITY_JOIN_REQUEST:', JSON.stringify(args));
-          });
-          console.log('[Discord RPC] Subscribed to JOIN events');
-        } catch (e) {
-          console.log('[Discord RPC] Subscribe error:', e.message);
+      _createDiscordClient().then((client) => {
+        if (!client) {
+          console.log('[Discord RPC] No transport available — RPC will not activate.');
+          return;
         }
+        rpc = client;
 
-        if (latestActivity) {
-          rpc.setActivity(latestActivity)
-            .then(() => console.log('[Discord RPC] Activity successfully set!'))
-            .catch(err => console.log('[Discord RPC] setActivity failed:', err.message));
-        }
-      });
+        rpc.on('error', (err) => {
+          console.log('[Discord RPC] Error:', err.message || err);
+        });
 
-      rpc.on('disconnected', () => {
-        console.log('[Discord RPC] Disconnected');
-        rpcReady = false;
-        rpc = null;
-      });
+        rpc.on('ready', () => {
+          console.log('[Discord RPC] Client Ready');
+          rpcReady = true;
 
-      rpc.login({ clientId: ctx.settings.discordClientId }).catch(err => {
-        console.log('[Discord RPC] login failed:', err.message);
-        rpc = null;
-        rpcReady = false;
+          try {
+            rpc.subscribe('ACTIVITY_JOIN', (args) => {
+              console.log('[Discord RPC] Received ACTIVITY_JOIN:', JSON.stringify(args));
+              if (args && args.secret && ctx.win && !ctx.win.isDestroyed()) {
+                const isUrl = args.secret.startsWith('http://') || args.secret.startsWith('https://');
+                const viewerUrl = isUrl
+                  ? `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent(args.secret)}`
+                  : `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + args.secret)}`;
+                console.log('[Discord RPC] Navigating to session via ACTIVITY_JOIN:', viewerUrl);
+                ctx.win.loadURL(viewerUrl);
+              }
+            });
+            rpc.subscribe('ACTIVITY_JOIN_REQUEST', (args) => {
+              console.log('[Discord RPC] Received ACTIVITY_JOIN_REQUEST:', JSON.stringify(args));
+            });
+            console.log('[Discord RPC] Subscribed to JOIN events');
+          } catch (e) {
+            console.log('[Discord RPC] Subscribe error:', e.message);
+          }
+
+          if (latestActivity) {
+            rpc.setActivity(latestActivity)
+              .then(() => console.log('[Discord RPC] Activity successfully set!'))
+              .catch(err => console.log('[Discord RPC] setActivity failed:', err.message));
+          }
+        });
+
+        rpc.on('disconnected', () => {
+          console.log('[Discord RPC] Disconnected');
+          rpcReady = false;
+          rpc = null;
+        });
+
+        rpc.login({ clientId: ctx.settings.discordClientId }).catch(err => {
+          console.log('[Discord RPC] login failed:', err.message);
+          rpc = null;
+          rpcReady = false;
+        });
       });
     } else if (rpcReady) {
       rpc.setActivity(latestActivity)
@@ -555,8 +740,9 @@ function registerIpcHandlers(ctx) {
   });
 
   // ── DRM/KMS native capture addon (Wayland silent capture) ──
-  // Runs in a child process to avoid blocking the main process event loop.
-  const { fork } = require('child_process');
+  // Runs in a worker thread to avoid blocking the main process event loop.
+  // Frames are transferred between threads with zero-copy ArrayBuffers.
+  const { Worker } = require('worker_threads');
   let drmChild = null;
   let drmReady = false;
   let drmDims = null;
@@ -568,12 +754,12 @@ function registerIpcHandlers(ctx) {
       const workerPath = path.join(__dirname, '..', 'sidecar', 'capture', 'drm-worker.js');
       let child;
       try {
-        child = fork(workerPath, [], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'], silent: true });
+        child = new Worker(workerPath);
       } catch (e) {
         return reject(new Error('Failed to spawn DRM worker: ' + e.message));
       }
       const timeout = setTimeout(() => {
-        child.kill();
+        child.terminate();
         reject(new Error('DRM worker timed out'));
       }, 8000);
       child.on('message', msg => {
@@ -585,7 +771,7 @@ function registerIpcHandlers(ctx) {
           resolve({ width: msg.width, height: msg.height });
         } else if (msg.type === 'error') {
           clearTimeout(timeout);
-          child.kill();
+          child.terminate();
           reject(new Error(msg.message || 'DRM worker error'));
         } else if (msg.reqId !== undefined && drmPending.has(msg.reqId)) {
           const { resolve: r, timeout: t } = drmPending.get(msg.reqId);
@@ -633,13 +819,15 @@ function registerIpcHandlers(ctx) {
         reject(new Error('DRM get-frame timed out'));
       }, 5000);
       drmPending.set(reqId, { resolve, timeout });
-      drmChild.send({ type: 'get-frame', reqId });
+      drmChild.postMessage({ type: 'get-frame', reqId });
     }).then(msg => {
-      if (msg.type === 'frame' && msg.path) {
-        // Frame data written to shared temp file by worker
-        const buf = require('fs').readFileSync(msg.path);
-        if (buf.byteLength !== msg.size) throw new Error('DRM frame size mismatch');
-        return buf;
+      if (msg.type === 'frame' && msg.buf) {
+        // Zero-copy: the worker transferred its frame buffer; wrap the memory
+        // without copying (msg.buf is a Uint8Array view over the ArrayBuffer).
+        const ab = msg.buf.buffer || msg.buf;
+        const off = msg.buf.byteOffset || 0;
+        const len = msg.buf.byteLength || ab.byteLength;
+        return Buffer.from(ab, off, len);
       }
       if (msg.type === 'frame') return msg.data || null;
       throw new Error(msg.error || 'DRM get-frame failed');
@@ -648,8 +836,8 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('drm-capture-stop', async () => {
     if (drmChild) {
-      try { drmChild.send({ type: 'stop' }); } catch {}
-      setTimeout(() => { if (drmChild) { drmChild.kill(); drmChild = null; drmReady = false; drmDims = null; } }, 1000);
+      try { drmChild.postMessage({ type: 'stop' }); } catch {}
+      setTimeout(() => { if (drmChild) { drmChild.terminate(); drmChild = null; drmReady = false; drmDims = null; } }, 1000);
     }
     drmReady = false;
     drmDims = null;
