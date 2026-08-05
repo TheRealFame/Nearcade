@@ -21,9 +21,22 @@ cp src/pages/gamepad-popup.html website/arcade/pages/gamepad-popup.html
 
 cp src/scripts/i18n.js website/js/i18n.js
 
+# 2. Copy source files — arcade is now the primary domain
+cp website/nearsec-arcade.html website/index.html
+cp website/nearsec-arcade.html website/arcade/index.html
+cp website/arcade.js website/arcade/arcade.js
+
+cp src/pages/gamepad-popup.html website/pages/gamepad-popup.html
+cp src/pages/gamepad-popup.html website/arcade/pages/gamepad-popup.html
+
+cp src/scripts/i18n.js website/js/i18n.js
+
 cp -r assets/* website/assets/
 cp assets/NearcadeLogo.png website/NearcadeLogo.png
 cp assets/NearcadeTitle.png website/NearcadeTitle.png
+
+# Strip large test files from worker assets (Cloudflare 25 MiB limit)
+rm -f website/assets/benchmark.mp4 website/assets/test_*.mp4
 
 # 3. Duplicate assets for backward-compat /arcade sub-route
 cp -r website/js website/arcade/js
