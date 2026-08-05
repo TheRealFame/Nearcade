@@ -108,7 +108,33 @@ jobs:
 
 
 
-  # ── 2. ANDROID APK BUILD ──
+  # ── 2. VPS ROUTER (RUST) ──
+  release-router:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          
+      - name: Build Router
+        working-directory: ./vps
+        run: cargo build --release
+        
+      - name: Rename Binary
+        run: mv vps/target/release/nearsec-router nearsec-router
+
+      - name: Upload Router to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nearsec-router
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 3. ANDROID APK BUILD ──
   release-android:
     runs-on: ubuntu-latest
     steps:
@@ -164,7 +190,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── 3. ITCH.IO PUBLISHING ──
+  # ── 4. ITCH.IO PUBLISHING ──
   publish-itchio:
     needs: [release-desktop, release-android]
     runs-on: ubuntu-latest

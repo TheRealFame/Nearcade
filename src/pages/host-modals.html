@@ -941,9 +941,10 @@
           <div class="ctrl-row-text">
             <div class="ctrl-row-label">Equalize Host Latency</div>
             <div class="ctrl-row-desc">Automatically delays the physical host controller to match viewer latency.</div>
+            <div class="ctrl-row-warn" id="ctrlWarnHostDelay" style="display:none; margin-top:4px; color:var(--warn); font-size:10px;">⚠ A new "Nearcade Delayed" virtual controller is created. Map this new controller in your emulator to prevent double inputs.</div>
           </div>
           <input type="checkbox" id="hostDelayToggle" style="display:none;"
-            onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked); document.getElementById('ctrlTrackHostDelay').classList.toggle('on', this.checked)">
+            onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked); document.getElementById('ctrlTrackHostDelay').classList.toggle('on', this.checked); document.getElementById('ctrlWarnHostDelay').style.display = this.checked ? 'block' : 'none';">
         </div>
 
         <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">

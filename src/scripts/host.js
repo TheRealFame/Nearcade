@@ -4159,7 +4159,7 @@ function doStartTunnel(provider, remember, zrokToken) {
         if (window.electronAPI && typeof window.electronAPI.saveVpsConfig === 'function') {
             window.electronAPI.saveVpsConfig(vpsCfg);
         }
-        saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: remember });
+        saveAppConfig({ tunnelProvider: 'vps-sfu', neverAsk: remember, ...vpsCfg });
 
         // Clear P2P UI locks
         window._isP2P = false;
@@ -4213,7 +4213,7 @@ function doStartTunnel(provider, remember, zrokToken) {
     fetch('/api/info').then(r => r.json()).then(async function (d) { await renderUrls(d); }).catch(() => { });
 
     const vpsHostVal = document.getElementById('vpsHostInput')?.value?.trim() || '';
-    saveAppConfig({ tunnelProvider: provider, neverAsk: remember, vpsHost: vpsHostVal });
+    saveAppConfig({ tunnelProvider: provider, neverAsk: remember, vpsHost: vpsHostVal, vpsEnabled: false });
 
     fetch('/api/start-tunnel', {
         method: 'POST',
@@ -4246,7 +4246,7 @@ function proceedP2POnly() {
         }
     }
 
-    saveAppConfig({ tunnelProvider: 'p2p', neverAsk: remember });
+    saveAppConfig({ tunnelProvider: 'p2p', neverAsk: remember, vpsEnabled: false });
 
     // Generate a random 12-char room code
     const array = new Uint32Array(2);
@@ -5983,10 +5983,25 @@ function saveExpDevices() {
     const devices = [];
     list.querySelectorAll('[data-exp-val]').forEach(el => {
         const toggle = el.querySelector('.ctrl-toggle-track');
+        const enabled = toggle ? toggle.classList.contains('on') : false;
+        const val = el.dataset.expVal;
+        
+        const label = el.querySelector('.exp-status-label');
+        if (label) {
+            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'webhid' || val === 'virtualmic';
+            if (!isImplemented) {
+                label.innerHTML = '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
+            } else if (enabled) {
+                label.innerHTML = '<span style="color:var(--green);">Status: Active</span>';
+            } else {
+                label.innerHTML = '<span style="color:var(--muted2);">Status: Inactive</span>';
+            }
+        }
+
         devices.push({
-            val: el.dataset.expVal,
+            val: val,
             text: el.dataset.expText,
-            enabled: toggle ? toggle.classList.contains('on') : false
+            enabled: enabled
         });
     });
     localStorage.setItem('ns_exp_devices', JSON.stringify(devices));
@@ -6159,10 +6174,6 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     // Check if already added
     if (list.querySelector(`[data-exp-val="${val}"]`)) return;
 
-    // Determine status text based on device type
-    const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'webhid' || val === 'virtualmic';
-    const statusText = isImplemented ? '<span style="color:var(--green);">Status: Active</span>' : '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
-
     const el = document.createElement('div');
     el.dataset.expVal = val;
     el.dataset.expText = text;
@@ -6177,7 +6188,7 @@ function addExpDevice(inVal, inText, inEnabled = true) {
             </div>
             <div>
                 <div style="font-size:11px; font-weight:600; color:var(--text);">${text}</div>
-                <div style="font-size:9px;">${statusText}</div>
+                <div class="exp-status-label" style="font-size:9px;"></div>
             </div>
         </div>
         <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent;">
@@ -6209,6 +6220,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hdToggle) hdToggle.checked = window._hostDelayEnabled;
     const hdTrack = document.getElementById('ctrlTrackHostDelay');
     if (hdTrack) hdTrack.classList.toggle('on', window._hostDelayEnabled);
+    const hdWarn = document.getElementById('ctrlWarnHostDelay');
+    if (hdWarn) hdWarn.style.display = window._hostDelayEnabled ? 'block' : 'none';
     // Sync backend state on load — the backend only starts when enabled:true is sent,
     // and on fresh load no toggle message is sent (only DOMContentLoaded syncs UI).
     if (window._hostDelayEnabled && window.ws && window.ws.readyState === 1) {

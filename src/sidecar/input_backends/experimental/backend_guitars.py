@@ -93,41 +93,55 @@ def start_guitars_backend():
                 e.BTN_TL,    e.BTN_TR,
             ]
 
-            ui = UInput(cap, name="Nearsec Virtual Guitar", version=0x3)
-            print("[backend_guitars] Virtual guitar controller created at /dev/uinput.", flush=True)
+            guitars = {}
 
-            for line in sys.stdin:
-                try:
-                    data = json.loads(line)
+            try:
+                for line in sys.stdin:
+                    try:
+                        data = json.loads(line)
+                        pad_id = data.get("pad_id") or data.get("viewerId", "default")
+                        
+                        if pad_id not in guitars:
+                            guitars[pad_id] = UInput(cap, name=f"Nearsec Virtual Guitar ({pad_id})", version=0x3)
+                            print(f"[backend_guitars] Virtual guitar created for {pad_id}", flush=True)
 
-                    # Fret buttons
-                    for i, state in enumerate(data.get("frets", [])):
-                        if i >= len(FRET_MAP):
-                            break
-                        ui.write(e.EV_KEY, btn_codes[FRET_MAP[i]], 1 if state else 0)
+                        ui = guitars[pad_id]
 
-                    # Strum bar → D-Pad Y hat
-                    strum = data.get("strum", 0)
-                    ui.write(e.EV_ABS, e.ABS_HAT0Y, -max(-1, min(1, int(strum))))
+                        # Fret buttons
+                        for i, state in enumerate(data.get("frets", [])):
+                            if i >= len(FRET_MAP):
+                                break
+                            ui.write(e.EV_KEY, btn_codes[FRET_MAP[i]], 1 if state else 0)
 
-                    # Whammy bar → ABS_RY (inverted: rest = max, pressed = 0)
-                    if "whammy" in data:
-                        whammy_mapped = int((1.0 - float(data["whammy"])) * AXIS_MAX)
-                        ui.write(e.EV_ABS, e.ABS_RY, max(0, min(AXIS_MAX, whammy_mapped)))
+                        # Strum bar → D-Pad Y hat
+                        strum = data.get("strum", 0)
+                        ui.write(e.EV_ABS, e.ABS_HAT0Y, -max(-1, min(1, int(strum))))
 
-                    # Star Power / tilt → BTN_TR
-                    if "star" in data:
-                        ui.write(e.EV_KEY, e.BTN_TR, 1 if data["star"] else 0)
+                        # Whammy bar → ABS_RY (inverted: rest = max, pressed = 0)
+                        if "whammy" in data:
+                            whammy_mapped = int((1.0 - float(data["whammy"])) * AXIS_MAX)
+                            ui.write(e.EV_ABS, e.ABS_RY, max(0, min(AXIS_MAX, whammy_mapped)))
 
-                    if "start" in data:
-                        ui.write(e.EV_KEY, e.BTN_START, 1 if data["start"] else 0)
-                    if "select" in data:
-                        ui.write(e.EV_KEY, e.BTN_SELECT, 1 if data["select"] else 0)
+                        # Star Power / tilt → BTN_TR
+                        if "star" in data:
+                            ui.write(e.EV_KEY, e.BTN_TR, 1 if data["star"] else 0)
 
-                    ui.syn()
+                        if "start" in data:
+                            ui.write(e.EV_KEY, e.BTN_START, 1 if data["start"] else 0)
+                        if "select" in data:
+                            ui.write(e.EV_KEY, e.BTN_SELECT, 1 if data["select"] else 0)
 
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    continue
+                        ui.syn()
+
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        continue
+            finally:
+                for ui in guitars.values():
+                    try:
+                        ui.close()
+                    except:
+                        pass
+                print("[backend_guitars] Closed all virtual guitars.", flush=True)
 
         except ImportError:
             print("[backend_guitars] Error: 'evdev' module not installed.", file=sys.stderr)
