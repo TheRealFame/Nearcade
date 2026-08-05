@@ -620,7 +620,7 @@
         <div>
           <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Avatar</label>
           <div style="display:flex; align-items:center; gap:12px;">
-            <img id="profileAvatarPreview" src="" style="width:48px;height:48px;border-radius:50%;border:1px solid var(--border);flex-shrink:0;object-fit:cover;" onerror="this.style.display='none'">
+            <img id="profileAvatarPreview" src="" style="width:48px;height:48px;border-radius:50%;border:1px solid var(--border);flex-shrink:0;object-fit:cover;">
             <button onclick="randomizeProfileAvatar()" style="background:var(--surface-hover); border:1px solid var(--border); color:var(--text); padding:10px 18px; border-radius:8px; cursor:pointer; font-weight:700; font-size:13px;">Randomize</button>
             <input type="hidden" id="profileAvatar" value="">
           </div>
@@ -722,7 +722,9 @@
     let avatarId = parseInt(localStorage.getItem('ns_avatar'));
     if (!avatarId || avatarId < 1 || avatarId > 100) avatarId = 1;
     document.getElementById('profileAvatar').value = avatarId;
-    document.getElementById('profileAvatarPreview').src = '/assets/avatars/avatar-' + avatarId + '.svg';
+    const preview = document.getElementById('profileAvatarPreview');
+    preview.style.display = '';
+    preview.src = '/assets/avatars/avatar-' + avatarId + '.svg';
     document.getElementById('profileColor').value = localStorage.getItem('ns_chat_color') || '#ffffff';
     document.getElementById('profileViewerId').textContent = getViewerId();
     document.getElementById('profileModal').classList.add('open');
@@ -741,7 +743,9 @@
   function randomizeProfileAvatar() {
     const newAv = Math.floor(Math.random() * 100) + 1;
     document.getElementById('profileAvatar').value = newAv;
-    document.getElementById('profileAvatarPreview').src = '/assets/avatars/avatar-' + newAv + '.svg';
+    const preview = document.getElementById('profileAvatarPreview');
+    preview.style.display = '';
+    preview.src = '/assets/avatars/avatar-' + newAv + '.svg';
     saveProfile();
   }
 
