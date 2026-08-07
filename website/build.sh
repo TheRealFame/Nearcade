@@ -12,8 +12,8 @@ mkdir -p website/js website/assets website/arcade
 mkdir -p website/pages website/arcade/pages
 
 # 2. Copy source files — arcade is now the primary domain
-cp website/nearcade-arcade.html website/index.html
-cp website/nearcade-arcade.html website/arcade/index.html
+cp website/nearsec-arcade.html website/index.html
+cp website/nearsec-arcade.html website/arcade/index.html
 cp website/arcade.js website/arcade/arcade.js
 
 cp src/pages/gamepad-popup.html website/pages/gamepad-popup.html

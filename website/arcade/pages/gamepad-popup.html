@@ -370,6 +370,10 @@
         updatePrompt(gp.index);
       }
 
+      try {
+        window.parent.postMessage({ type: 'NEARCADE_REQUEST_WEBHID_STATUS' }, PARENT_ORIGIN);
+      } catch (e) {}
+
       updateEmptyState();
     }
 
@@ -397,7 +401,10 @@
       state.tempMap = { lt: null, rt: null, rsx: null, rsy: null };
       // Clear any stale localStorage entry so we don't fall back to a bad old map
       const gp = navigator.getGamepads()[index];
-      if (gp) localStorage.removeItem(STORAGE_PREFIX + getSafeId(gp));
+      if (gp) {
+        localStorage.removeItem(STORAGE_PREFIX + getSafeId(gp));
+        state.calibBaseline = [...gp.axes];
+      }
       document.getElementById(`c${index}-calib`)?.classList.add('active');
       updatePrompt(index);
     }
@@ -414,8 +421,17 @@
       });
       gp.axes.forEach((val, i) => {
         if (i === 0 || i === 1) return;             // skip left stick
-        if (val === -1) return;                      // skip triggers at rest (-1 range)
-        if (Math.abs(val) > maxVal) { maxVal = Math.abs(val); detected = { type: 'axis', idx: i }; }
+        const baseline = (state.calibBaseline && state.calibBaseline[i]) !== undefined ? state.calibBaseline[i] : 0;
+        
+        // Ignore tiny fluctuations (noise) on stuck axes
+        if (Math.abs(val - baseline) < 0.2) return;
+
+        // Still ignore triggers at true -1 rest if no baseline was captured for them correctly
+        if (val === -1 && baseline === -1) return;
+
+        // Detect if the axis moved significantly from its baseline
+        const delta = Math.abs(val - baseline);
+        if (delta > maxVal) { maxVal = delta; detected = { type: 'axis', idx: i }; }
       });
 
       if (!detected) return;
