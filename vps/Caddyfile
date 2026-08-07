@@ -39,6 +39,8 @@ publicnearcade.cutefame.net {
     rewrite /host.html      /src/pages/host.html
     rewrite /dashboard.html /src/pages/dashboard.html
     rewrite /gamepad-popup.html /src/pages/gamepad-popup.html
+    rewrite /keyboard-popup.html /src/pages/keyboard-popup.html
+    rewrite /display-color-tweaks.html /src/pages/display-color-tweaks.html
     rewrite /standby.html   /src/pages/standby.html
 
     file_server

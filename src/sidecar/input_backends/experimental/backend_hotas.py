@@ -75,7 +75,7 @@ def start_hotas_backend():
                 ),
             }
 
-            ui = UInput(cap, name="Nearsec Virtual HOTAS", version=0x3)
+            ui = UInput(cap, name="Nearcade Virtual HOTAS", version=0x3)
             print("[backend_hotas] Virtual HOTAS created at /dev/uinput.", flush=True)
 
             for line in sys.stdin:

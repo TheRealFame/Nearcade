@@ -1,7 +1,7 @@
 # API y configuración del sistema
 
 ## Inicio manual
-Si está desarrollando o solucionando problemas, es posible que desee ejecutar los componentes manualmente en lugar de utilizar el ejecutable compilado. Nearsec requiere que dos procesos separados se ejecuten simultáneamente. Estos son el controlador de entrada de Python y el servidor web Node.js.
+Si está desarrollando o solucionando problemas, es posible que desee ejecutar los componentes manualmente en lugar de utilizar el ejecutable compilado. Nearcade requiere que dos procesos separados se ejecuten simultáneamente. Estos son el controlador de entrada de Python y el servidor web Node.js.
 
 ### Configuración manual en Linux
 Linux requiere privilegios de root para inyectar controladores virtuales directamente en el kernel a través de uinput.
@@ -40,7 +40,7 @@ npm run electron
 ```
 
 ## Configuración del entorno
-Para evitar la codificación de tokens confidenciales, Nearsec se basa en un archivo de entorno ubicado en su directorio raíz.
+Para evitar la codificación de tokens confidenciales, Nearcade se basa en un archivo de entorno ubicado en su directorio raíz.
 
 Cree un archivo llamado .env y rellénelo con sus claves específicas.
 ```ini
@@ -50,7 +50,7 @@ PORT=3000
 ```
 
 ## Puntos finales internos de la API Express
-El servidor Nearsec Node expone puntos finales HTTP POST locales para controlar el backend dinámicamente.
+El servidor Nearcade Node expone puntos finales HTTP POST locales para controlar el backend dinámicamente.
 
 Enrutamiento de audio a través de /api/force-route
 * Carga útil: { "nodeProperty": "target_node_id" }

@@ -18,7 +18,7 @@ pip3 install evdev pynput mouse openvr pyusb
 
 if [[ "$confirm" == "1" || "$confirm" == "0" ]]; then
     echo "================================================="
-    echo " Installing NearsecVR SteamVR Driver"
+    echo " Installing NearcadeVR SteamVR Driver"
     echo "================================================="
     
     DRIVER_SRC="$(dirname "$0")/../src/sidecar/input_backends/experimental/steamvr_driver/build/driver_nearsecvr.so"

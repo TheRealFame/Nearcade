@@ -227,9 +227,9 @@ function registerIpcHandlers(ctx) {
       }
       try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
 
-      const wrapperPath = path.join(os.tmpdir(), 'nearsec_setup_wrapper.sh');
-      const statusFile = path.join(os.tmpdir(), 'nearsec_setup_status');
-      const wrapperContent = `#!/bin/bash\nclear\necho "Starting Nearsec Setup..."\ncp "${scriptPath}" /tmp/nearsec_setup.sh\ncp "${iconPath}" /tmp/NearcadeLogo.png 2>/dev/null\nchmod +x /tmp/nearsec_setup.sh\nsudo bash /tmp/nearsec_setup.sh\nif [ $? -eq 0 ]; then echo "SUCCESS" > "${statusFile}"; else echo "FAIL" > "${statusFile}"; fi\necho ""\nread -p "Press Enter to close..."\n`;
+      const wrapperPath = path.join(os.tmpdir(), 'nearcade_setup_wrapper.sh');
+      const statusFile = path.join(os.tmpdir(), 'nearcade_setup_status');
+      const wrapperContent = `#!/bin/bash\nclear\necho "Starting Nearcade Setup..."\ncp "${scriptPath}" /tmp/nearcade_setup.sh\ncp "${iconPath}" /tmp/NearcadeLogo.png 2>/dev/null\nchmod +x /tmp/nearcade_setup.sh\nsudo bash /tmp/nearcade_setup.sh\nif [ $? -eq 0 ]; then echo "SUCCESS" > "${statusFile}"; else echo "FAIL" > "${statusFile}"; fi\necho ""\nread -p "Press Enter to close..."\n`;
 
       try {
         fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
@@ -399,7 +399,7 @@ function registerIpcHandlers(ctx) {
     let artifactsFound = false;
     try {
       if (process.platform === 'linux') {
-        artifactsFound = fs.existsSync('/etc/udev/rules.d/99-nearsec-input.rules');
+        artifactsFound = fs.existsSync('/etc/udev/rules.d/99-nearcade-input.rules');
       } else if (process.platform === 'win32') {
         artifactsFound = fs.existsSync('C:\\Windows\\System32\\drivers\\ViGEmBus.sys');
       }

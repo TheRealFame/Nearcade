@@ -93,13 +93,39 @@ async function runTests() {
         });
 
         // 5. Graceful Shutdown
-        finishTests(true);
+        runAuxiliaryTests().catch(() => {}).then(() => finishTests(true));
 
     } catch (err) {
         console.error("   Test failed:", err.message);
         finishTests(false);
     }
 }
+
+// ── Auxiliary unit tests (SVC wiring, plugin manager, input/webhid shims) ────
+function runAuxiliaryTests() {
+    const { execFile } = require('child_process');
+    const root = __dirname + '/..';
+    const tasks = [
+        { file: 'node', args: ['test/svc.js'], name: 'SVC wiring' },
+        { file: 'python3', args: ['-m', 'py_compile', 'src/sidecar/plugin_manager.py'], name: 'plugin_manager compile' },
+    ];
+    return Promise.all(tasks.map(t => new Promise((resolve) => {
+        execFile(t.file, t.args, { cwd: root, timeout: 12000 }, (err) => {
+            if (err) {
+                console.error(`   Aux test '${t.name}' FAILED: ${err.message}`);
+                resolve(false);
+            } else {
+                console.log(`   Aux Test     (${t.name}) ok`);
+                resolve(true);
+            }
+        });
+    }))).then((results) => {
+        if (results.every(Boolean)) console.log("   Aux Tests    (all auxiliary checks passed)");
+        else console.error("   Aux Tests    (one or more auxiliary checks failed)");
+    });
+}
+// expose for late-binding in runTests above
+const runAuxiliaryChecks = runAuxiliaryTests;
 
 // ── Log Interceptor ─────────────────────────────────────────────────────────
 serverProc.stdout.on('data', (data) => {

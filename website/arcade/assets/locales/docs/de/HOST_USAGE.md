@@ -3,8 +3,8 @@
 Das Host-Dashboard ist Ihr Kontrollzentrum für die Verwaltung von Streams, Zuschauern und Systemaudio.
 
 ## Video- und Audioaufnahme
-Wenn Sie eine Sitzung starten, stellt Nearsec eine Verbindung zu Ihren nativen Betriebssystem-APIs wie Wayland, X11 oder Windows Graphics Capture her.
-* Audio-Routing für Linux: Nearsec erstellt automatisch eine virtuelle NearsecVirtualCapture-Senke. Das System verwendet exakte PipeWire-Knoteneigenschaften, um Spielaudio automatisch in diese Senke zu leiten. Dadurch bleiben Ihre persönlichen Desktop-Audio- und Sprachchats vom Stream fern.
+Wenn Sie eine Sitzung starten, stellt Nearcade eine Verbindung zu Ihren nativen Betriebssystem-APIs wie Wayland, X11 oder Windows Graphics Capture her.
+* Audio-Routing für Linux: Nearcade erstellt automatisch eine virtuelle NearsecVirtualCapture-Senke. Das System verwendet exakte PipeWire-Knoteneigenschaften, um Spielaudio automatisch in diese Senke zu leiten. Dadurch bleiben Ihre persönlichen Desktop-Audio- und Sprachchats vom Stream fern.
 * Lautstärkeregelung: Die Lautstärke des virtuellen Waschbeckens wird automatisch auf 70 Prozent eingestellt, um Ihr Gehör zu schützen.
 
 ## Spielerliste und Eingabeberechtigungen

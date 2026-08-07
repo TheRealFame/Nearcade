@@ -315,7 +315,8 @@ class CaptureManager {
         const wivrnStart = await this._wivrnIntegration.startServer({
             bitrate,
             resolution: `${width}x${height}`,
-            framerate: fps
+            framerate: fps,
+            headless: true
         });
 
         if (!wivrnStart.ok) {

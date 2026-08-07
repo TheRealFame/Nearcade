@@ -85,7 +85,7 @@ def start_balanceboard_backend():
                 ],
             }
 
-            ui = UInput(cap, name="Nearsec Virtual Balance Board", version=0x3)
+            ui = UInput(cap, name="Nearcade Virtual Balance Board", version=0x3)
             print("[backend_balanceboard] Virtual balance board created at /dev/uinput.", flush=True)
 
             for line in sys.stdin:

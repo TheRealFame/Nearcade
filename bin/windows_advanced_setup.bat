@@ -24,7 +24,7 @@ goto end
 
 :install_vr
 echo =================================================
-echo  Installing NearsecVR SteamVR Driver
+echo  Installing NearcadeVR SteamVR Driver
 echo =================================================
 set DRIVER_SRC="%~dp0..\src\sidecar\input_backends\experimental\steamvr_driver\build\Release\driver_nearsecvr.dll"
 

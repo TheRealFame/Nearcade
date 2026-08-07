@@ -26,9 +26,9 @@ done
 # ── Paths ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_DIR="$PROJECT_DIR/src/tools/wivrn-src"
+SRC_DIR="$PROJECT_DIR/wivrn_sandbox/WiVRn-src"
 OUT_DIR="$SCRIPT_DIR"
-BUILDER="nearsec-wivrn-builder"
+BUILDER="nearcade-wivrn-builder"
 
 # ── Pin: use the checked-out WiVRn HEAD, or override via env ─────────────────
 if [[ -d "$SRC_DIR/.git" ]]; then
@@ -145,7 +145,7 @@ echo "[inner] Updating submodules..."
 git -C "$SRC" submodule update --init --recursive 2>&1 | tail -3
 
 echo "[inner] Applying Nearcade patches..."
-for patch in "$SRC"/contribute/nearsec-patches/*.patch; do
+for patch in "$SRC"/contribute/nearcade-patches/*.patch; do
     if [ -f "$patch" ]; then
         echo "  Applying $(basename "$patch")..."
         git -C "$SRC" apply "$patch" 2>&1 || true

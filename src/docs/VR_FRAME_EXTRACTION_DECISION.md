@@ -92,7 +92,7 @@ To consume this, you'd need to:
 
 ### Path C: Windows DLL OpenXR Layer ❌ NOT RECOMMENDED
 
-**Approach**: (DEPRECATED) Cross-compile `openxr_nearsec_layer.cpp` to Windows `.dll` using MinGW, inject into Proton prefix.
+**Approach**: (DEPRECATED) Cross-compile `openxr_nearcade_layer.cpp` to Windows `.dll` using MinGW, inject into Proton prefix.
 This path has been removed from the codebase in favor of WiVRn's native OpenXR streaming.
 
 **Fundamental Flaw**:
@@ -111,7 +111,7 @@ Native Linux OpenXR runtime (Monado/SteamVR)
 
 The Windows OpenXR loader (`openxr_loader.dll`) loaded by the game **never loads Linux `.so` files**. Even if you:
 
-1. (REMOVED) Cross-compile your layer to `libopenxr_nearsec_layer.dll` — replaced by WiVRn
+1. (REMOVED) Cross-compile your layer to `libopenxr_nearcade_layer.dll` — replaced by WiVRn
 2. Register it in the Proton prefix's `wineprefix/drive_c/windows/system32/OpenXR/`
 3. Set `OPENXR_LOADER` environment variable
 

@@ -79,7 +79,7 @@ def start_lightguns_backend():
                 }
                 # INPUT_PROP_DIRECT tells the kernel this is a touch/tablet-style
                 # absolute device (not a relative mouse), matching light-gun behaviour.
-                device = UInput(cap, name="Nearsec Virtual Light Gun", version=0x3)
+                device = UInput(cap, name="Nearcade Virtual Light Gun", version=0x3)
                 device.device.set_absinfo(e.ABS_X, AbsInfo(value=0, min=0, max=w - 1, fuzz=0, flat=0, resolution=0))
                 return device
 

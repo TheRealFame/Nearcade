@@ -111,7 +111,7 @@
     let smartDb = {};
 
     window.addEventListener('message', e => {
-      if (e.data?.type === 'NEARSEC_SMART_DB' && e.data.db) smartDb = e.data.db;
+      if (e.data?.type === 'NEARCADE_SMART_DB' && e.data.db) smartDb = e.data.db;
     });
 
     function lookupSmartMap(gp) {
@@ -186,7 +186,7 @@
 
     function broadcastConfigExternally(hardwareId, configMap) {
       try {
-        window.parent.postMessage({ type: 'NEARSEC_CONFIG_UPDATE', hardwareId, map: configMap }, PARENT_ORIGIN);
+        window.parent.postMessage({ type: 'NEARCADE_CONFIG_UPDATE', hardwareId, map: configMap }, PARENT_ORIGIN);
       } catch (e) {}
     }
 
@@ -291,7 +291,7 @@
 
         try { 
             window.parent.postMessage({ 
-                type: 'NEARSEC_STICK_CFG', 
+                type: 'NEARCADE_STICK_CFG', 
                 index: idx, 
                 ldz, lsens, rdz, rsens
             }, PARENT_ORIGIN); 

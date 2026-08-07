@@ -10,10 +10,10 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
 # 1. GRACEFUL GHOST CLEANUP (UNIX)
-# Ask the process holding Port 3000 (Nearsec) to close nicely
+# Ask the process holding Port 3000 (Nearcade) to close nicely
 PORT_PID=$(lsof -ti:3000)
 if [ -n "$PORT_PID" ]; then
-    echo "  ~ Asking previous Nearsec session to close nicely (saving VPS state)..."
+    echo "  ~ Asking previous Nearcade session to close nicely (saving VPS state)..."
     # Send SIGTERM (15) to trigger server.js cleanup() and cleanly drop SSH tunnels
     kill -15 $PORT_PID >/dev/null 2>&1
     sleep 2 # Give Node/Electron 2 seconds to gracefully close
@@ -22,7 +22,7 @@ if [ -n "$PORT_PID" ]; then
     kill -9 $PORT_PID >/dev/null 2>&1
 fi
 
-# Failsafe: Clean up the Nearsec Python controller sidecar
+# Failsafe: Clean up the Nearcade Python controller sidecar
 pkill -15 -f "sidecar/input_driver.py" >/dev/null 2>&1
 
 
@@ -77,7 +77,7 @@ cd /d "%~dp0.."
 :: Find the process ID holding Port 3000
 for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :3000') do (
     if not "%%a"=="0" (
-        echo   ~ Asking previous Nearsec session to close nicely...
+        echo   ~ Asking previous Nearcade session to close nicely...
         :: Try graceful shutdown first (no /f flag sends WM_CLOSE/SIGTERM)
         taskkill /pid %%a >nul 2>&1
         :: Wait 2 seconds for Node to clean up

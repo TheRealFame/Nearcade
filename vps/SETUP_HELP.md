@@ -96,19 +96,19 @@ For production deployments it is safer to serve from `/var/www/` rather than a h
 For production use you should run the Rust router under systemd rather than in a shell session. A ready-made service file is provided:
 
 ```bash
-sudo cp vps/nearsec-router.service /etc/systemd/system/
+sudo cp vps/nearcade-router.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now nearsec-router
-sudo systemctl status nearsec-router
+sudo systemctl enable --now nearcade-router
+sudo systemctl status nearcade-router
 ```
 
-See the comments inside `nearsec-router.service` for the full setup steps including the secrets file and dedicated service user.
+See the comments inside `nearcade-router.service` for the full setup steps including the secrets file and dedicated service user.
 
 ---
 
 ## Environment Variables
 
-The Rust router reads its configuration from environment variables or from `/etc/nearsec/.env` when running under systemd.
+The Rust router reads its configuration from environment variables or from `/etc/nearcade/.env` when running under systemd.
 
 | Variable | Required | Description |
 |---|---|---|

@@ -2,7 +2,7 @@ import subprocess
 import json
 import time
 
-print(" Starting Nearsec Input Diagnostics...")
+print(" Starting Nearcade Input Diagnostics...")
 
 # Spawn your driver exactly how Node.js does it
 driver = subprocess.Popen(

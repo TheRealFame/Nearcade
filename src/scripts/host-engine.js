@@ -63,13 +63,20 @@ function _updateRcardTooltip(vid) {
     const s = _viewerStats[vid];
     if (!s) return;
     const rttStr = s.rtt != null ? `${s.rtt} ms` : '-- ms';
-    const lossColor = s.loss > 5 ? '#f87171' : s.loss > 1 ? '#fb923c' : '#4ade80';
-    const rttColor  = s.rtt  > 150 ? '#f87171' : s.rtt > 60 ? '#fb923c' : '#4ade80';
+    const lossStr = s.loss != null ? `${s.loss.toFixed(1)}%` : '--%';
+    const titleText = `Ping: ${rttStr} | Loss: ${lossStr}`;
+
+    document.querySelectorAll(`.rcard[data-id="${vid}"]`).forEach(card => {
+        card.title = titleText;
+    });
+
     const tip = document.getElementById(`stat-tip-${vid}`);
     if (tip) {
+        const lossColor = s.loss > 5 ? '#f87171' : s.loss > 1 ? '#fb923c' : '#4ade80';
+        const rttColor  = s.rtt  > 150 ? '#f87171' : s.rtt > 60 ? '#fb923c' : '#4ade80';
         tip.innerHTML =
             `<span style="color:${rttColor}">⬤</span> ${rttStr} &nbsp; ` +
-            `<span style="color:${lossColor}">⬤</span> ${s.loss.toFixed(1)}% loss`;
+            `<span style="color:${lossColor}">⬤</span> ${lossStr} loss`;
     }
 }
 
@@ -321,18 +328,18 @@ function compareVersions(a, b) {
 
 async function _checkClientVersion() {
     try {
-        const res = await fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/client-version');
+        const res = await fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/client-version');
         if (!res.ok) return;
         const data = await res.json();
         const minVer = data.minimum || '0.0.0';
-        if (compareVersions(window.NEARSEC_VERSION, minVer) < 0) {
+        if (compareVersions(window.NEARCADE_VERSION, minVer) < 0) {
             const overlay = document.createElement('div');
             overlay.id = 'versionCheckOverlay';
             overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
             overlay.innerHTML = '<div style="background:#121518;border:1px solid #ff5d3d;border-radius:12px;padding:40px;max-width:420px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">'
                 + '<h2 style="color:#ff5d3d;margin:0 0 12px 0;text-transform:uppercase;letter-spacing:1px;">Client Outdated</h2>'
                 + '<p style="color:#949ba4;font-size:14px;line-height:1.6;margin:0 0 16px 0;">'
-                + 'You are running <strong style="color:#f0f3f5;">Nearcade v' + window.NEARSEC_VERSION + '</strong>.<br>'
+                + 'You are running <strong style="color:#f0f3f5;">Nearcade v' + window.NEARCADE_VERSION + '</strong>.<br>'
                 + 'The arcade directory requires at least <strong style="color:#f0f3f5;">v' + minVer + '</strong>.<br><br>'
                 + 'Please update to the latest version to continue hosting arcade sessions.</p>'
                 + '<a href="https://github.com/TheRealFame/Nearcade/releases/latest" target="_blank" style="display:inline-block;background:#ff5d3d;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Download Update</a>'
@@ -511,7 +518,7 @@ async function monitorCongestion(pc, viewerId) {
 
 async function fetchGameThumbnail(gameTitle) {
     try {
-        const res = await fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/game-art?title=' + encodeURIComponent(gameTitle));
+        const res = await fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/game-art?title=' + encodeURIComponent(gameTitle));
         const data = await res.json();
         return data.thumbnail || '';
     } catch (e) {

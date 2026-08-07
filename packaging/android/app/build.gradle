@@ -35,7 +35,7 @@ android {
         release {
             storeFile file("release.keystore")
             storePassword "nearsec123"
-            keyAlias "nearsec"
+            keyAlias "nearcade"
             keyPassword "nearsec123"
         }
     }

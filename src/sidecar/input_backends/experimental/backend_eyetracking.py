@@ -103,7 +103,7 @@ def start_eyetracking_backend():
                 uinput.ABS_X + (0, AXIS_MAX, 0, 0),
                 uinput.ABS_Y + (0, AXIS_MAX, 0, 0),
             ]
-            ui = uinput.Device(events, name="Nearsec Virtual Eye Tracker", vendor=0x045E, product=0x028E, version=0x0110, bustype=3)
+            ui = uinput.Device(events, name="Nearcade Virtual Eye Tracker", vendor=0x045E, product=0x028E, version=0x0110, bustype=3)
             print("[backend_eyetracking] Virtual joystick fallback created at /dev/uinput.", flush=True)
         except ImportError as err:
             print(f"[backend_eyetracking] Could not create virtual joystick: python-uinput not installed", file=sys.stderr)

@@ -211,7 +211,7 @@ let audioSettings = {
 };
 
 Pusher.logToConsole = false;
-const arcadeUrl = window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net';
+const arcadeUrl = window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net';
 let pusher = null;
 let arcadeChannel = null;
 if (!appSettings.tournamentMode) {
@@ -290,7 +290,7 @@ function setHostMicGain(val) {
         _hostMicGainNode.gain.value = v / 100;
 }
 
-let hostMicMuted = localStorage.getItem('ns_host_mic_muted') === 'true';
+let hostMicMuted = localStorage.getItem('ns_host_mic_muted') !== 'false';
 
 function applyHostMicState() {
     const btn = document.getElementById('btnHostMic');
@@ -513,7 +513,14 @@ function appendChat(name, text, isMe, platform, color) {
     }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'cname' + (isMe ? ' me' : '');
-    nameSpan.textContent = name + ' ';
+    
+    let isMeCmd = false;
+    if (text.startsWith('/me ')) {
+        isMeCmd = true;
+        text = text.substring(4);
+    }
+    
+    nameSpan.textContent = name + (isMeCmd ? ' ' : ': ');
     if (color) nameSpan.style.color = color;
     if (platform) {
         const platBadge = document.createElement('span');
@@ -537,6 +544,7 @@ function appendChat(name, text, isMe, platform, color) {
     };
     const msgSpan = document.createElement('span');
     msgSpan.innerHTML = parseMarkdown(text);
+    if (isMeCmd) msgSpan.style.fontStyle = 'italic';
     d.appendChild(msgSpan);
     if (el) {
         const isAtBottom = el.scrollHeight - el.clientHeight <= el.scrollTop + 20;
@@ -570,42 +578,70 @@ const _hostPlatform = (() => {
     if (/Mac/i.test(ua)) return 'macOS';
     return 'PC';
 })();
-let _mentionData = { viewers: [], idx: -1 };
-function _showMentionDropdown(inp) {
+let _mentionData = { items: [], idx: -1, type: '' };
+function _showAutocompleteDropdown(inp) {
     const val = inp.value;
     const cursor = inp.selectionStart;
     const before = val.slice(0, cursor);
+
+    if (val.startsWith('/') && before.lastIndexOf('/') === 0) {
+        const partial = before.slice(1).toLowerCase();
+        const commands = [
+            { id: '/me', name: '/me [action]', desc: 'Act out an action' },
+            { id: '/shrug', name: '/shrug', desc: '¯\\_(ツ)_/¯' },
+            { id: '/tableflip', name: '/tableflip', desc: '(╯°□°)╯︵ ┻━┻' },
+            { id: '/unflip', name: '/unflip', desc: '┬─┬ノ( º _ ºノ)' },
+            { id: '/dance', name: '/dance', desc: 'Starts dancing' },
+            { id: '/roll', name: '/roll [max]', desc: 'Roll a random number' }
+        ];
+        const known = commands.filter(c => c.name.toLowerCase().startsWith('/' + partial) || partial === '');
+        if (known.length === 0) { _hideAutocompleteDropdown(); return; }
+        _mentionData.items = known;
+        _mentionData.idx = 0;
+        _mentionData.type = 'cmd';
+        _renderAutocomplete(inp, known, 'cmd');
+        return;
+    }
+
     const atIdx = before.lastIndexOf('@');
-    if (atIdx === -1 || (atIdx > 0 && val[atIdx - 1] !== ' ' && val[atIdx - 1] !== '\n')) { _hideMentionDropdown(); return; }
+    if (atIdx === -1 || (atIdx > 0 && val[atIdx - 1] !== ' ' && val[atIdx - 1] !== '\n')) { _hideAutocompleteDropdown(); return; }
     const partial = before.slice(atIdx + 1).toLowerCase();
     // Build viewer list from knownViewers + Host
     const known = [...knownViewers].map(id => ({ id, name: viewerNames.get(id) || id })).filter(v => v.name.toLowerCase().includes(partial));
     if (partial === '' && known.length === 0 && 'host'.startsWith('')) known.push({ id: 'HOST', name: 'Host' });
-    if (known.length === 0 || partial.length > 0 && known.every(v => !v.name.toLowerCase().startsWith(partial))) { _hideMentionDropdown(); return; }
-    _mentionData.viewers = known;
+    if (known.length === 0 || partial.length > 0 && known.every(v => !v.name.toLowerCase().startsWith(partial))) { _hideAutocompleteDropdown(); return; }
+    _mentionData.items = known;
     _mentionData.idx = 0;
+    _mentionData.type = 'mention';
+    _renderAutocomplete(inp, known, 'mention');
+}
+
+function _renderAutocomplete(inp, known, type) {
     let dd = document.getElementById('mentionDD');
     if (!dd) {
         dd = document.createElement('div');
         dd.id = 'mentionDD';
-        dd.style.cssText = 'position:absolute;bottom:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:99999;max-height:140px;overflow-y:auto;min-width:120px';
+        dd.style.cssText = 'position:absolute;bottom:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:99999;max-height:140px;overflow-y:auto;min-width:180px';
         const wrapper = document.querySelector('.chat-input-row') || inp.parentElement;
         if (wrapper) wrapper.style.position = 'relative';
         wrapper?.appendChild(dd);
     }
-    dd.innerHTML = known.map((v, i) =>
-        `<div class="m-item" data-idx="${i}" style="padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;${i === 0 ? 'background:var(--accent-dim);color:var(--accent);' : 'color:var(--text);'}" onmouseover="document.querySelectorAll('.m-item').forEach(e=>e.style.background='');this.style.background='var(--accent-dim)';this.style.color='var(--accent)';_mentionData.idx=${i}" onclick="const inp=document.getElementById('chatMsg');const v=inp.value;const cs=inp.selectionStart;const bf=v.slice(0,v.lastIndexOf('@',cs));const af=v.slice(cs);const mention='@${v.name} ';const nv=bf+mention+af;inp.value=nv;inp.selectionStart=inp.selectionEnd=bf.length+mention.length;inp.focus();document.getElementById('mentionDD')?.remove();">${v.name}</div>`
-    ).join('');
+    dd.innerHTML = known.map((v, i) => {
+        let text = v.name;
+        if (type === 'cmd') text = `<span style="color:var(--accent);font-weight:bold;">${v.name}</span><br><span style="color:var(--muted);font-size:10px;">${v.desc}</span>`;
+        return `<div class="m-item" data-idx="${i}" style="padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);${i === 0 ? 'background:var(--accent-dim);color:var(--accent);' : ''}" onmouseover="document.querySelectorAll('.m-item').forEach(e=>e.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);');this.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);';_mentionData.idx=${i}" onclick="const inp=document.getElementById('chatMsg');const v=inp.value;const cs=inp.selectionStart; if ('${type}'==='cmd'){ inp.value='${v.id} '; inp.focus(); } else { const bf=v.slice(0,v.lastIndexOf('@',cs));const af=v.slice(cs);const mention='@${v.name} ';const nv=bf+mention+af;inp.value=nv;inp.selectionStart=inp.selectionEnd=bf.length+mention.length;inp.focus(); } document.getElementById('mentionDD')?.remove();">${text}</div>`;
+    }).join('');
     dd.style.display = 'block';
 }
-function _hideMentionDropdown() { const dd = document.getElementById('mentionDD'); if (dd) dd.style.display = 'none'; _mentionData.idx = -1; }
+
+function _hideAutocompleteDropdown() { const dd = document.getElementById('mentionDD'); if (dd) dd.style.display = 'none'; _mentionData.idx = -1; }
 document.addEventListener('keydown', e => {
     const dd = document.getElementById('mentionDD');
     if (dd && dd.style.display !== 'none') {
-        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.viewers.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el, i) => el.style.cssText = i === _mentionData.idx ? 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);' : 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el, i) => el.style.cssText = i === _mentionData.idx ? 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);' : 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
-        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="' + _mentionData.idx + '"]'); if (sel) sel.click(); return; }
-        if (e.key === 'Escape') { _hideMentionDropdown(); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.items.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="'+_mentionData.idx+'"]'); if (sel) sel.click(); return; }
+        if (e.key === 'Escape') { _hideAutocompleteDropdown(); return; }
     }
     if (e.target.id !== 'chatMsg') return;
     const inp = e.target;
@@ -622,16 +658,28 @@ document.addEventListener('keydown', e => {
 });
 // Show mention dropdown on keyup (after user types)
 document.addEventListener('keyup', e => {
-    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+    if (e.target.id === 'chatMsg') _showAutocompleteDropdown(e.target);
 });
 document.addEventListener('input', e => {
-    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+    if (e.target.id === 'chatMsg') _showAutocompleteDropdown(e.target);
 });
 
 function sendChat() {
     if (appSettings.tournamentMode) { console.log('[Tournament] Chat disabled'); return; }
     const inp = document.getElementById('chatMsg');
-    const msg = inp.value.trim(); if (!msg || !ws || ws.readyState !== 1) return;
+    let msg = inp.value.trim();
+    if (!msg || !ws || ws.readyState !== 1) return;
+    
+    if (msg === '/shrug') msg = '¯\\_(ツ)_/¯';
+    else if (msg === '/tableflip') msg = '(╯°□°)╯︵ ┻━┻';
+    else if (msg === '/unflip') msg = '┬─┬ノ( º _ ºノ)';
+    else if (msg === '/dance') msg = '/me starts dancing! 💃🕺';
+    else if (msg.startsWith('/roll')) {
+        let max = parseInt(msg.split(' ')[1]) || 100;
+        let num = Math.floor(Math.random() * max) + 1;
+        msg = `/me rolls a ${num} (out of ${max})`;
+    }
+    
     const _chatClr = localStorage.getItem('ns_chat_color') || '';
     const hostName = document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'Host';
     ws.send(JSON.stringify({ type: 'chat', from: hostName, msg, platform: _hostPlatform, color: _chatClr }));
@@ -639,7 +687,7 @@ function sendChat() {
     chatHistory.push(msg);
     chatHistoryIndex = chatHistory.length;
     inp.value = '';
-    _hideMentionDropdown();
+    _hideAutocompleteDropdown();
 }
 
 const EMOJI_CATS = (window.EMOJI_DATA || []).length ? window.EMOJI_DATA : [];
@@ -814,7 +862,7 @@ function stopArcadeOnly() {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
         if (arcadeChannel) arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
-        fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
+        fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: hostSessionId })
         }).catch(() => { });
@@ -1095,7 +1143,6 @@ function renderRoster(list) {
         ${v.id === 'host_0' ? '' : `<button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>`}
         ${v.id === 'host_0' || typeof isArcade === 'undefined' || !isArcade ? '' : `<button class="rreport" onclick="reportViewer('${v.id}')" title="Report Viewer" data-vid="${v.id}">!</button>`}
         ${v.id !== 'host_0' && typeof window._reportState !== 'undefined' && window._reportState[v.id] ? `<span style="font-size:9px;color:var(--warn);margin-left:2px;" class="r-reported-badge" data-vid="${v.id}">Reported</span>` : ''}
-        ${v.id !== 'host_0' ? `<div class="rstat-tip" id="stat-tip-${v.id}">Loading…</div>` : ''}
         `;
         c.appendChild(r);
 
@@ -1343,7 +1390,7 @@ function updateSlotsAfterDrop(container) {
 function kickViewer(id) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'kick-viewer', viewerId: id }));
     if (isArcade && hostSessionId) {
-        fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/volume', {
+        fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/volume', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: 'kick', sessionId: hostSessionId, viewerId: id })
         }).catch(e => console.error('[Arcade] Kick relay failed:', e));
@@ -2415,7 +2462,7 @@ async function startCapture() {
                 if (data.ok) {
                     log('GStreamer WebRTC Pipeline Running in Background!', 'ok');
                     setCapDot('live', 'GStreamer WebRTC');
-                    ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+                    ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '' }));
                     sysChat('Native WebRTC daemon started.');
 
                     // We DO NOT capture screen here for WebRTC. Fake the stream state so the UI knows we are running.
@@ -2830,7 +2877,7 @@ async function startCapture() {
             }
         }, 500);
 
-        ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+        ws.send(JSON.stringify({ type: 'host-stream-ready', title: (vTrack.label?.split('(')[0].trim() || '') }));
         sysChat(I18N.t('Stream started.'));
         [...knownViewers].forEach(id => sendOfferToViewer(id));
 
@@ -3022,7 +3069,7 @@ function stopCapture() {
         clearInterval(arcadePingInterval);
         arcadePingInterval = null;
         if (arcadeChannel) arcadeChannel.trigger('client-session-stop', { id: hostSessionId });
-        fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
+        fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/stop', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: hostSessionId })
         }).catch(() => { });
@@ -3519,6 +3566,15 @@ function broadcastToViewers(data) {
     }
 
     _broadcastP2P(data, p2pThreshold);
+    
+    if (window._hostDelayEnabled) {
+        if (typeof _hostDelayFrames !== 'undefined') {
+            _hostDelayFrames++;
+            if (_hostDelayFrames % 4 === 0) {
+                if (typeof _calculateHostDelaySync === 'function') _calculateHostDelaySync();
+            }
+        }
+    }
 }
 
 function _broadcastP2P(data, threshold) {
@@ -4907,66 +4963,50 @@ function _updateStatsHud() {
 // ── Independent Host-Delay Loop for Equalize Host Latency ─────────────────────
 // NOT gated by stats HUD — runs whenever streaming + equalize is enabled.
 // Uses max RTT across all viewers (worst case) so the host controller matches the slowest viewer.
-let _hostDelayTimer = null;
+let _hostDelayFrames = 0;
+let _hostDelaySmoothed = 0;
+let _lastHostDelaySent = 0;
 
 function _startHostDelayLoop() {
-    if (_hostDelayTimer) return;
-    _hostDelayTimer = setInterval(_sendHostDelay, 1500);
-    _sendHostDelay();
+    // Now handled by broadcastToViewers directly (frame-synced)
+    _hostDelaySmoothed = 0;
 }
 
 function _stopHostDelayLoop() {
-    if (_hostDelayTimer) { clearInterval(_hostDelayTimer); _hostDelayTimer = null; }
+    _hostDelayFrames = 0;
 }
 
-async function _sendHostDelay() {
-    if (!window._hostDelayEnabled) return;
-    if (!ws || ws.readyState !== 1) return;
+function _calculateHostDelaySync() {
+    if (!window._hostDelayEnabled || !ws || ws.readyState !== 1) return;
+    
+    let maxBuffer = 0;
     const pcList = Object.values(peerConnections);
-    if (!pcList.length) return;
-
-    try {
-        const results = await Promise.all(pcList.map(async (pc) => {
-            if (typeof pc?.getStats !== 'function') return null;
-            const stats = await pc.getStats();
-            let bestPair = null, wcBytes = 0, wcSendDelay = 0, wcPackets = 0;
-            stats.forEach(r => {
-                if (r.type === 'candidate-pair' && r.state === 'succeeded') {
-                    if (!bestPair || r.currentRoundTripTime < (bestPair.currentRoundTripTime || 1)) {
-                        bestPair = r;
-                    }
-                }
-                if (r.type === 'data-channel' && r.label === 'webcodecs') { wcBytes = r.bytesSent || 0; }
-            });
-            if (!bestPair?.currentRoundTripTime) return null;
-            return { rtt: bestPair.currentRoundTripTime * 1000, wcBytes, pc };
-        }));
-
-        const valid = results.filter(Boolean);
-        if (!valid.length) return;
-
-        // Use worst (highest latency) viewer for fair equalization
-        const worst = valid.reduce((a, b) => (b.rtt > a.rtt ? b : a));
-        const rttMs = Math.round(worst.rtt);
-        let delayMs = Math.round(rttMs / 2) + 20;
-
-        // Buffer delay estimation from the worst viewer's WebCodecs channel
-        const wcCh = worst.pc?.wcChannel;
-        if (wcCh && wcCh.bufferedAmount > 0) {
-            // Try to compute bytesPerSec from stats diff
-            const snap = worst.pc.__statsSnapshot;
-            if (snap) {
-                const now = Date.now();
-                const dt = (now - snap.ts) / 1000;
-                const diff = wcBytes - snap.bytes;
-                const bps = diff > 0 ? diff / dt : 0;
-                if (bps > 0) delayMs += Math.round((wcCh.bufferedAmount / bps) * 1000);
+    
+    pcList.forEach(pc => {
+        if (pc.wcChannel && pc.wcChannel.readyState === 'open') {
+            if (pc.wcChannel.bufferedAmount > maxBuffer) {
+                maxBuffer = pc.wcChannel.bufferedAmount;
             }
         }
-
-        if (delayMs > 1000) delayMs = 1000;
-        ws.send(JSON.stringify({ type: 'host_delay', delayMs: delayMs }));
-    } catch (e) { }
+    });
+    
+    if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) {
+        if (_vpsWs.bufferedAmount > maxBuffer) {
+            maxBuffer = _vpsWs.bufferedAmount;
+        }
+    }
+    
+    // Base 40ms + ~0.005ms delay per byte (assuming 2Mbps stream)
+    let delayMs = 40 + (maxBuffer * 0.005); 
+    if (delayMs > 1000) delayMs = 1000;
+    
+    _hostDelaySmoothed = _hostDelaySmoothed * 0.95 + delayMs * 0.05;
+    
+    const sendVal = Math.round(_hostDelaySmoothed);
+    if (Math.abs(sendVal - _lastHostDelaySent) > 3 || _hostDelayFrames % 120 === 0) {
+        _lastHostDelaySent = sendVal;
+        try { ws.send(JSON.stringify({ type: 'host_delay', delayMs: sendVal })); } catch (e) {}
+    }
 }
 
 // ── Input Visualizer ──────────────────────────────────────────────────────────
@@ -5278,7 +5318,7 @@ function _doArcadeRegister() {
                 hasPin: arcadeConfig.requirePin,
                 inputOnly: localStorage.getItem('ns_input_only') === 'true',
                 url: info.tunnelUrl,
-                version: window.NEARSEC_VERSION || '0.0.0',
+                version: window.NEARCADE_VERSION || '0.0.0',
                 hostRegion,
                 os: getHostOS(),
                 codecType: forceWc ? 'WebCodecs' : 'WebRTC',
@@ -5294,7 +5334,7 @@ function _doArcadeRegister() {
             arcadeChannel.trigger('client-session-ping', getPingData());
 
             // Ping server to maintain session and trigger webhook
-            fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/ping', {
+            fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/ping', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(getPingData())
@@ -5988,7 +6028,7 @@ function saveExpDevices() {
         
         const label = el.querySelector('.exp-status-label');
         if (label) {
-            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'webhid' || val === 'virtualmic';
+            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'virtualmic';
             if (!isImplemented) {
                 label.innerHTML = '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
             } else if (enabled) {

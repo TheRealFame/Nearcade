@@ -102,7 +102,7 @@ def start_guitars_backend():
                         pad_id = data.get("pad_id") or data.get("viewerId", "default")
                         
                         if pad_id not in guitars:
-                            guitars[pad_id] = UInput(cap, name=f"Nearsec Virtual Guitar ({pad_id})", version=0x3)
+                            guitars[pad_id] = UInput(cap, name=f"Nearcade Virtual Guitar ({pad_id})", version=0x3)
                             print(f"[backend_guitars] Virtual guitar created for {pad_id}", flush=True)
 
                         ui = guitars[pad_id]

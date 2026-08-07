@@ -8,12 +8,12 @@ Si no puede abrir puertos (debido a CGNAT o firewalls estrictos), puede enrutar 
 - Nearcade instalado en su PC host local
 
 ### 2. Configurar el enrutador VPS
-El enrutador Nearsec VPS (directorio `/vps`) maneja la señalización WebSocket y el proxy del tráfico de protocolo de enlace WebRTC.
-En su VPS, descargue la versión Nearsec y ejecute el enrutador:
+El enrutador Nearcade VPS (directorio `/vps`) maneja la señalización WebSocket y el proxy del tráfico de protocolo de enlace WebRTC.
+En su VPS, descargue la versión Nearcade y ejecute el enrutador:
 ```bash
-./nearsec-router --port 8080
+./nearcade-router --port 8080
 ```
 
 ### 3. Conectar anfitrión
-En la configuración de la aplicación Nearsec, en **Proveedor de túnel dedicado**, configure la IP y el puerto de su VPS.
+En la configuración de la aplicación Nearcade, en **Proveedor de túnel dedicado**, configure la IP y el puerto de su VPS.
 Una vez configurado, todos los datos del protocolo de enlace P2P rebotarán en el VPS en lugar de requerir que los espectadores se conecten directamente a su red doméstica.

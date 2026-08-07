@@ -794,7 +794,7 @@ async function main() {
     res.setHeader('Expires', '0');
     const cfg = loadConfig();
     const arcadeUrl = cfg.arcadeUrl || 'https://nearcade.cutefame.net';
-    res.send(`window.NEARSEC_VERSION = "${APP_VERSION}";\nwindow.NEARSEC_COMMIT = "${COMMIT_HASH}";\nwindow.NEARSEC_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.NEARSEC_VERSION + (window.NEARSEC_COMMIT ? " ("+window.NEARSEC_COMMIT+")" : ""));`);
+    res.send(`window.NEARCADE_VERSION = "${APP_VERSION}";\nwindow.NEARCADE_COMMIT = "${COMMIT_HASH}";\nwindow.NEARCADE_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.NEARCADE_VERSION + (window.NEARCADE_COMMIT ? " ("+window.NEARCADE_COMMIT+")" : ""));`);
   });
 
   app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
@@ -804,6 +804,8 @@ async function main() {
 
   // FIX: Serve the favicon explicitly so the browser finds it
   app.get("/favicon.ico", (req, res) => res.sendFile(path.join(projectRoot, "favicon.ico")));
+
+  let hostStreamTitle = "";
 
   app.get("/", (req, res) => {
     const indexPath = path.join(pagesDir, "index.html");
@@ -815,8 +817,10 @@ async function main() {
     const hostName = req.query.host || "A player";
 
     // Inject the host name dynamically into the Discord tags
-    const ogTitle = sess ? sess.game : `${hostName} is looking to play!`;
-    const ogDesc = sess ? `Join the live ${sess.game} session on Nearcade.` : `${hostName} is hosting a peer-to-peer gaming session on Nearcade.`;
+    const ogTitle = sess ? sess.game : (hostStreamTitle ? hostStreamTitle : `${hostName} is looking to play!`);
+    const ogDesc = sess ? `Join the live ${sess.game} session on Nearcade.` : 
+                   (hostStreamTitle ? `Connect instantly to play ${hostStreamTitle} via Nearcade.` : 
+                   (hostName === "A player" ? `Connect instantly to this remote play session via Nearcade.` : `Connect instantly to ${hostName}'s remote play session via Nearcade.`));
     const cfgOg = loadConfig();
     const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : (cfgOg.arcadeUrl || 'https://nearcade.cutefame.net') + '/assets/NearcadeLogo.png';
 
@@ -2305,9 +2309,13 @@ async function main() {
             return;
           }
 
-          if (msg.type === "host-stream-ready") hostStreaming = true;
+          if (msg.type === "host-stream-ready") {
+            hostStreaming = true;
+            hostStreamTitle = msg.title || "";
+          }
           if (msg.type === "host-stream-stopped") {
             hostStreaming = false;
+            hostStreamTitle = "";
             for (const [id, s] of arcadeSessions) {
               arcadeSessions.delete(id);
               broadcastToArcade({ type: 'arcade-session-stopped', id });
@@ -3337,17 +3345,17 @@ function cleanup(isElectron = false) {
 
     // Belt and braces PulseAudio cleanup
     // Strictly unload loopback/remap modules BEFORE their sinks to avoid the
-    // deafening PulseAudio buzz. Matches BOTH the legacy 'Nearsec' names and
+    // deafening PulseAudio buzz. Matches BOTH the legacy 'Nearcade' names and
     // the current 'Nearcade' names in case old modules are still resident.
     try { execSync("pactl list short modules | awk '/module-loopback.*(NearsecVirtual|NearcadeVirtual)/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) { }
     try { execSync("pactl list short modules | awk '/NearsecAppAudio|NearcadeAppAudio|NearsecAppMic|NearcadeAppMic|NearsecVirtualCapture|NearcadeVirtualCapture|NearcadeMic_|NearsecVirtual|NearcadeVirtual/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) { }
 
     // PipeWire node cleanup — destroy any pw-loopback nodes created by the worker
     try {
-      execSync("pw-cli list-objects | grep -E 'Nearsec|Nearcade' | grep 'id ' | awk '{print $2}' | tr -d ',' | xargs -r -I{} pw-cli destroy {}", { stdio: 'ignore', timeout: 2000 });
+      execSync("pw-cli list-objects | grep -E 'Nearcade|Nearcade' | grep 'id ' | awk '{print $2}' | tr -d ',' | xargs -r -I{} pw-cli destroy {}", { stdio: 'ignore', timeout: 2000 });
     } catch (_) { }
     // Belt-and-braces: kill any dangling pw-loopback processes we spawned
-    try { execSync("pkill -f 'pw-loopback.*(Nearsec|Nearcade)'", { stdio: 'ignore' }); } catch (_) { }
+    try { execSync("pkill -f 'pw-loopback.*(Nearcade|Nearcade)'", { stdio: 'ignore' }); } catch (_) { }
   }
 
   if (!isElectron) {

@@ -39,12 +39,12 @@ git pull
 The server will reflect the new code.
 
 ## 4. Troubleshooting
-* 502 Bad Gateway: The Caddy web server is running but the Rust router is offline. Check the status by running sudo systemctl status nearsec-router.
-* View the logs by running journalctl -u nearsec-router -f.
+* 502 Bad Gateway: The Caddy web server is running but the Rust router is offline. Check the status by running sudo systemctl status nearcade-router.
+* View the logs by running journalctl -u nearcade-router -f.
 * Input issues: Verify that the Rust router is receiving binary data from the viewers in the logs.
 * 403 Forbidden: Caddy does not have permission to read your folder. Run sudo chmod -R 755 /home/ubuntu/nearcade/src.
 
-## Nearsec Arcade
+## Nearcade Arcade
 The platform includes an optional public lobby system. Hosts can list their sessions on the Arcade grid to let global players discover and join local co-op games. You can view the public lobby at https://nearcade.cutefame.net/arcade and join active sessions directly from your browser.
 
 ---
@@ -52,10 +52,10 @@ The platform includes an optional public lobby system. Hosts can list their sess
 ## Troubleshooting Q&A
 
 **Q: I get a "502 Bad Gateway" error, or viewers cannot connect to the Host.**
-A: A 502 error or a failed connection means Caddy is working, but the **Rust Router** (`nearsec-router`) is either offline, crashed, or failing to bridge the connections on port 3000.
+A: A 502 error or a failed connection means Caddy is working, but the **Rust Router** (`nearcade-router`) is either offline, crashed, or failing to bridge the connections on port 3000.
 
-* Check if the router is actively running: `sudo systemctl status nearsec-router`
-* View the live router logs to see why inputs or connections are dropping: `journalctl -u nearsec-router -f`
+* Check if the router is actively running: `sudo systemctl status nearcade-router`
+* View the live router logs to see why inputs or connections are dropping: `journalctl -u nearcade-router -f`
 
 **Q: Viewers are connecting but their inputs aren't working, or they don't show up in the Host UI.**
 A: The Rust router is likely failing to inject the `viewer_id` or forward the WebSocket payloads back to the Host. Check the `journalctl` logs for the router to ensure it is successfully receiving and passing the binary DataChannel input chunks.

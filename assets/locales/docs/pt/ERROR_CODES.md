@@ -1,6 +1,6 @@
 # Códigos de erro
 
-Se o Nearsec encontrar um problema, ele exibirá um código de erro padronizado.
+Se o Nearcade encontrar um problema, ele exibirá um código de erro padronizado.
 
 ### Erros de rede
 - **E10**: Falha na coleta de ICE. Seu firewall pode estar bloqueando completamente o tráfego WebRTC STUN.
@@ -8,7 +8,7 @@ Se o Nearsec encontrar um problema, ele exibirá um código de erro padronizado.
 
 ### Erros de entrada
 - **E20**: Falha na criação do controlador virtual (Windows). Certifique-se de que o ViGEmBus esteja instalado e atualizado.
-- **E21**: permissão de entrada negada (Linux). O host deve executar o Nearsec com privilégios `/dev/uinput` apropriados.
+- **E21**: permissão de entrada negada (Linux). O host deve executar o Nearcade com privilégios `/dev/uinput` apropriados.
 
 ### Erros de áudio
 - **E30**: Falha ao capturar o dispositivo de loopback. Certifique-se de ter desbloqueado o contexto de áudio clicando na IU.

@@ -1,6 +1,6 @@
-# Nearsec Arcade: The Matchmaking Core
+# Nearcade Arcade: The Matchmaking Core
 
-Nearsec Arcade is a decentralized, public matchmaking directory designed to connect hosts with players for local-multiplayer gaming. Unlike the private "Direct Share" mode, the Arcade is built for discovery, community testing, and low-friction co-op.
+Nearcade Arcade is a decentralized, public matchmaking directory designed to connect hosts with players for local-multiplayer gaming. Unlike the private "Direct Share" mode, the Arcade is built for discovery, community testing, and low-friction co-op.
 
 ## The Mission
 
@@ -47,7 +47,7 @@ The Arcade automatically checks if the Player's client version matches the Host'
 
 ## Input & Presets
 
-The Arcade supports Nearsec’s **Composite Device Driver**, allowing hosts to lock users into specific input modes to protect their system:
+The Arcade supports Nearcade’s **Composite Device Driver**, allowing hosts to lock users into specific input modes to protect their system:
 
 | Preset Name | Target Genre | Key Mapping Logic |
 | --- | --- | --- |

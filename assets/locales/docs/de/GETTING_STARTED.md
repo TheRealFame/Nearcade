@@ -6,7 +6,7 @@ Mit Nearcade können Sie mithilfe von WebRTC lokale Spiele über das Internet mi
 Sie haben zwei Möglichkeiten, eine Sitzung zu veranstalten.
 
 1. Private Tunnel: Sie können über Cloudflare oder Zrok einen benutzerdefinierten Tunnel einrichten, um einen dauerhaften Link für Ihre Freunde zu erstellen. Dies funktioniert am besten für private Gruppen.
-2. Nearsec Arcade: The Arcade ist ein öffentliches Verzeichnis zum Auffinden lokaler Koop-Spiele. Die Sitzungen sind auf 80 Minuten begrenzt, um die Lobby aktiv zu halten. Sie müssen einen verifizierten Tunnelanbieter wie Cloudflared oder Zrok verwenden, um eine Sitzung aufzulisten. Sie können die öffentliche Lobby unter https://nearcade.cutefame.net/arcade ansehen und an aktiven Spielen teilnehmen.
+2. Nearcade Arcade: The Arcade ist ein öffentliches Verzeichnis zum Auffinden lokaler Koop-Spiele. Die Sitzungen sind auf 80 Minuten begrenzt, um die Lobby aktiv zu halten. Sie müssen einen verifizierten Tunnelanbieter wie Cloudflared oder Zrok verwenden, um eine Sitzung aufzulisten. Sie können die öffentliche Lobby unter https://nearcade.cutefame.net/arcade ansehen und an aktiven Spielen teilnehmen.
 
 ## Starten einer Sitzung
 Befolgen Sie diese Schritte, um mit dem Hosting zu beginnen.

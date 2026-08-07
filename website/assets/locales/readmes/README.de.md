@@ -7,10 +7,10 @@
 ## Screenshots – Dashboard, Viewer-Seite, Arcade
 
 <div align="center">
-  <img src="assets/screenshots/nearsec-client-home.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-host.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-viewer.png" alt="Nearsec Viewer" width="45%">
-  <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
+  <img src="assets/screenshots/nearcade-client-home.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-host.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-viewer.png" alt="Nearcade Viewer" width="45%">
+  <img src="assets/screenshots/nearcade-arcade.png" alt="Nearcade Arcade" width="45%">
 </div>
 
 ## Projektbeschreibung
@@ -145,7 +145,7 @@ Bei ungewöhnlichen Architekturen müssen Sie Electron möglicherweise aus der Q
 -   Controller-Eingangsvirtualisierung über`uinput`für eine nahtlose Umgehung des Dampfeingangs.
 -   Dynamische Bitratenskalierung mit vom Benutzer wählbarer Verschlechterungspräferenz.
 -   Mobile Touch-Benutzeroberfläche mit virtuellem Joystick und optionalem Gyro-Zielen.
--   Arcade-Modus – Listen Sie Ihre Sitzung öffentlich auf Nearsec Arcade auf, damit andere sie entdecken und daran teilnehmen können.
+-   Arcade-Modus – Listen Sie Ihre Sitzung öffentlich auf Nearcade Arcade auf, damit andere sie entdecken und daran teilnehmen können.
 
 * * *
 

@@ -3,8 +3,8 @@
 Le tableau de bord hôte est votre centre de contrôle pour gérer les flux, les visionneuses et l'audio du système.
 
 ## Capture vidéo et audio
-Lorsque vous démarrez une session, Nearsec se connecte aux API natives de votre système d'exploitation telles que Wayland, X11 ou Windows Graphics Capture.
-* Routage audio pour Linux : Nearsec crée automatiquement un récepteur virtuel NearsecVirtualCapture. Le système utilise les propriétés exactes du nœud PipeWire pour acheminer automatiquement l'audio du jeu vers ce récepteur. Cela permet de garder vos discussions audio et vocales personnelles sur votre bureau hors du flux.
+Lorsque vous démarrez une session, Nearcade se connecte aux API natives de votre système d'exploitation telles que Wayland, X11 ou Windows Graphics Capture.
+* Routage audio pour Linux : Nearcade crée automatiquement un récepteur virtuel NearsecVirtualCapture. Le système utilise les propriétés exactes du nœud PipeWire pour acheminer automatiquement l'audio du jeu vers ce récepteur. Cela permet de garder vos discussions audio et vocales personnelles sur votre bureau hors du flux.
 * Contrôle du volume : l'évier virtuel se limite automatiquement à 70 % du volume pour protéger votre audition.
 
 ## Liste des joueurs et autorisations d'entrée

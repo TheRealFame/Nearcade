@@ -117,7 +117,7 @@ def start_adaptive_backend():
             ]
             DPAD_BITMASKS = {12: (0, -1), 13: (0, 1), 14: (-1, 0), 15: (1, 0)}
 
-            ui = UInput(cap, name="Nearsec Virtual Adaptive Controller", version=0x3)
+            ui = UInput(cap, name="Nearcade Virtual Adaptive Controller", version=0x3)
             print("[backend_adaptive] Virtual adaptive controller created at /dev/uinput.", flush=True)
 
             for line in sys.stdin:

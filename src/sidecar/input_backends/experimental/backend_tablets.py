@@ -26,7 +26,7 @@ def start_tablet_backend():
             }
             
             # Spawn the virtual drawing tablet at the kernel level
-            ui = UInput(cap, name="Nearsec Virtual Tablet", version=0x3)
+            ui = UInput(cap, name="Nearcade Virtual Tablet", version=0x3)
             print("[backend_tablets] Virtual tablet created successfully at /dev/uinput.", flush=True)
             
             # Read streaming JSON data from Node.js standard input

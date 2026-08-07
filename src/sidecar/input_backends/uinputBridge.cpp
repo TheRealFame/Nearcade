@@ -222,7 +222,7 @@ Napi::Boolean InitializeDevice(const Napi::CallbackInfo& info) {
     // Absolute axes removed from KBM to prevent SDL2 misidentifying it as a Gamepad
 
     struct uinput_user_dev uud = {};
-    snprintf(uud.name, UINPUT_MAX_NAME_SIZE, "Nearsec Virtual KBM");
+    snprintf(uud.name, UINPUT_MAX_NAME_SIZE, "Nearcade Virtual KBM");
     uud.id.bustype = BUS_USB;
     uud.id.vendor  = 0x1234;
     uud.id.product = 0x5678;

@@ -6,7 +6,7 @@ Nearcade lets you share local games with friends over the internet using WebCode
 You have two ways to host a session.
 
 1. Private Tunnels: You can set up a custom tunnel through Cloudflare or Zrok to create a permanent link for your friends. This works best for private groups.
-2. Nearsec Arcade: The Arcade is a public directory for finding local co-op games. Sessions are restricted to 80 minutes to keep the lobby active. You must use a verified tunneling provider like Cloudflared or Zrok to list a session. You can view the public lobby at https://nearcade.cutefame.net/arcade and join active games.
+2. Nearcade Arcade: The Arcade is a public directory for finding local co-op games. Sessions are restricted to 80 minutes to keep the lobby active. You must use a verified tunneling provider like Cloudflared or Zrok to list a session. You can view the public lobby at https://nearcade.cutefame.net/arcade and join active games.
 
 ## Launching a Session
 Follow these steps to start hosting.

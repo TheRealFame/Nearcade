@@ -6,7 +6,7 @@ if [ ! -f "electron-main.js" ]; then
     cd ..
 fi
 
-echo "Starting Nearsec Arcade Worker in Isolated Virtual Display..."
+echo "Starting Nearcade Arcade Worker in Isolated Virtual Display..."
 
 if ! command -v xvfb-run &> /dev/null; then
     echo "[ERROR] xvfb-run not found! Please install it (e.g., sudo apt install xvfb)"

@@ -109,9 +109,9 @@ private:
     vr::VRInputComponentHandle_t m_compSystem = 0;
 };
 
-class SteamVRNearsecDriver : public vr::ITrackedDeviceServerDriver, public vr::IVRDisplayComponent {
+class SteamVRNearcadeDriver : public vr::ITrackedDeviceServerDriver, public vr::IVRDisplayComponent {
 public:
-    SteamVRNearsecDriver(SteamVRNearsecController* leftCtrl, SteamVRNearsecController* rightCtrl) 
+    SteamVRNearcadeDriver(SteamVRNearsecController* leftCtrl, SteamVRNearsecController* rightCtrl) 
         : m_pLeftController(leftCtrl), m_pRightController(rightCtrl) {}
     virtual vr::EVRInitError Activate(uint32_t unObjectId) override {
         m_unObjectId = unObjectId;
@@ -119,7 +119,7 @@ public:
 
         vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_ModelNumber_String, "NearsecVR_HMD");
         vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_RenderModelName_String, "generic_hmd");
-        vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_SerialNumber_String, "NEARSEC_VR_HMD");
+        vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_SerialNumber_String, "NEARCADE_VR_HMD");
         vr::VRProperties()->SetStringProperty(m_ulPropertyContainer, vr::Prop_ManufacturerName_String, "Fame");
         vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_UserIpdMeters_Float, 0.063f);
         vr::VRProperties()->SetFloatProperty(m_ulPropertyContainer, vr::Prop_UserHeadToEyeDepthMeters_Float, 0.f);
@@ -130,7 +130,7 @@ public:
 
         // Start UDP Listener Thread
         m_bIsRunning = true;
-        m_pUdpThread = new std::thread(&SteamVRNearsecDriver::UdpListenerThread, this);
+        m_pUdpThread = new std::thread(&SteamVRNearcadeDriver::UdpListenerThread, this);
 
         return vr::VRInitError_None;
     }
@@ -259,7 +259,7 @@ public:
         
         m_pLeftCtrl = new SteamVRNearsecController(false);
         m_pRightCtrl = new SteamVRNearsecController(true);
-        m_pHmd = new SteamVRNearsecDriver(m_pLeftCtrl, m_pRightCtrl);
+        m_pHmd = new SteamVRNearcadeDriver(m_pLeftCtrl, m_pRightCtrl);
         
         vr::VRServerDriverHost()->TrackedDeviceAdded("nearsec_vrmd_1", vr::TrackedDeviceClass_HMD, m_pHmd);
         vr::VRServerDriverHost()->TrackedDeviceAdded("nearsec_vrctrl_left", vr::TrackedDeviceClass_Controller, m_pLeftCtrl);
@@ -285,7 +285,7 @@ public:
     virtual void LeaveStandby() override {}
 
 private:
-    SteamVRNearsecDriver* m_pHmd = nullptr;
+    SteamVRNearcadeDriver* m_pHmd = nullptr;
     SteamVRNearsecController* m_pLeftCtrl = nullptr;
     SteamVRNearsecController* m_pRightCtrl = nullptr;
 };

@@ -1,7 +1,7 @@
 # API und System-Setup
 
 ## Manueller Start
-Wenn Sie entwickeln oder Fehler beheben, möchten Sie die Komponenten möglicherweise manuell ausführen, anstatt die kompilierte ausführbare Datei zu verwenden. Nearsec erfordert die gleichzeitige Ausführung zweier separater Prozesse. Dies sind der Python-Eingabetreiber und der Node.js-Webserver.
+Wenn Sie entwickeln oder Fehler beheben, möchten Sie die Komponenten möglicherweise manuell ausführen, anstatt die kompilierte ausführbare Datei zu verwenden. Nearcade erfordert die gleichzeitige Ausführung zweier separater Prozesse. Dies sind der Python-Eingabetreiber und der Node.js-Webserver.
 
 ### Manuelle Einrichtung unter Linux
 Linux benötigt Root-Rechte, um virtuelle Controller über uinput direkt in den Kernel einzuschleusen.
@@ -40,7 +40,7 @@ npm run electron
 ```
 
 ## Umgebungskonfiguration
-Um die Hartcodierung sensibler Token zu verhindern, verlässt sich Nearsec auf eine Umgebungsdatei in Ihrem Stammverzeichnis.
+Um die Hartcodierung sensibler Token zu verhindern, verlässt sich Nearcade auf eine Umgebungsdatei in Ihrem Stammverzeichnis.
 
 Erstellen Sie eine Datei mit dem Namen .env und füllen Sie sie mit Ihren spezifischen Schlüsseln.
 ```ini
@@ -50,7 +50,7 @@ PORT=3000
 ```
 
 ## Interne Express-API-Endpunkte
-Der Nearsec-Knotenserver stellt lokale HTTP-POST-Endpunkte zur Verfügung, um das Backend dynamisch zu steuern.
+Der Nearcade-Knotenserver stellt lokale HTTP-POST-Endpunkte zur Verfügung, um das Backend dynamisch zu steuern.
 
 Audio-Routing über /api/force-route
 * Nutzlast: { "nodeProperty": "target_node_id" }

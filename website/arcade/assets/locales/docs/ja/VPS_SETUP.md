@@ -8,12 +8,12 @@
 - ローカルホスト PC にインストールされた Nearcade
 
 ### 2. VPS ルーターの構成
-Nearsec VPS ルーター (`/vps` ディレクトリ) は、WebSocket シグナリングと WebRTC ハンドシェイク トラフィックのプロキシを処理します。
-VPS で、Nearsec リリースをダウンロードし、ルーターを実行します。
+Nearcade VPS ルーター (`/vps` ディレクトリ) は、WebSocket シグナリングと WebRTC ハンドシェイク トラフィックのプロキシを処理します。
+VPS で、Nearcade リリースをダウンロードし、ルーターを実行します。
 ```bash
-./nearsec-router --port 8080
+./nearcade-router --port 8080
 ```
 
 ### 3. ホストに接続する
-Nearsec アプリ設定の **専用トンネル プロバイダー** で、VPS IP とポートを構成します。
+Nearcade アプリ設定の **専用トンネル プロバイダー** で、VPS IP とポートを構成します。
 構成が完了すると、視聴者がホーム ネットワークに直接接続する必要がなく、すべての P2P ハンドシェイク データが VPS からバウンスされます。

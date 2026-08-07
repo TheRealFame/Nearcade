@@ -10,7 +10,7 @@ This document provides a deep dive into the underlying systems powering Nearcade
 ---
 
 ### 1. Input Injection Architecture
-Nearsec relies on a separate Python sidecar process (`input_driver.py`) to handle operating system-level input injection. The Node.js server receives WebSockets containing binary Gamepad API arrays, unpacks them into standard JSON structures, and pipes them to Python via `stdin`.
+Nearcade relies on a separate Python sidecar process (`input_driver.py`) to handle operating system-level input injection. The Node.js server receives WebSockets containing binary Gamepad API arrays, unpacks them into standard JSON structures, and pipes them to Python via `stdin`.
 
 **Linux `uinput` Implementation**
 On Linux, we utilize the `uinput` kernel module. Traditional emulators often combine mouse, keyboard, and gamepad capabilities into a single composite virtual device. This causes severe issues in modern game engines (like Unreal Engine 5 or Unity), which aggressively poll devices and often mistake analog stick drift for mouse movement, causing UI flickering. 
@@ -38,13 +38,13 @@ The `routeGameAudio()` function in `server.js` interfaces with a Patchbay librar
 ---
 
 ### 3. The WebRTC Transport Layer
-Nearsec is not a traditional streaming server; it is a signaling server that orchestrates direct Peer-to-Peer (P2P) connections. 
+Nearcade is not a traditional streaming server; it is a signaling server that orchestrates direct Peer-to-Peer (P2P) connections. 
 
 **ICE Negotiation and TURN**
-Because most viewers reside behind Symmetric NAT routers, direct STUN connections frequently fail. Nearsec mitigates this by injecting OpenRelay TURN server credentials into the `RTCPeerConnection` configuration. If a direct UDP punch-through fails, traffic falls back to TCP port 443 via the TURN relay, ensuring a 99% connection success rate even on strict corporate or university networks.
+Because most viewers reside behind Symmetric NAT routers, direct STUN connections frequently fail. Nearcade mitigates this by injecting OpenRelay TURN server credentials into the `RTCPeerConnection` configuration. If a direct UDP punch-through fails, traffic falls back to TCP port 443 via the TURN relay, ensuring a 99% connection success rate even on strict corporate or university networks.
 
 **Bi-directional Audio (Voice Chat)**
-To implement Voice-over-IP (VoIP) without crippling the Host's upload bandwidth, Nearsec uses a "Switchboard" architecture. 
+To implement Voice-over-IP (VoIP) without crippling the Host's upload bandwidth, Nearcade uses a "Switchboard" architecture. 
 * Viewers capture their local microphone and attach the track to their outbound `RTCPeerConnection`.
 * The Host receives these tracks and spawns hidden `<audio autoplay>` tags.
 * The Host *does not* re-broadcast this audio to other viewers. Instead, the Host's local browser mixes the incoming WebRTC audio tracks natively and outputs them to the physical speakers, completely bypassing the `NearsecAppAudio` sink to prevent infinite feedback loops.
@@ -52,7 +52,7 @@ To implement Voice-over-IP (VoIP) without crippling the Host's upload bandwidth,
 ---
 
 ### 4. Video Capture & Wayland
-Capturing screens on Linux is notoriously fragmented. Nearsec leverages Electron's `desktopCapturer` coupled with modern Chromium flags to support both X11 and Wayland compositors smoothly.
+Capturing screens on Linux is notoriously fragmented. Nearcade leverages Electron's `desktopCapturer` coupled with modern Chromium flags to support both X11 and Wayland compositors smoothly.
 
 When running under Wayland, Electron delegates the screen capture request to the native XDG Desktop Portal (`xdg-desktop-portal`). This pops up a native OS dialogue asking the user for permission to share a screen or window. 
 
@@ -64,7 +64,7 @@ Because this portal requires human interaction, there is an inherent delay. If t
 Stability in a multi-client P2P environment requires aggressive garbage collection. 
 
 **Ghost Port Mitigation**
-If the Electron app is forcefully closed, Node.js might leave orphaned `cloudflared` tunnels or stuck TCP ports. On startup, Nearsec uses `kill-port` to scrub port 3000, ensuring the Express server can bind cleanly. 
+If the Electron app is forcefully closed, Node.js might leave orphaned `cloudflared` tunnels or stuck TCP ports. On startup, Nearcade uses `kill-port` to scrub port 3000, ensuring the Express server can bind cleanly. 
 
 **Orphaned Virtual Devices**
 Similarly, if the Python sidecar is killed abruptly, `uinput` devices remain active in the `/dev/input/` directory forever. The Node.js `cleanup()` hook traps `SIGINT`, `SIGTERM`, and Electron `window-close` events. Before exiting, it sends a final `{ type: 'destroy_all' }` JSON payload to the Python `stdin`, forcing Python to un-register all controllers. It simultaneously issues a `pactl unload-module` command targeted specifically at the `loopbackModuleId` integer saved during startup, cleanly destroying the virtual audio cables and restoring the Linux audio graph to its default state.

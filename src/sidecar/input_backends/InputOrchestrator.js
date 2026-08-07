@@ -251,6 +251,7 @@ const isMac = process.platform === 'darwin';
 let decayEnabled = true;
 let tournamentMode = false;
 let lastPacketTime = new Map();
+let lastPacketSequence = new Map();
 let lastGamepadVars = new Map();
 
 function init(screenWidth, screenHeight) {
@@ -911,21 +912,22 @@ function send(msg) {
 
     if (validated.type === 'gamepad') {
         const pId = validated.pad_id;
-        const lastTs = lastPacketTime.get(pId) || 0;
+        const lastSeq = lastPacketSequence.get(pId) || 0;
         
         if (validated.history && validated.history.length > 0) {
             validated.history.forEach(histMsg => {
-                if (histMsg._ts && histMsg._ts > lastTs) {
+                if (histMsg._ts && histMsg._ts > lastSeq) {
                     let v = _validateGamepadMsg(histMsg);
                     if (v) _handleGamepad(v);
-                    lastPacketTime.set(pId, histMsg._ts);
+                    lastPacketSequence.set(pId, histMsg._ts);
                 }
             });
         }
         
-        if (validated._ts && validated._ts > (lastPacketTime.get(pId) || 0)) {
+        if (validated._ts && validated._ts > (lastPacketSequence.get(pId) || 0)) {
             _handleGamepad(validated);
-            lastPacketTime.set(pId, validated._ts);
+            lastPacketSequence.set(pId, validated._ts);
+            lastPacketTime.set(pId, Date.now()); 
         } else if (!validated._ts) {
             _handleGamepad(validated);
             lastPacketTime.set(pId, Date.now()); 

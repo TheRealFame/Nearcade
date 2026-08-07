@@ -583,7 +583,7 @@ if (env.BANS_KV) {
       // Home page
       if (url.pathname === "/" || url.pathname === "/home") {
         if (env.ASSETS) {
-          const asset = await env.ASSETS.fetch(new Request("https://nearcade.cutefame.net/nearsec-home.html", request));
+          const asset = await env.ASSETS.fetch(new Request("https://nearcade.cutefame.net/nearcade-home.html", request));
           if (asset.status === 200) return asset;
         }
       }

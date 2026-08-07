@@ -11,23 +11,23 @@ delay_ms = 0.0
 enabled = False
 
 def writer_loop(q, vpad):
-    """Single writer thread per pad: reads from queue, sleeps (delay_ms) before each write.
-    Preserves event order and inter-event timing."""
+    """Single writer thread per pad: reads from queue, sleeps until target time."""
     while True:
-        ev = q.get()
-        if ev is None:
+        item = q.get()
+        if item is None:
             break
-        d = delay_ms / 1000.0
-        if d > 0:
-            time.sleep(d)
+        target_time, ev = item
+        now = time.time()
+        sleep_time = target_time - now
+        if sleep_time > 0:
+            time.sleep(sleep_time)
         try:
             vpad.write_event(ev)
-            vpad.syn()
         except Exception:
             pass
 
 def listen_to_device(path, phys_pad, vpad):
-    q = queue.Queue(maxsize=256)
+    q = queue.Queue(maxsize=4096)
     w = threading.Thread(target=writer_loop, args=(q, vpad), daemon=True)
     w.start()
     try:
@@ -35,7 +35,8 @@ def listen_to_device(path, phys_pad, vpad):
             if not enabled:
                 break
             try:
-                q.put_nowait(event)
+                target_time = time.time() + (delay_ms / 1000.0)
+                q.put_nowait((target_time, event))
             except queue.Full:
                 pass
     except Exception:

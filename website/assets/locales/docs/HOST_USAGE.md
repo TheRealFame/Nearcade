@@ -3,8 +3,8 @@
 The Host Dashboard is your control center for managing streams, viewers, and system audio.
 
 ## Video and Audio Capture
-When you start a session, Nearsec connects to your native operating system APIs like Wayland, X11, or Windows Graphics Capture.
-* Audio Routing for Linux: Nearsec automatically creates a NearsecVirtualCapture virtual sink. The system uses exact PipeWire node properties to route game audio into this sink automatically. This keeps your personal desktop audio and voice chats off the stream.
+When you start a session, Nearcade connects to your native operating system APIs like Wayland, X11, or Windows Graphics Capture.
+* Audio Routing for Linux: Nearcade automatically creates a NearsecVirtualCapture virtual sink. The system uses exact PipeWire node properties to route game audio into this sink automatically. This keeps your personal desktop audio and voice chats off the stream.
 * Volume Control: The virtual sink caps at 70 percent volume automatically to protect your hearing.
 
 ## Player Roster and Input Permissions

@@ -3,8 +3,8 @@
 O Host Dashboard é o seu centro de controle para gerenciar streams, visualizadores e áudio do sistema.
 
 ## Captura de vídeo e áudio
-Quando você inicia uma sessão, o Nearsec se conecta às APIs nativas do sistema operacional, como Wayland, X11 ou Windows Graphics Capture.
-* Roteamento de áudio para Linux: Nearsec cria automaticamente um coletor virtual NearsecVirtualCapture. O sistema usa propriedades exatas do nó PipeWire para rotear o áudio do jogo para esse coletor automaticamente. Isso mantém o áudio da sua área de trabalho pessoal e os bate-papos de voz fora do stream.
+Quando você inicia uma sessão, o Nearcade se conecta às APIs nativas do sistema operacional, como Wayland, X11 ou Windows Graphics Capture.
+* Roteamento de áudio para Linux: Nearcade cria automaticamente um coletor virtual NearsecVirtualCapture. O sistema usa propriedades exatas do nó PipeWire para rotear o áudio do jogo para esse coletor automaticamente. Isso mantém o áudio da sua área de trabalho pessoal e os bate-papos de voz fora do stream.
 * Controle de volume: o coletor virtual atinge 70% do volume automaticamente para proteger sua audição.
 
 ## Lista de jogadores e permissões de entrada

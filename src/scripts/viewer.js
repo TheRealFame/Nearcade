@@ -315,6 +315,44 @@ let wcDecoder = null;
 let wcCanvas = document.getElementById('webcodecs-canvas') || null;
 let wcCtx = null;
 let wcGlTexture = null;
+
+// Upscale mode for the WebGL stream surface.
+//  0 standard · 1 crisp · 2 pixel-perfect (NEAREST) · 3 ultra
+let _upscaleMode = -1; // -1 = auto
+let _lastAppliedUpscale = null;
+
+function _applyUpscaleFilter() {
+    let mode = _upscaleMode;
+    if (mode === -1 && wcCanvas) {
+        const w = wcCanvas.width && wcCanvas.height ? wcCanvas.width : (document.getElementById('video') && document.getElementById('video').videoWidth || 0);
+        mode = w > 0 && w < 1280 ? 1 : 0;
+    }
+    _lastAppliedUpscale = mode;
+    if (wcCtx && wcGlTexture) {
+        const nearest = mode === 2;
+        try {
+            wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
+            wcCtx.texParameteri(wcCtx.TEXTURE_2D, wcCtx.TEXTURE_MAG_FILTER, nearest ? wcCtx.NEAREST : wcCtx.LINEAR);
+            wcCtx.texParameteri(wcCtx.TEXTURE_2D, wcCtx.TEXTURE_MIN_FILTER, nearest ? wcCtx.NEAREST : wcCtx.LINEAR);
+        } catch (e) {}
+    }
+    const sel = document.getElementById('vUpscaleSelect');
+    if (sel && sel.value != mode) sel.value = mode;
+    document.body.classList.toggle('pixel-mode', mode === 2);
+}
+
+window.setUpscaleMode = function(v) {
+    v = parseInt(v, 10);
+    if (!isNaN(v)) { _upscaleMode = v; }
+    window.pixelFilterEnabled = (_upscaleMode === 2);
+    const mark = document.getElementById('pixelFilterMark');
+    if (mark) mark.classList.toggle('on', _upscaleMode === 2);
+    const toggle = document.getElementById('partyPixel');
+    if (toggle) toggle.classList.toggle('on', window.pixelFilterEnabled);
+    _applyUpscaleFilter();
+    try { localStorage.setItem('ns_upscale_mode', String(_upscaleMode)); } catch (e) {}
+};
+
 function _setupWebGL(gl) {
     const vs = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vs, 'attribute vec2 p; attribute vec2 t; varying vec2 v; void main(){gl_Position=vec4(p,0,1);v=t;}');
@@ -341,7 +379,7 @@ function _setupWebGL(gl) {
     return tex;
 }
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
-const CLIENT_VERSION = window.NEARSEC_VERSION || '1.0.0';
+const CLIENT_VERSION = window.NEARCADE_VERSION || '1.0.0';
 function semverGte(a, b) {
   const pa = String(a).split('.').map(Number);
   const pb = String(b).split('.').map(Number);
@@ -1374,7 +1412,13 @@ if (jBaseRight) {
 // ── HID GYRO ──────────────────────────────────────────────────────────────────
 let hidDevice = null, hostMotionEnabled = false, hidGyroX = 0, hidGyroY = 0;
 async function requestHID() {
-    if (!('hid' in navigator)) { alert('WebHID not supported. Use Chrome/Edge.'); return; }
+    if (!('hid' in navigator)) { 
+        if (window.pushToast) window.pushToast('WebHID is not supported. Falling back to standard Gamepad API.', { type: 'error' });
+        window.updateInputMode('gamepad');
+        const sel = document.getElementById('vInputSelect');
+        if (sel) sel.value = 'gamepad';
+        return; 
+    }
     try {
         const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x054c }, { vendorId: 0x057e }] });
         if (devices.length > 0) {
@@ -1385,6 +1429,25 @@ async function requestHID() {
         }
     } catch (err) { console.error('HID failed:', err); }
 }
+
+async function autoConnectHID() {
+    if (!('hid' in navigator)) return false;
+    try {
+        const devices = await navigator.hid.getDevices();
+        const validDevices = devices.filter(d => d.vendorId === 0x054c || d.vendorId === 0x057e);
+        if (validDevices.length > 0) {
+            hidDevice = validDevices[0];
+            await hidDevice.open();
+            hidDevice.addEventListener('inputreport', handleHIDReport);
+            const btn = document.getElementById('hidBtn');
+            if (btn) { btn.classList.add('ns-btn-active'); btn.textContent = 'Gyro HID: ON'; }
+            return true;
+        }
+    } catch(err) { console.error('Auto HID failed:', err); }
+    return false;
+}
+// Attempt automatic reconnection for previously granted WebHID devices
+autoConnectHID();
 function handleHIDReport(event) {
     const { data, reportId } = event;
     const vid = hidDevice.vendorId;
@@ -1425,13 +1488,13 @@ const calibMaps = {};
         if (k && k.startsWith(PREFIX)) { try { calibMaps[k.slice(PREFIX.length)] = JSON.parse(localStorage.getItem(k)); } catch { } }
     }
 })();
-window.addEventListener('message', e => {
-    if (e.data?.type === 'NEARSEC_CONFIG_UPDATE' && e.data.hardwareId) calibMaps[e.data.hardwareId] = e.data.map;
-    if (e.data?.type === 'NEARSEC_SMART_DB' && e.data.db) {
-        smartDb = e.data.db;
-        window.smartDb = smartDb;
-    }
-    if (e.data?.type === 'NEARSEC_DEADZONE') {
+    window.addEventListener('message', e => {
+        if (e.data?.type === 'NEARCADE_CONFIG_UPDATE' && e.data.hardwareId) calibMaps[e.data.hardwareId] = e.data.map;
+        if (e.data?.type === 'NEARCADE_SMART_DB' && e.data.db) {
+            smartDb = e.data.db;
+            window.smartDb = smartDb;
+        }
+    if (e.data?.type === 'NEARCADE_DEADZONE') {
         gpDeadzones[e.data.index] = e.data.value;
     }
 });
@@ -1534,6 +1597,7 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
 }
 
 window.currentInputMode = localStorage.getItem('ns_input_mode') || 'gamepad';
+if (window.currentInputMode === 'webhid') window.currentInputMode = 'gamepad'; // Auto-migrate legacy clients
 let eyeTrackerCam = null;
 let eyeTrackerFaceMesh = null;
 
@@ -1541,6 +1605,8 @@ window.updateInputMode = function(val) {
     window.currentInputMode = val; 
     localStorage.setItem('ns_input_mode', val);
     console.log('[InputMode] Switched to:', val);
+    
+
     
     if (val === 'eyetracking') {
         startEyeTracking();
@@ -1664,7 +1730,7 @@ function pollGamepad() {
         return; 
     }
 
-    if (window.currentInputMode === 'webhid' && hidDevice) return; // Managed exclusively by handleHIDReport
+
 
     const vIndex = 0; // Force ALL inputs from this viewer to slot 0
 
@@ -1707,33 +1773,36 @@ function pollGamepad() {
                 changed = true;
                 cache.axes[i] = finalVal;
             }
-            state.axes[i] = cache.axes[i];
+            state.axes[i] = cache.axes[i] / 32767.0;
         }
         for (let i = 0; i < 16; i++) {
             const b = bestGp.buttons[i];
-            const v = Math.round((b?.value || 0) * 255);
-            state.buttons[i].value = v;
+            const vRaw = b?.value || 0;
+            const vInt = Math.round(vRaw * 255);
+            if (cache.btns[i] !== vInt) { changed = true; cache.btns[i] = vInt; }
+            state.buttons[i].value = cache.btns[i] / 255.0;
             state.buttons[i].pressed = b?.pressed || false;
-            if (cache.btns[i] !== v) { changed = true; cache.btns[i] = v; }
         }
         applyCalibration(bestGp, state);
     } else if (isTouch) {
         for (let i = 0; i < 4; i++) {
-            state.axes[i] = Math.round((touchState.axes[i] || 0) * 32767);
-            if (cache.axes[i] !== state.axes[i]) { changed = true; cache.axes[i] = state.axes[i]; }
+            let finalVal = Math.round((touchState.axes[i] || 0) * 32767);
+            if (cache.axes[i] !== finalVal) { changed = true; cache.axes[i] = finalVal; }
+            state.axes[i] = cache.axes[i] / 32767.0;
         }
         for (let i = 0; i < 16; i++) {
             const b = touchState.buttons[i];
-            const v = Math.round((b?.value || 0) * 255);
-            state.buttons[i].value = v;
+            const vRaw = b?.value || 0;
+            const vInt = Math.round(vRaw * 255);
+            if (cache.btns[i] !== vInt) { changed = true; cache.btns[i] = vInt; }
+            state.buttons[i].value = cache.btns[i] / 255.0;
             state.buttons[i].pressed = b?.pressed || false;
-            if (cache.btns[i] !== v) { changed = true; cache.btns[i] = v; }
         }
     }
 
     if (hidDevice && hostMotionEnabled) {
-        state.axes[2] = Math.max(-32767, Math.min(32767, state.axes[2] + Math.round(hidGyroX * 32767)));
-        state.axes[3] = Math.max(-32767, Math.min(32767, state.axes[3] + Math.round(hidGyroY * 32767)));
+        state.axes[2] = Math.max(-1.0, Math.min(1.0, state.axes[2] + hidGyroX));
+        state.axes[3] = Math.max(-1.0, Math.min(1.0, state.axes[3] + hidGyroY));
         changed = true; // Gyro is continuously sending
     }
 
@@ -2259,7 +2328,7 @@ async function connect() {
             smartDb = msg.payload || {};
             window.smartDb = smartDb;
             const frame = document.getElementById('controllerGuideFrame');
-            if (frame?.contentWindow) frame.contentWindow.postMessage({ type: 'NEARSEC_SMART_DB', db: smartDb }, '*');
+            if (frame?.contentWindow) frame.contentWindow.postMessage({ type: 'NEARCADE_SMART_DB', db: smartDb }, '*');
             return;
         }
 
@@ -2678,7 +2747,6 @@ async function connect() {
                     const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
-                    if (enabledExp.includes('webhid')) html += '<option value="webhid">Raw WebHID eSports (1000Hz)</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
                     
@@ -2749,6 +2817,18 @@ async function connect() {
             const listEl = document.getElementById('lobbyList');
             // Store roster for @mention
             window._rosterList = msg.viewers || [];
+            // Phase 4: toast on newly joined viewers (skip own join / first sync)
+            if (window._rosterSeen && window.pushToast && msg.viewers) {
+                const fresh = msg.viewers.filter(v => !window._rosterSeen.has(v.id));
+                if (fresh.length) {
+                    const isSelf = fresh.length === 1 && fresh[0].id === myId;
+                    if (!isSelf) {
+                        const names = fresh.map(v => (v.name || 'Player').replace(/ \d+$/, '')).join(', ');
+                        window.pushToast(names + (fresh.length > 1 ? ' joined the party' : ' joined the party'), { type: 'info' });
+                    }
+                }
+            }
+            window._rosterSeen = new Set((msg.viewers || []).map(v => v.id));
             if (listEl) {
                 listEl.innerHTML = '';
                 const seen = new Set(); let hostAdded = false;
@@ -2923,7 +3003,14 @@ function appendChat(name, text, isMe, platform, color, isHost) {
     }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'cname' + (isMe ? ' me' : '');
-    nameSpan.textContent = name + ' ';
+    
+    let isMeCmd = false;
+    if (text.startsWith('/me ')) {
+        isMeCmd = true;
+        text = text.substring(4);
+    }
+    
+    nameSpan.textContent = name + (isMeCmd ? ' ' : ': ');
     if (color) nameSpan.style.color = color;
     if (platform) {
         const platBadge = document.createElement('span');
@@ -2939,7 +3026,12 @@ function appendChat(name, text, isMe, platform, color, isHost) {
         nameSpan.appendChild(hostBadge);
     }
     d.appendChild(nameSpan);
-    d.appendChild(document.createTextNode(text));
+    
+    const msgSpan = document.createElement('span');
+    msgSpan.textContent = text;
+    if (isMeCmd) msgSpan.style.fontStyle = 'italic';
+    d.appendChild(msgSpan);
+    
     el.appendChild(d); el.scrollTop = el.scrollHeight;
 }
 
@@ -3018,41 +3110,69 @@ if (document.readyState === 'loading') {
 const chatHistory = [];
 let chatHistoryIndex = -1;
 // ── @MENTION AUTOCOMPLETE ──
-let _mentionData = { viewers: [], idx: -1 };
-function _showMentionDropdown(inp) {
+let _mentionData = { items: [], idx: -1, type: '' };
+function _showAutocompleteDropdown(inp) {
     const val = inp.value;
     const cursor = inp.selectionStart;
     const before = val.slice(0, cursor);
+
+    if (val.startsWith('/') && before.lastIndexOf('/') === 0) {
+        const partial = before.slice(1).toLowerCase();
+        const commands = [
+            { id: '/me', name: '/me [action]', desc: 'Act out an action' },
+            { id: '/shrug', name: '/shrug', desc: '¯\\_(ツ)_/¯' },
+            { id: '/tableflip', name: '/tableflip', desc: '(╯°□°)╯︵ ┻━┻' },
+            { id: '/unflip', name: '/unflip', desc: '┬─┬ノ( º _ ºノ)' },
+            { id: '/dance', name: '/dance', desc: 'Starts dancing' },
+            { id: '/roll', name: '/roll [max]', desc: 'Roll a random number' }
+        ];
+        const known = commands.filter(c => c.name.toLowerCase().startsWith('/' + partial) || partial === '');
+        if (known.length === 0) { _hideAutocompleteDropdown(); return; }
+        _mentionData.items = known;
+        _mentionData.idx = 0;
+        _mentionData.type = 'cmd';
+        _renderAutocomplete(inp, known, 'cmd');
+        return;
+    }
+
     const atIdx = before.lastIndexOf('@');
-    if (atIdx === -1 || (atIdx > 0 && val[atIdx - 1] !== ' ' && val[atIdx - 1] !== '\n')) { _hideMentionDropdown(); return; }
+    if (atIdx === -1 || (atIdx > 0 && val[atIdx - 1] !== ' ' && val[atIdx - 1] !== '\n')) { _hideAutocompleteDropdown(); return; }
     const partial = before.slice(atIdx + 1).toLowerCase();
-    const roster = window._rosterList || [];
+    const roster = typeof window._rosterList !== 'undefined' ? window._rosterList : [];
     let known = roster.map(v => ({ id: v.id, name: (v.name || '').replace(/ \d+$/, '') })).filter(v => v.name.toLowerCase().includes(partial));
     if (partial === '' || (known.length === 0 && 'host'.includes(partial))) known = [{ id: 'HOST', name: 'Host' }, ...known];
-    if (known.length === 0) { _hideMentionDropdown(); return; }
-    _mentionData.viewers = known;
+    if (known.length === 0) { _hideAutocompleteDropdown(); return; }
+    _mentionData.items = known;
     _mentionData.idx = 0;
+    _mentionData.type = 'mention';
+    _renderAutocomplete(inp, known, 'mention');
+}
+
+function _renderAutocomplete(inp, known, type) {
     let dd = document.getElementById('mentionDD');
     if (!dd) {
         dd = document.createElement('div');
         dd.id = 'mentionDD';
-        dd.style.cssText = 'position:absolute;bottom:100%;left:0;background:#1a1d23;border:1px solid #333;border-radius:6px;padding:4px;z-index:99999;max-height:140px;overflow-y:auto;min-width:120px';
+        dd.style.cssText = 'position:absolute;bottom:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:99999;max-height:140px;overflow-y:auto;min-width:180px';
         const wrapper = document.querySelector('.chat-input-row') || inp.parentElement;
         wrapper?.appendChild(dd);
     }
-    dd.innerHTML = known.map((v, i) =>
-        `<div class="m-item" data-idx="${i}" style="padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;${i === 0 ? 'background:#333;color:#fff;' : ''}" onmouseover="document.querySelectorAll('.m-item').forEach(e=>e.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;');this.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:#333;color:#fff;';_mentionData.idx=${i}" onclick="const inp=document.getElementById('chatMsg');const v=inp.value;const cs=inp.selectionStart;const bf=v.slice(0,v.lastIndexOf('@',cs));const af=v.slice(cs);const mention='@${v.name} ';const nv=bf+mention+af;inp.value=nv;inp.selectionStart=inp.selectionEnd=bf.length+mention.length;inp.focus();document.getElementById('mentionDD')?.remove();">${v.name}</div>`
-    ).join('');
+    dd.innerHTML = known.map((v, i) => {
+        let text = v.name;
+        if (type === 'cmd') text = `<span style="color:var(--accent);font-weight:bold;">${v.name}</span><br><span style="color:var(--muted);font-size:10px;">${v.desc}</span>`;
+        return `<div class="m-item" data-idx="${i}" style="padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);${i === 0 ? 'background:var(--accent-dim);color:var(--accent);' : ''}" onmouseover="document.querySelectorAll('.m-item').forEach(e=>e.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);');this.style.cssText='padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);';_mentionData.idx=${i}" onclick="const inp=document.getElementById('chatMsg');const v=inp.value;const cs=inp.selectionStart; if ('${type}'==='cmd'){ inp.value='${v.id} '; inp.focus(); } else { const bf=v.slice(0,v.lastIndexOf('@',cs));const af=v.slice(cs);const mention='@${v.name} ';const nv=bf+mention+af;inp.value=nv;inp.selectionStart=inp.selectionEnd=bf.length+mention.length;inp.focus(); } document.getElementById('mentionDD')?.remove();">${text}</div>`;
+    }).join('');
     dd.style.display = 'block';
 }
-function _hideMentionDropdown() { const dd = document.getElementById('mentionDD'); if (dd) dd.style.display = 'none'; _mentionData.idx = -1; }
+
+function _hideAutocompleteDropdown() { const dd = document.getElementById('mentionDD'); if (dd) dd.style.display = 'none'; _mentionData.idx = -1; }
 document.addEventListener('keydown', e => {
     const dd = document.getElementById('mentionDD');
     if (dd && dd.style.display !== 'none') {
-        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.viewers.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:#333;color:#fff;':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;'); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:#333;color:#fff;':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:#ccc;'); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.items.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
         if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="'+_mentionData.idx+'"]'); if (sel) sel.click(); return; }
-        if (e.key === 'Escape') { _hideMentionDropdown(); return; }
+        if (e.key === 'Escape') { _hideAutocompleteDropdown(); return; }
     }
     if (e.target.id !== 'chatMsg') return;
     const inp = e.target;
@@ -3068,28 +3188,48 @@ document.addEventListener('keydown', e => {
     }
 });
 document.addEventListener('keyup', e => {
-    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+    if (e.target.id === 'chatMsg') _showAutocompleteDropdown(e.target);
 });
 document.addEventListener('input', e => {
-    if (e.target.id === 'chatMsg') _showMentionDropdown(e.target);
+    if (e.target.id === 'chatMsg') _showAutocompleteDropdown(e.target);
 });
 function sendChat() {
     const inp = document.getElementById('chatMsg');
-    const msg = inp.value.trim();
+    let msg = inp.value.trim();
     if (!msg || !ws || ws.readyState !== 1) return;
-    const _chatClr = localStorage.getItem('ns_chat_color') || '';
+    
+    if (msg === '/shrug') msg = '¯\\_(ツ)_/¯';
+    else if (msg === '/tableflip') msg = '(╯°□°)╯︵ ┻━┻';
+    else if (msg === '/unflip') msg = '┬─┬ノ( º _ ºノ)';
+    else if (msg === '/dance') msg = '/me starts dancing! 💃🕺';
+    else if (msg.startsWith('/roll')) {
+        let max = parseInt(msg.split(' ')[1]) || 100;
+        let num = Math.floor(Math.random() * max) + 1;
+        msg = `/me rolls a ${num} (out of ${max})`;
+    }
+        const _chatClr = localStorage.getItem('ns_chat_color') || '';
     ws.send(JSON.stringify({ type: 'chat', from: myName, msg, platform: viewerPlatform, color: _chatClr }));
     appendChat(myName, msg, true, viewerPlatform, _chatClr);
     chatHistory.push(msg);
     chatHistoryIndex = chatHistory.length;
     inp.value = '';
-    _hideMentionDropdown();
+    _hideAutocompleteDropdown();
 }
 function toggleChat() {
     const panel = document.getElementById('chatPanel');
     const bar = document.getElementById('nsBar');
-    if (panel) panel.classList.toggle('open');
+    const container = document.getElementById('video-container');
+    let open = false;
+    if (panel) {
+        panel.classList.toggle('open');
+        open = panel.classList.contains('open');
+    }
     if (bar) bar.classList.remove('open');
+    
+    const pushStream = !window.wcDecoder;
+    if (container) container.classList.toggle('party-chat', open && pushStream);
+    
+    window.pushPartyState && window.pushPartyState();
 }
 function toggleAudio() {
     audioMuted = !audioMuted;
@@ -3130,6 +3270,12 @@ async function updateStats() {
             if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null)
                 rtt = (r.currentRoundTripTime * 1000).toFixed(0);
             if (r.type === 'inbound-rtp' && r.kind === 'video') {
+                if (r.frameWidth && r.frameHeight) window._hudResolution = r.frameWidth + 'x' + r.frameHeight;
+                if (r.codecId) {
+                    const codecStat = stats.get(r.codecId);
+                    if (codecStat && codecStat.mimeType) window._hudCodec = codecStat.mimeType.split('/')[1];
+                }
+                
                 packetsLost = r.packetsLost || 0;
                 packetsReceived = r.packetsReceived || 1;
                 // #4: request keyframe on any new packet loss (with 500ms cooldown)
@@ -3157,6 +3303,13 @@ async function updateStats() {
             // ── Quality tier from RTT + packet loss ──────────────────────────
             const rttN = parseInt(rtt);
             const lossRatio = packetsReceived > 0 ? (packetsLost / (packetsLost + packetsReceived)) * 100 : 0;
+
+            // Phase 8: traffic-light network dot
+            if (window.updateNetworkDot) {
+                if (rttN < 80 && lossRatio < 4) window.updateNetworkDot('good');
+                else if (rttN < 220 && lossRatio < 14) window.updateNetworkDot('mid');
+                else window.updateNetworkDot('bad');
+            }
 
             let bars, colour;
             if (rttN < 40 && lossRatio < 1) { bars = '▪▪▪▪'; colour = '#4ade80'; } // excellent — green
@@ -3574,6 +3727,7 @@ function initWebCodecsViewer(config) {
 
         if (wcCtx) {
             wcGlTexture = _setupWebGL(wcCtx);
+            _lastAppliedUpscale = null;
         } else {
             wcCtx = wcCanvas.getContext('2d', { alpha: false });
             wcGlTexture = null;
@@ -3620,6 +3774,9 @@ function initWebCodecsViewer(config) {
                 if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
             }
             if (wcCtx && wcGlTexture) {
+                if (_applyUpscaleFilter && (_lastAppliedUpscale === null || document.body.classList.contains('pixel-mode') !== (_upscaleMode === 2))) {
+                    _applyUpscaleFilter();
+                }
                 wcCtx.activeTexture(wcCtx.TEXTURE0);
                 wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
                 wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
@@ -3723,17 +3880,432 @@ let netStatsInterval = null;
 window.toggleNetStats = function() {
     const el = document.getElementById('netStatsOverlay');
     const toggle = document.getElementById('vNetStatsToggle');
+    const pt = document.getElementById('partyTab');
     if (!el) return;
     if (el.classList.contains('gone')) {
         el.classList.remove('gone');
+        el.classList.add('drop-down');
+        window.netStatsDropdownOpen = true;
         if (toggle) toggle.classList.add('on');
+        if (pt) pt.style.display = 'none';
+        
+        // Force close HUD
+        const hud = document.getElementById('hudWidget');
+        if (hud && !hud.classList.contains('hide')) window.toggleHud();
+        
+        // Force close party panel if open
+        const partyPanel = document.getElementById('partySettingsPanel');
+        if (partyPanel && partyPanel.classList.contains('open') && window.closePartySettings) window.closePartySettings();
+        
         window.startNetStats();
     } else {
         el.classList.add('gone');
+        el.classList.remove('drop-down');
+        window.netStatsDropdownOpen = false;
         if (toggle) toggle.classList.remove('on');
+        if (pt) pt.style.display = 'flex';
         clearInterval(netStatsInterval);
     }
 };
+
+// ── PHASE 2: PARTY MODE PANEL ─────────────────────────────────────────────────
+window.togglePartySettings = function() {
+    const hud = document.getElementById('hudWidget');
+    if (hud && !hud.classList.contains('hide')) return; // Block sidebar if HUD is open
+
+    const panel = document.getElementById('partySettingsPanel');
+    const backdrop = document.getElementById('partyBackdrop');
+    const tab = document.getElementById('partyTab');
+    if (!panel) return;
+    const isOpen = panel.classList.toggle('open');
+    if (backdrop) backdrop.classList.toggle('open', isOpen);
+    if (tab) tab.style.display = isOpen ? 'none' : 'flex';
+    syncPartyToggles();
+};
+
+window.closePartySettings = function() {
+    const panel = document.getElementById('partySettingsPanel');
+    const backdrop = document.getElementById('partyBackdrop');
+    const tab = document.getElementById('partyTab');
+    const hud = document.getElementById('hudWidget');
+    const isHudOpen = hud && !hud.classList.contains('hide');
+    
+    if (panel) panel.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('open');
+    if (tab && !isHudOpen) tab.style.display = 'flex';
+};
+
+window.togglePartyNetStats = function() {
+    window.toggleNetStats();
+    const el = document.getElementById('netStatsOverlay');
+    if (el && !el.classList.contains('gone')) {
+        el.classList.add('drop-down');
+    }
+};
+
+
+
+// ── PHASE 4: TOAST NOTIFICATIONS ─────────────────────────────────────────────
+window.pushToast = function(msg, opts={}) {
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+    const item = document.createElement('div');
+    item.className = 'toast-item ' + (opts.type === 'error' ? 'toast-err' : '');
+    const ic = document.createElement('span');
+    ic.className = 'toast-ic';
+    ic.textContent = opts.type === 'error' ? '⚠' : (opts.icon || '✦');
+    const txt = document.createElement('span');
+    txt.className = 'toast-txt';
+    txt.textContent = msg;
+    item.appendChild(ic);
+    item.appendChild(txt);
+    stack.appendChild(item);
+    while (stack.children.length > 4) stack.removeChild(stack.firstChild);
+    setTimeout(() => {
+        item.classList.add('out');
+        setTimeout(() => item.remove(), 380);
+    }, opts.duration || 3500);
+};
+
+
+
+// ── PHASE 7: IDLE MODE / IMMERSION ───────────────────────────────────────────
+window.immersionEnabled = false;
+let _idleTimer = null;
+let _idleCueVisible = false;
+document.addEventListener('pointerdown', () => { window._lastActivityTime = Date.now(); }, { passive: true });
+document.addEventListener('keydown', () => { window._lastActivityTime = Date.now(); }, { passive: true });
+document.addEventListener('mousemove', () => { window._lastActivityTime = Date.now(); }, { passive: true });
+document.addEventListener('gamepadconnected', () => { window._lastActivityTime = Date.now(); });
+document.addEventListener('gamepaddisconnected', () => { window._lastActivityTime = Date.now(); });
+
+window.toggleImmersion = function() {
+    window.immersionEnabled = !window.immersionEnabled;
+    const toggle = document.getElementById('vImmersionToggle');
+    if (toggle) toggle.classList.toggle('on', window.immersionEnabled);
+    if (window.immersionEnabled) {
+        window._lastActivityTime = Date.now();
+        startIdleWatch();
+    } else {
+        const hint = document.getElementById('idleHint');
+        if (hint) hint.style.display = 'none';
+        if (_idleTimer) { clearInterval(_idleTimer); _idleTimer = null; }
+        _idleCueVisible = false;
+    }
+};
+
+function startIdleWatch() {
+    if (!window.immersionEnabled) return;
+    if (_idleTimer) clearInterval(_idleTimer);
+    _idleTimer = setInterval(() => {
+        const hint = document.getElementById('idleHint');
+        const videoEl = document.getElementById('video');
+        const isStreaming = !!window.pc;
+        const last = window._lastActivityTime || Date.now();
+        const ago = Date.now() - last;
+        // Idle → pause the stream
+        if (isStreaming && !_idleCueVisible && ago > 9000) {
+            _idleCueVisible = true;
+            if (hint) hint.style.display = 'inline';
+            try {
+                if (videoEl && !videoEl.paused && !videoEl.ended) {
+                    videoEl.dataset._idlePaused = '1';
+                    videoEl.pause();
+                }
+            } catch (e) {}
+        }
+        // Active again → resume + hide cue
+        if (_idleCueVisible && (ago < 5000 || !isStreaming)) {
+            _idleCueVisible = false;
+            if (hint) hint.style.display = 'none';
+            if (isStreaming && videoEl && videoEl.dataset._idlePaused === '1') {
+                videoEl.dataset._idlePaused = '';
+                videoEl.play().catch(() => {});
+            }
+        }
+    }, 2000);
+}
+
+
+
+// ── Phase 5: SHIFT+TAB FLOATING HUD (draggable + resizable) ───────────────────
+let _hudDrag = null;
+let _hudResize = null;
+let _hudLastFrames = 0;
+
+function hudRect() {
+    const el = document.getElementById('hudWidget');
+    if (!el) return null;
+    return { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+function saveHudState() {
+    try {
+        const r = hudRect();
+        if (r) localStorage.setItem('ns_hud_state', JSON.stringify({ x: r.x, y: r.y, w: r.w, h: r.h }));
+    } catch (e) {}
+}
+
+function applyHudState() {
+    const el = document.getElementById('hudWidget');
+    if (!el) return;
+    try {
+        const s = JSON.parse(localStorage.getItem('ns_hud_state') || 'null');
+        if (s && typeof s.x === 'number') {
+            el.style.left = s.x + 'px';
+            el.style.top = s.y + 'px';
+            el.style.width = s.w + 'px';
+            el.style.height = s.h + 'px';
+        }
+    } catch (e) {}
+}
+
+window.toggleHud = function() {
+    const el = document.getElementById('hudWidget');
+    if (!el) return;
+    const isHidden = el.classList.toggle('hide');
+    const pt = document.getElementById('partyTab');
+    if (pt) {
+        if (!isHidden) pt.style.display = 'none';
+        else pt.style.display = 'flex';
+    }
+    
+    let tint = document.getElementById('hudTintOverlay');
+    if (!isHidden) {
+        if (!tint) {
+            tint = document.createElement('div');
+            tint.id = 'hudTintOverlay';
+            tint.innerHTML = '<div style="position:absolute;bottom:40px;width:100%;text-align:center;color:rgba(255,255,255,0.4);font-family:sans-serif;font-weight:700;letter-spacing:6px;font-size:24px;text-shadow:0 2px 10px rgba(0,0,0,0.8);pointer-events:none;">OVERLAY ACTIVE</div>';
+            tint.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1399;pointer-events:none;transition:opacity 0.2s;';
+            document.body.appendChild(tint);
+        }
+        tint.style.opacity = '1';
+        
+        // Force close net stats and party panel if open
+        if (window.netStatsDropdownOpen && window.toggleNetStats) window.toggleNetStats();
+        const partyPanel = document.getElementById('partySettingsPanel');
+        if (partyPanel && partyPanel.classList.contains('open') && window.closePartySettings) window.closePartySettings();
+        
+        applyHudState();
+    } else {
+        if (tint) tint.style.opacity = '0';
+    }
+};
+
+function wireHudInteractions() {
+    const el = document.getElementById('hudWidget');
+    if (!el || el.dataset.hud) return;
+    el.dataset.hud = '1';
+    const titleBar = el.querySelector('.hud-w-titlebar');
+    const resizeHandle = el.querySelector('.hud-resize');
+
+    if (titleBar) titleBar.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.hud-close')) return;
+        _hudDrag = { active: true, ox: e.clientX - el.offsetLeft, oy: e.clientY - el.offsetTop };
+        el.classList.add('dragging');
+        titleBar.setPointerCapture(e.pointerId);
+    });
+    if (titleBar) titleBar.addEventListener('pointermove', (e) => {
+        if (!_hudDrag.active) return;
+        const x = Math.min(window.innerWidth - el.offsetWidth, Math.max(0, e.clientX - _hudDrag.ox));
+        const y = Math.min(window.innerHeight - el.offsetHeight, Math.max(0, e.clientY - _hudDrag.oy));
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+    });
+    if (titleBar) titleBar.addEventListener('pointerup', () => {
+        if (!_hudDrag.active) return;
+        _hudDrag.active = false;
+        el.classList.remove('dragging');
+        saveHudState();
+    });
+
+    if (resizeHandle) resizeHandle.addEventListener('pointerdown', (e) => {
+        _hudResize = { active: true, x: e.clientX, y: e.clientY, w: el.offsetWidth, h: el.offsetHeight };
+        el.classList.add('resizing');
+        resizeHandle.setPointerCapture(e.pointerId);
+        e.stopPropagation();
+    });
+    if (resizeHandle) resizeHandle.addEventListener('pointermove', (e) => {
+        if (!_hudResize.active) return;
+        el.style.width = Math.max(160, _hudResize.w + (e.clientX - _hudResize.x)) + 'px';
+        el.style.height = Math.max(120, _hudResize.h + (e.clientY - _hudResize.y)) + 'px';
+    });
+    if (resizeHandle) resizeHandle.addEventListener('pointerup', () => {
+        if (!_hudResize.active) return;
+        _hudResize.active = false;
+        el.classList.remove('resizing');
+        saveHudState();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.shiftKey && e.key === 'Tab') {
+            e.preventDefault();
+            window.toggleHud();
+        }
+    }, { capture: true });
+    
+    // Auto-update chat width for responsive video scaling
+    const chatPanel = document.getElementById('chatPanel');
+    if (chatPanel && window.ResizeObserver) {
+        new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const w = entry.borderBoxSize ? entry.borderBoxSize[0].inlineSize : entry.contentRect.width;
+                document.documentElement.style.setProperty('--chat-width', (w + 20) + 'px');
+            }
+        }).observe(chatPanel);
+    }
+}
+
+// Feed live stats into the HUD when it's visible
+let _hudGraphDataFps = [];
+let _hudGraphDataRtt = [];
+
+setInterval(async () => {
+    const el = document.getElementById('hudWidget');
+    if (!el || el.classList.contains('hide')) return;
+    const g = (id) => document.getElementById(id);
+    const net = g('netStatusDot');
+    if (net) g('hudNet').textContent = net.className.replace('ns-dot-', '').toUpperCase();
+    
+    if (window._hudCodec) g('hudCodec').textContent = window._hudCodec;
+    if (window._hudResolution) g('hudRes').textContent = window._hudResolution;
+    
+    if (pc) {
+        let currentFps = 0, currentRtt = 0;
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+            if (report.type === 'inbound-rtp' && report.kind === 'video' && report.framesPerSecond != null) {
+                currentFps = report.framesPerSecond;
+            }
+            if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime != null) {
+                currentRtt = report.currentRoundTripTime * 1000;
+            }
+        });
+        
+        g('hudFps').textContent = currentFps.toFixed(0) + ' fps';
+        g('hudRtt').textContent = currentRtt.toFixed(0) + ' ms';
+        
+        _hudGraphDataFps.push(currentFps);
+        if (_hudGraphDataFps.length > 30) _hudGraphDataFps.shift();
+        
+        _hudGraphDataRtt.push(currentRtt);
+        if (_hudGraphDataRtt.length > 30) _hudGraphDataRtt.shift();
+        
+        const canvas = g('hudGraph');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            ctx.clearRect(0,0,w,h);
+            
+            // Draw RTT (orange, scaled to 200ms)
+            ctx.beginPath();
+            ctx.strokeStyle = '#ff9f0a';
+            ctx.lineWidth = 1.5;
+            for(let i=0; i<_hudGraphDataRtt.length; i++) {
+                const x = (i / 29) * w;
+                const val = _hudGraphDataRtt[i];
+                const y = h - (Math.min(val, 200) / 200) * h;
+                if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+            }
+            ctx.stroke();
+
+            // Draw FPS (green, scaled to 60fps)
+            ctx.beginPath();
+            ctx.strokeStyle = '#34c759';
+            ctx.lineWidth = 1.5;
+            for(let i=0; i<_hudGraphDataFps.length; i++) {
+                const x = (i / 29) * w;
+                const val = _hudGraphDataFps[i];
+                const y = h - (Math.min(val, 60) / 60) * h;
+                if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+            }
+            ctx.stroke();
+        }
+    }
+}, 1000);
+
+setTimeout(() => { applyHudState(); wireHudInteractions(); }, 300);
+
+// Restore upscale mode from persisted settings
+setTimeout(() => {
+    const saved = localStorage.getItem('ns_upscale_mode');
+    if (saved !== null && !isNaN(parseInt(saved, 10))) {
+        _upscaleMode = parseInt(saved, 10);
+        window.setUpscaleMode(_upscaleMode);
+    }
+}, 500);
+
+// ── Phase 10: SHARE / INVITE ─────────────────────────────────────────────────
+const _shareInvno = 0;
+let _shareQrPending = null;
+
+window.openShareModal = function() {
+    const m = document.getElementById('shareModal');
+    const url = window._shareUrl || (location.href.split('#')[0]);
+    m.classList.remove('gone');
+    const linkEl = document.getElementById('shareLink');
+    linkEl.value = url;
+    const qr = document.getElementById('shareQr');
+    if (window.QRCode) {
+        qr.innerHTML = '';
+        new QRCode(qr, { text: url, width: 130, height: 130, correctLevel: QRCode.CorrectLevel.M });
+    } else {
+        qr.innerHTML = '<span style="color:#333;font-size:11px">QR: ' + url + '</span>';
+    }
+};
+
+window.closeShareModal = function() {
+    const m = document.getElementById('shareModal');
+    if (m) m.classList.add('gone');
+};
+
+window.copyShareLink = function() {
+    const linkEl = document.getElementById('shareLink');
+    if (!linkEl) return;
+    navigator.clipboard.writeText(linkEl.value).then(() => {
+        const btn = document.querySelector('.share-copy');
+        if (btn) btn.textContent = 'Copied!';
+        window.pushToast('Invite link copied to clipboard');
+        setTimeout(() => { if (btn && btn.textContent === 'Copied!') btn.textContent = 'Copy Link'; }, 1500);
+    }).catch(() => {
+        window.pushToast('Could not copy link', { type: 'error' });
+    });
+};
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { window.closePartySettings && window.closePartySettings(); window.closeShareModal && window.closeShareModal(); }
+});
+
+// ── PARTY STATE PERSISTENCE (localStorage) ───────────────────────────────────
+window.pushPartyState = function() {
+    try {
+        localStorage.setItem('ns_party_state', JSON.stringify({
+            pixel: !!window.pixelFilterEnabled,
+            crt: !!window.crtFilterEnabled,
+            fgc: !!window.fgcEnabled,
+            chat: !!(document.getElementById('chatPanel') && document.getElementById('chatPanel').classList.contains('open'))
+        }));
+    } catch (e) {}
+};
+
+window.recallPartyState = function() {
+    try {
+        const s = JSON.parse(localStorage.getItem('ns_party_state') || '{}');
+        if (s.pixel) window.togglePixelFilter();
+        if (s.crt) window.toggleCrtFilter();
+        if (s.fgc) window.toggleFgcVisualizer();
+    } catch (e) {}
+};
+
+// Restore party toggles from DOM state (called when panel opens)
+function syncPartyToggles() {
+    const states = {
+        partyChatToggle: !!(document.getElementById('chatPanel') && document.getElementById('chatPanel').classList.contains('open'))
+    };
+    for (const [id, on] of Object.entries(states)) {
+        const t = document.getElementById(id);
+        if (t) t.classList.toggle('on', on);
+    }
+}
 
 window.startNetStats = function() {
     clearInterval(netStatsInterval);

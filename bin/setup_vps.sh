@@ -25,7 +25,7 @@ echo ""
 echo "--- VPS PREP COMPLETE ---"
 echo "Next Steps:"
 echo "1. Run Caddy and the nearcade-router (refer to src/docs/VPS_SETUP.md)."
-echo "2. Set the VPS URL in the Nearsec host GUI and select VPS (SFU)."
+echo "2. Set the VPS URL in the Nearcade host GUI and select VPS (SFU)."
 echo ""
 echo "Note: The VPS handles signaling and data routing natively."
 

@@ -3,8 +3,8 @@
 Host Dashboard es su centro de control para administrar transmisiones, espectadores y audio del sistema.
 
 ## Captura de vídeo y audio
-Cuando inicia una sesión, Nearsec se conecta a las API de su sistema operativo nativo, como Wayland, X11 o Windows Graphics Capture.
-* Enrutamiento de audio para Linux: Nearsec crea automáticamente un sumidero virtual NearsecVirtualCapture. El sistema utiliza propiedades exactas del nodo PipeWire para enrutar el audio del juego a este receptor automáticamente. Esto mantiene los chats de voz y audio de tu escritorio personal fuera de la transmisión.
+Cuando inicia una sesión, Nearcade se conecta a las API de su sistema operativo nativo, como Wayland, X11 o Windows Graphics Capture.
+* Enrutamiento de audio para Linux: Nearcade crea automáticamente un sumidero virtual NearsecVirtualCapture. El sistema utiliza propiedades exactas del nodo PipeWire para enrutar el audio del juego a este receptor automáticamente. Esto mantiene los chats de voz y audio de tu escritorio personal fuera de la transmisión.
 * Control de volumen: el fregadero virtual se tapa automáticamente al 70 por ciento del volumen para proteger su audición.
 
 ## Lista de jugadores y permisos de entrada

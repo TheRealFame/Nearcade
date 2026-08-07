@@ -80,7 +80,7 @@ if UINPUT_OK:
         if _n.startswith("KEY_"):
             KBM_EVENTS.append(getattr(uinput, _n))
     try:
-        kbm_device = uinput.Device(KBM_EVENTS, name="Nearsec_KBM_Injector")
+        kbm_device = uinput.Device(KBM_EVENTS, name="Nearcade_KBM_Injector")
     except Exception as e:
         print(json.dumps({"type": "error", "code": "E101", "message": f"KBM device failed (check /dev/uinput permissions): {e}"}), flush=True)
 

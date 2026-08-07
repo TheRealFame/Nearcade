@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (window.electronAPI) {
     const { version, commit } = await window.electronAPI.getVersion();
-    window.NEARSEC_VERSION = version;
+    window.NEARCADE_VERSION = version;
     vEl.innerHTML = `v${version} <span style="opacity:0.5; margin-left:4px;">${commit}</span>`;
     if (typeof checkForUpdates === 'function') checkForUpdates(version);
     setTimeout(checkClientVersion, 1500);
@@ -42,8 +42,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('updateModal').style.display = 'flex';
     });
   } else {
-    if (window.NEARSEC_VERSION && vEl) vEl.textContent = 'v' + window.NEARSEC_VERSION;
-    if (window.NEARSEC_COMMIT && cEl) cEl.textContent = window.NEARSEC_COMMIT;
+    if (window.NEARCADE_VERSION && vEl) vEl.textContent = 'v' + window.NEARCADE_VERSION;
+    if (window.NEARCADE_COMMIT && cEl) cEl.textContent = window.NEARCADE_COMMIT;
     setTimeout(checkClientVersion, 1500);
   }
 });
@@ -85,7 +85,7 @@ async function checkForUpdates(currentVersion) {
 }
 
 function copyVersion() {
-  const txt = 'v' + (window.NEARSEC_VERSION || 'unknown') + (window.NEARSEC_COMMIT ? '-' + window.NEARSEC_COMMIT : '');
+  const txt = 'v' + (window.NEARCADE_VERSION || 'unknown') + (window.NEARCADE_COMMIT ? '-' + window.NEARCADE_COMMIT : '');
   navigator.clipboard.writeText(txt).catch(() => { });
   const vEl = document.getElementById('version-text');
   const old = vEl.textContent;
@@ -108,18 +108,18 @@ function compareVersions(a, b) {
 
 async function checkClientVersion() {
   try {
-    const res = await fetch((window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/client-version');
+    const res = await fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/client-version');
     if (!res.ok) return;
     const data = await res.json();
     const minVer = data.minimum || '0.0.0';
-    if (compareVersions(window.NEARSEC_VERSION, minVer) < 0) {
+    if (compareVersions(window.NEARCADE_VERSION, minVer) < 0) {
       const overlay = document.createElement('div');
       overlay.id = 'clientVersionOverlay';
       overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
       overlay.innerHTML = '<div style="background:#121518;border:1px solid #ff5d3d;border-radius:12px;padding:40px;max-width:420px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">'
         + '<h2 style="color:#ff5d3d;margin:0 0 12px 0;text-transform:uppercase;letter-spacing:1px;">Client Outdated</h2>'
         + '<p style="color:#949ba4;font-size:14px;line-height:1.6;margin:0 0 16px 0;">'
-        + 'You are running <strong style="color:#f0f3f5;">Nearcade v' + window.NEARSEC_VERSION + '</strong>.<br>'
+        + 'You are running <strong style="color:#f0f3f5;">Nearcade v' + window.NEARCADE_VERSION + '</strong>.<br>'
         + 'The arcade directory requires at least <strong style="color:#f0f3f5;">v' + minVer + '</strong>.<br><br>'
         + 'Please update to the latest version to continue hosting arcade sessions.</p>'
         + '<a href="https://github.com/TheRealFame/Nearcade/releases/latest" target="_blank" style="display:inline-block;background:#ff5d3d;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Download Update</a>'
@@ -161,7 +161,7 @@ function switchTab(name) {
     if (arcadeFrame && !arcadeFrame.src) {
       const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
       const currentPort = _getServerPort();
-      arcadeFrame.src = (window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+      arcadeFrame.src = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
     }
   } else if (name === 'serverlist') {
     fetchCommunityServers();
@@ -853,7 +853,7 @@ async function joinDirectLink() {
 }
 
 window.addEventListener('message', (event) => {
-  const _arcadeOrigin = (window.NEARSEC_ARCADE_URL || 'https://nearcade.cutefame.net');
+  const _arcadeOrigin = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net');
   if (event.origin.includes(new URL(_arcadeOrigin).hostname) && event.data?.type === 'JOIN_SESSION') {
     if (window.electronAPI) window.electronAPI.joinSession(event.data.url, { game: event.data.game });
   }

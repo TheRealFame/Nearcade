@@ -13,7 +13,7 @@
 #
 # !! COMPLEXITY: IMPOSSIBLE OVER WEB — READ CAREFULLY !!
 #
-# As documented in DEVICE_SPECS.md §8, the Host side of a Nearsec session
+# As documented in DEVICE_SPECS.md §8, the Host side of a Nearcade session
 # CANNOT be a mobile browser. The viewer side is always a web browser, but
 # the Host must be a native, rooted Android APK running a background service.
 #
@@ -25,7 +25,7 @@
 # Practical path to Android Host support:
 #   1. A Kivy / BeeWare / native Java APK wraps this Python logic.
 #   2. The APK binds a background Service that opens a WebSocket to the
-#      Nearsec signaling server as the host role.
+#      Nearcade signaling server as the host role.
 #   3. Incoming gamepad payloads from viewers are forwarded via ADB shell
 #      or sendevent calls to /dev/input/event* on the Android device.
 #   4. Root access (via 'su') is required to write to /dev/uinput.

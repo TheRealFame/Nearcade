@@ -108,7 +108,12 @@ class WiVRnIntegration {
 
             if (binary) {
                 command = binary;
-                args = ['--no-manage-active-runtime'];
+                // If headless mode is requested, force early active runtime so it works without a headset
+                if (options.headless) {
+                    args = ['--early-active-runtime'];
+                } else {
+                    args = ['--no-manage-active-runtime'];
+                }
                 if (options.bitrate) args.push('--bitrate', String(options.bitrate));
                 if (options.resolution) args.push('--resolution', options.resolution);
                 if (options.framerate) args.push('--framerate', String(options.framerate));

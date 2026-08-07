@@ -7,10 +7,10 @@
 ## Capturas de pantalla: Panel de control, Página del visor, Arcade
 
 <div align="center">
-  <img src="assets/screenshots/nearsec-client-home.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-host.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-viewer.png" alt="Nearsec Viewer" width="45%">
-  <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
+  <img src="assets/screenshots/nearcade-client-home.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-host.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-viewer.png" alt="Nearcade Viewer" width="45%">
+  <img src="assets/screenshots/nearcade-arcade.png" alt="Nearcade Arcade" width="45%">
 </div>
 
 ## Descripción del proyecto
@@ -145,7 +145,7 @@ En arquitecturas inusuales, es posible que necesites construir Electron desde la
 -   Virtualización de entrada del controlador mediante`uinput`para evitar sin problemas la entrada de vapor.
 -   Escalado dinámico de la tasa de bits con preferencia de degradación seleccionable por el usuario.
 -   Interfaz de usuario táctil móvil con joystick virtual y giroscopio opcional.
--   Modo Arcade: publica tu sesión en Nearsec Arcade para que otros la descubran y se unan.
+-   Modo Arcade: publica tu sesión en Nearcade Arcade para que otros la descubran y se unan.
 
 * * *
 

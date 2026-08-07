@@ -10,7 +10,7 @@ class P2PSignaler {
     }
 
     initHost(roomCode, onMessageCallback) {
-        this.room = joinRoom({ appId: 'nearsec-arcade' }, roomCode);
+        this.room = joinRoom({ appId: 'nearcade-arcade' }, roomCode);
         this.onMessageCallback = onMessageCallback;
         this.isActive = true;
         
@@ -43,7 +43,7 @@ class P2PSignaler {
     }
 
     initViewer(roomCode, onMessageCallback, onReady) {
-        this.room = joinRoom({ appId: 'nearsec-arcade' }, roomCode);
+        this.room = joinRoom({ appId: 'nearcade-arcade' }, roomCode);
         this.onMessageCallback = onMessageCallback;
         this.isActive = true;
         

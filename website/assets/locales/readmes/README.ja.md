@@ -7,10 +7,10 @@
 ## スクリーンショット -- ダッシュボード、ビューア ページ、アーケード
 
 <div align="center">
-  <img src="assets/screenshots/nearsec-client-home.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-host.png" alt="Nearsec Host" width="45%">
-  <img src="assets/screenshots/nearsec-viewer.png" alt="Nearsec Viewer" width="45%">
-  <img src="assets/screenshots/nearsec-arcade.png" alt="Nearsec Arcade" width="45%">
+  <img src="assets/screenshots/nearcade-client-home.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-host.png" alt="Nearcade Host" width="45%">
+  <img src="assets/screenshots/nearcade-viewer.png" alt="Nearcade Viewer" width="45%">
+  <img src="assets/screenshots/nearcade-arcade.png" alt="Nearcade Arcade" width="45%">
 </div>
 
 ## プロジェクトの説明
@@ -145,7 +145,7 @@ npm install
 -   コントローラ入力仮想化による`uinput`シームレスな Steam 入力バイパスを実現します。
 -   ユーザーが選択可能な劣化設定による動的なビットレート スケーリング。
 -   仮想ジョイスティックとオプションのジャイロ照準を備えたモバイル タッチ UI。
--   アーケード モード — 他の人が発見して参加できるように、Nearsec Arcade にセッションを公開します。
+-   アーケード モード — 他の人が発見して参加できるように、Nearcade Arcade にセッションを公開します。
 
 * * *
 

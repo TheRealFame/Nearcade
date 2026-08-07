@@ -67,6 +67,146 @@
       --border2: rgba(0, 0, 0, 0.3);
     }
 
+    /* ─── THEME: Windows Vista (Frutiger Aero) ──────────────────────────── */
+    [data-theme="vista"] {
+      --bg: #083d4f;
+      --surface: #0b5b77;
+      --card: rgba(10, 90, 122, 0.72);
+      --hover: rgba(255, 255, 255, 0.12);
+
+      --accent: #4fc3f7;
+      --accent2: #81d4fa;
+      --accent-dim: rgba(79, 195, 247, 0.22);
+      --accent-glow: rgba(79, 195, 247, 0.55);
+
+      --text: #eaf6ff;
+      --muted: #b6d9ea;
+      --muted2: #7fb0c7;
+
+      --green: #66bb6a;
+      --warn: #ffca28;
+      --danger: #ef5350;
+
+      --border: rgba(255, 255, 255, 0.35);
+      --border2: rgba(255, 255, 255, 0.55);
+
+      --glass-highlight: 'false';
+    }
+
+    [data-theme="vista"] #video-container {
+      background: linear-gradient(135deg, #041f2b 0%, #0a3550 45%, #0e5a7d 100%);
+    }
+
+    [data-theme="vista"] .hud-pill,
+    [data-theme="vista"] #nsBarInner,
+    [data-theme="vista"] #chatPanel,
+    [data-theme="vista"] #viewerSettingsModal .v-settings-card,
+    [data-theme="vista"] #quickHostPanel {
+      background: linear-gradient(165deg, rgba(134, 212, 241, 0.45) 0%, rgba(14, 88, 124, 0.72) 30%, rgba(6, 44, 64, 0.82) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15),
+        0 0 18px rgba(79, 195, 247, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        inset 0 -12px 24px rgba(255, 255, 255, 0.08);
+    }
+
+    [data-theme="vista"] .hud-pill::before,
+    [data-theme="vista"] #chatPanel::before {
+      content: "";
+      position: absolute;
+      top: 1px;
+      left: 1px;
+      right: 1px;
+      height: 45%;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
+      border-radius: inherit;
+      pointer-events: none;
+    }
+
+    [data-theme="vista"] .ns-bar-btn {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02));
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      color: var(--text);
+    }
+
+    [data-theme="vista"] #netStatsOverlay,
+    [data-theme="vista"] #chatToast,
+    [data-theme="vista"] #micToast {
+      background: linear-gradient(165deg, rgba(38, 130, 168, 0.85), rgba(8, 44, 64, 0.92));
+      border-color: rgba(255, 255, 255, 0.4);
+      box-shadow: 0 0 14px rgba(79, 195, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    }
+
+    /* ─── THEME: iOS Glassmorphism ──────────────────────────────────────── */
+    [data-theme="glass"] {
+      --bg: #e9edf2;
+      --surface: #f4f6f9;
+      --card: rgba(255, 255, 255, 0.42);
+      --hover: rgba(255, 255, 255, 0.5);
+
+      --accent: #0a84ff;
+      --accent2: #409cff;
+      --accent-dim: rgba(10, 132, 255, 0.14);
+      --accent-glow: rgba(10, 132, 255, 0.3);
+
+      --text: #1c1c1e;
+      --muted: #5a5f6b;
+      --muted2: #8e919c;
+
+      --green: #34c759;
+      --warn: #ff9f0a;
+      --danger: #ff3b30;
+
+      --border: rgba(255, 255, 255, 0.5);
+      --border2: rgba(255, 255, 255, 0.75);
+    }
+
+    [data-theme="glass"] #vBar {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0.12));
+    }
+
+    [data-theme="glass"] .hud-pill,
+    [data-theme="glass"] #nsBarInner,
+    [data-theme="glass"] #chatPanel,
+    [data-theme="glass"] #quickHostPanel,
+    [data-theme="glass"] #toastStack {
+      background: rgba(255, 255, 255, 0.42);
+      -webkit-backdrop-filter: blur(24px) saturate(1.6);
+      backdrop-filter: blur(24px) saturate(1.6);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: 0 8px 32px rgba(31, 38, 135, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    }
+    
+    [data-theme="glass"] .v-btn {
+      background: rgba(0, 0, 0, 0.4);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    [data-theme="glass"] .v-btn:hover {
+      background: rgba(0, 0, 0, 0.6);
+    }
+    [data-theme="glass"] #viewerSettingsModal .v-settings-card,
+    [data-theme="glass"] #quickHostPanel,
+    [data-theme="glass"] #ns-error-popup {
+      background: rgba(255, 255, 255, 0.5);
+      -webkit-backdrop-filter: blur(30px) saturate(1.8);
+      backdrop-filter: blur(30px) saturate(1.8);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      box-shadow: 0 12px 40px rgba(31, 38, 135, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+
+    /* Backdrop-filter must never touch the main video/canvas — only floating UI */
+    [data-theme="glass"] #video,
+    [data-theme="glass"] #frameCanvas,
+    [data-theme="glass"] #webcodecs-canvas,
+    [data-theme="vista"] #video,
+    [data-theme="vista"] #frameCanvas,
+    [data-theme="vista"] #webcodecs-canvas {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
     *,
     *::before,
     *::after {
@@ -679,6 +819,479 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    /* ─── PARTY MODE: SETTINGS COG SLIDE PANEL (Phase 2) ────────────────── */
+    #partyTab {
+      position: fixed;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--card);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border2);
+      border-right: none;
+      border-radius: 12px 0 0 12px;
+      padding: 9px 8px 9px 10px;
+      color: var(--text);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      z-index: 310;
+      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.25);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    #partyTab.hud-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #partyTab:hover {
+      background: var(--hover);
+      color: var(--accent2);
+    }
+
+    #partyBackdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 389;
+    }
+
+    #partySettingsPanel {
+      position: fixed;
+      right: -320px;
+      top: 0;
+      height: 100vh;
+      width: 300px;
+      background: var(--card);
+      -webkit-backdrop-filter: blur(22px);
+      backdrop-filter: blur(22px);
+      border: 1px solid var(--border2);
+      border-right: none;
+      border-radius: 18px 0 0 18px;
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4);
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: right 0.32s cubic-bezier(0.25, 0.9, 0.25, 1);
+      z-index: 390;
+    }
+
+    #partySettingsPanel.open {
+      right: 0;
+    }
+
+    #partyBackdrop.open {
+      display: block;
+    }
+
+    .party-ps-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .party-ps-header button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .party-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 10px;
+      background: var(--hover);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    .party-toggle-row:hover {
+      border-color: var(--border2);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .party-toggle-info {
+      min-width: 0;
+    }
+
+    .party-toggle-title {
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .party-toggle-desc {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 2px;
+      line-height: 1.35;
+    }
+
+    /* Canvas shift when party panels are open */
+    body.party-open #video,
+    body.party-open #frameCanvas,
+    body.party-open #webcodecs-canvas {
+      transition: width 0.32s cubic-bezier(0.25, 0.9, 0.25, 1), left 0.32s cubic-bezier(0.25, 0.9, 0.25, 1);
+    }
+
+    body.party-open #video-container {
+      margin-right: 300px;
+    }
+
+    body.party-open #video-container.party-chat {
+      margin-left: var(--chat-width, min(340px, calc(100vw - 20px)));
+    }
+
+    /* ─── PHASE 3: CRT / PIXEL FILTER OVERLAYS ─────────────────────────── */
+    #crtOverlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1180;
+      display: none;
+      background:
+        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0px, rgba(0, 0, 0, 0.18) 1px, transparent 1px, transparent 3px),
+        radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.28) 100%);
+      mix-blend-mode: multiply;
+    }
+    #crtOverlay.on { display: block; }
+
+    .filter-pixel-on {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1180;
+      display: none;
+      background: radial-gradient(circle at center, transparent 60%, transparent 100%);
+    }
+    .filter-pixel-on.on { display: block; }
+    body.pixel-mode #video,
+    body.pixel-mode #frameCanvas,
+    body.pixel-mode #webcodecs-canvas {
+      image-rendering: pixelated;
+    }
+
+    /* ─── PHASE 4: TOAST STACK (mid-left) ─────────────────────────────── */
+    #toastStack {
+      position: fixed;
+      left: 18px;
+      bottom: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1200;
+      pointer-events: none;
+      max-width: 320px;
+    }
+    .toast-item {
+      background: var(--card);
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border2);
+      border-left: 3px solid var(--accent);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+      animation: toast-in 0.3s cubic-bezier(0.25, 0.9, 0.25, 1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+    }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(-22px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .toast-item.out { opacity: 0; transform: translateX(-22px); transition: all 0.35s; }
+    .toast-item .toast-ic {
+      width: 26px; height: 26px; flex: 0 0 26px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: rgba(97, 193, 250, 0.15);
+      color: var(--accent2);
+      font-size: 13px;
+    }
+    .toast-item .toast-txt { line-height: 1.4; }
+    .toast-item.toast-err { border-left-color: #ff6b6b; }
+    .toast-item.toast-err .toast-ic { background: rgba(255, 86, 86, 0.16); color: #ff8a8a; }
+
+    /* ─── PHASE 8: NETWORK STATUS DOT (traffic light) ─────────────────── */
+    #netStatusDot {
+      position: fixed;
+      bottom: 14px;
+      left: 14px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      z-index: 1210;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      transition: background 0.25s;
+    }
+    #netStatusDot span {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      animation: dot-pulse 2.2s ease-out infinite;
+    }
+    #netStatusDot.ns-dot-good { background: #37d37a; }
+    #netStatusDot.ns-dot-good span { box-shadow: 0 0 0 0 rgba(55, 211, 122, 0.55); }
+    #netStatusDot.ns-dot-mid { background: #ffb020; }
+    #netStatusDot.ns-dot-mid span { box-shadow: 0 0 0 0 rgba(255, 176, 32, 0.55); }
+    #netStatusDot.ns-dot-bad { background: #ff5656; }
+    #netStatusDot.ns-dot-bad span { box-shadow: 0 0 0 0 rgba(255, 86, 86, 0.55); }
+    #netStatusDot.ns-dot-none { background: #3f4656; }
+    #netStatusDot.ns-dot-none span { box-shadow: 0 0 0 0 rgba(63, 70, 86, 0.4); }
+    @keyframes dot-pulse {
+      0% { box-shadow: 0 0 0 0 currentColor; }
+      100% { box-shadow: 0 0 0 10px transparent; }
+    }
+
+    /* ─── PHASE 9: FGC INPUT VISUALIZER ───────────────────────────────── */
+    #fgcWidget {
+      position: fixed;
+      left: 22px;
+      bottom: 44px;
+      width: 190px;
+      background: var(--card);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      padding: 10px;
+      z-index: 1300;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+      cursor: grab;
+    }
+    #fgcWidget.dragging { cursor: grabbing; }
+    .fgc-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    .fgc-title { font-size: 9px; letter-spacing: 0.18em; color: var(--muted); font-family: var(--mono); }
+    .fgc-close { background: none; border: none; color: var(--muted); font-size: 14px; cursor: pointer; }
+    .fgc-stick {
+      position: relative;
+      width: 74px; height: 74px;
+      margin: 0 auto 8px;
+      border-radius: 50%;
+      background: var(--hover);
+      border: 1px solid var(--border);
+    }
+    .fgc-stick .fgc-stick-x {
+      position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+      font-size: 10px; color: var(--accent); opacity: 0.35;
+    }
+    .fgc-stick .fgc-stick-y {
+      position: absolute; left: -14px; top: 50%; transform: translateY(-50%);
+      font-size: 10px; color: var(--accent); opacity: 0.35;
+    }
+    .fgc-stick-cap {
+      position: absolute; inset: 14px;
+      border: 1px dashed var(--border2);
+      border-radius: 50%;
+    }
+    .fgc-cap-pos {
+      position: absolute;
+      width: 17px; height: 17px;
+      left: 50%; top: 50%;
+      margin-left: -13.5px; margin-top: -13.5px;
+      background: var(--accent);
+      border-radius: 50%;
+      transition: left 0.06s linear, top 0.06s linear, margin-left 0.06s, margin-top 0.06s;
+    }
+    .fgc-buttons {
+      display: flex; flex-wrap: wrap; gap: 5px; justify-content: center;
+    }
+    .fgc-btn-cell {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      background: var(--hover);
+      border: 1px solid var(--border);
+      transition: all 0.05s;
+    }
+    .fgc-btn-cell.pressed {
+      color: #000;
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(97, 193, 250, 0.6);
+    }
+    .fgc-btn-f1, .fgc-btn-f2, .fgc-btn-f3, .fgc-btn-f4 { border-radius: 50%; }
+
+    /* ─── PHASE 10: SHARE / INVITE MODAL ──────────────────────────────── */
+    #shareModal {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 1500;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+    }
+    #shareModal.gone { display: none; }
+    .share-card {
+      width: min(320px, calc(100vw - 40px));
+      background: var(--card);
+      -webkit-backdrop-filter: blur(22px);
+      backdrop-filter: blur(22px);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      padding: 18px;
+      display: flex; flex-direction: column; gap: 10px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+    }
+    .share-header { display: flex; align-items: center; justify-content: space-between; }
+    .share-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; }
+    .share-close { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+    .share-qr {
+      display: flex; align-items: center; justify-content: center;
+      background: #fff; border-radius: 10px;
+      padding: 10px; min-height: 150px;
+    }
+    .share-qr canvas, .share-qr img { image-rendering: pixelated; }
+    .share-copy {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px; border-radius: 10px; cursor: pointer;
+      font-size: 12px; font-weight: 600;
+      background: var(--accent); color: #000; border: none;
+    }
+    .share-hint { font-size: 10px; color: var(--muted); text-align: center; }
+
+    /* ─── PHASE 5: SHIFT+TAB FLOATING HUD ─────────────────────────────── */
+    #hudWidget {
+      position: fixed;
+      left: 60px;
+      top: 80px;
+      width: 260px;
+      min-width: 160px;
+      min-height: 120px;
+      background: var(--card);
+      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
+      z-index: 1400;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+    #hudWidget.hide { display: none; }
+    #hudWidget.dragging, #hudWidget.resizing { opacity: 0.9; }
+    .hud-w-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--hover);
+      border-bottom: 1px solid var(--border);
+      cursor: grab;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .hud-w-titlebar:active { cursor: grabbing; }
+    .hud-w-titlebar svg { color: var(--accent); }
+    .hud-w-titlebar .hud-head-hint {
+      margin-left: auto;
+      font-size: 9px;
+      color: var(--muted);
+      font-weight: 400;
+      text-transform: none;
+      border: 1px solid var(--border2);
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+    .hud-close {
+      background: none; border: none; color: var(--muted);
+      font-size: 14px; cursor: pointer; line-height: 1; padding: 0 2px;
+    }
+    .hud-body {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+    }
+    .hud-stat {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .hud-stat span { color: var(--muted); }
+    .hud-stat b {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent2);
+    }
+    .hud-row { display: flex; align-items: center; }
+    .hud-btn {
+      flex: 1;
+      background: var(--hover);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 6px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .hud-btn:hover { border-color: var(--accent); color: var(--accent2); }
+    .hud-resize {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 16px;
+      height: 16px;
+      cursor: nwse-resize;
+    }
+    .hud-resize::after {
+      content: '';
+      position: absolute;
+      right: 3px;
+      bottom: 3px;
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      border-radius: 0 0 3px 0;
     }
 
     /* ─── SLIDE-OUT CONTROL BAR ─────────────────────────────────────────── */
@@ -2680,6 +3293,9 @@
     <span id="kbmHint" class="hud-pill" style="display:none;font-size:9px;">
       Click video — lock mouse · ESC to release
     </span>
+    <span id="idleHint" class="hud-pill" style="display:none;font-size:9px;">
+      Idle — video paused, press any key to resume
+    </span>
     <div id="statsHud" class="hud-pill" style="display:none;"></div>
   </div>
 
@@ -2689,6 +3305,50 @@
       <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
     </svg>
   </button>
+
+  <!-- ════ PARTY MODE SLIDE TOGGLES (Phase 2) ════ -->
+  <div id="partyTab" onclick="window.togglePartySettings && togglePartySettings()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+    Party
+  </div>
+  <div id="partyBackdrop" onclick="closePartySettings && closePartySettings()"></div>
+  <div id="partySettingsPanel">
+    <div class="party-ps-header">
+      <span>Party Mode</span>
+      <button onclick="closePartySettings && closePartySettings()">×</button>
+    </div>
+    <div class="party-toggle-row" onclick="toggleChat()">
+      <div class="party-toggle-info">
+        <div class="party-toggle-title">Chat Panel</div>
+        <div class="party-toggle-desc">Slide the chat into view from the edge.</div>
+      </div>
+      <div class="v-toggle" id="partyChatToggle" onclick="event.stopPropagation();toggleChat()"></div>
+    </div>
+    <div class="party-toggle-row" onclick="toggleImmersion()">
+      <div class="party-toggle-info">
+        <div class="party-toggle-title">Immersive Idle</div>
+        <div class="party-toggle-desc">Auto-pause video when idle, show resume hint.</div>
+      </div>
+      <div class="v-toggle" id="vImmersionToggle" onclick="event.stopPropagation();toggleImmersion()"></div>
+    </div>
+    <div class="party-toggle-row" onclick="window.closePartySettings && window.closePartySettings(); document.getElementById('keybindModal').style.display='flex'; if(window.renderKeybindList) window.renderKeybindList();">
+      <div class="party-toggle-info">
+        <div class="party-toggle-title">Keyboard Bindings</div>
+        <div class="party-toggle-desc">View or customize your keyboard controls.</div>
+      </div>
+      <span class="share-chevron" style="color:var(--muted);font-size:16px;">›</span>
+    </div>
+    <div class="party-toggle-row" onclick="openShareModal && openShareModal()" style="border-left:3px solid var(--accent2);">
+      <div class="party-toggle-info">
+        <div class="party-toggle-title" style="color:var(--accent2);">Share / Invite</div>
+        <div class="party-toggle-desc" style="display:flex;align-items:center;gap:6px;">QR code + link to invite friends.</div>
+      </div>
+      <span class="share-chevron" style="color:var(--muted);font-size:16px;">›</span>
+    </div>
+  </div>
 
 
 
@@ -3180,18 +3840,6 @@
             </div>
           </div>
 
-          <div class="v-settings-row">
-            <div class="v-settings-row-info">
-              <div class="v-settings-row-title">Input API Mode</div>
-              <div class="v-settings-row-desc">Change if your gamepad inputs are completely incorrect.</div>
-            </div>
-            <div class="v-settings-control">
-              <select class="v-select" id="vInputApiSelect"
-                onchange="window.updateInputMode && window.updateInputMode(this.value)">
-                <option value="gamepad">Standard HTML5</option>
-              </select>
-            </div>
-          </div>
 
           <div class="v-settings-row">
             <div class="v-settings-row-info">
@@ -3271,56 +3919,61 @@
 
           <div class="v-settings-row">
             <div class="v-settings-row-info">
-              <div class="v-settings-row-title">Dark Mode</div>
-              <div class="v-settings-row-desc">Switch between the Light Nord and Dark themes.</div>
+              <div class="v-settings-row-title">Interface Theme</div>
+              <div class="v-settings-row-desc">Switch between Dark, White, and Glass themes.</div>
             </div>
             <div class="v-settings-control">
-              <div class="v-toggle" id="vThemeToggle" onclick="toggleThemeSetting()"></div>
+              <select class="v-select" id="vThemeSelect" onchange="applyTheme(this.value)">
+                <option value="dark">Dark Theme</option>
+                <option value="vista">White Mode (Vista)</option>
+                <option value="glass">Glass Theme</option>
+              </select>
             </div>
           </div>
 
           <script>
-            window.nsTheme = 'dark';
-            function toggleThemeSetting() {
-              window.nsTheme = window.nsTheme === 'dark' ? 'light' : 'dark';
-              const toggle = document.getElementById('vThemeToggle');
-              const icon = document.getElementById('themeIcon');
-              const icon2 = document.getElementById('pinThemeIcon');
-              if (window.nsTheme === 'light') {
-                if (toggle) toggle.classList.remove('on');
-                document.documentElement.setAttribute('data-theme', 'light');
-                if (icon) icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
-                if (icon2) icon2.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
-              } else {
-                if (toggle) toggle.classList.add('on');
+            window.nsTheme = localStorage.getItem('ns_theme') || 'dark';
+            const THEME_ORDER = ['dark', 'vista', 'glass'];
+            
+            function applyTheme(name) {
+              if (!name || !THEME_ORDER.includes(name)) name = 'dark';
+              window.nsTheme = name;
+              localStorage.setItem('ns_theme', name);
+              
+              if (name === 'dark') {
                 document.documentElement.removeAttribute('data-theme');
-                if (icon) icon.innerHTML = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
-                if (icon2) icon2.innerHTML = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
+              } else {
+                document.documentElement.setAttribute('data-theme', name);
               }
-              try { localStorage.setItem('ns_theme', window.nsTheme); } catch(e){}
+              
+              const sel = document.getElementById('vThemeSelect');
+              if (sel) sel.value = name;
             }
             
             // Load theme on startup
             document.addEventListener('DOMContentLoaded', () => {
               try {
-                let savedTheme = localStorage.getItem('ns_theme');
-                if (!savedTheme && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-                    savedTheme = 'light';
+                let savedTheme = localStorage.getItem('ns_theme') || 'dark';
+                
+                // Fallback for anyone stuck on the removed "light" legacy mode
+                if (savedTheme === 'light') {
+                    savedTheme = 'vista';
+                    localStorage.setItem('ns_theme', 'vista');
+                }
+                if (savedTheme && savedTheme !== 'dark') {
+                  if (THEME_ORDER.includes(savedTheme)) {
+                    window.nsTheme = savedTheme;
+                    document.documentElement.setAttribute('data-theme', savedTheme);
+                  } else {
+                    window.nsTheme = 'dark';
+                  }
+                } else {
+                  window.nsTheme = 'dark';
+                  document.documentElement.removeAttribute('data-theme');
                 }
                 
-                const toggle = document.getElementById('vThemeToggle');
-                const icon = document.getElementById('themeIcon');
-                const icon2 = document.getElementById('pinThemeIcon');
-
-                if (savedTheme === 'light') {
-                  window.nsTheme = 'light';
-                  document.documentElement.setAttribute('data-theme', 'light');
-                  if (toggle) toggle.classList.remove('on');
-                  if (icon) icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
-                  if (icon2) icon2.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
-                } else {
-                  if (toggle) toggle.classList.add('on');
-                }
+                const sel = document.getElementById('vThemeSelect');
+                if (sel) sel.value = window.nsTheme;
               } catch(e){}
             });
             
@@ -3373,52 +4026,52 @@
     </div>
   </div>
 
-  <!-- ════ NET STATS OVERLAY ════ -->
-  <style>
-    #netStatsOverlay {
-      position: fixed;
-      top: 70px;
-      right: 16px;
-      background: rgba(9, 10, 16, 0.85);
-      backdrop-filter: blur(10px);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      z-index: 200;
-      pointer-events: none;
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--text);
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      width: 170px;
-    }
+  <!-- ════ PHASE 3: CANVAS FILTER OVERLAYS ════ -->
+  <div id="crtOverlay" aria-hidden="true"></div>
+  <div class="filter-pixel-on" id="pixelFilterMark" aria-hidden="true"></div>
 
-    #netStatsOverlay.gone {
-      display: none !important;
-    }
-  </style>
-  <div id="netStatsOverlay" class="gone">
-    <div style="font-weight:700; margin-bottom:4px; font-size:11px; color:var(--accent); font-family:var(--sans);">NET
-      STATS</div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Codec:</span> <span
-        id="nsCodec">--</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Resolution:</span> <span
-        id="nsRes">--</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">FPS:</span> <span
-        id="nsFps">--</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Ping:</span> <span
-        id="nsPing">-- ms</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Bandwidth:</span> <span
-        id="nsBitrate">-- kbps</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Decode Lat:</span> <span
-        id="nsDecode">-- ms</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">P.Loss:</span> <span
-        id="nsLoss">-- %</span></div>
-    <div style="display:flex; justify-content:space-between;"><span style="color:var(--muted);">Jitter:</span> <span
-        id="nsJitter">-- ms</span></div>
+  <!-- ════ PHASE 4: TOAST NOTIFICATIONS (middle-left) ════ -->
+  <div id="toastStack" aria-live="polite"></div>
+
+  <!-- ════ PHASE 10: QUICK-SHARE INVITE MODAL ════ -->
+  <div id="shareModal" class="gone">
+    <div class="share-card">
+      <div class="share-header">
+        <div class="share-title">Share Lobby</div>
+        <button class="share-close" onclick="closeShareModal()">×</button>
+      </div>
+      <div id="shareQr" class="share-qr"></div>
+      <input id="shareLink" readonly
+        style="width:100%;background:var(--hover);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:11px;padding:9px 10px;">
+      <button class="v-btn share-copy" onclick="copyShareLink()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy Link
+      </button>
+      <div class="share-hint">Friends on the same network scan the QR code to join instantly.</div>
+    </div>
   </div>
+
+  <!-- ════ PHASE 5: SHIFT+TAB FLOATING HUD (draggable + resizable) ════ -->
+  <div id="hudWidget" class="hide">
+    <div class="hud-w-titlebar" title="Drag to move">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>HUD</span>
+      <span class="hud-head-hint">Shift+Tab</span>
+      <button class="hud-close" onclick="toggleHud()" title="Close">×</button>
+    </div>
+    <div class="hud-body">
+      <div class="hud-stat"><span>Network</span><b id="hudNet">—</b></div>
+      <div class="hud-stat"><span>Codec</span><b id="hudCodec">—</b></div>
+      <div class="hud-stat"><span>Resolution</span><b id="hudRes">—</b></div>
+      <div class="hud-stat"><span>RTT</span><b id="hudRtt">—</b></div>
+      <div class="hud-stat"><span>FPS</span><b id="hudFps">—</b></div>
+      <div class="hud-row" style="margin-top:8px;gap:6px;flex-wrap:wrap;">
+      </div>
+      <canvas id="hudGraph" width="200" height="50" style="width:100%; height:50px; margin-top:8px; border-radius:4px; background:rgba(0,0,0,0.15); border:1px solid var(--border);"></canvas>
+    </div>
+    <div class="hud-resize" title="Drag to resize"></div>
+  </div>
+
 
   <!-- ════ SCRIPTS ════ -->
   <script src="/js/i18n.js"></script>
