@@ -53,6 +53,7 @@ import sys
 import json
 import subprocess
 import shutil
+import re
 
 # The Android input event device node — must be discovered at runtime on the device.
 # Typical paths: /dev/input/event3 or /dev/input/event4 (varies by ROM / kernel).
@@ -60,10 +61,14 @@ import shutil
 ANDROID_EVENT_DEV = "/dev/input/event3"   # Placeholder — override via config packet
 
 
+_DEV_RE = re.compile(r"^/dev/input/event\d+$")
+
+
 def _sendevent(dev, ev_type, code, value):
     """Write a single input event via 'su -c sendevent' on rooted Android."""
-    cmd = f"su -c 'sendevent {dev} {ev_type} {code} {value}'"
-    subprocess.run(cmd, shell=True, capture_output=True)
+    if not _DEV_RE.match(dev):
+        return
+    subprocess.run(["su", "-c", f"sendevent {dev} {ev_type} {code} {value}"], capture_output=True)
 
 
 def _syn(dev):
