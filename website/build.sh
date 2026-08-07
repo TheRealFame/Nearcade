@@ -21,15 +21,10 @@ cp src/pages/gamepad-popup.html website/arcade/pages/gamepad-popup.html
 
 cp src/scripts/i18n.js website/js/i18n.js
 
-# 2. Copy source files — arcade is now the primary domain
-cp website/nearcade-arcade.html website/index.html
-cp website/nearcade-arcade.html website/arcade/index.html
-cp website/arcade.js website/arcade/arcade.js
-
-cp src/pages/gamepad-popup.html website/pages/gamepad-popup.html
-cp src/pages/gamepad-popup.html website/arcade/pages/gamepad-popup.html
-
-cp src/scripts/i18n.js website/js/i18n.js
+cp src/pages/keyboard-popup.html website/pages/keyboard-popup.html
+cp src/pages/keyboard-popup.html website/arcade/pages/keyboard-popup.html
+cp src/pages/display-color-tweaks.html website/pages/display-color-tweaks.html
+cp src/pages/display-color-tweaks.html website/arcade/pages/display-color-tweaks.html
 
 cp -r assets/* website/assets/
 cp assets/NearcadeLogo.png website/NearcadeLogo.png
