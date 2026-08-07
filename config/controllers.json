@@ -58,21 +58,5 @@
     },
     "rsx": 2,
     "rsy": 3
-  },
-  "054c-0ce6-DualSense Wireless Controller": {
-    "b0": 0,
-    "b1": 1,
-    "b2": 2,
-    "b3": 3,
-    "lt": {
-      "type": "axis",
-      "idx": 4
-    },
-    "rt": {
-      "type": "axis",
-      "idx": 5
-    },
-    "rsx": 2,
-    "rsy": 3
   }
 }

@@ -1532,18 +1532,18 @@ function applyCalibration(gp, state) {
     };
     const rx = readStick(m.rsx);
     const ry = readStick(m.rsy);
-    if (rx !== null) state.axes[2] = Math.round(rx * 32767);
-    if (ry !== null) state.axes[3] = Math.round(ry * 32767);
+    if (rx !== null) state.axes[2] = rx;
+    if (ry !== null) state.axes[3] = ry;
     function readTrigger(mp) {
         if (!mp) return 0;
-        if (mp.type === 'btn') return Math.round((gp.buttons[mp.idx]?.value || 0) * 255);
+        if (mp.type === 'btn') return gp.buttons[mp.idx]?.value || 0;
         const raw = gp.axes[mp.idx] ?? -1;
         const norm = Math.max(0, (raw + 1) / 2);
-        return norm < 0.05 ? 0 : Math.round(norm * 255);
+        return norm < 0.05 ? 0 : norm;
     }
     const lt = readTrigger(m.lt), rt = readTrigger(m.rt);
-    if (lt > 0 || m.lt) state.buttons[6] = { pressed: lt > 10, value: lt };
-    if (rt > 0 || m.rt) state.buttons[7] = { pressed: rt > 10, value: rt };
+    if (lt > 0 || m.lt) state.buttons[6] = { pressed: lt > 0.05, value: lt };
+    if (rt > 0 || m.rt) state.buttons[7] = { pressed: rt > 0.05, value: rt };
 }
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
