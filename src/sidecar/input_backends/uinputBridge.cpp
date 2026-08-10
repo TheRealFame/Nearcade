@@ -11,14 +11,16 @@
 #include <functional>
 #include <dirent.h>
 #include <fstream>
+#include <fstream>
 #include <string>
+#include <dbus/dbus.h>
 
 // ── Packet type constants ──────────────────────────────────────────────────────
 namespace PKT {
     enum {
         GAMEPAD   = 0x01, MOUSE_REL = 0x02, MOUSE_ABS = 0x03, MOUSE_BTN = 0x04,
         WHEEL     = 0x05, KEY       = 0x06, ALLOC_GP  = 0x10, FREE_GP   = 0x11,
-        FLUSH     = 0x20, DESTROY   = 0xFF
+        FLUSH     = 0x20, VR        = 0x30, DESTROY   = 0xFF
     };
 }
 
@@ -40,10 +42,74 @@ static void set_abs(struct uinput_user_dev& uud, int axis,
     uud.absflat[axis] = flat;
 }
 
+DBusConnection* g_wivrn_dbus = nullptr;
+static DBusConnection* get_wivrn_dbus() {
+    if (g_wivrn_dbus) return g_wivrn_dbus;
+    DBusError err;
+    dbus_error_init(&err);
+    g_wivrn_dbus = dbus_bus_get(DBUS_BUS_SESSION, &err);
+    if (dbus_error_is_set(&err)) {
+        std::cerr << "[uinputBridge] DBus Error: " << err.message << std::endl;
+        dbus_error_free(&err);
+    }
+    return g_wivrn_dbus;
+}
+
 // ── Global file descriptors ────────────────────────────────────────────────────
 int kbm_fd = -1;
 std::map<uint8_t, int>         gp_fds;    // slot → uinput write fd
 std::map<uint8_t, std::string> gp_names;  // slot → device name (for sysfs lookup)
+
+// Stored by InitializeDevice(); used lazily by ensure_kbm_fd().
+static int s_screenW = 1920;
+static int s_screenH = 1080;
+
+// ── Lazy KBM device creation ─────────────────────────────────────────────────
+// FIX: The KBM uinput node (REL_X, BTN_LEFT, ...) must NOT be registered at
+// module load. Doing so makes Linux immediately announce a new virtual mouse to
+// every app monitoring /dev/input (Steam, window managers, accessibility tools).
+// The device is now created here, called from the first genuine KBM packet.
+static bool ensure_kbm_fd() {
+    if (kbm_fd >= 0) return true;
+
+    kbm_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    if (kbm_fd < 0) return false;
+
+    ioctl(kbm_fd, UI_SET_EVBIT, EV_SYN);
+
+    // Keyboard
+    ioctl(kbm_fd, UI_SET_EVBIT, EV_KEY);
+    for (int i = 1; i < 255; i++) ioctl(kbm_fd, UI_SET_KEYBIT, i);
+
+    // Mouse buttons
+    ioctl(kbm_fd, UI_SET_KEYBIT, BTN_LEFT);
+    ioctl(kbm_fd, UI_SET_KEYBIT, BTN_RIGHT);
+    ioctl(kbm_fd, UI_SET_KEYBIT, BTN_MIDDLE);
+
+    // Relative axes (mouse movement + scroll)
+    ioctl(kbm_fd, UI_SET_EVBIT,  EV_REL);
+    ioctl(kbm_fd, UI_SET_RELBIT, REL_X);
+    ioctl(kbm_fd, UI_SET_RELBIT, REL_Y);
+    ioctl(kbm_fd, UI_SET_RELBIT, REL_WHEEL);
+    ioctl(kbm_fd, UI_SET_RELBIT, REL_HWHEEL);
+
+    // Absolute axes removed from KBM to prevent SDL2 misidentifying it as a Gamepad
+
+    struct uinput_user_dev uud = {};
+    snprintf(uud.name, UINPUT_MAX_NAME_SIZE, "Nearcade Virtual KBM");
+    uud.id.bustype = BUS_USB;
+    uud.id.vendor  = 0x1234;
+    uud.id.product = 0x5678;
+    uud.id.version = 1;
+
+    if (write(kbm_fd, &uud, sizeof(uud)) < 0) {
+        close(kbm_fd); kbm_fd = -1;
+        return false;
+    }
+    ioctl(kbm_fd, UI_DEV_CREATE);
+    std::cerr << "[uinputBridge] KBM device created (lazy init)" << std::endl;
+    return true;
+}
 
 // ── Rumble tracking ────────────────────────────────────────────────────────────
 // slot → eventX read fd;  g_padViewers: slot-string → viewerId string
@@ -192,47 +258,14 @@ Napi::Value SetRumbleCallback(const Napi::CallbackInfo& info) {
 }
 
 // ── N-API: init mouse/keyboard device ─────────────────────────────────────────
+// FIX: No longer creates the KBM device eagerly. Stores screen dimensions for
+// potential future use and returns true. The actual /dev/uinput node is created
+// lazily by ensure_kbm_fd() on the first PKT::MOUSE_REL / KEY / etc. packet.
 Napi::Boolean InitializeDevice(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    int screenW = info.Length() > 0 ? info[0].As<Napi::Number>().Int32Value() : 1920;
-    int screenH = info.Length() > 1 ? info[1].As<Napi::Number>().Int32Value() : 1080;
-
-    kbm_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (kbm_fd < 0) return Napi::Boolean::New(env, false);
-
-    // EV_SYN must be registered explicitly on some kernel versions
-    ioctl(kbm_fd, UI_SET_EVBIT, EV_SYN);
-
-    // Keyboard
-    ioctl(kbm_fd, UI_SET_EVBIT, EV_KEY);
-    for (int i = 1; i < 255; i++) ioctl(kbm_fd, UI_SET_KEYBIT, i);
-
-    // Mouse buttons
-    ioctl(kbm_fd, UI_SET_KEYBIT, BTN_LEFT);
-    ioctl(kbm_fd, UI_SET_KEYBIT, BTN_RIGHT);
-    ioctl(kbm_fd, UI_SET_KEYBIT, BTN_MIDDLE);
-
-    // Relative axes (mouse movement + scroll)
-    ioctl(kbm_fd, UI_SET_EVBIT,  EV_REL);
-    ioctl(kbm_fd, UI_SET_RELBIT, REL_X);
-    ioctl(kbm_fd, UI_SET_RELBIT, REL_Y);
-    ioctl(kbm_fd, UI_SET_RELBIT, REL_WHEEL);
-    ioctl(kbm_fd, UI_SET_RELBIT, REL_HWHEEL);
-
-    // Absolute axes removed from KBM to prevent SDL2 misidentifying it as a Gamepad
-
-    struct uinput_user_dev uud = {};
-    snprintf(uud.name, UINPUT_MAX_NAME_SIZE, "Nearcade Virtual KBM");
-    uud.id.bustype = BUS_USB;
-    uud.id.vendor  = 0x1234;
-    uud.id.product = 0x5678;
-    uud.id.version = 1;
-
-    if (write(kbm_fd, &uud, sizeof(uud)) < 0) {
-        close(kbm_fd); kbm_fd = -1;
-        return Napi::Boolean::New(env, false);
-    }
-    ioctl(kbm_fd, UI_DEV_CREATE);
+    s_screenW = info.Length() > 0 ? info[0].As<Napi::Number>().Int32Value() : 1920;
+    s_screenH = info.Length() > 1 ? info[1].As<Napi::Number>().Int32Value() : 1080;
+    // Device creation is now deferred — return true optimistically.
     return Napi::Boolean::New(env, true);
 }
 
@@ -292,6 +325,7 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
 
         // ── MOUSE RELATIVE ────────────────────────────────────────────────────
         case PKT::MOUSE_REL: {
+            if (!ensure_kbm_fd()) break;
             int16_t dx = *reinterpret_cast<int16_t*>(&data[1]);
             int16_t dy = *reinterpret_cast<int16_t*>(&data[3]);
             emit(kbm_fd, EV_REL, REL_X, dx);
@@ -302,6 +336,7 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
 
         // ── MOUSE ABSOLUTE ────────────────────────────────────────────────────
         case PKT::MOUSE_ABS: {
+            if (!ensure_kbm_fd()) break;
             uint16_t nx = *reinterpret_cast<uint16_t*>(&data[1]);
             uint16_t ny = *reinterpret_cast<uint16_t*>(&data[3]);
             emit(kbm_fd, EV_ABS, ABS_X, nx);
@@ -312,6 +347,7 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
 
         // ── MOUSE BUTTONS ─────────────────────────────────────────────────────
         case PKT::MOUSE_BTN: {
+            if (!ensure_kbm_fd()) break;
             uint8_t btns = data[1];
             uint8_t down = data[2];
             if (btns & 0x01) emit(kbm_fd, EV_KEY, BTN_LEFT,   down);
@@ -323,6 +359,7 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
 
         // ── SCROLL WHEEL ─────────────────────────────────────────────────────
         case PKT::WHEEL: {
+            if (!ensure_kbm_fd()) break;
             int16_t dy = *reinterpret_cast<int16_t*>(&data[1]);
             int16_t dx = *reinterpret_cast<int16_t*>(&data[3]);
             emit(kbm_fd, EV_REL, REL_WHEEL,  dy / 120);
@@ -333,6 +370,7 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
 
         // ── KEYBOARD KEY ─────────────────────────────────────────────────────
         case PKT::KEY: {
+            if (!ensure_kbm_fd()) break;
             uint16_t code = *reinterpret_cast<uint16_t*>(&data[1]);
             uint8_t  down = data[3];
             emit(kbm_fd, EV_KEY, code, down);
@@ -382,8 +420,16 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
             ioctl(fd, UI_SET_EVBIT, EV_SYN);
 
             // Buttons
+            // NOTE: BTN_SOUTH..BTN_WEST (0x130-0x134) must be registered as a
+            // CONTIGUOUS block, including the unused BTN_C (0x132) gap.
+            // joydev/SDL's legacy button-index translation enumerates by bit
+            // position in the advertised keybit array — leaving BTN_C
+            // unregistered shifts BTN_NORTH/BTN_WEST out of the slot SDL
+            // expects them at, causing A/B/Y (which straddle the gap) to be
+            // silently dropped while X (right after the gap) still works.
             ioctl(fd, UI_SET_EVBIT,  EV_KEY);
             ioctl(fd, UI_SET_KEYBIT, BTN_SOUTH);  ioctl(fd, UI_SET_KEYBIT, BTN_EAST);
+            ioctl(fd, UI_SET_KEYBIT, BTN_C);      // fill 0x132 gap — do not remove
             ioctl(fd, UI_SET_KEYBIT, BTN_NORTH);  ioctl(fd, UI_SET_KEYBIT, BTN_WEST);
             ioctl(fd, UI_SET_KEYBIT, BTN_TL);     ioctl(fd, UI_SET_KEYBIT, BTN_TR);
             ioctl(fd, UI_SET_KEYBIT, BTN_SELECT); ioctl(fd, UI_SET_KEYBIT, BTN_START);
@@ -558,6 +604,52 @@ Napi::Value SubmitInputPacket(const Napi::CallbackInfo& info) {
                 emit(fd, EV_KEY, code, 0);
             }
             syn(fd);
+            break;
+        }
+
+        // ── VR TRACKING ───────────────────────────────────────────────────────
+        case PKT::VR: {
+            DBusConnection* conn = get_wivrn_dbus();
+            if (!conn) break;
+
+            DBusMessage* msg = dbus_message_new_method_call(
+                "io.github.wivrn.Server", 
+                "/io/github/wivrn/Server", 
+                "io.github.wivrn.Server", 
+                "InjectVirtualTracking"
+            );
+            if (!msg) break;
+
+            DBusMessageIter iter;
+            dbus_message_iter_init_append(msg, &iter);
+
+            auto append_pose = [&](int offset) {
+                DBusMessageIter sub;
+                dbus_message_iter_open_container(&iter, DBUS_TYPE_STRUCT, NULL, &sub);
+                for (int i = 0; i < 7; i++) {
+                    double v = *reinterpret_cast<double*>(&data[offset + i * 8]);
+                    dbus_message_iter_append_basic(&sub, DBUS_TYPE_DOUBLE, &v);
+                }
+                dbus_message_iter_close_container(&iter, &sub);
+            };
+
+            append_pose(1);
+            append_pose(57);
+            append_pose(113);
+
+            for (int i = 0; i < 4; i++) {
+                double v = *reinterpret_cast<double*>(&data[169 + i * 8]);
+                dbus_message_iter_append_basic(&iter, DBUS_TYPE_DOUBLE, &v);
+            }
+
+            uint8_t lb = data[201];
+            uint8_t rb = data[202];
+            dbus_message_iter_append_basic(&iter, DBUS_TYPE_BYTE, &lb);
+            dbus_message_iter_append_basic(&iter, DBUS_TYPE_BYTE, &rb);
+
+            dbus_connection_send(conn, msg, NULL);
+            dbus_connection_flush(conn);
+            dbus_message_unref(msg);
             break;
         }
 

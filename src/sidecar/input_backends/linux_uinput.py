@@ -85,38 +85,21 @@ PROFILES = {
     'nintendo':    (0x057E, 0x2009, 0x0001, 'Pro Controller'),
 }
 
-# ── KBM passthrough device (LAZY) ────────────────────────────────────────────
-# FIX: Do NOT create kbm_device at startup. Creating a uinput device with
-# REL_X / BTN_LEFT capabilities registers a virtual mouse on the Linux host
-# immediately. Any app monitoring /dev/input (Steam, window managers, etc.)
-# announces "new input device detected" — which is what the user sees when a
-# button is pressed (the OS re-broadcasts the device list to newly subscribing
-# apps). kbm_device is now created lazily on the first genuine KBM-mode use.
+# ── KBM passthrough device ────────────────────────────────────────────────────
 kbm_device = None
-_kbm_device_attempted = False   # track so we only try to create once
-
 if UINPUT_OK:
     KBM_EVENTS = [uinput.REL_X, uinput.REL_Y, uinput.REL_WHEEL,
                   uinput.BTN_LEFT, uinput.BTN_RIGHT, uinput.BTN_MIDDLE]
     for _n in dir(uinput):
         if _n.startswith("KEY_"):
             KBM_EVENTS.append(getattr(uinput, _n))
-
-def _get_kbm_device():
-    """Return the shared KBM uinput device, creating it lazily on first call."""
-    global kbm_device, _kbm_device_attempted
-    if kbm_device is not None:
-        return kbm_device
-    if _kbm_device_attempted or not UINPUT_OK:
-        return None
-    _kbm_device_attempted = True
     try:
         kbm_device = uinput.Device(KBM_EVENTS, name="Nearcade_KBM_Injector")
-        print("[input] KBM device created (lazy init)", flush=True)
     except Exception as e:
-        print(json.dumps({"type": "error", "code": "E101",
-                          "message": f"KBM device failed (check /dev/uinput permissions): {e}"}),
-              flush=True)
+        print(json.dumps({"type": "error", "code": "E101", "message": f"KBM device failed (check /dev/uinput permissions): {e}"}), flush=True)
+
+def _get_kbm_device():
+    """Return the shared KBM uinput device (already created at startup)."""
     return kbm_device
 
 # ── State ──────────────────────────────────────────────────────────────────────
