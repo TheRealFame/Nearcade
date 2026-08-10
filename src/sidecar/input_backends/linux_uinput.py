@@ -23,6 +23,20 @@ import socket
 import queue
 import select
 from collections import deque
+import importlib.util
+
+# Add sidecar root to path to import plugin_manager
+_SIDECAR_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SIDECAR_DIR not in sys.path:
+    sys.path.insert(0, _SIDECAR_DIR)
+import plugin_manager
+
+_intercept_layer = plugin_manager.APIInterceptLayer()
+
+def _load_plugins():
+
+
+
 
 try:
     import uinput
@@ -71,18 +85,39 @@ PROFILES = {
     'nintendo':    (0x057E, 0x2009, 0x0001, 'Pro Controller'),
 }
 
-# ── KBM passthrough device ────────────────────────────────────────────────────
+# ── KBM passthrough device (LAZY) ────────────────────────────────────────────
+# FIX: Do NOT create kbm_device at startup. Creating a uinput device with
+# REL_X / BTN_LEFT capabilities registers a virtual mouse on the Linux host
+# immediately. Any app monitoring /dev/input (Steam, window managers, etc.)
+# announces "new input device detected" — which is what the user sees when a
+# button is pressed (the OS re-broadcasts the device list to newly subscribing
+# apps). kbm_device is now created lazily on the first genuine KBM-mode use.
 kbm_device = None
+_kbm_device_attempted = False   # track so we only try to create once
+
 if UINPUT_OK:
     KBM_EVENTS = [uinput.REL_X, uinput.REL_Y, uinput.REL_WHEEL,
                   uinput.BTN_LEFT, uinput.BTN_RIGHT, uinput.BTN_MIDDLE]
     for _n in dir(uinput):
         if _n.startswith("KEY_"):
             KBM_EVENTS.append(getattr(uinput, _n))
+
+def _get_kbm_device():
+    """Return the shared KBM uinput device, creating it lazily on first call."""
+    global kbm_device, _kbm_device_attempted
+    if kbm_device is not None:
+        return kbm_device
+    if _kbm_device_attempted or not UINPUT_OK:
+        return None
+    _kbm_device_attempted = True
     try:
         kbm_device = uinput.Device(KBM_EVENTS, name="Nearcade_KBM_Injector")
+        print("[input] KBM device created (lazy init)", flush=True)
     except Exception as e:
-        print(json.dumps({"type": "error", "code": "E101", "message": f"KBM device failed (check /dev/uinput permissions): {e}"}), flush=True)
+        print(json.dumps({"type": "error", "code": "E101",
+                          "message": f"KBM device failed (check /dev/uinput permissions): {e}"}),
+              flush=True)
+    return kbm_device
 
 # ── State ──────────────────────────────────────────────────────────────────────
 devices          = {}
@@ -676,23 +711,25 @@ def run():
 
             mode = viewer_modes.get(vid, "hybrid" if _is_hybrid else "gamepad")
 
-            if msg_type in ["kbm", "keyboard"] and kbm_device and mode in ["kbm", "hybrid", "kbm_emulated"]:
-                ev = msg.get("event")
-                if ev == "mousemove":
-                    dx, dy = msg.get("dx", 0), msg.get("dy", 0)
-                    if dx: kbm_device.emit(uinput.REL_X, dx, syn=False)
-                    if dy: kbm_device.emit(uinput.REL_Y, dy, syn=False)
-                    kbm_device.syn()
-                elif ev in ["keydown", "keyup"]:
-                    k = msg.get("key", "")
-                    v = 1 if ev == "keydown" else 0
-                    if hasattr(uinput, k):
-                        kbm_device.emit(getattr(uinput, k), v)
-                elif ev in ["mousedown", "mouseup"]:
-                    b = msg.get("button", 0)
-                    v = 1 if ev == "mousedown" else 0
-                    u = uinput.BTN_LEFT if b == 0 else uinput.BTN_MIDDLE if b == 1 else uinput.BTN_RIGHT
-                    kbm_device.emit(u, v)
+            if msg_type in ["kbm", "keyboard"] and mode in ["kbm", "hybrid", "kbm_emulated"]:
+                _kbd = _get_kbm_device()  # lazy-create on first genuine KBM use
+                if _kbd:
+                    ev = msg.get("event")
+                    if ev == "mousemove":
+                        dx, dy = msg.get("dx", 0), msg.get("dy", 0)
+                        if dx: _kbd.emit(uinput.REL_X, dx, syn=False)
+                        if dy: _kbd.emit(uinput.REL_Y, dy, syn=False)
+                        _kbd.syn()
+                    elif ev in ["keydown", "keyup"]:
+                        k = msg.get("key", "")
+                        v = 1 if ev == "keydown" else 0
+                        if hasattr(uinput, k):
+                            _kbd.emit(getattr(uinput, k), v)
+                    elif ev in ["mousedown", "mouseup"]:
+                        b = msg.get("button", 0)
+                        v = 1 if ev == "mousedown" else 0
+                        u = uinput.BTN_LEFT if b == 0 else uinput.BTN_MIDDLE if b == 1 else uinput.BTN_RIGHT
+                        _kbd.emit(u, v)
                 continue
 
             if msg_type == "gamepad" and mode in ["gamepad", "hybrid", "kbm_emulated"]:

@@ -321,6 +321,56 @@ let wcGlTexture = null;
 let _upscaleMode = -1; // -1 = auto
 let _lastAppliedUpscale = null;
 
+let upscalerCanvas = null;
+let upscalerCtx = null;
+let _webglSupported = true; // Assume true until wcCtx creation fails
+
+function _showWebGLWarning() {
+    let warn = document.getElementById('webglWarnBanner');
+    if (!warn) {
+        warn = document.createElement('div');
+        warn.id = 'webglWarnBanner';
+        warn.innerHTML = '<div style="flex:1;"><b>WebGL Not Supported:</b> Hardware-accelerated upscaling is unavailable on your device. Stream will fall back to standard video.</div><button onclick="this.parentElement.style.display=\'none\'" style="background:none;border:none;color:#5c4000;font-size:20px;cursor:pointer;line-height:1;padding:0 8px;">&times;</button>';
+        warn.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#ffcc00;color:#5c4000;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;align-items:center;gap:16px;max-width:90%;font-family:sans-serif;border:1px solid #d9aa00;';
+        document.body.appendChild(warn);
+    }
+    warn.style.display = 'flex';
+}
+
+function _ensureUpscaleCanvas() {
+    if (!upscalerCanvas) {
+        upscalerCanvas = document.createElement('canvas');
+        upscalerCanvas.id = 'upscale-canvas';
+        upscalerCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 11; display: block; overflow: hidden; pointer-events: none;';
+        document.getElementById('video-container')?.appendChild(upscalerCanvas) ?? document.body.appendChild(upscalerCanvas);
+        
+        upscalerCtx = upscalerCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+        if (!upscalerCtx) upscalerCtx = upscalerCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+        
+        if (upscalerCtx && window.NearcadeUpscaler) {
+            window.upscalerInstance = new window.NearcadeUpscaler(upscalerCtx);
+        }
+    }
+}
+
+function _updateUpscaleCanvasSize(sourceW, sourceH) {
+    if (!upscalerCanvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    let targetW = window.innerWidth;
+    let targetH = window.innerHeight;
+    const aspect = sourceW / sourceH;
+    const screenAspect = targetW / targetH;
+    if (screenAspect > aspect) { targetW = targetH * aspect; } else { targetH = targetW / aspect; }
+    
+    const w = Math.max(sourceW, Math.floor(targetW * dpr));
+    const h = Math.max(sourceH, Math.floor(targetH * dpr));
+    if (upscalerCanvas.width !== w || upscalerCanvas.height !== h) {
+        upscalerCanvas.width = w;
+        upscalerCanvas.height = h;
+        if (upscalerCtx) upscalerCtx.viewport(0, 0, w, h);
+    }
+}
+
 function _applyUpscaleFilter() {
     let mode = _upscaleMode;
     if (mode === -1 && wcCanvas) {
@@ -328,6 +378,19 @@ function _applyUpscaleFilter() {
         mode = w > 0 && w < 1280 ? 1 : 0;
     }
     _lastAppliedUpscale = mode;
+    
+    if (mode > 0 && _webglSupported) {
+        _ensureUpscaleCanvas();
+        if (window.upscalerInstance) {
+            window.upscalerInstance.setMode(mode);
+        }
+    } else {
+        if (upscalerCanvas) upscalerCanvas.style.display = 'none';
+        const videoEl = document.getElementById('video');
+        if (videoEl) videoEl.style.opacity = '1';
+        if (typeof wcCanvas !== 'undefined' && wcCanvas) wcCanvas.style.opacity = '1';
+    }
+
     if (wcCtx && wcGlTexture) {
         const nearest = mode === 2;
         try {
@@ -344,6 +407,11 @@ function _applyUpscaleFilter() {
 window.setUpscaleMode = function(v) {
     v = parseInt(v, 10);
     if (!isNaN(v)) { _upscaleMode = v; }
+    
+    if (_upscaleMode > 0 && !_webglSupported) {
+        _showWebGLWarning();
+    }
+    
     window.pixelFilterEnabled = (_upscaleMode === 2);
     const mark = document.getElementById('pixelFilterMark');
     if (mark) mark.classList.toggle('on', _upscaleMode === 2);
@@ -583,12 +651,43 @@ async function createPC() {
                 videoEl.muted = true; // Required by Chrome/Safari to allow dynamic autoplay
                 videoEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
                 videoEl.play().catch(err => console.warn('[WebRTC] video.play() exception:', err));
+                let vfcLoop = () => {
+                    let handledByUpscaler = false;
+                    if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+                        // GPU path (WebGPU) — highest priority
+                        if (_gpuUpscalerInstance && window._gpuCanvas) {
+                            const gpuC = window._gpuCanvas;
+                            if (gpuC.width !== videoEl.videoWidth || gpuC.height !== videoEl.videoHeight) {
+                                _updateUpscaleCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
+                                gpuC.width  = upscalerCanvas ? upscalerCanvas.width  : videoEl.videoWidth;
+                                gpuC.height = upscalerCanvas ? upscalerCanvas.height : videoEl.videoHeight;
+                            }
+                            gpuC.style.display = 'block';
+                            videoEl.style.opacity = '0.01';
+                            _gpuUpscalerInstance.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
+                            handledByUpscaler = _gpuUpscalerInstance.uploadAndDraw(videoEl) !== false;
+                        }
+                        // WebGL fallback path
+                        if (!handledByUpscaler && typeof _upscaleMode !== 'undefined' && _upscaleMode > 0 && typeof _webglSupported !== 'undefined' && _webglSupported && window.upscalerInstance && typeof upscalerCanvas !== 'undefined' && upscalerCanvas) {
+                            if (typeof _updateUpscaleCanvasSize === 'function') _updateUpscaleCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
+                            upscalerCanvas.style.display = 'block';
+                            videoEl.style.opacity = '0.01';
+                            handledByUpscaler = window.upscalerInstance.uploadAndDraw(videoEl) !== false;
+                        }
+                    }
+                    if (!handledByUpscaler) {
+                        if (typeof upscalerCanvas !== 'undefined' && upscalerCanvas) upscalerCanvas.style.display = 'none';
+                        videoEl.style.opacity = '1';
+                    }
+                    if (window._trackViewerFrame) window._trackViewerFrame();
+                };
+
                 if ('requestVideoFrameCallback' in videoEl) {
-                    function vfc() { if (window._trackViewerFrame) window._trackViewerFrame(); videoEl.requestVideoFrameCallback(vfc); }
+                    function vfc() { vfcLoop(); videoEl.requestVideoFrameCallback(vfc); }
                     videoEl.requestVideoFrameCallback(vfc);
                 } else {
                     // Firefox Fallback
-                    function rafLoop() { if (window._trackViewerFrame) window._trackViewerFrame(); requestAnimationFrame(rafLoop); }
+                    function rafLoop() { vfcLoop(); requestAnimationFrame(rafLoop); }
                     requestAnimationFrame(rafLoop);
                 }
                 videoEl.onplaying = () => {
@@ -936,6 +1035,8 @@ function openViewerSettings() {
     const modal = document.getElementById('viewerSettingsModal');
     if (modal) modal.classList.add('open');
     document.getElementById('nsBar')?.classList.remove('open');
+    // Reflect current GPU backend toggle state
+    _syncGpuBackendToggleUI();
 }
 
 function closeViewerSettings() {
@@ -943,8 +1044,109 @@ function closeViewerSettings() {
     if (modal) modal.classList.remove('open');
 }
 
+// ── WebGPU BACKEND TOGGLE ────────────────────────────────────────────────────
+let _gpuBackendEnabled = localStorage.getItem('ns_gpu_backend') === '1';
+let _gpuUpscalerInstance = null;
+
+function _syncGpuBackendToggleUI() {
+    const toggle = document.getElementById('vGpuBackendToggle');
+    const row    = document.getElementById('vGpuBackendRow');
+    if (!toggle) return;
+    // Hide the row entirely on browsers that have no WebGPU at all
+    if (!navigator.gpu) {
+        if (row) row.style.display = 'none';
+        return;
+    }
+    toggle.classList.toggle('on', _gpuBackendEnabled);
+}
+
+function toggleGpuBackend() {
+    if (!navigator.gpu) {
+        console.warn('[UpscalerGPU] WebGPU not available in this browser.');
+        return;
+    }
+    _gpuBackendEnabled = !_gpuBackendEnabled;
+    try { localStorage.setItem('ns_gpu_backend', _gpuBackendEnabled ? '1' : '0'); } catch (e) {}
+    _syncGpuBackendToggleUI();
+    // A reload is required to cleanly swap GPU contexts
+    if (_gpuBackendEnabled) {
+        if (confirm('Switching to WebGPU requires a page reload. Reload now?')) {
+            location.reload();
+        } else {
+            // User cancelled — roll back
+            _gpuBackendEnabled = false;
+            try { localStorage.setItem('ns_gpu_backend', '0'); } catch (e) {}
+            _syncGpuBackendToggleUI();
+        }
+    } else {
+        if (confirm('Switching back to WebGL requires a page reload. Reload now?')) {
+            location.reload();
+        } else {
+            _gpuBackendEnabled = true;
+            try { localStorage.setItem('ns_gpu_backend', '1'); } catch (e) {}
+            _syncGpuBackendToggleUI();
+        }
+    }
+}
+
+/** Attempts to spin up the WebGPU upscaler on the existing upscaler canvas.
+ *  If creation fails (no GPU, context lost, etc.) it silently falls back to
+ *  the WebGL upscaler that is already initialised. */
+async function _initGpuUpscalerIfEnabled() {
+    if (!_gpuBackendEnabled) return;
+    if (!navigator.gpu) {
+        console.warn('[UpscalerGPU] WebGPU not supported — falling back to WebGL.');
+        _gpuBackendEnabled = false;
+        try { localStorage.setItem('ns_gpu_backend', '0'); } catch (e) {}
+        return;
+    }
+    if (!window.NearcadeUpscalerGPU) {
+        console.warn('[UpscalerGPU] NearcadeUpscalerGPU class not loaded — falling back to WebGL.');
+        return;
+    }
+    _ensureUpscaleCanvas();
+    if (!upscalerCanvas) return;
+
+    // Create a SECOND canvas for WebGPU (WebGL already owns upscalerCanvas context)
+    let gpuCanvas = document.getElementById('upscale-canvas-gpu');
+    if (!gpuCanvas) {
+        gpuCanvas = document.createElement('canvas');
+        gpuCanvas.id = 'upscale-canvas-gpu';
+        gpuCanvas.style.cssText = upscalerCanvas.style.cssText;
+        gpuCanvas.style.zIndex = '12'; // above WebGL canvas
+        upscalerCanvas.parentElement?.appendChild(gpuCanvas) ?? document.body.appendChild(gpuCanvas);
+    }
+
+    const inst = await window.NearcadeUpscalerGPU.create(gpuCanvas);
+    if (!inst) {
+        console.warn('[UpscalerGPU] Failed to acquire WebGPU device — falling back to WebGL.');
+        gpuCanvas.remove();
+        _gpuBackendEnabled = false;
+        try { localStorage.setItem('ns_gpu_backend', '0'); } catch (e) {}
+        return;
+    }
+
+    _gpuUpscalerInstance = inst;
+    inst.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
+
+    // Hide the WebGL canvas so the GPU canvas is the only visible layer
+    upscalerCanvas.style.display = 'none';
+    gpuCanvas.style.display = 'block';
+
+    // Monkey-patch the upload path so the rest of viewer.js is unaware
+    window._gpuCanvas = gpuCanvas;
+    console.log('[UpscalerGPU] WebGPU upscaler active.');
+}
+
+// Also expose for external calling from the two render loops in viewer.js
+window._gpuUpscalerInstance = () => _gpuUpscalerInstance;
+window._gpuCanvas            = null;
+
 let storedDz = localStorage.getItem('ns_deadzone');
-if (!storedDz) { localStorage.setItem('ns_deadzone', '0.01'); storedDz = '0.01'; }
+// FIX: Raised default from 0.01 (1%) to 0.05 (5%) — 1% is below the physical
+// resting noise of most worn analogue sticks, causing constant left-stick drift
+// at rest. Existing users who have already saved a lower value are unaffected.
+if (!storedDz) { localStorage.setItem('ns_deadzone', '0.05'); storedDz = '0.05'; }
 window._globalDeadzone = parseFloat(storedDz);
 window.electronAPI?.saveGlobalSetting('ns_deadzone', storedDz);
 
@@ -1332,6 +1534,10 @@ if (isMobileDevice) {
         if (tUI) tUI.classList.remove('gone');
         if (tBtn) { tBtn.classList.add('ns-btn-active'); tBtn.textContent = 'Touch UI: ON'; }
     });
+    // NOTE: Do NOT call activateGamepad() here — it would set gpStateObj.lastActiveId
+    // before ws is open, causing the gpid announcement to never be sent to the host.
+    // The existing touchstart listener on the document (line ~2170) handles first-touch
+    // activation at the correct time after the WebSocket is connected.
 }
 
 async function toggleGyro() {
@@ -1354,17 +1560,18 @@ document.querySelectorAll('[data-btn]').forEach(el => {
         e.preventDefault(); 
         if (clientRumbleEnabled && navigator.vibrate) navigator.vibrate(20);
         touchState.buttons[el.dataset.btn].pressed = true; 
-        touchState.buttons[el.dataset.btn].value = 1; 
-        el.style.transform = 'scale(0.92)';
-        el.style.backgroundColor = 'rgba(139, 92, 246, 0.4)';
+        touchState.buttons[el.dataset.btn].value = 1;
+        // Use a CSS class instead of inline styles — inline style mutations
+        // are silently dropped by mobile Chrome when preventDefault() is called,
+        // causing the "forgot to show pressed" visual glitch.
+        el.classList.add('touch-pressed');
     }, { passive: false });
     
     const release = e => {
         e.preventDefault();
         touchState.buttons[el.dataset.btn].pressed = false;
         touchState.buttons[el.dataset.btn].value = 0;
-        el.style.transform = '';
-        el.style.backgroundColor = '';
+        el.classList.remove('touch-pressed');
     };
     
     el.addEventListener('touchend', release, { passive: false });
@@ -1374,6 +1581,18 @@ document.querySelectorAll('[data-btn]').forEach(el => {
 const jBase = document.getElementById('jBase');
 const jStick = document.getElementById('jStick');
 let jBaseRect = null;
+// Track the specific finger (touch identifier) driving this stick, not just
+// touches[0]. Without this, adding a second finger anywhere on screen (e.g.
+// tapping an action button while holding the stick) can make touches[0]
+// resolve to the WRONG finger on the next event, snapping the stick toward
+// that finger's position — and when that second finger lifts, the stick's
+// own touchend can fire from stale/reordered touch data and zero the axis
+// even though the original stick finger never left the screen.
+let jBaseTouchId = null;
+function _touchById(touchList, id) {
+    for (let i = 0; i < touchList.length; i++) { if (touchList[i].identifier === id) return touchList[i]; }
+    return null;
+}
 function updateStick(touch) {
     if (!jBaseRect) return;
     const cx = jBaseRect.left + jBaseRect.width / 2, cy = jBaseRect.top + jBaseRect.height / 2, max = jBaseRect.width / 2;
@@ -1384,14 +1603,37 @@ function updateStick(touch) {
     touchState.axes[0] = dx / max; touchState.axes[1] = dy / max;
 }
 if (jBase) {
-    jBase.addEventListener('touchstart', e => { e.preventDefault(); jBaseRect = jBase.getBoundingClientRect(); updateStick(e.touches[0]); }, { passive: false });
-    jBase.addEventListener('touchmove', e => { e.preventDefault(); updateStick(e.touches[0]); }, { passive: false });
-    jBase.addEventListener('touchend', e => { e.preventDefault(); jStick.style.transform = 'translate(0px,0px)'; touchState.axes[0] = 0; touchState.axes[1] = 0; }, { passive: false });
+    jBase.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (jBaseTouchId !== null) return; // already tracking a finger, ignore extras
+        const t = e.changedTouches[0];
+        jBaseTouchId = t.identifier;
+        jBaseRect = jBase.getBoundingClientRect();
+        updateStick(t);
+    }, { passive: false });
+    jBase.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (jBaseTouchId === null) return;
+        const t = _touchById(e.touches, jBaseTouchId);
+        if (t) updateStick(t);
+    }, { passive: false });
+    const jBaseRelease = e => {
+        e.preventDefault();
+        if (jBaseTouchId === null) return;
+        const stillDown = _touchById(e.touches, jBaseTouchId);
+        if (stillDown) return; // our finger is still on screen, some other finger changed
+        jBaseTouchId = null;
+        jStick.style.transform = 'translate(0px,0px)';
+        touchState.axes[0] = 0; touchState.axes[1] = 0;
+    };
+    jBase.addEventListener('touchend', jBaseRelease, { passive: false });
+    jBase.addEventListener('touchcancel', jBaseRelease, { passive: false });
 }
 
 const jBaseRight = document.getElementById('jBaseRight');
 const jStickRight = document.getElementById('jStickRight');
 let jBaseRightRect = null;
+let jBaseRightTouchId = null;
 function updateStickRight(touch) {
     if (!jBaseRightRect) return;
     const cx = jBaseRightRect.left + jBaseRightRect.width / 2, cy = jBaseRightRect.top + jBaseRightRect.height / 2, max = jBaseRightRect.width / 2;
@@ -1402,9 +1644,31 @@ function updateStickRight(touch) {
     touchState.axes[2] = dx / max; touchState.axes[3] = dy / max;
 }
 if (jBaseRight) {
-    jBaseRight.addEventListener('touchstart', e => { e.preventDefault(); jBaseRightRect = jBaseRight.getBoundingClientRect(); updateStickRight(e.touches[0]); }, { passive: false });
-    jBaseRight.addEventListener('touchmove', e => { e.preventDefault(); updateStickRight(e.touches[0]); }, { passive: false });
-    jBaseRight.addEventListener('touchend', e => { e.preventDefault(); jStickRight.style.transform = 'translate(0px,0px)'; touchState.axes[2] = 0; touchState.axes[3] = 0; }, { passive: false });
+    jBaseRight.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (jBaseRightTouchId !== null) return;
+        const t = e.changedTouches[0];
+        jBaseRightTouchId = t.identifier;
+        jBaseRightRect = jBaseRight.getBoundingClientRect();
+        updateStickRight(t);
+    }, { passive: false });
+    jBaseRight.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (jBaseRightTouchId === null) return;
+        const t = _touchById(e.touches, jBaseRightTouchId);
+        if (t) updateStickRight(t);
+    }, { passive: false });
+    const jBaseRightRelease = e => {
+        e.preventDefault();
+        if (jBaseRightTouchId === null) return;
+        const stillDown = _touchById(e.touches, jBaseRightTouchId);
+        if (stillDown) return;
+        jBaseRightTouchId = null;
+        jStickRight.style.transform = 'translate(0px,0px)';
+        touchState.axes[2] = 0; touchState.axes[3] = 0;
+    };
+    jBaseRight.addEventListener('touchend', jBaseRightRelease, { passive: false });
+    jBaseRight.addEventListener('touchcancel', jBaseRightRelease, { passive: false });
 }
 
 // Removed redundant dpad-btn listener block since it's handled by data-btn above
@@ -1530,20 +1794,30 @@ function applyCalibration(gp, state) {
         }
         return gp.axes[mp.idx] || 0;
     };
+    // FIX: state.axes stores -1..1 floats — NOT pre-scaled int16s.
+    // Previous code did Math.round(rx * 32767) here, then _packGamepadJson
+    // multiplied by 32767 AGAIN, producing ~1 billion (right stick garbage/overflow).
+    // Also apply the active deadzone so calibrated axes get the same filtering
+    // as the polling loop already applies to the left stick.
+    const _dz = window._globalDeadzone !== undefined ? window._globalDeadzone : 0.05;
+    const _applyDz = (v) => {
+        if (Math.abs(v) < _dz) return 0;
+        return Math.sign(v) * ((Math.abs(v) - _dz) / (1.0 - _dz));
+    };
     const rx = readStick(m.rsx);
     const ry = readStick(m.rsy);
-    if (rx !== null) state.axes[2] = rx;
-    if (ry !== null) state.axes[3] = ry;
+    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx)));
+    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry)));
     function readTrigger(mp) {
         if (!mp) return 0;
-        if (mp.type === 'btn') return gp.buttons[mp.idx]?.value || 0;
+        if (mp.type === 'btn') return Math.round((gp.buttons[mp.idx]?.value || 0) * 255);
         const raw = gp.axes[mp.idx] ?? -1;
         const norm = Math.max(0, (raw + 1) / 2);
-        return norm < 0.05 ? 0 : norm;
+        return norm < 0.05 ? 0 : Math.round(norm * 255);
     }
     const lt = readTrigger(m.lt), rt = readTrigger(m.rt);
-    if (lt > 0 || m.lt) state.buttons[6] = { pressed: lt > 0.05, value: lt };
-    if (rt > 0 || m.rt) state.buttons[7] = { pressed: rt > 0.05, value: rt };
+    if (lt > 0 || m.lt) state.buttons[6] = { pressed: lt > 10, value: lt / 255.0 };
+    if (rt > 0 || m.rt) state.buttons[7] = { pressed: rt > 10, value: rt / 255.0 };
 }
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
@@ -1596,8 +1870,19 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
     window.electronAPI.startNativeGamepadCapture();
 }
 
+// Experimental modes stored in localStorage are provisional — the host may have
+// disabled the module since the last visit. Treat them as pending confirmation;
+// the ctrl-settings broadcast below will either keep or reset the mode.
+const _experimentalModes = ['guitar', 'hotas', 'tablet', 'eyetracking', 'lightgun', 'balanceboard', 'adaptive'];
 window.currentInputMode = localStorage.getItem('ns_input_mode') || 'gamepad';
 if (window.currentInputMode === 'webhid') window.currentInputMode = 'gamepad'; // Auto-migrate legacy clients
+// Provisionally clear non-gamepad experimental modes to avoid sending the wrong
+// type before the server confirms the module is still enabled.
+if (_experimentalModes.includes(window.currentInputMode)) {
+    // Will be restored by ctrl-settings if the host still has it enabled
+    window._provisionalInputMode = window.currentInputMode;
+    window.currentInputMode = 'gamepad';
+}
 let eyeTrackerCam = null;
 let eyeTrackerFaceMesh = null;
 
@@ -2232,6 +2517,10 @@ async function connect() {
         knownNativePads.forEach(pInfo => ws.send(JSON.stringify(Object.assign({ type: 'gpid' }, pInfo))));
     }
     ws.onopen = () => {
+        // Reset the controller ID guard so gpid is always announced after (re)connect.
+        // If the poll loop ran before ws was ready (mobile first-touch timing), the
+        // host never received the gpid and never registered the controller slot.
+        gpStateObj.lastActiveId = null;
         sendJoinToWS();
     };
 
@@ -2741,22 +3030,37 @@ async function connect() {
             
             if (msg.expDevices) {
                 const select = document.getElementById('vInputApiSelect');
+                const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
+
+                // Restore a provisionally-cleared experimental mode if the host still allows it
+                if (window._provisionalInputMode && enabledExp.includes(window._provisionalInputMode)) {
+                    window.currentInputMode = window._provisionalInputMode;
+                    localStorage.setItem('ns_input_mode', window.currentInputMode);
+                }
+                window._provisionalInputMode = null;
+
+                // If the viewer's active mode is no longer permitted, forcibly revert to gamepad
+                if (!enabledExp.includes(window.currentInputMode) && window.currentInputMode !== 'gamepad') {
+                    console.log(`[InputMode] Host disabled '${window.currentInputMode}' — reverting to gamepad.`);
+                    if (window.updateInputMode) window.updateInputMode('gamepad');
+                    else { window.currentInputMode = 'gamepad'; localStorage.setItem('ns_input_mode', 'gamepad'); }
+                }
+
                 if (select) {
-                    const currentVal = select.value || window.currentInputMode;
+                    const currentVal = window.currentInputMode;
                     let html = '<option value="gamepad">Standard Gamepad</option>';
-                    const enabledExp = msg.expDevices.filter(d => d.enabled).map(d => d.val);
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
-                    
+
                     select.innerHTML = html;
-                    
+
                     if (Array.from(select.options).some(o => o.value === currentVal)) {
                         select.value = currentVal;
                     } else {
                         select.value = 'gamepad';
-                        if (window.updateInputMode) window.updateInputMode('gamepad');
+                        // Mode was already corrected above; just sync the dropdown
                     }
                 }
             }
@@ -3726,9 +4030,11 @@ function initWebCodecsViewer(config) {
         }
 
         if (wcCtx) {
+            _webglSupported = true;
             wcGlTexture = _setupWebGL(wcCtx);
             _lastAppliedUpscale = null;
         } else {
+            _webglSupported = false;
             wcCtx = wcCanvas.getContext('2d', { alpha: false });
             wcGlTexture = null;
         }
@@ -3773,16 +4079,45 @@ function initWebCodecsViewer(config) {
                 wcCanvas.height = frame.codedHeight;
                 if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
             }
-            if (wcCtx && wcGlTexture) {
-                if (_applyUpscaleFilter && (_lastAppliedUpscale === null || document.body.classList.contains('pixel-mode') !== (_upscaleMode === 2))) {
-                    _applyUpscaleFilter();
+            
+            let handledByUpscaler = false;
+            // GPU path (WebGPU) — highest priority
+            if (_gpuUpscalerInstance && window._gpuCanvas) {
+                const gpuC = window._gpuCanvas;
+                if (gpuC.width !== frame.codedWidth || gpuC.height !== frame.codedHeight) {
+                    _updateUpscaleCanvasSize(frame.codedWidth, frame.codedHeight);
+                    gpuC.width  = upscalerCanvas ? upscalerCanvas.width  : frame.codedWidth;
+                    gpuC.height = upscalerCanvas ? upscalerCanvas.height : frame.codedHeight;
                 }
-                wcCtx.activeTexture(wcCtx.TEXTURE0);
-                wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
-                wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
-                wcCtx.drawArrays(wcCtx.TRIANGLE_STRIP, 0, 4);
-            } else if (wcCtx) {
-                wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+                gpuC.style.display = 'block';
+                wcCanvas.style.opacity = '0';
+                _gpuUpscalerInstance.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
+                _gpuUpscalerInstance.uploadAndDraw(frame);
+                handledByUpscaler = true;
+            // WebGL fallback path
+            } else if (_upscaleMode > 0 && _webglSupported && window.upscalerInstance && upscalerCanvas) {
+                _updateUpscaleCanvasSize(frame.codedWidth, frame.codedHeight);
+                upscalerCanvas.style.display = 'block';
+                wcCanvas.style.opacity = '0';
+                window.upscalerInstance.uploadAndDraw(frame);
+                handledByUpscaler = true;
+            } else {
+                if (upscalerCanvas) upscalerCanvas.style.display = 'none';
+                wcCanvas.style.opacity = '1';
+            }
+            
+            if (!handledByUpscaler) {
+                if (wcCtx && wcGlTexture) {
+                    if (_applyUpscaleFilter && (_lastAppliedUpscale === null || document.body.classList.contains('pixel-mode') !== (_upscaleMode === 2))) {
+                        _applyUpscaleFilter();
+                    }
+                    wcCtx.activeTexture(wcCtx.TEXTURE0);
+                    wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
+                    wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
+                    wcCtx.drawArrays(wcCtx.TRIANGLE_STRIP, 0, 4);
+                } else if (wcCtx) {
+                    wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+                }
             }
             frame.close();
             if (window._trackViewerFrame) window._trackViewerFrame();
@@ -4226,12 +4561,21 @@ setInterval(async () => {
 
 setTimeout(() => { applyHudState(); wireHudInteractions(); }, 300);
 
-// Restore upscale mode from persisted settings
-setTimeout(() => {
+// Restore upscale mode + GPU backend from persisted settings
+setTimeout(async () => {
     const saved = localStorage.getItem('ns_upscale_mode');
     if (saved !== null && !isNaN(parseInt(saved, 10))) {
         _upscaleMode = parseInt(saved, 10);
         window.setUpscaleMode(_upscaleMode);
+    }
+
+    // GPU backend — attempt WebGPU init if the preference is set
+    _gpuBackendEnabled = localStorage.getItem('ns_gpu_backend') === '1';
+    _syncGpuBackendToggleUI();
+    if (_gpuBackendEnabled) {
+        await _initGpuUpscalerIfEnabled();
+        // If init failed, _gpuBackendEnabled was reset to false inside the function
+        _syncGpuBackendToggleUI();
     }
 }, 500);
 
