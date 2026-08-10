@@ -17,13 +17,16 @@
     "dist:mac": "electron-builder --mac --publish always",
     "dist:linux": "electron-builder --linux --publish always"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "dependencies": {
     "@capacitor/android": "^8.3.4",
     "@capacitor/core": "^8.3.4",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^8.3.4",
     "@fails-components/webtransport": "^1.6.3",
-    "@nearcade/launcher-detect": "^0.1.0",
+    "@nearcade/launcher-detect": "^0.1.4",
     "@trystero-p2p/mqtt": "^0.25.3",
     "@trystero-p2p/torrent": "^0.25.2",
     "discord-rpc": "^4.0.1",
@@ -95,7 +98,9 @@
       "config/**/*",
       "kbm_presets/**/*",
       "assets/**/*",
-      "bin/**/*"
+      "bin/**/*",
+      "node_modules/@nearcade/**/*",
+      "packages/**/*"
     ],
     "nsis": {
       "oneClick": false,

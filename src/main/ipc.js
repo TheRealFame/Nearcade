@@ -844,25 +844,54 @@ function registerIpcHandlers(ctx) {
   });
 
   if (ctx.win && !ctx.win.isDestroyed()) {
+    // ── UNIFIED CAPTURE HANDLER ──────────────────────────────────────────────
+    // IMPORTANT: The callback MUST receive a real DesktopCapturerSource object
+    // from getSources(). Passing a plain {id, name, ...} object works for the
+    // desktop screen source but crashes Electron's media pipeline for any
+    // window/application source (regression introduced in refactor from 3.0.1).
+    // Fix: always call getSources() first, then find the selected source by ID.
     ctx.win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
-      if (selectedSourceId) {
-        const id = selectedSourceId;
-        selectedSourceId = null;
-        const isScreen = id.startsWith('screen:');
-        callback({ video: { id, name: isScreen ? 'Screen' : 'Window', thumbnail: nativeImage.createEmpty(), display_id: '' } });
-        return;
-      }
-      desktopCapturer.getSources({ types: ['screen', 'window'] }).then(sources => {
-        if (sources && sources.length > 0) {
-          let chosenSource = sources[0];
-          if (process.platform === 'win32') callback({ video: chosenSource, audio: 'loopback' });
-          else callback({ video: chosenSource });
-        } else {
+      // Thumbnail size 1x1 is sufficient — we just need the real source objects.
+      desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 1, height: 1 } }).then(sources => {
+        if (!sources || sources.length === 0) {
           console.log('[electron] Capture blocked or no sources found. Cancelling.');
           callback();
+          if (ctx.win && !ctx.win.isDestroyed()) {
+            ctx.win.webContents.executeJavaScript(`
+            if (typeof _elDisabled === 'function') {
+              _elDisabled('btnStart', false);
+              _elDisabled('btnSwitch', false);
+              _elDisabled('btnStop', true);
+              if (typeof setCapDot === 'function') setCapDot('');
+            }
+            `).catch(() => { });
+          }
+          return;
         }
+
+        // Consume any pending source selection from the picker UI
+        let chosenSource = sources[0]; // default: first screen
+        if (selectedSourceId) {
+          const id = selectedSourceId;
+          selectedSourceId = null;
+          const match = sources.find(s => s.id === id);
+          if (match) {
+            chosenSource = match;
+          } else {
+            // ID no longer in source list (window closed etc.) — fall back to screen
+            const firstScreen = sources.find(s => s.id.startsWith('screen:'));
+            if (firstScreen) chosenSource = firstScreen;
+            console.warn('[electron] Selected source ID not found, falling back to primary screen.');
+          }
+        }
+
+        // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio on Windows.
+        // Do not pass audio on other platforms; PipeWire handles it separately.
+        if (process.platform === 'win32') callback({ video: chosenSource, audio: 'loopback' });
+        else callback({ video: chosenSource });
       }).catch(err => {
         console.error('[electron] Capturer error:', err);
+        selectedSourceId = null; // discard stale selection on error
         callback();
         if (ctx.win && !ctx.win.isDestroyed()) {
           ctx.win.webContents.executeJavaScript(`

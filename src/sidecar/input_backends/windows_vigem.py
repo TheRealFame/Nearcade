@@ -36,12 +36,34 @@ def _error(msg: str, code: str = "VIGEM_ERROR"):
 try:
     import vgamepad as vg
 except ImportError:
-    _error(
-        "vgamepad not installed. Install with: pip install vgamepad  "
-        "ViGEmBus driver also required: https://github.com/nefarius/ViGEmBus/releases",
-        "VIGEMBUS_MISSING"
+    # Attempt auto-install before giving up — mirrors how the Linux backend
+    # handles missing evdev. Uses sys.executable so pip installs into exactly
+    # the Python env that spawned this sidecar.
+    _log("vgamepad not found — attempting auto-install via pip...")
+    import subprocess as _sp
+    _result = _sp.run(
+        [sys.executable, "-m", "pip", "install", "vgamepad", "--quiet", "--no-warn-script-location"],
+        capture_output=True, text=True
     )
-    sys.exit(1)
+    if _result.returncode == 0:
+        _log("vgamepad installed successfully — reloading...")
+        try:
+            import vgamepad as vg
+        except Exception as _e2:
+            _error(
+                f"vgamepad installed but still failed to import: {_e2}  "
+                "ViGEmBus driver also required: https://github.com/nefarius/ViGEmBus/releases",
+                "VIGEMBUS_MISSING"
+            )
+            sys.exit(1)
+    else:
+        _error(
+            "vgamepad not installed and auto-install failed.  "
+            "Run: pip install vgamepad  "
+            "ViGEmBus driver also required: https://github.com/nefarius/ViGEmBus/releases",
+            "VIGEMBUS_MISSING"
+        )
+        sys.exit(1)
 except Exception as e:
     # vgamepad imports successfully but ViGEmBus service is not running/installed
     _error(

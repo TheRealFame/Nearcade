@@ -70,11 +70,20 @@ const FALLBACK_PATHS = {
   zrok: [
     path.join(os.homedir(), 'zrok', 'zrok.exe'),
     path.join(os.homedir(), 'bin', 'zrok.exe'),
+    path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok.exe'),
+    path.join(os.homedir(), 'AppData', 'Local', 'zrok', 'zrok.exe'),
+    'C:\\Program Files\\zrok\\zrok.exe',
+    'C:\\Program Files (x86)\\zrok\\zrok.exe',
     path.join(os.homedir(), 'zrok', 'zrok'),
     path.join(os.homedir(), 'bin', 'zrok'),
     path.join(os.homedir(), 'bin', 'zrok2')
   ],
   zrok2: [
+    path.join(os.homedir(), 'zrok', 'zrok2.exe'),
+    path.join(os.homedir(), 'bin', 'zrok2.exe'),
+    path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok2.exe'),
+    path.join(os.homedir(), 'AppData', 'Local', 'zrok', 'zrok2.exe'),
+    'C:\\Program Files\\zrok\\zrok2.exe',
     path.join(os.homedir(), 'zrok', 'zrok2'),
     path.join(os.homedir(), 'bin', 'zrok2')
   ],
@@ -326,9 +335,16 @@ function startTunnelZrok(port, retries = 3, token = '') {
         const cfgBin = path.join(os.homedir(), '.config', 'Nearcade', 'bin');
         const candidates = [
           path.join(cfgBin, 'zrok2'), path.join(cfgBin, 'zrok'),
-          '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok',
-          path.join(os.homedir(), 'bin/zrok'), './zrok',
+          path.join(cfgBin, 'zrok2.exe'), path.join(cfgBin, 'zrok.exe'),
+          '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok2', '/usr/local/bin/zrok',
+          path.join(os.homedir(), 'bin/zrok2'), path.join(os.homedir(), 'bin/zrok'), './zrok',
+          path.join(os.homedir(), 'zrok', 'zrok2.exe'),
           path.join(os.homedir(), 'zrok', 'zrok.exe'),
+          path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok2.exe'),
+          path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok.exe'),
+          path.join(os.homedir(), 'AppData', 'Local', 'zrok', 'zrok2.exe'),
+          'C:\\Program Files\\zrok\\zrok2.exe',
+          'C:\\Program Files\\zrok\\zrok.exe',
         ];
         for (const c of candidates) if (fs.existsSync(c)) return c;
         return null;
