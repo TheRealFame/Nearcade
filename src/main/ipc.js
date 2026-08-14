@@ -495,22 +495,6 @@ function registerIpcHandlers(ctx) {
     shell.openPath(CONFIG_DIR);
   });
 
-  ipcMain.on('open-obs-window', () => {
-    const obsWin = new BrowserWindow({
-      width: 1280, height: 720,
-      frame: false,
-      transparent: false,
-      backgroundColor: '#000000',
-      alwaysOnTop: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      }
-    });
-    // Load the main viewer page but pass &obs=1 to trigger the CSS hiding
-    obsWin.loadURL(`http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent(ctx.settings.vpsUrl || 'http://localhost:' + ctx.serverPort)}&obs=1`);
-  });
-
   ipcMain.on('window-close', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.close(); });
   ipcMain.on('window-minimize', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.minimize(); });
   ipcMain.on('window-maximize', () => { if (ctx.win && !ctx.win.isDestroyed()) { ctx.win.isMaximized() ? ctx.win.unmaximize() : ctx.win.maximize(); } });

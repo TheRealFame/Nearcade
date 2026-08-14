@@ -694,21 +694,6 @@
               onchange="localStorage.setItem('ns_input_only', this.checked); document.getElementById('ctrlTrackInputOnly').classList.toggle('on', this.checked)">
           </div>
           <script>if (localStorage.getItem('ns_input_only') === 'true') { document.getElementById('inputOnlyToggle').checked = true; document.getElementById('ctrlTrackInputOnly').classList.add('on'); }</script>
-
-          <div class="ctrl-modal-row" style="margin-top:8px;">
-            <div class="ctrl-row-text" style="flex:1;">
-              <div class="ctrl-row-label">OBS / Streamer Target Window</div>
-              <div class="ctrl-row-desc">Spawn a clean, frameless broadcast window to capture in OBS or Discord without
-                UI overlays.</div>
-            </div>
-            <button
-              onclick="if(window.spawnOBSWindow) window.spawnOBSWindow(); else if(window.opener && window.opener.spawnOBSWindow) window.opener.spawnOBSWindow();"
-              style="background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
-              onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
-              onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">
-              Spawn Target
-            </button>
-          </div>
         </div>
       </div>
 
@@ -1088,7 +1073,6 @@
           <option value="webhid">Raw WebHID DualSense (1000Hz)</option>
           <option value="guitar">Guitars / Rhythm</option>
           <option value="hotas">Flight Stick / HOTAS</option>
-          <option value="vr">VR Headsets (OpenVR)</option>
           <option value="balance">Balance Boards</option>
           <option value="eye">Eye / Head Tracking</option>
           <option value="lightgun">Light Guns</option>

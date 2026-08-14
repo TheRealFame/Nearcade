@@ -2364,6 +2364,8 @@ async function hotSwapCapture() {
 }
 
 async function startCapture() {
+    // A fresh attempt must never inherit suppress flags from a previous one.
+    window._portalAttemptFailed = false;
     streamActive = true;
     _updateDiscordRPC();
     // ── HANG PROTECTION: Forces hanging OS promises to reject after 20 seconds ──
@@ -2512,7 +2514,12 @@ async function startCapture() {
             const zeroCopyOn = (await loadAppConfig().catch(() => ({}))).zeroCopy === true;
             if (isLinux) {
                 try {
-                    const dims = await window.electronAPI.drmCaptureStart();
+                    // Race the DRM start with a timeout so a hung /dev/dri open
+                    // cannot leave the UI frozen with the Start button disabled.
+                    const dims = await Promise.race([
+                        window.electronAPI.drmCaptureStart(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('DRM start timed out')), 8000))
+                    ]);
                     if (dims && dims.width > 0 && dims.height > 0) {
                         // Probe: try one frame with a short timeout
                         const firstFrame = await Promise.race([
@@ -2548,12 +2555,14 @@ async function startCapture() {
                     window.electronAPI.drmCaptureStop().catch(() => { });
                 }
             }
-            // Fallback: portal with instruction overlay (skipped when Zero-Copy forces DRM-only capture)
+            // Fallback: portal with instruction hint (skipped when Zero-Copy forces DRM-only capture)
+            // Non-blocking hint (pointer-events:none) so the user can still reach the system dialog.
             if (!screenStream && !zeroCopyOn) {
                 const portalMsg = document.createElement('div');
                 portalMsg.id = 'ns-portal-msg';
-                portalMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:#1a1a2e;color:#fff;padding:24px 32px;border-radius:12px;border:1px solid #c084fc;text-align:center;font-family:monospace;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,0.8);max-width:400px;';
-                portalMsg.innerHTML = '<div style="font-size:24px;margin-bottom:12px;">🖥</div><strong>Screen Selection Required</strong><br><br>Please select your screen (or game window) in the system dialog that just appeared.<br><br><span style="color:#888;font-size:12px;">This dialog is required once per session on Wayland.</span>';
+                portalMsg.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;background:rgba(20,22,28,0.92);color:#fff;padding:12px 20px;border-radius:10px;border:1px solid #c084fc;text-align:center;font-family:monospace;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:440px;';
+                const gameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
+                portalMsg.innerHTML = 'Screen Selection Required — select ' + (gameName ? '<strong>' + gameName + '</strong>' : 'your screen or game window') + ' in the system dialog that just appeared.<br><span style="color:#888;font-size:11px;">Required once per session on Wayland.</span>';
                 document.body.appendChild(portalMsg);
                 try {
                     await window.electronAPI.setSelectedSource('screen:0:0');
@@ -2561,7 +2570,10 @@ async function startCapture() {
                     const abortTimer = setTimeout(() => abortCtrl.abort(), 30000);
                     screenStream = await navigator.mediaDevices.getDisplayMedia({ ...displayMediaOptions, signal: abortCtrl.signal });
                     clearTimeout(abortTimer);
+                    window._portalAttemptFailed = false;
                 } catch (e) {
+                    // Suppress the second native picker later in this flow so the user is not hit with two stacked dialogs.
+                    window._portalAttemptFailed = true;
                     if (e.name === 'AbortError') log('Auto-capture timed out waiting for screen selection.', 'err');
                     else log('Auto-capture failed: ' + e.message, 'err');
                 } finally {
@@ -2622,9 +2634,11 @@ async function startCapture() {
                 selectedSourceId = null;
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
             }
-        } else if (!screenStream) {
+        } else if (!screenStream && !window._portalAttemptFailed) {
             // Ultimate fallback — native picker
             screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+        } else if (!screenStream) {
+            log('Auto-capture cancelled — no second picker will be shown. Click Start to capture manually.', 'warn');
         }
 
         if (selectedSourceId) activeSourceId = selectedSourceId;
@@ -2633,6 +2647,14 @@ async function startCapture() {
             console.error('[Capture] Aborting: No stream was returned (likely Windows audio restriction).');
             log('Capture failed: No stream returned. Try without system audio.', 'err');
             if (typeof setCapDot === 'function') setCapDot('err');
+            const badge = document.getElementById('capStatus');
+            if (badge && typeof launchGameData !== 'undefined' && launchGameData) {
+                badge.textContent = 'Capture cancelled — click Start to retry';
+            }
+            // Return to a clean stopped state so the host stays fully usable
+            // after a denied/cancelled picker instead of freezing mid-launch.
+            streamActive = false;
+            window._autoCapture = false;
             _elDisabled('btnStart', false);
             _elDisabled('btnSwitch', true);
             _elDisabled('btnStop', true);
@@ -2994,8 +3016,6 @@ function stopCapture() {
     if (window._gstPreviewStream) { _forceKillStream(window._gstPreviewStream); window._gstPreviewStream = null; }
     const localVideo = document.getElementById('localVideo');
     if (localVideo) { localVideo.poster = ''; localVideo.srcObject = null; }
-    const grid = document.getElementById('previewGrid');
-    if (grid) grid.innerHTML = '';
     _stopStatsHud();
     _stopHostDelayLoop();
     stopAudioMeter();
@@ -4579,44 +4599,6 @@ document.querySelectorAll('.provider-card').forEach(card => {
     });
 });
 
-// ── OBS EGRESS ─────────────────────────────────────────────────────────────────
-window.spawnOBSWindow = function () {
-    if (!currentStream) {
-        alert("Please start the stream first before spawning the OBS Target Window.");
-        return;
-    }
-    const obsWin = window.open('about:blank', 'OBS_Target', 'width=1280,height=720,frame=no');
-    if (!obsWin) {
-        alert("Failed to spawn OBS window. Please check your popup blocker.");
-        return;
-    }
-    obsWin.document.write(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Nearcade OBS Target</title>
-    <style>
-        body, html { margin:0; padding:0; background:#000; overflow:hidden; -webkit-app-region: drag; width:100vw; height:100vh; }
-        video { display:block; width:100%; height:100%; object-fit:fill; -webkit-app-region: drag; pointer-events: none; border:none; outline:none; }
-    </style>
-</head>
-<body>
-    <video id="obs-video" autoplay playsinline muted></video>
-</body>
-</html>
-    `);
-    obsWin.document.close();
-
-    // Assign the stream directly from the host context after a brief tick to ensure the DOM is painted
-    setTimeout(() => {
-        const vid = obsWin.document.getElementById('obs-video');
-        if (vid) {
-            vid.srcObject = currentStream;
-            vid.play().catch(console.warn);
-        }
-    }, 100);
-};
-
 async function checkTunnelOnConnect() {
     if (_vpsConfig && _vpsConfig.vpsEnabled) {
         const el = document.getElementById('urlList');
@@ -6189,6 +6171,19 @@ function loadExpDevices() {
         const list = document.getElementById('expDeviceList');
         if (list) list.innerHTML = '';
         devices.forEach(d => addExpDevice(d.val, d.text, d.enabled));
+    }
+
+    // The Enable VR dashboard switch owns the VR module now; reconcile the
+    // device entry on host load so the pipeline matches the switch.
+    const vrEnabled = typeof appConfig !== 'undefined' && appConfig.vrEnabled === true;
+    const hasVr = devices.some(d => d && d.val === 'vr');
+    const list = document.getElementById('expDeviceList');
+    if (vrEnabled && !hasVr) {
+        addExpDevice('vr', 'VR Headsets (OpenVR)', true);
+    } else if (!vrEnabled && hasVr && list) {
+        const el = list.querySelector('[data-exp-val="vr"]');
+        if (el) el.remove();
+        saveExpDevices();
     }
 }
 
