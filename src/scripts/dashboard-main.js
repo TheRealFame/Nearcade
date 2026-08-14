@@ -158,7 +158,7 @@ function switchTab(name) {
 
   if (name === 'arcade') {
     const arcadeFrame = document.querySelector('#panel-arcade iframe');
-    if (arcadeFrame && !arcadeFrame.src) {
+    if (arcadeFrame && !arcadeFrame.getAttribute('src')) {
       const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
       const currentPort = _getServerPort();
       arcadeFrame.src = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
