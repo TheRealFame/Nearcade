@@ -31,6 +31,11 @@ class P2PSignaler {
         };
 
         action.onMessage = (data, meta) => {
+            if (typeof data === 'object' && !(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) {
+                if (data.type && (data.type.startsWith('ice') || data.type === 'offer' || data.type === 'answer')) {
+                    console.log(`[P2P Host] Received ${data.type} from ${meta.peerId}`);
+                }
+            }
             if (this.onMessageCallback) {
                 // If it's a JSON object, try injecting viewer_id for backwards compatibility
                 if (typeof data === 'object' && !(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) {
@@ -60,6 +65,11 @@ class P2PSignaler {
         };
 
         action.onMessage = (data) => {
+            if (typeof data === 'object' && !(data instanceof ArrayBuffer) && !(data instanceof Uint8Array)) {
+                if (data.type && (data.type.startsWith('ice') || data.type === 'offer' || data.type === 'answer')) {
+                    console.log(`[P2P Viewer] Received ${data.type}`);
+                }
+            }
             if (this.onMessageCallback) {
                 this.onMessageCallback(data);
             }

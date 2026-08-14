@@ -1682,13 +1682,17 @@ function connectWS() {
                 }
             }
 
-            // These messages are bounced back from server.js if the target viewer is on the VPS.
+            // These messages are bounced back from server.js if the target viewer is on the VPS or P2P.
+            const target = msg._viewerId || msg.targetViewerId;
             if (_vpsWs && _vpsWs.readyState === 1) {
-                const target = msg._viewerId || msg.targetViewerId;
                 if (target) {
                     vpsDispatch(target, msg);
                 } else {
                     _vpsWs.send(JSON.stringify(msg));
+                }
+            } else if (window._isP2P && window.P2PManager && target) {
+                if (window.P2PManager.isPeer(target)) {
+                    window.P2PManager.sendToPeer(target, msg);
                 }
             }
         }
@@ -4423,6 +4427,7 @@ function initP2PHostRoom(code) {
                     isDesktopApp: msg.isDesktopApp,
                 }));
             }
+            return;
         }
 
         if (msg.type === 'viewer-left') {
@@ -4433,6 +4438,7 @@ function initP2PHostRoom(code) {
                     viewerId: peerId,
                 }));
             }
+            return;
         }
 
         // Let the existing websocket logic handle it
