@@ -2301,21 +2301,10 @@ async function hotSwapCapture() {
         }
 
         // 2. Grab the new video track (with timeout protection)
-        let newScreenStream;
-        if (window._lastSourceId && window.electronAPI) {
-            newScreenStream = await Promise.race([
-                navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: window._lastSourceId, maxFrameRate: fpsVal } }
-                }),
-                timeout
-            ]);
-        } else {
-            newScreenStream = await Promise.race([
-                navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false }),
-                timeout
-            ]);
-        }
+        let newScreenStream = await Promise.race([
+            navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false }),
+            timeout
+        ]);
 
         const newVideoTrack = newScreenStream.getVideoTracks()[0];
         newVideoTrack.contentHint = 'motion';
@@ -2614,19 +2603,14 @@ async function startCapture() {
                         : `screen:${selectedSourceId}:0`;
                 }
                 window.electronAPI.setSelectedSource(selectedSourceId);
-                const vidStream = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: selectedSourceId, maxFrameRate: fpsVal } }
-                });
+                
+                // FIXED: Use getDisplayMedia instead of deprecated getUserMedia
+                const vidStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                // Windows has no native loopback for the legacy mandatory
-                // chromeMediaSource audio request (see startup banner) — that
-                // getUserMedia is known to hard-crash Chromium's media/GPU
-                // process on Windows, instantly closing the app at share time.
-                // Loopback audio on Windows comes via getDisplayMedia's
-                // 'loopback' handling in the main-process capture handler.
+                // Windows loopback audio comes directly from getDisplayMedia via ipc.js intercept.
+                // macOS does not support 'loopback', so we must still use the legacy capture method for audio only.
                 if (!isLinux && !isWindows && audioSettings.forceAudioEnabled) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
@@ -2640,7 +2624,11 @@ async function startCapture() {
                 }
 
                 screenStream = new MediaStream([vidStream.getVideoTracks()[0]]);
-                if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
+                
+                // Add the getDisplayMedia audio track (Windows) OR the manually captured track (macOS)
+                const existingAudio = vidStream.getAudioTracks()[0];
+                if (existingAudio) screenStream.addTrack(existingAudio);
+                else if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
 
             } catch (e) {
                 log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');

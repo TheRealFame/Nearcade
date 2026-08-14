@@ -39,8 +39,18 @@ try:
     KBM_ENABLED = True
     _log("pyautogui loaded — KBM passthrough enabled")
 except ImportError:
-    _log("WARNING: pyautogui not installed — KBM passthrough disabled")
-    KBM_ENABLED = False
+    import subprocess
+    _log("WARNING: pyautogui not installed, attempting auto-install...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyautogui"])
+        import pyautogui
+        pyautogui.FAILSAFE = False
+        pyautogui.PAUSE = 0
+        KBM_ENABLED = True
+        _log("Successfully installed pyautogui — KBM passthrough enabled")
+    except Exception as e:
+        _log("WARNING: pyautogui auto-install failed: " + str(e) + " — KBM passthrough disabled")
+        KBM_ENABLED = False
 
 PYAUTOGUI_KEY_MAP = {
     "KEY_A": "a", "KEY_B": "b", "KEY_C": "c", "KEY_D": "d",

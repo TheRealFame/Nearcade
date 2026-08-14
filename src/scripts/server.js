@@ -44,6 +44,42 @@ console.log = function (...args) {
   _origLog.call(console, msg);
 };
 
+const _origErr = console.error;
+console.error = function (...args) {
+  let callerInfo = '';
+  try {
+    const stack = new Error().stack.split('\\n');
+    const caller = stack[2] || '';
+    const match = caller.match(/\\((.*):(\\d+):(\\d+)\\)/) || caller.match(/at (.*):(\\d+):(\\d+)/);
+    if (match) {
+      const file = require('path').basename(match[1]);
+      callerInfo = `[${file}:${match[2]}] `;
+    }
+  } catch (e) {}
+
+  let msg = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
+  }).join(' ');
+
+  // Blur sensitive data exactly like console.log
+  msg = msg.replace(/\\b(?!127\\.0\\.0\\.1)(?:\\d{1,3}\\.){3}\\d{1,3}\\b/g, '***.***.***.***');
+  msg = msg.replace(/https:\\/\\/[a-zA-Z0-9-]+\\.trycloudflare\\.com/g, 'https://********.trycloudflare.com');
+  msg = msg.replace(/https:\\/\\/[a-zA-Z0-9-]+\\.(share\\.zrok\\.io|playit\\.gg|lhr\\.life|serveo\\.net|serveousercontent\\.com)/g, 'https://********.$1');
+  msg = msg.replace(/([a-zA-Z0-9_-]+@\\*\\*\\*\\.\\*\\*\\*\\.\\*\\*\\*\\.\\*\\*\\*)/g, '********@***.***.***.***');
+  msg = msg.replace(/("?vpsMasterKey"?\\s*:\\s*['"]?)[a-fA-F0-9]{64}(['"]?)/g, '$1********$2');
+  msg = msg.replace(/("?sessionPassword"?\\s*:\\s*['"]?)[^'"\\s,]+(['"]?)/g, '$1********$2');
+  if (typeof PIN !== 'undefined' && PIN) {
+    msg = msg.replace(new RegExp(PIN, 'g'), '****');
+  }
+
+  if (callerInfo) {
+    _origErr.call(console, callerInfo + msg);
+  } else {
+    _origErr.call(console, msg);
+  }
+};
+
 const net = require("net");
 const fs = require("fs");
 const path = require('path');
@@ -396,18 +432,20 @@ function toUinput(msg) {
 //
 // If msg already has named fields (Python path) it is returned as-is.
 function normalizeGamepadMsg(msg) {
+  if (!msg || typeof msg !== 'object') return null;
+
   // Already normalized — named axes present, nothing to do
   if (msg.lx !== undefined || !Array.isArray(msg.axes)) return msg;
 
-  const axes = msg.axes || [];
-  const btns = msg.buttons || [];
+  const axes = Array.isArray(msg.axes) ? msg.axes : [];
+  const btns = Array.isArray(msg.buttons) ? msg.buttons : [];
 
   // ── STRICT DATA VALIDATION REWRITE ──
   // Actively drop malformed or maliciously large data chunks.
   // NOTE: We do NOT reject empty arrays — an all-zero/rest state is
   // still valid and MUST be processed so that _claimSlot runs for new viewers.
-  if (axes.length > 20 || btns.length > 40) {
-    console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes.length}, Buttons: ${btns.length}`);
+  if (axes && axes.length > 20 || btns && btns.length > 40) {
+    console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes ? axes.length : 0}, Buttons: ${btns ? btns.length : 0}`);
     return null;
   }
 

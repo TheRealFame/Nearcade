@@ -42,8 +42,16 @@ try:
     import uinput
     UINPUT_OK = True
 except ImportError:
-    print(json.dumps({"type": "error", "code": "E100", "message": "python-uinput is missing or /dev/uinput lacks permissions. Please run the setup script!"}), flush=True)
-    UINPUT_OK = False
+    import subprocess
+    print("[input] python-uinput not found, attempting auto-install...", flush=True)
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "python-uinput"])
+        import uinput
+        UINPUT_OK = True
+        print("[input] Successfully installed python-uinput.", flush=True)
+    except Exception as e:
+        print(json.dumps({"type": "error", "code": "E100", "message": "python-uinput is missing and auto-install failed: " + str(e) + " - or /dev/uinput lacks permissions. Please run the setup script!"}), flush=True)
+        UINPUT_OK = False
 
 if UINPUT_OK:
     W3C_MAP = {

@@ -116,12 +116,28 @@ console.log = function (...args) {
 };
 
 console.error = function (...args) {
-  _nativeErr(...args);
+  let callerInfo = '';
+  try {
+    const stack = new Error().stack.split('\\n');
+    const caller = stack[2] || '';
+    const match = caller.match(/\\((.*):(\\d+):(\\d+)\\)/) || caller.match(/at (.*):(\\d+):(\\d+)/);
+    if (match) {
+      const file = require('path').basename(match[1]);
+      callerInfo = `[${file}:${match[2]}] `;
+    }
+  } catch (e) {}
+
+  if (callerInfo) {
+    _nativeErr(callerInfo, ...args);
+  } else {
+    _nativeErr(...args);
+  }
+
   const s = args.map(a => {
     if (typeof a === 'string') return a;
     try { return JSON.stringify(a); } catch (_) { return String(a); }
   }).join(' ');
-  appendLog(`[ERR] ${s}`);
+  appendLog(`[ERR] ${callerInfo}${s}`);
 };
 
 try {

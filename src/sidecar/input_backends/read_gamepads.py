@@ -132,8 +132,15 @@ elif os_type == "Linux":
     try:
         import evdev
     except ImportError:
-        eprint("evdev not installed")
-        sys.exit(1)
+        import subprocess
+        eprint("evdev not found, attempting auto-install...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "evdev"])
+            import evdev
+            eprint("Successfully installed evdev.")
+        except Exception as e:
+            eprint("evdev is missing and auto-install failed: " + str(e))
+            sys.exit(1)
 
     devices = {}
     
