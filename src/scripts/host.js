@@ -2386,6 +2386,8 @@ async function startCapture() {
     peerConnections = {};
 
     const isLinux = navigator.userAgent.includes('Linux') || navigator.platform.toLowerCase().includes('linux');
+    const isWindows = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+
     const _appFpsUnlock = (typeof appConfig !== 'undefined') && appConfig.fpsUnlock;
     const fpsVal = _appFpsUnlock
         ? Math.max(parseInt(document.getElementById('fpsSelect')?.value) || 60, 120)
@@ -2615,7 +2617,13 @@ async function startCapture() {
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                if (!isLinux && audioSettings.forceAudioEnabled) {
+                // Windows has no native loopback for the legacy mandatory
+                // chromeMediaSource audio request (see startup banner) — that
+                // getUserMedia is known to hard-crash Chromium's media/GPU
+                // process on Windows, instantly closing the app at share time.
+                // Loopback audio on Windows comes via getDisplayMedia's
+                // 'loopback' handling in the main-process capture handler.
+                if (!isLinux && !isWindows && audioSettings.forceAudioEnabled) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
                             audio: { mandatory: { chromeMediaSource: 'desktop' } },
