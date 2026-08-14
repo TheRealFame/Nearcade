@@ -694,6 +694,37 @@
               onchange="localStorage.setItem('ns_input_only', this.checked); document.getElementById('ctrlTrackInputOnly').classList.toggle('on', this.checked)">
           </div>
           <script>if (localStorage.getItem('ns_input_only') === 'true') { document.getElementById('inputOnlyToggle').checked = true; document.getElementById('ctrlTrackInputOnly').classList.add('on'); }</script>
+
+          <div class="ctrl-modal-row" style="margin-top:8px;">
+            <div class="ctrl-row-text" style="flex:1;">
+              <div class="ctrl-row-label">NDI Broadcast</div>
+              <div class="ctrl-row-desc">Share the stream to the LAN as an NDI source — OBS adds it natively, no extra
+                window or plugin needed.</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <select id="ndiRes" style="background:var(--surface);border:1px solid var(--border);padding:4px 8px;border-radius:6px;color:var(--text);font-size:11px;font-family:var(--mono);"
+                  onchange="localStorage.setItem('ns_ndi_res', this.value)">
+                <script>
+                  (function () {
+                    const sel = document.getElementById('ndiRes');
+                    if (!sel) return;
+                    ['1080p', '720p', '540p', '360p'].forEach(v => {
+                      const o = document.createElement('option');
+                      o.value = v;
+                      o.textContent = v;
+                      sel.appendChild(o);
+                    });
+                    sel.value = localStorage.getItem('ns_ndi_res') || '720p';
+                  })();
+                </script>
+                <span id="ndiStatus" style="font-size:10px;color:var(--muted);"></span>
+              </div>
+            </div>
+            <button id="ndiToggle"
+              onclick="if(window.ndiStatusActive){window.stopNdi();window.ndiStatusActive=false;}else{if(window.startNdi&&window.startNdi()){window.ndiStatusActive=true;}}"
+              style="background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
+              onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
+              onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">Start Broadcast</button>
+          </div>
         </div>
       </div>
 

@@ -15,7 +15,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   openLog:     ()                 => ipcRenderer.send('open-log'),
   openInstallDir: ()              => ipcRenderer.send('open-dir'),
-  openOBSWindow: ()               => ipcRenderer.send('open-obs-window'),
   readDoc:     (filename)         => ipcRenderer.invoke('read-doc', filename),
   getSettings:                    () => ipcRenderer.invoke('get-settings'),
   saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),
@@ -89,6 +88,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // #1: Direct input forwarding — bypasses local WS relay
   forwardInput: (msg) => ipcRenderer.send('forward-input', msg),
   forwardInputBinary: (viewerId, buf) => ipcRenderer.send('forward-input-binary', viewerId, buf),
+
+  // ── NDI egress (broadcast window for OBS via LAN) ──
+  ndiStart: (cfg) => ipcRenderer.send('ndi:start', cfg),
+  ndiFrame: (meta, buf) => ipcRenderer.send('ndi:frame', meta, buf),
+  ndiStop: () => ipcRenderer.send('ndi:stop'),
+  onNdiStatus: (cb) => ipcRenderer.on('ndi-status', (_e, s) => cb(s)),
 
   isElectron: true,
 });

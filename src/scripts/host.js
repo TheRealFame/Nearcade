@@ -2342,6 +2342,7 @@ async function hotSwapCapture() {
 
         const prev = document.getElementById('preview');
         if (prev && !previewHidden) prev.srcObject = currentStream;
+        if (ndiActive) ndiBindSource();
 
         log(I18N.t('Stream settings applied seamlessly!'), 'ok');
     } catch (err) {
@@ -4598,6 +4599,95 @@ document.querySelectorAll('.provider-card').forEach(card => {
             c.classList.toggle('selected', c.querySelector('input').checked));
     });
 });
+
+// ── NDI EGRESS ─────────────────────────────────────────────────────────────────
+// Broadcasts the host's display capture to the LAN as an NDI source (OBS picks
+// it up natively). Frames flow: hidden <video> -> canvas -> RGBA -> utility
+// process (ndi-egress-worker.js) via grandi (NDI SDK 6).
+let ndiActive = false;
+let ndiVideoEl = null;
+let ndiCanvas = null;
+let ndiCtx = null;
+let ndiLastSend = 0;
+
+function ndiResCfg() {
+    const map = { '1080p': [1920, 1080], '720p': [1280, 720], '540p': [960, 540], '360p': [640, 360] };
+    const [w, h] = map[localStorage.getItem('ns_ndi_res') || '720p'] || map['720p'];
+    return { width: w, height: h, fps: 30 };
+}
+
+function ndiBindSource() {
+    if (!ndiActive || !currentStream) return;
+    if (!ndiVideoEl) {
+        ndiVideoEl = document.createElement('video');
+        ndiVideoEl.muted = true;
+        ndiVideoEl.playsInline = true;
+        ndiVideoEl.style.cssText = 'position:fixed;width:0;height:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(ndiVideoEl);
+        ndiCanvas = document.createElement('canvas');
+        ndiCtx = ndiCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    ndiVideoEl.srcObject = currentStream;
+    ndiVideoEl.play().catch(() => { });
+    ndiLastSend = 0;
+}
+
+function ndiTick(now) {
+    if (!ndiActive || !ndiVideoEl || !window.electronAPI) return;
+    const cfg = ndiResCfg();
+    const interval = 1000 / cfg.fps;
+    if (now - ndiLastSend >= interval) {
+        try {
+            if (ndiCanvas.width !== cfg.width) { ndiCanvas.width = cfg.width; ndiCanvas.height = cfg.height; }
+            ndiCtx.drawImage(ndiVideoEl, 0, 0, cfg.width, cfg.height);
+            const img = ndiCtx.getImageData(0, 0, cfg.width, cfg.height);
+            window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
+            ndiLastSend = now;
+        } catch (_) { }
+    }
+    if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
+    else setTimeout(() => ndiTick(Date.now()), interval);
+}
+
+window.startNdi = function () {
+    if (!window.electronAPI) {
+        alert('NDI broadcast is only available in the desktop app.');
+        return false;
+    }
+    if (!currentStream) {
+        alert('Start the stream first, then enable NDI Broadcast.');
+        return false;
+    }
+    ndiActive = true;
+    ndiBindSource();
+    if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
+    else setTimeout(() => ndiTick(Date.now()), 16);
+    window.electronAPI.ndiStart({ name: 'Nearcade Host' });
+    return true;
+};
+
+window.stopNdi = function () {
+    ndiActive = false;
+    if (ndiVideoEl) { ndiVideoEl.srcObject = null; }
+    if (window.electronAPI) window.electronAPI.ndiStop();
+};
+
+if (window.electronAPI && typeof window.electronAPI.onNdiStatus === 'function' && !window._ndiStatusHooked) {
+    window._ndiStatusHooked = true;
+    window.electronAPI.onNdiStatus((s) => {
+        const st = document.getElementById('ndiStatus');
+        if (st) {
+            if (s.error) st.textContent = s.error;
+            else if (s.running) st.textContent = 'Broadcasting' + (s.connections != null ? ' \u00b7 ' + s.connections + ' receiver' + (s.connections === 1 ? '' : 's') : '');
+            else st.textContent = '';
+        }
+        const btn = document.getElementById('ndiToggle');
+        if (btn && s.running !== undefined) {
+            btn.textContent = s.running ? 'Stop Broadcast' : 'Start Broadcast';
+            btn.style.borderColor = s.running ? 'var(--accent)' : 'var(--border)';
+        }
+    });
+}
 
 async function checkTunnelOnConnect() {
     if (_vpsConfig && _vpsConfig.vpsEnabled) {

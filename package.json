@@ -37,6 +37,7 @@
     "dotenv": "^17.4.2",
     "electron-updater": "^6.8.3",
     "express": "^4.18.0",
+    "grandi": "^2.0.2",
     "jsdom": "^29.1.1",
     "kill-port": "^2.0.1",
     "node-datachannel": "^0.12.0",
@@ -96,16 +97,18 @@
       "!**/build/Makefile",
       "!**/build/*.gypi"
     ],
-    "asarUnpack": [
-      "src/sidecar/**/*",
-      "src/sidecar/input_backends/build/Release/*.node",
-      "config/**/*",
-      "kbm_presets/**/*",
-      "assets/**/*",
-      "bin/**/*",
-      "node_modules/@nearcade/**/*",
-      "packages/**/*"
-    ],
+  "asarUnpack": [
+    "src/sidecar/**/*",
+    "src/sidecar/input_backends/build/Release/*.node",
+    "config/**/*",
+    "kbm_presets/**/*",
+    "assets/**/*",
+    "bin/**/*",
+    "node_modules/@nearcade/**/*",
+    "node_modules/grandi/**/*",
+    "node_modules/@grandi/**/*",
+    "packages/**/*"
+  ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

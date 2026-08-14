@@ -4,7 +4,7 @@ const os = require('os');
 const { spawn, execFileSync, exec, execSync } = require('child_process');
 const {
   app, BrowserWindow, ipcMain, shell, clipboard, desktopCapturer,
-  systemPreferences, dialog, nativeImage, nativeTheme
+  systemPreferences, dialog, nativeImage, nativeTheme, utilityProcess
 } = require('electron');
 const { CONFIG_DIR, CONFIG_FILE, LOG_FILE, ROOT_DIR } = require('./config');
 const { loadControllers, saveSettings, saveSettingsSync } = require('./config');
@@ -21,6 +21,28 @@ function _getInputDriver() {
 }
 
 let selectedSourceId = null;
+
+// ── NDI egress (utility process) ──────────────────────────────────────────────
+let ndiProc = null;
+function ndiForward(eventName, ...args) {
+  try { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send(eventName, ...args); } catch (_) { }
+}
+function ndiSpawnWorker() {
+  if (ndiProc) return ndiProc;
+  ndiProc = utilityProcess.fork(path.join(__dirname, 'ndi-egress-worker.js'), [], { stdio: 'ignore' });
+  ndiProc.on('message', (msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.ev === 'error') ndiForward('ndi-status', { running: false, error: msg.msg });
+    else ndiForward('ndi-status', msg);
+  });
+  ndiProc.on('exit', () => { ndiProc = null; ndiForward('ndi-status', { running: false, error: 'NDI worker exited' }); });
+  ndiProc.postMessage({ op: 'init' });
+  return ndiProc;
+}
+function ndiKillWorker() {
+  if (ndiProc) { try { ndiProc.postMessage({ op: 'stop' }); } catch (_) { } try { ndiProc.kill(); } catch (_) { } ndiProc = null; }
+}
+app.on('before-quit', ndiKillWorker);
 
 function registerIpcHandlers(ctx) {
   let gamepadProc = null;
@@ -496,6 +518,20 @@ function registerIpcHandlers(ctx) {
   });
 
   ipcMain.on('window-close', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.close(); });
+
+  // ── NDI egress IPC ──
+  ipcMain.on('ndi:start', (_e, cfg) => {
+    try {
+      ndiSpawnWorker().postMessage({ op: 'start', cfg: cfg || {} });
+    } catch (err) {
+      ndiForward('ndi-status', { running: false, error: String(err && err.message || err) });
+    }
+  });
+  ipcMain.on('ndi:frame', (_e, meta, buffer) => {
+    if (!ndiProc) return;
+    try { ndiProc.postMessage({ op: 'frame', meta: meta || {}, buffer }, [buffer]); } catch (_) { }
+  });
+  ipcMain.on('ndi:stop', () => ndiKillWorker());
   ipcMain.on('window-minimize', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.minimize(); });
   ipcMain.on('window-maximize', () => { if (ctx.win && !ctx.win.isDestroyed()) { ctx.win.isMaximized() ? ctx.win.unmaximize() : ctx.win.maximize(); } });
   ipcMain.on('window-fullscreen', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.setFullScreen(!ctx.win.isFullScreen()); });
