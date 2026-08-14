@@ -14,6 +14,7 @@
   <meta name="twitter:title" content="Nearcade Arcade">
   <meta name="twitter:description" content="Low latency community-driven local co-op streaming.">
   <link rel="icon" type="image/png" href="/assets/NearcadeLogo.png">
+  <script>if (new URLSearchParams(location.search).get('electron') === '1') document.documentElement.classList.add('ns-embed');</script>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -294,6 +295,28 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.5); transition: transform .2s, background .2s;
     }
     .gamepad-btn:hover { background: var(--text); color: var(--bg); transform: scale(1.1); }
+
+    /* ── Embedded window (?electron=1) — fits the Live Arcade panel ── */
+    html.ns-embed { scrollbar-width: none; }
+    html.ns-embed ::-webkit-scrollbar { display: none; }
+    html.ns-embed body { padding-top: 48px; }
+    html.ns-embed .top-bar { height: 48px; padding: 0 20px; }
+    html.ns-embed .logo { font-size: 16px; }
+    html.ns-embed .search-wrap { margin: 0 20px; padding: 0 14px; }
+    html.ns-embed .search-wrap input { padding: 8px 10px; font-size: 13px; }
+    html.ns-embed .hero-banner { margin: 8px auto 6px; padding: 0 20px; }
+    html.ns-embed .hero-inner { padding: 16px 24px; }
+    html.ns-embed .hero-tag { margin-bottom: 6px; font-size: 10px; }
+    html.ns-embed .hero-inner h1 { font-size: 20px; margin-bottom: 4px; }
+    html.ns-embed .hero-inner p { font-size: 12px; line-height: 1.4; }
+    html.ns-embed .category-nav { margin-bottom: 8px; padding: 0 20px; }
+    html.ns-embed .cat-pill { padding: 6px 14px; font-size: 12px; }
+    html.ns-embed .main-grid { gap: 14px; padding: 8px 20px 20px; }
+    html.ns-embed .empty-state, html.ns-embed .arcade-loader { padding: 32px 20px; }
+    html.ns-embed .thumb { height: 140px; }
+    html.ns-embed .live-badge { padding: 6px 12px; font-size: 12px; }
+    html.ns-embed .icon-btn { width: 34px; height: 34px; }
+    html.ns-embed .gamepad-btn { bottom: 20px; right: 20px; width: 48px; height: 48px; font-size: 20px; }
 
     @media (max-width: 768px) {
       .search-wrap { display: none; }
@@ -686,10 +709,11 @@
   function checkInstallState() {
     const isInstalled = document.documentElement.dataset.nsPersist === 'true';
     const wasClicked = localStorage.getItem('ns_tm_installed') === '1';
+    const isElectron = typeof window.electronAPI !== 'undefined' || navigator.userAgent.includes('Nearcade') || navigator.userAgent.includes('Electron');
     const btnInstall = document.getElementById('btnInstallPwa');
     const btnProfile = document.getElementById('btnProfile');
 
-    if (isInstalled || wasClicked) {
+    if (isInstalled || wasClicked || isElectron) {
       if (btnInstall) btnInstall.style.display = 'none';
       if (btnProfile) btnProfile.style.display = 'flex';
     } else {
