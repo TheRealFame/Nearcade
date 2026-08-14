@@ -1752,17 +1752,29 @@ const calibMaps = {};
         if (k && k.startsWith(PREFIX)) { try { calibMaps[k.slice(PREFIX.length)] = JSON.parse(localStorage.getItem(k)); } catch { } }
     }
 })();
-    window.addEventListener('message', e => {
+window.addEventListener('message', e => {
         if (e.data?.type === 'NEARCADE_CONFIG_UPDATE' && e.data.hardwareId) calibMaps[e.data.hardwareId] = e.data.map;
         if (e.data?.type === 'NEARCADE_SMART_DB' && e.data.db) {
             smartDb = e.data.db;
             window.smartDb = smartDb;
         }
-    if (e.data?.type === 'NEARCADE_DEADZONE') {
-        gpDeadzones[e.data.index] = e.data.value;
-    }
-});
+        if (e.data?.type === 'NEARCADE_DEADZONE') {
+            gpDeadzones[e.data.index] = e.data.value;
+        }
+        if (e.data?.type === 'NEARCADE_STICK_CFG' && e.data.index !== undefined) {
+            const idx = e.data.index;
+            if (e.data.ldz !== undefined) gpDeadzones[idx] = e.data.ldz;
+            if (e.data.rdz !== undefined) gpDeadzones[idx + 0.5] = e.data.rdz;
+            if (e.data.lsens !== undefined) gpSens[idx] = e.data.lsens;
+            if (e.data.rsens !== undefined) gpSens[idx + 0.5] = e.data.rsens;
+        }
+    });
 
+// ── NEARCADE PROBE SIM CORE: START ──────────────────────────────────────────
+// Everything between the START/END markers is extracted VERBATIM at build time
+// into tools/gamepad-probe/www/viewer-sim.js so the standalone Gamepad Probe
+// simulates the viewer with the real production code. Keep this region free of
+// DOM / WebSocket dependencies. (tools/gamepad-probe/extract-sim.js)
 function getSafeGamepadId(gp) {
     return gp.id.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
 }
@@ -1772,6 +1784,30 @@ function lookupCalibMap(gp) {
     if (calibMaps[safeId]) return calibMaps[safeId];
     if (smartDb[gp.id]) return smartDb[gp.id];
     if (smartDb[safeId]) return smartDb[safeId];
+    
+    // Check for Steam virtual Xbox masking DualSense
+    const idLower = gp.id.toLowerCase();
+    const isSteamVirtualXbox = idLower.includes('xbox one s') || idLower.includes('045e-02ea') || idLower.includes('x-box one s');
+    
+    if (isSteamVirtualXbox) {
+        for (const [key, map] of Object.entries(smartDb)) {
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
+                keyLower.includes('playstation') || keyLower.includes('dualshock') ||
+                keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
+                return map;
+            }
+        }
+        for (const [key, map] of Object.entries(calibMaps)) {
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
+                keyLower.includes('playstation') || keyLower.includes('dualshock') ||
+                keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
+                return map;
+            }
+        }
+    }
+    
     for (const [key, map] of Object.entries(smartDb)) {
         const keyPrefix = key.split('(')[0].trim().toLowerCase();
         const idPrefix = gp.id.split('(')[0].trim().toLowerCase();
@@ -1799,15 +1835,16 @@ function applyCalibration(gp, state) {
     // multiplied by 32767 AGAIN, producing ~1 billion (right stick garbage/overflow).
     // Also apply the active deadzone so calibrated axes get the same filtering
     // as the polling loop already applies to the left stick.
-    const _dz = window._globalDeadzone !== undefined ? window._globalDeadzone : 0.05;
+    const _dz = m.rdz !== undefined ? m.rdz : (window._globalDeadzone !== undefined ? window._globalDeadzone : 0.05);
+    const _rsens = m.rsens !== undefined ? m.rsens : (window._globalSens !== undefined ? window._globalSens : 1.0);
     const _applyDz = (v) => {
         if (Math.abs(v) < _dz) return 0;
         return Math.sign(v) * ((Math.abs(v) - _dz) / (1.0 - _dz));
     };
     const rx = readStick(m.rsx);
     const ry = readStick(m.rsy);
-    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx)));
-    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry)));
+    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx * _rsens)));
+    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry * _rsens)));
     function readTrigger(mp) {
         if (!mp) return 0;
         if (mp.type === 'btn') return Math.round((gp.buttons[mp.idx]?.value || 0) * 255);
@@ -1820,12 +1857,55 @@ function applyCalibration(gp, state) {
     if (rt > 0 || m.rt) state.buttons[7] = { pressed: rt > 10, value: rt / 255.0 };
 }
 
+// Extracted from pollGamepad's inline loop so the Gamepad Probe can run the
+// exact same axis/button transform (deadzone + sensitivity + micro-jitter
+// filter) against its own cache/state objects. Returns true when any value
+// changed, mirroring the original inline logic.
+function applyGamepadDzSens(gp, cache, state, gpDeadzones, gpSens) {
+    const idx = gp.index;
+    const ldz = gpDeadzones[idx] !== undefined ? gpDeadzones[idx] : window._globalDeadzone ?? 0.05;
+    const rdz = gpDeadzones[idx + 0.5] !== undefined ? gpDeadzones[idx + 0.5] : window._globalDeadzone ?? 0.05;
+    const lsens = gpSens[idx] !== undefined ? gpSens[idx] : window._globalSens ?? 1.0;
+    const rsens = gpSens[idx + 0.5] !== undefined ? gpSens[idx + 0.5] : window._globalSens ?? 1.0;
+    let changed = false;
+    for (let i = 0; i < 4; i++) {
+        let val = gp.axes[i] || 0;
+        const isRightStick = i >= 2;
+        const dz = isRightStick ? rdz : ldz;
+        const sens = isRightStick ? rsens : lsens;
+        if (Math.abs(val) < dz) val = 0;
+        else val = Math.sign(val) * ((Math.abs(val) - dz) / (1 - dz));
+
+        val = Math.max(-1.0, Math.min(1.0, val * sens));
+
+        let finalVal = Math.round(val * 32767);
+        // Micro-jitter filter: ignore axis changes smaller than 32/32767 (~0.09%)
+        // This is sub-pixel level, preserving exact angles for Smash Bros while stopping resting tremor spam.
+        if (Math.abs(cache.axes[i] - finalVal) > 32) {
+            changed = true;
+            cache.axes[i] = finalVal;
+        }
+        state.axes[i] = cache.axes[i] / 32767.0;
+    }
+    for (let i = 0; i < 16; i++) {
+        const b = gp.buttons[i];
+        const vRaw = b?.value || 0;
+        const vInt = Math.round(vRaw * 255);
+        if (cache.btns[i] !== vInt) { changed = true; cache.btns[i] = vInt; }
+        state.buttons[i].value = cache.btns[i] / 255.0;
+        state.buttons[i].pressed = b?.pressed || false;
+    }
+    return changed;
+}
+// ── NEARCADE PROBE SIM CORE: END ────────────────────────────────────────────
+
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
 let gpPolling = false, lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
 window.nsRedundancyEnabled = localStorage.getItem('ns_redundancy') !== 'false';
 window.tournamentMode = false;
 let gpDeadzones = {};
+let gpSens = {};
 let sentGpid = new Set();
 
 function activateGamepad() {
@@ -1993,14 +2073,24 @@ function pollGamepad() {
 
     const now = Date.now();
     
-    // 1. Find the best device (Standard Gamepad > Any Gamepad > Touch)
+    // 1. Find the best device (Standard+Profile > Standard > Any > Touch)
+    // Prefer standard pads that HAVE a calibration profile: picking a
+    // duplicate without one (e.g. a generic "PS5 Controller" copy next to
+    // the proper "DualSense Wireless Controller") ships raw uncalibrated
+    // input to the host — no deadzone/sensitivity/curve ever applies.
     let bestGp = null;
+    let bestStd = null;
+    let bestStdProfiled = null;
     let isTouch = false;
     for (const gp of pads) {
         if (!gp || !gp.connected) continue;
-        if (gp.mapping === 'standard') { bestGp = gp; break; }
         if (!bestGp) bestGp = gp;
+        if (gp.mapping === 'standard') {
+            if (!bestStd) bestStd = gp;
+            if (!bestStdProfiled && lookupCalibMap(gp)) bestStdProfiled = gp;
+        }
     }
+    bestGp = bestStdProfiled || bestStd || bestGp;
     if (!bestGp && touchMode) isTouch = true;
     
     if (!bestGp && !isTouch) {
@@ -2043,31 +2133,7 @@ function pollGamepad() {
     let changed = false;
 
     if (!isTouch && bestGp) {
-        let dz = window._globalDeadzone !== undefined ? window._globalDeadzone : (gpDeadzones[bestGp.index] !== undefined ? gpDeadzones[bestGp.index] : 0.01);
-        for (let i = 0; i < 4; i++) {
-            let val = bestGp.axes[i] || 0;
-            if (Math.abs(val) < dz) val = 0;
-            else val = Math.sign(val) * ((Math.abs(val) - dz) / (1 - dz));
-            
-            val = Math.max(-1.0, Math.min(1.0, val * (window._globalSens || 1.0)));
-            
-            let finalVal = Math.round(val * 32767);
-            // Micro-jitter filter: ignore axis changes smaller than 32/32767 (~0.09%)
-            // This is sub-pixel level, preserving exact angles for Smash Bros while stopping resting tremor spam.
-            if (Math.abs(cache.axes[i] - finalVal) > 32) {
-                changed = true;
-                cache.axes[i] = finalVal;
-            }
-            state.axes[i] = cache.axes[i] / 32767.0;
-        }
-        for (let i = 0; i < 16; i++) {
-            const b = bestGp.buttons[i];
-            const vRaw = b?.value || 0;
-            const vInt = Math.round(vRaw * 255);
-            if (cache.btns[i] !== vInt) { changed = true; cache.btns[i] = vInt; }
-            state.buttons[i].value = cache.btns[i] / 255.0;
-            state.buttons[i].pressed = b?.pressed || false;
-        }
+        changed = applyGamepadDzSens(bestGp, cache, state, gpDeadzones, gpSens) || changed;
         applyCalibration(bestGp, state);
     } else if (isTouch) {
         for (let i = 0; i < 4; i++) {
@@ -2161,6 +2227,7 @@ function pollGamepad() {
     }
 }
 
+// ── NEARCADE PROBE SIM CORE: START ──────────────────────────────────────────
 function _packGamepadJson(vIndex, state) {
     let btnMask = 0;
     if (state.buttons[0]?.pressed) btnMask |= 0x0001;
@@ -2203,6 +2270,7 @@ function _packGamepadJson(vIndex, state) {
 
     return JSON.stringify(obj);
 }
+// ── NEARCADE PROBE SIM CORE: END ────────────────────────────────────────────
 
 function _packGamepadBinary(vIndex, state) {
     const buf = new Uint8Array(14);
