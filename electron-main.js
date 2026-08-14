@@ -96,7 +96,7 @@ try {
 
 try {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(LOG_FILE, `--- Nearcade Session Log (${new Date().toISOString()}) ---\n`);
+  fs.writeFileSync(LOG_FILE, `--- Nearcade Session Log (${new Date().toISOString()}) | Version: ${app.getVersion()} ---\n`);
 } catch (e) { }
 
 function appendLog(msg) {

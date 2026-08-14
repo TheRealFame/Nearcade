@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nearcade Video Color Settings</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0d0f; --surface: #121518; --accent: #06b6d4;
+      --text: #f0f3f5; --muted: #4a5157; --border: #22282d;
+    }
+    body {
+      background: transparent; color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      margin: 0; padding: 0;
+      height: 100vh; overflow: hidden;
+    }
+    
+    .modal {
+      background: transparent; width: 100%; height: 100%;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 20px; background: rgba(0,0,0,0.2);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    .header-title { font-weight: bold; font-size: 16px; color: var(--accent); }
+    .header-close {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 24px; line-height: 1; padding: 0; transition: color 0.2s;
+    }
+    .header-close:hover { color: #fff; }
+    
+    .content { padding: 24px; display: flex; flex-direction: column; gap: 24px; overflow-y: auto; }
+    
+    .setting-group { display: flex; flex-direction: column; gap: 8px; }
+    .setting-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
+    .setting-val { color: var(--accent); font-family: monospace; }
+    
+    .slider {
+      -webkit-appearance: none; width: 100%; height: 6px;
+      background: var(--border); border-radius: 3px; outline: none;
+    }
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--accent); cursor: pointer;
+    }
+    
+    .preview-box {
+      width: 100%; height: 120px; background: #000;
+      border-radius: 6px; border: 1px solid var(--border);
+      position: relative; overflow: hidden; display: flex; flex-shrink: 0;
+    }
+    .preview-half { flex: 1; display: flex; align-items: center; justify-content: center; }
+    .preview-dark { background: #111; color: #333; font-weight: 700; font-size: 24px; }
+    .preview-light { background: #eee; color: #ccc; font-weight: 700; font-size: 24px; }
+    .preview-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; mix-blend-mode: normal;
+    }
+    
+    .btn-row { display: flex; gap: 12px; margin-top: auto; }
+    .v-btn {
+      flex: 1; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);
+      color: var(--text); padding: 10px; border-radius: 6px; cursor: pointer;
+      font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 600; transition: 0.2s;
+    }
+    .v-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+    .v-btn.primary { background: var(--accent); color: #000; border: none; }
+    .v-btn.primary:hover { filter: brightness(1.1); }
+  </style>
+</head>
+<body>
+
+  <div class="modal">
+    <div class="header">
+      <div class="header-title">Display Tweaks</div>
+      <button class="header-close" id="close-modal">&times;</button>
+    </div>
+    
+    <div class="content">
+      <div class="preview-box">
+        <div class="preview-half preview-dark">DARK</div>
+        <div class="preview-half preview-light">LIGHT</div>
+        <div class="preview-overlay" id="preview-overlay"></div>
+      </div>
+      
+      <div class="setting-group">
+        <div class="setting-label">
+          <span>Brightness</span>
+          <span class="setting-val" id="val-bright">100%</span>
+        </div>
+        <input type="range" class="slider" id="slide-bright" min="0" max="200" value="100">
+      </div>
+      
+      <div class="setting-group">
+        <div class="setting-label">
+          <span>Contrast</span>
+          <span class="setting-val" id="val-contrast">100%</span>
+        </div>
+        <input type="range" class="slider" id="slide-contrast" min="0" max="200" value="100">
+      </div>
+      
+      <div class="setting-group">
+        <div class="setting-label">
+          <span>Saturation</span>
+          <span class="setting-val" id="val-sat">100%</span>
+        </div>
+        <input type="range" class="slider" id="slide-sat" min="0" max="200" value="100">
+      </div>
+      
+      <div class="btn-row">
+        <button class="v-btn" id="btn-reset">Reset Defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/i18n.js"></script>
+  <script>
+    try {
+      const savedColor = window.parent.localStorage.getItem('ns_chat_color');
+      if (savedColor) {
+        document.documentElement.style.setProperty('--accent', savedColor);
+      }
+    } catch(e) {}
+
+    document.getElementById('close-modal').addEventListener('click', () => {
+      try { window.parent.document.getElementById('displayTweaksModal').style.display = 'none'; } catch(e) {}
+    });
+
+    const bSlider = document.getElementById('slide-bright');
+    const cSlider = document.getElementById('slide-contrast');
+    const sSlider = document.getElementById('slide-sat');
+    
+    function updatePreview() {
+      const b = bSlider.value;
+      const c = cSlider.value;
+      const s = sSlider.value;
+      
+      document.getElementById('val-bright').textContent = b + '%';
+      document.getElementById('val-contrast').textContent = c + '%';
+      document.getElementById('val-sat').textContent = s + '%';
+      
+      window.parent.postMessage({ type: 'UPDATE_DISPLAY_COLOR', brightness: b, contrast: c, saturation: s }, '*');
+    }
+    
+    bSlider.addEventListener('input', updatePreview);
+    cSlider.addEventListener('input', updatePreview);
+    sSlider.addEventListener('input', updatePreview);
+    
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      bSlider.value = 100; cSlider.value = 100; sSlider.value = 100;
+      updatePreview();
+    });
+    
+    // Initial sync
+    updatePreview();
+  </script>
+</body>
+</html>

@@ -25,6 +25,7 @@ class WiVRnIntegration {
         this._streaming = false;
         this._currentGame = null;
         this._pin = '';
+        this._wivrnBridgeProc = null;
     }
 
     _findServerBinary() {
@@ -133,12 +134,25 @@ class WiVRnIntegration {
                 console.log(`[WiVRn] ${message.trim()}`);
                 if (message.includes('PIN code:')) {
                     const pinMatch = message.match(/PIN code:\s*(\d+)/);
-                    if (pinMatch) this._pin = pinMatch[1];
+                    if (pinMatch) {
+                        this._pin = pinMatch[1];
+                        if (options.headless && !this._wivrnBridgeProc) {
+                            this._launchBridge(this._pin);
+                        }
+                    }
                 }
             });
 
             this._wivrnServerProc.stderr.on('data', (data) => {
-                console.error(`[WiVRn] ${data.toString().trim()}`);
+                const text = data.toString().trim();
+                console.error(`[WiVRn] ${text}`);
+                const pinMatch = text.match(/PIN code:\s*(\d+)/);
+                if (pinMatch) {
+                    this._pin = pinMatch[1];
+                    if (options.headless && !this._wivrnBridgeProc) {
+                        this._launchBridge(this._pin);
+                    }
+                }
             });
 
             this._wivrnServerProc.on('close', (code) => {
@@ -166,6 +180,33 @@ class WiVRnIntegration {
             this._wivrnStatus = 'stopped';
             return { ok: false, message: err.message };
         }
+    }
+
+    _launchBridge(pin) {
+        const bridgePath = path.join(__dirname, '..', '..', 'drafts', 'wivrn_sandbox', 'bin', 'wivrn_bridge');
+        if (!fs.existsSync(bridgePath)) {
+            console.error('[WiVRn Bridge] Cannot launch bridge, binary not found at', bridgePath);
+            return;
+        }
+
+        console.log(`[WiVRn Bridge] Launching with PIN ${pin}...`);
+        this._wivrnBridgeProc = spawn(bridgePath, [pin], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        this._wivrnBridgeProc.stdout.on('data', (data) => {
+            // Forward video payload or info
+            // (Could emit to server.js if needed)
+        });
+
+        this._wivrnBridgeProc.stderr.on('data', (data) => {
+            console.error(`[WiVRn Bridge] ${data.toString().trim()}`);
+        });
+
+        this._wivrnBridgeProc.on('close', (code) => {
+            console.log(`[WiVRn Bridge] Exited with code ${code}`);
+            this._wivrnBridgeProc = null;
+        });
     }
 
     _refreshStatus() {
@@ -339,6 +380,10 @@ class WiVRnIntegration {
         if (this._wivrnServerProc) {
             try { this._wivrnServerProc.kill(); } catch (_) {}
             this._wivrnServerProc = null;
+        }
+        if (this._wivrnBridgeProc) {
+            try { this._wivrnBridgeProc.kill(); } catch (_) {}
+            this._wivrnBridgeProc = null;
         }
         this._wivrnStatus = 'stopped';
         this._headsetConnected = false;

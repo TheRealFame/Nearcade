@@ -24,4 +24,19 @@ Follow these steps to start hosting.
 5. Click the Host Session button to open the capture dashboard.
 6. Send the generated link and Session PIN to your viewers. The Rust router blocks all video and audio streams until the host application validates the PIN from the viewer.
 
+## KDE Wayland Hosts: "Remote control requested" Dialog
+On KDE Plasma 6 (Wayland), the host may pop a "Remote control requested" permission dialog whenever a viewer presses the Start/pause button. The injected virtual controllers are grabbed by Steam Input, and Steam's desktop navigation re-injects that input through XWayland, which the XDG Desktop Portal turns into a remote-desktop permission request (see KDE bug 490666). Other button presses do not trigger it.
+
+Grant the portal permission once to silence it permanently:
+
+```bash
+flatpak permission-set kde-authorized remote-desktop "" yes
+```
+
+The empty app ID covers Steam/XWayland requests. You can verify the entry with:
+
+```bash
+flatpak permission-show kde-authorized
+```
+
 This project uses artificial intelligence large language models for code generation and structure planning.

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiVRn Viewer</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+        .eye {
+            position: absolute;
+            top: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        #left-wrap { left: 0; width: 50vw; }
+        #right-wrap { left: 50vw; width: 50vw; }
+        .eye canvas {
+            max-width: 100%;
+            max-height: 100%;
+            background: #000;
+        }
+        #hud {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.75);
+            color: #ccc;
+            font: 12px/1.5 monospace;
+            padding: 8px 10px;
+            border-radius: 6px;
+            max-width: 320px;
+            pointer-events: auto;
+        }
+        #hud button {
+            background: #224;
+            color: #fff;
+            border: 1px solid #557;
+            border-radius: 4px;
+            padding: 3px 8px;
+            margin: 2px 4px 2px 0;
+            cursor: pointer;
+            font: inherit;
+        }
+        #hud button.active {
+            background: #448;
+            border-color: #88c;
+        }
+        #errors {
+            color: #f66;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        #reopen {
+            display: none;
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 10;
+        }
+        #hint {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #888;
+            font: 12px monospace;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px 10px;
+            border-radius: 4px;
+            z-index: 10;
+        }
+        #stage {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="left-wrap" class="eye"></div>
+    <div id="right-wrap" class="eye"></div>
+    <canvas id="stage" width="2" height="2"></canvas>
+
+    <div id="hud">
+        <div id="status">Starting...</div>
+        <div id="stats"></div>
+        <div id="errors"></div>
+        <button id="enter-vr">Enter VR</button>
+        <button id="hud-close">Hide</button>
+    </div>
+    <button id="reopen">Show HUD</button>
+    <div id="hint">L/R = the two eyes of the WebXR screen</div>
+
+    <script>
+        window.addEventListener('error', (e) => {
+            const el = document.getElementById('errors');
+            if (el) el.textContent += 'Error: ' + (e.message || e.error) + '\n';
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+            const el = document.getElementById('errors');
+            if (el) el.textContent += 'Promise error: ' + (e.reason && e.reason.message || e.reason) + '\n';
+        });
+    </script>
+    <script type="module">
+        import * as THREE from './vendor/three.module.js';
+
+        // ---------- DOM ----------
+        const statusEl = document.getElementById('status');
+        const statsEl = document.getElementById('stats');
+        const errorsEl = document.getElementById('errors');
+        const hintEl = document.getElementById('hint');
+        const enterVrBtn = document.getElementById('enter-vr');
+        const hudClose = document.getElementById('hud-close');
+        const reopenBtn = document.getElementById('reopen');
+        const hud = document.getElementById('hud');
+
+        function logError(msg) {
+            console.error('[Viewer]', msg);
+            errorsEl.textContent += msg + '\n';
+            if (errorsEl.textContent.length > 4000) errorsEl.textContent = errorsEl.textContent.slice(-3000);
+        }
+        function logInfo(msg) { console.log('[Viewer]', msg); }
+        function setStatus(s) { statusEl.textContent = s; }
+
+        // ---------- H264 NAL helpers ----------
+        function extractNals(buf) {
+            const out = [];
+            let i = 0;
+            const len = buf.length;
+            while (i + 3 <= len) {
+                if (buf[i] === 0 && buf[i + 1] === 0 && buf[i + 2] === 1) {
+                    const start = i + 3;
+                    let end = start;
+                    while (end < len && !(buf[end] === 0 && buf[end + 1] === 0 && (buf[end + 2] === 1 || (buf[end + 2] === 0 && buf[end + 3] === 1)))) end++;
+                    if (end - start > 0) out.push(buf.subarray(start, end));
+                    i = end;
+                } else i++;
+            }
+            return out;
+        }
+        function buildAvcC(sps, pps) {
+            const desc = new Uint8Array(11 + sps.length + pps.length);
+            desc[0] = 1; desc[1] = sps[1]; desc[2] = sps[2]; desc[3] = sps[3];
+            desc[4] = 0xff; desc[5] = 0xe1;
+            desc[6] = (sps.length >> 8) & 0xff; desc[7] = sps.length & 0xff;
+            desc.set(sps, 8);
+            const off = 8 + sps.length;
+            desc[off] = 1;
+            desc[off + 1] = (pps.length >> 8) & 0xff; desc[off + 2] = pps.length & 0xff;
+            desc.set(pps, off + 3);
+            return desc;
+        }
+        function codecString(sps) {
+            const h = (b) => b.toString(16).padStart(2, '0').toUpperCase();
+            return `avc1.${h(sps[1])}${h(sps[2])}${h(sps[3])}`;
+        }
+        function avccChunk(nals) {
+            let size = 0;
+            for (const nal of nals) size += 4 + nal.length;
+            const buf = new Uint8Array(size);
+            let off = 0;
+            for (const nal of nals) {
+                buf[off] = (nal.length >> 24) & 0xff;
+                buf[off + 1] = (nal.length >> 16) & 0xff;
+                buf[off + 2] = (nal.length >> 8) & 0xff;
+                buf[off + 3] = nal.length & 0xff;
+                buf.set(nal, off + 4);
+                off += 4 + nal.length;
+            }
+            return buf;
+        }
+
+        // ---------- Decoder (plain 2D canvases, one per eye) ----------
+        const leftWrap = document.getElementById('left-wrap');
+        const rightWrap = document.getElementById('right-wrap');
+        const leftCanvas = document.createElement('canvas');
+        const rightCanvas = document.createElement('canvas');
+        const leftCtx = leftCanvas.getContext('2d');
+        const rightCtx = rightCanvas.getContext('2d');
+        leftWrap.appendChild(leftCanvas);
+        rightWrap.appendChild(rightCanvas);
+        let framesDecoded = { L: 0, R: 0 };
+
+        class EyeStream {
+            constructor(eye) {
+                this.eye = eye;
+                this.pending = [];
+                this.pendingLen = 0;
+                this.lastFrameIdx = -1;
+                this.decoder = null;
+                this.codec = null;
+            }
+            get canvas() { return this.eye === 'L' ? leftCanvas : rightCanvas; }
+            get ctx() { return this.eye === 'L' ? leftCtx : rightCtx; }
+            closeDecoder() {
+                if (this.decoder) { try { this.decoder.close(); } catch (e) {} }
+                this.decoder = null; this.codec = null;
+            }
+            addShard(frameIdx, payload) {
+                if (this.lastFrameIdx !== -1 && frameIdx !== this.lastFrameIdx) this.flushFrame();
+                this.lastFrameIdx = frameIdx;
+                this.pending.push(payload);
+                this.pendingLen += payload.length;
+            }
+            flushFrame() {
+                if (this.pending.length === 0) return;
+                const buf = new Uint8Array(this.pendingLen);
+                let off = 0;
+                for (const p of this.pending) { buf.set(p, off); off += p.length; }
+                this.pending = []; this.pendingLen = 0;
+
+                const nals = extractNals(buf);
+                if (nals.length === 0) return;
+                let hasIdr = false, sps = null, pps = null;
+                for (const n of nals) {
+                    const t = n[0] & 0x1f;
+                    if (t === 5) hasIdr = true;
+                    else if (t === 7 && !sps) sps = n;
+                    else if (t === 8 && !pps) pps = n;
+                }
+                if (hasIdr && sps && pps) {
+                    if (this.decoder && this.codec !== codecString(sps)) this.closeDecoder();
+                    if (!this.decoder) {
+                        const codec = codecString(sps);
+                        this.codec = codec;
+                        logInfo(`[${this.eye}] decoder ${codec}`);
+                        try {
+                            this.decoder = new VideoDecoder({
+                                output: (frame) => this.onFrame(frame),
+                                error: (e) => { logError(`[${this.eye}] decoder error: ${e.message}`); this.closeDecoder(); }
+                            });
+                            this.decoder.configure({ codec, description: buildAvcC(sps, pps), optimizeForLatency: true });
+                            setStatus('Stream ready');
+                        } catch (e) {
+                            logError(`[${this.eye}] configure failed: ${e.message}`);
+                            this.closeDecoder();
+                            return;
+                        }
+                    }
+                } else if (!this.decoder) return;
+
+                // Low latency: drop delta frames when the decoder is backed up
+                // (software H264 in the VM decodes slower than the encoder feeds),
+                // but always let keyframes through so recovery is instant.
+                const backedUp = this.decoder.decodeQueueSize > 8;
+                if (backedUp && !hasIdr) return;
+
+                const chunkNals = nals.filter(n => { const t = n[0] & 0x1f; return t !== 7 && t !== 8; });
+                if (chunkNals.length === 0) return;
+                try {
+                    this.decoder.decode(new EncodedVideoChunk({
+                        type: hasIdr ? 'key' : 'delta',
+                        timestamp: this.lastFrameIdx * 1000,
+                        data: avccChunk(chunkNals)
+                    }));
+                } catch (e) {
+                    logError(`[${this.eye}] decode failed: ${e.message}`);
+                    this.closeDecoder();
+                }
+            }
+            onFrame(frame) {
+                framesDecoded[this.eye]++;
+                const canvas = this.canvas, ctx = this.ctx;
+                if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                    canvas.width = frame.displayWidth;
+                    canvas.height = frame.displayHeight;
+                    logInfo(`[${this.eye}] size ${canvas.width}x${canvas.height}`);
+                }
+                ctx.drawImage(frame, 0, 0);
+                frame.close();
+            }
+            reset() {
+                this.closeDecoder();
+                this.pending = []; this.pendingLen = 0; this.lastFrameIdx = -1;
+            }
+        }
+        const left = new EyeStream('L');
+        const right = new EyeStream('R');
+
+        // ---------- Stream ----------
+        async function startStream() {
+            while (true) {
+                try {
+                    setStatus('Connecting to stream...');
+                    const res = await fetch('/stream');
+                    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+                    logInfo('Stream connected');
+                    setStatus('Stream connected, waiting for video...');
+                    const reader = res.body.getReader();
+                    let buffer = new Uint8Array();
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        const b = new Uint8Array(buffer.length + value.length);
+                        b.set(buffer, 0); b.set(value, buffer.length);
+                        buffer = b;
+                        while (buffer.length >= 13) {
+                            const len = (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+                            if (buffer.length < 4 + len) break;
+                            const eye = buffer[4];
+                            let frameIdx = 0;
+                            for (let i = 0; i < 8; i++) frameIdx = frameIdx * 256 + buffer[5 + i];
+                            const payload = buffer.subarray(13, 4 + len);
+                            if (eye === 0) left.addShard(frameIdx, payload);
+                            else if (eye === 1) right.addShard(frameIdx, payload);
+                            buffer = buffer.subarray(4 + len);
+                        }
+                    }
+                    logInfo('Stream ended, reconnecting...');
+                    left.reset(); right.reset();
+                } catch (e) {
+                    logError(`Stream error: ${e.message}`);
+                    left.reset(); right.reset();
+                    setStatus('Stream lost, reconnecting...');
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            }
+        }
+
+        // ---------- WebXR only (no 3D on screen; 2D canvases show per eye) ----------
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.domElement.id = 'stage';
+        renderer.setSize(2, 2);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        const xrScene = new THREE.Scene();
+        function makeScreen(tex) {
+            const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, depthWrite: false });
+            return new THREE.Mesh(new THREE.PlaneGeometry(14, 7.875), mat);
+        }
+        const leftTex = new THREE.CanvasTexture(leftCanvas);
+        const rightTex = new THREE.CanvasTexture(rightCanvas);
+        leftTex.encoding = THREE.sRGBEncoding;
+        rightTex.encoding = THREE.sRGBEncoding;
+        const xrLeftScreen = makeScreen(leftTex);
+        const xrRightScreen = makeScreen(rightTex);
+        xrLeftScreen.position.set(0, 1.6, -5);
+        xrRightScreen.position.copy(xrLeftScreen.position);
+        xrLeftScreen.layers.set(1);   // seen by left eye camera only
+        xrRightScreen.layers.set(2);  // seen by right eye camera only
+        xrScene.add(xrLeftScreen);
+        xrScene.add(xrRightScreen);
+
+        renderer.setAnimationLoop((time) => {
+            if (!renderer.xr.isPresenting) return;
+            leftTex.needsUpdate = true;
+            rightTex.needsUpdate = true;
+            const xrCam = renderer.xr.getCamera();
+            if (xrCam.cameras && xrCam.cameras.length >= 2) {
+                xrCam.cameras[0].layers.enable(1);
+                xrCam.cameras[1].layers.enable(2);
+            }
+            renderer.render(xrScene, xrCam);
+        });
+
+        enterVrBtn.addEventListener('click', async () => {
+            if (!navigator.xr) { logError('WebXR not available in this browser'); return; }
+            try {
+                await renderer.xr.startSession('immersive-vr', {
+                    optionalFeatures: ['local-floor', 'hand-tracking']
+                });
+                logInfo('WebXR session started');
+                hintEl.style.display = 'none';
+            } catch (e) {
+                logError(`WebXR failed: ${e.message}`);
+            }
+        });
+        renderer.xr.addEventListener('sessionstart', () => { renderer.domElement.style.display = 'block'; });
+        renderer.xr.addEventListener('sessionend', () => { renderer.domElement.style.display = 'none'; hintEl.style.display = 'block'; });
+
+        hudClose.addEventListener('click', () => { hud.style.display = 'none'; reopenBtn.style.display = 'block'; });
+        reopenBtn.addEventListener('click', () => { hud.style.display = 'block'; reopenBtn.style.display = 'none'; });
+
+        setInterval(() => {
+            statsEl.textContent = `L: ${leftCanvas.width || 0}x${leftCanvas.height || 0} | R: ${rightCanvas.width || 0}x${rightCanvas.height || 0} | Decoded: L${framesDecoded.L}/R${framesDecoded.R} | Queue: ${left.decoder ? left.decoder.decodeQueueSize : 0}/${right.decoder ? right.decoder.decodeQueueSize : 0}`;
+        }, 500);
+
+        startStream();
+    </script>
+</body>
+</html>

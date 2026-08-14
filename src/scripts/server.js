@@ -1340,19 +1340,19 @@ async function main() {
     }
 
     const { Worker } = require('worker_threads');
+    const modPath = require.resolve('@nearcade/launcher-detect');
     const worker = new Worker(`
-      const { parentPort } = require('worker_threads');
+      const { parentPort, workerData } = require('worker_threads');
       try {
-        const modPath = require.resolve('@nearcade/launcher-detect');
-        delete require.cache[modPath];
-        const { detectGames } = require('@nearcade/launcher-detect');
+        delete require.cache[workerData.modPath];
+        const { detectGames } = require(workerData.modPath);
         
         const games = detectGames();
         parentPort.postMessage({ games });
       } catch(e) {
         parentPort.postMessage({ error: e.message, stack: e.stack });
       }
-    `, { eval: true });
+    `, { eval: true, workerData: { modPath } });
 
     worker.on('message', (msg) => {
       if (msg.error) {

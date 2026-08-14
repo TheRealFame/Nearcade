@@ -1,0 +1,28 @@
+appId: com.nearcade.gamepadprobe
+productName: Nearcade Gamepad Probe
+directories:
+  output: dist
+  buildResources: .
+files:
+  - main.js
+  - preload.js
+  - package.json
+  - www
+extraResources:
+  - from: ../../config/controllers.json
+    to: config/controllers.json
+linux:
+  target:
+    - AppImage
+  icon: ../../assets/NearcadeLogo.png
+  category: Utility
+win:
+  target:
+    - nsis
+    - portable
+  icon: ../../assets/NearcadeLogo.png
+mac:
+  target:
+    - zip
+  icon: ../../assets/NearcadeLogo.png
+npmRebuild: false

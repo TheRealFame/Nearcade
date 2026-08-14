@@ -9,6 +9,7 @@ on:
     branches: [ "main" ]
     paths:
       - 'server/**'
+      - 'vps/**'
   workflow_dispatch:
 
 jobs:
@@ -58,13 +59,44 @@ jobs:
         name: ${{ matrix.asset_name }}
         path: dist/${{ matrix.artifact_name }}
 
+  # The VPS SFU router (vps/) is deployed to the box and self-updates via
+  # self_update (AUTO_UPDATE_REPO env). It needs a release asset whose name
+  # contains the target triple — self_update matches on "x86_64-unknown-linux-gnu".
+  build-router:
+    name: Build Router
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-gnu
+
+    - name: Build Release
+      run: cargo build --release --manifest-path vps/Cargo.toml --target x86_64-unknown-linux-gnu
+
+    - name: Prepare Artifact
+      shell: bash
+      run: |
+        mkdir -p dist
+        cp vps/target/x86_64-unknown-linux-gnu/release/nearcade-router dist/nearcade-router-x86_64-unknown-linux-gnu
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: nearcade-router-x86_64-unknown-linux-gnu
+        path: dist/nearcade-router-x86_64-unknown-linux-gnu
+
   release:
-    needs: build
+    needs: [build, build-router]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -72,17 +104,51 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
 
-      - name: Upload Artifacts to GitHub Release
+      # Bundle every OS build into ONE extract-and-run zip (matches the server
+      # release layout): deploy any platform from a single download.
+      - name: Assemble Turn & Router Zip
+        shell: bash
+        run: |
+          mkdir -p assemble
+          for f in artifacts/*/*; do
+            if [ -f "$f" ]; then
+              cp "$f" assemble/
+            fi
+          done
+          # Router stays as its own asset below (self_update needs the bare
+          # triple-named file), but a copy also ships inside the zip.
+          # Make the entry generator executable next to the binaries.
+          chmod +x server/make-entry.sh
+          cp server/make-entry.sh assemble/make-entry.sh
+          ls -la assemble/
+          mkdir -p release
+          (cd assemble && zip -r -q "../release/Nearcade-Turn-${{ github.ref_name }}.zip" .)
+
+      - name: Upload Turn Zip to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           # The release may not exist yet (other workflows create it in parallel).
           # Create it idempotently so gh release upload never silently fails.
           gh release create ${{ github.ref_name }} --verify-tag --latest=false || true
-          # The artifacts are downloaded into directories matching their artifact name
-          for file in artifacts/*/*; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file to release ${{ github.ref_name }}..."
-              gh release upload ${{ github.ref_name }} "$file" --clobber || true
-            fi
-          done
+          gh release upload ${{ github.ref_name }} \
+            "release/Nearcade-Turn-${{ github.ref_name }}.zip" --clobber || true
+
+      # The router must ALSO be uploaded as a bare asset whose name contains the
+      # target triple — vps/src/main.rs's self_update does asset.name.contains(
+      # "x86_64-unknown-linux-gnu") to pick the file to download.
+      - name: Upload Router Asset to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            artifacts/nearcade-router-x86_64-unknown-linux-gnu/* \
+            --clobber || true
+
+      - name: Upload Turn Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: turn-all
+          path: release/Nearcade-Turn-${{ github.ref_name }}.zip

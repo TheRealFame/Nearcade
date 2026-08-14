@@ -25,10 +25,12 @@ const _gpBuf = Buffer.alloc(16);
 const _alBuf = Buffer.alloc(104);
 const _flBuf = Buffer.alloc(2);
 const _frBuf = Buffer.alloc(2);
+const _vrBuf = Buffer.alloc(203);
 
 _alBuf[0] = 0x10; // PKT::ALLOC_GP
 _flBuf[0] = 0x20; // PKT::FLUSH
 _frBuf[0] = 0x11; // PKT::FREE_GP
+_vrBuf[0] = 0x30; // PKT::VR
 
 // ── Button Bitmask Converter ───────────────────────────────────────────────────
 // The viewer.js uses the KBM_BTN_MAP bit layout. The C++ bridge uses a different
@@ -51,10 +53,27 @@ _frBuf[0] = 0x11; // PKT::FREE_GP
 //   bit 12 = START → C++ bit 9
 //   bit 13 = SELECT → C++ bit 8
 //   bit 14 = GUIDE (C++ reads uint16 so bit16 unreachable — skip)
-function _jsBtnsToCpp(jsBtns) {
+//   isSwitchProfile: when true, swaps A<->B and X<->Y before conversion.
+//   Nintendo's physical face-button layout is rotated relative to Xbox —
+//   the button in the Xbox "A" position is physically "B" on a real Switch
+//   Pro Controller, and the Xbox "X" position is physically "Y". Swapping
+//   here (once, at the JS bit level) makes the emitted uinput device match
+//   what a real Switch Pro Controller would report for the same physical
+//   button, so touch controls feel correct when a session is emulating one.
+function _isSwitchProfile(profileKey) {
+    return profileKey === 'switchpro' || profileKey === 'switch' || profileKey === 'nintendo';
+}
+
+function _jsBtnsToCpp(jsBtns, profileKey) {
     let cpp = 0;
+    let faceBits = jsBtns & 0x000F;
+    if (_isSwitchProfile(profileKey)) {
+        const a = faceBits & 0x0001, b = faceBits & 0x0002;
+        const x = faceBits & 0x0004, y = faceBits & 0x0008;
+        faceBits = (b ? 0x0001 : 0) | (a ? 0x0002 : 0) | (y ? 0x0004 : 0) | (x ? 0x0008 : 0);
+    }
     // A, B, X, Y — bits 0-3 pass through (C++ X/Y label swap is intentional, emits correctly)
-    cpp |= (jsBtns & 0x000F);
+    cpp |= faceBits;
     // LB: JS bit8 → C++ bit4
     if (jsBtns & 0x0100) cpp |= 0x0010;
     // RB: JS bit9 → C++ bit5
@@ -299,10 +318,25 @@ function init(screenWidth, screenHeight) {
         return false;
     }
 
-    const pythonCmd = isWin ? 'python' : 'python3';
+    let pythonCmd = isWin ? 'python' : 'python3';
+    let extraArgs = [];
+    if (isWin) {
+        const { execSync } = require('child_process');
+        const candidates = [ {c: 'py', a: ['-3']}, {c: 'python', a: []}, {c: 'python3', a: []} ];
+        for (const cand of candidates) {
+            try {
+                // If it's the MS Store alias, it exits with 9009. execSync will throw.
+                execSync(`${cand.c} ${cand.a.join(' ')} --version`, { stdio: 'ignore', windowsHide: true });
+                pythonCmd = cand.c;
+                extraArgs = cand.a;
+                break; // Found a working Python!
+            } catch (e) { }
+        }
+    }
+
     const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
     if (isWin) spawnOpts.windowsHide = true;
-    _pythonProc = spawn(pythonCmd, [pythonScript], spawnOpts);
+    _pythonProc = spawn(pythonCmd, [...extraArgs, pythonScript], spawnOpts);
 
     _pythonProc.stderr.on('data', (chunk) => {
         const s = chunk.toString('utf8').trim();
@@ -510,7 +544,8 @@ function _handleGamepad(msg) {
     if (!_bridge) return;
 
     // Convert JS viewer bitmask to C++ W3C_BTN format and extract dpad as hx/hy
-    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(msg.buttons || 0);
+    // (profileKey enables the Switch Pro A/B, X/Y swap for this viewer's session)
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(msg.buttons || 0, profileKey);
 
     // Write packet in the EXACT layout uinputBridge.cpp expects.
     // axes arrive as int16 (-32767..+32767) from the normalizer — write directly.
@@ -792,6 +827,52 @@ function _sendKbmStateToBuffer(slotIndex, state) {
     });
 }
 
+function _handleVr(msg) {
+    if (!_udpSocket) return;
+    const h = msg.head || {};
+    const l = msg.left || {};
+    const r = msg.right || {};
+
+    _vrBuf[0] = 0x30;
+    
+    // Head pose
+    _vrBuf.writeDoubleLE(h.qx || 0, 1);
+    _vrBuf.writeDoubleLE(h.qy || 0, 9);
+    _vrBuf.writeDoubleLE(h.qz || 0, 17);
+    _vrBuf.writeDoubleLE(h.qw || 1, 25);
+    _vrBuf.writeDoubleLE(h.px || 0, 33);
+    _vrBuf.writeDoubleLE(h.py || 0, 41);
+    _vrBuf.writeDoubleLE(h.pz || 0, 49);
+    
+    // Left pose
+    _vrBuf.writeDoubleLE(l.qx || 0, 57);
+    _vrBuf.writeDoubleLE(l.qy || 0, 65);
+    _vrBuf.writeDoubleLE(l.qz || 0, 73);
+    _vrBuf.writeDoubleLE(l.qw || 1, 81);
+    _vrBuf.writeDoubleLE(l.px || 0, 89);
+    _vrBuf.writeDoubleLE(l.py || 0, 97);
+    _vrBuf.writeDoubleLE(l.pz || 0, 105);
+    
+    // Right pose
+    _vrBuf.writeDoubleLE(r.qx || 0, 113);
+    _vrBuf.writeDoubleLE(r.qy || 0, 121);
+    _vrBuf.writeDoubleLE(r.qz || 0, 129);
+    _vrBuf.writeDoubleLE(r.qw || 1, 137);
+    _vrBuf.writeDoubleLE(r.px || 0, 145);
+    _vrBuf.writeDoubleLE(r.py || 0, 153);
+    _vrBuf.writeDoubleLE(r.pz || 0, 161);
+    
+    _vrBuf.writeDoubleLE(Number(l.trigger) || 0, 169);
+    _vrBuf.writeDoubleLE(Number(l.grip) || 0, 177);
+    _vrBuf.writeDoubleLE(Number(r.trigger) || 0, 185);
+    _vrBuf.writeDoubleLE(Number(r.grip) || 0, 193);
+    
+    _vrBuf.writeUInt8(Number(l.buttons) || 0, 201);
+    _vrBuf.writeUInt8(Number(r.buttons) || 0, 202);
+    
+    _udpSocket.send(_vrBuf, 0, 203, 9758, '127.0.0.1');
+}
+
 // ── Dispatcher & Exports ──────────────────────────────────────────────────────
 // ── Payload Schema Validation ─────────────────────────────────────────────────
 // Malicious or corrupted viewer payloads can crash the C++ bridge or overflow
@@ -880,6 +961,8 @@ function send(msg) {
     } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
         validated = _validateKbmMsg(msg);
         if (!validated) return; // drop
+    } else if (msg.type === 'vr') {
+        validated = msg;
     }
 
     // Handle window-focus / game detection BEFORE routing to any backend
@@ -935,6 +1018,8 @@ function send(msg) {
     } else if (validated.type === 'kbm' || validated.type === 'keyboard') {
         console.log(`[DEBUG KBM] Orchestrator send() routing to _handleKbm`);
         _handleKbm(validated);
+    } else if (validated.type === 'vr') {
+        _handleVr(validated);
     } else if (msg.type === 'set-ctrl-type') {
         // Update per-viewer map AND the global default so new connections inherit the type
         if (msg.viewerId) viewerCtrlType.set(msg.viewerId, msg.ctrlType || 'xbox360');
@@ -972,7 +1057,8 @@ const viewerSeq = new Map();
 
 function _processBinaryFrame(viewerId, padId, slotIndex, buf, offset) {
     const jsBtns = buf.readUInt16LE(offset + 2);
-    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(jsBtns);
+    const profileKey = viewerCtrlType.get(padId) || viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(jsBtns, profileKey);
     
     // Confidence Decay tracking
     lastPacketTime.set(padId, Date.now());

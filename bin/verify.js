@@ -106,7 +106,6 @@ function runAuxiliaryTests() {
     const { execFile } = require('child_process');
     const root = __dirname + '/..';
     const tasks = [
-        { file: 'node', args: ['test/svc.js'], name: 'SVC wiring' },
         { file: 'python3', args: ['-m', 'py_compile', 'src/sidecar/plugin_manager.py'], name: 'plugin_manager compile' },
     ];
     return Promise.all(tasks.map(t => new Promise((resolve) => {

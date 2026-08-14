@@ -1,0 +1,116 @@
+name: Probe
+
+# Standalone release of the Nearcade Gamepad Probe diagnostics tool.
+# Portable binaries ONLY — a setup/installer for the probe is forbidden by
+# policy and the build guard below enforces it. Every OS build is collected
+# into ONE extract-and-run zip (matches the server / turn release layout).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release-probe:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest   # Linux AppImage
+            platform: linux
+            target: --linux
+            src: dist/Nearcade Gamepad Probe-1.0.0.AppImage
+          - os: windows-latest  # Windows PORTABLE exe — never an installer
+            platform: win
+            target: --win portable --publish never
+            src: dist/Nearcade Gamepad Probe 1.0.0.exe
+          - os: macos-latest    # macOS .app (zipped, unsigned portable)
+            platform: mac
+            target: --mac zip --publish never
+            src: dist/*mac*.zip
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Install Probe Dependencies
+        working-directory: tools/gamepad-probe
+        run: npm install --no-audit --no-fund
+
+      - name: Extract Fresh Simulation Core
+        working-directory: tools/gamepad-probe
+        run: node extract-sim.js
+
+      - name: Run Probe Unit Tests
+        working-directory: tools/gamepad-probe
+        run: node test-logic.js
+
+      - name: Build Probe (${{ matrix.platform }})
+        working-directory: tools/gamepad-probe
+        shell: bash
+        run: npx electron-builder --config builder.yml ${{ matrix.target }}
+
+      # POLICY GUARD: the probe ships portable-only. If any installer/setup
+      # artifact ever appears, fail the job instead of uploading it.
+      - name: Guard — Probe Must Never Ship a Setup Installer
+        shell: bash
+        run: |
+          if ls dist/ | grep -iE "setup|installer|\.msi$|\.msix$" ; then
+            echo "::error::Setup/installer artifact found — probe is portable-only."
+            exit 1
+          fi
+          echo "guard ok: no setup artifacts"
+
+      - name: Upload Probe Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.platform }}
+          path: ${{ matrix.src }}
+
+  assemble-probe:
+    needs: release-probe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: probe-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble Probe Zip
+        shell: bash
+        run: |
+          ls -la artifacts/
+          mkdir -p release
+          (cd artifacts && zip -r -q "../release/Nearcade-Gamepad-Probe-${{ github.ref_name }}.zip" .)
+
+      - name: Upload Probe Zip to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # The release may not exist yet (workflows run in parallel on the tag
+          # push). Create it idempotently so the upload can never be dropped.
+          gh release create ${{ github.ref_name }} --verify-tag --latest=false || true
+          gh release upload ${{ github.ref_name }} \
+            "release/Nearcade-Gamepad-Probe-${{ github.ref_name }}.zip" --clobber || true
+
+      - name: Upload Probe Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-all
+          path: release/Nearcade-Gamepad-Probe-${{ github.ref_name }}.zip

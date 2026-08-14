@@ -104,6 +104,14 @@ html, body {
   white-space: nowrap;
 }
 .go-game-plays { font-size: 8px; color: var(--muted2); }
+.go-vr-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 8px; letter-spacing: 0.06em; padding: 2px 5px;
+  border-radius: 4px; color: var(--accent);
+  background: var(--accent-dim); border: 1px solid rgba(var(--accent-rgb),0.35);
+  white-space: nowrap; text-transform: uppercase;
+}
+.go-vr-badge.only::after { content: ''; margin-left: 2px; color: var(--muted2); font-size: 7px; letter-spacing: 0; }
 .go-pin {
   position: absolute; top: 5px; right: 5px;
   width: 22px; height: 22px; border-radius: 6px;
@@ -160,6 +168,7 @@ html, body {
     <input id="goSearch" placeholder="Filter..." oninput="filterGames()">
   </div>
   <button class="go-btn go-view-btn" id="goViewToggle" onclick="toggleView()" title="Toggle view">▦</button>
+  <button class="go-btn go-view-btn" id="goVrToggle" onclick="toggleVrFilter()" title="Show VR games only" style="display:none;">🕶 VR</button>
   <button class="go-btn go-btn-close" onclick="closePicker()" title="Close">✕</button>
 </div>
 <div class="go-body" id="goBody">
@@ -185,11 +194,20 @@ html, body {
 
 let allGames = [];
 let currentView = 'grid';
+let vrUiEnabled = false;
+let vrOnly = false;
 
 function lsGet(key, def) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(def)); } catch { return def; }
 }
 function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+
+function toggleVrFilter() {
+  vrOnly = !vrOnly;
+  lsSet('ns_game_vronly', vrOnly);
+  document.getElementById('goVrToggle').classList.toggle('active', vrOnly);
+  renderGames();
+}
 
 function getPlayCounts() { return lsGet('ns_game_plays', {}); }
 function recordPlay(gameId) {
@@ -219,6 +237,19 @@ function toggleView() {
 function loadGames() {
   currentView = lsGet('ns_game_view', 'grid');
   document.getElementById('goViewToggle').textContent = currentView === 'grid' ? '≡' : '▦';
+
+  // The VR UI (badges + filter) only appears when the dashboard's Enable VR
+  // setting is on — the switch drives this, nothing manual.
+  fetch('/api/config').then(r => r.json()).then(cfg => {
+    vrUiEnabled = cfg && cfg.vrEnabled === true;
+    document.getElementById('goVrToggle').style.display = vrUiEnabled ? '' : 'none';
+    vrOnly = lsGet('ns_game_vronly', false);
+    document.getElementById('goVrToggle').classList.toggle('active', vrOnly);
+    renderGames();
+  }).catch(() => {
+    vrUiEnabled = false;
+    renderGames();
+  });
 
   // Check sessionStorage cache to avoid re-scanning
   try {
@@ -251,6 +282,7 @@ function renderGames(filter) {
   const body = document.getElementById('goBody');
   const q = (filter || '').toLowerCase().trim();
   let list = q ? allGames.filter(g => g.name.toLowerCase().includes(q)) : [...allGames];
+  if (vrUiEnabled && vrOnly) list = list.filter(g => g.vr);
 
   if (!list.length) {
     body.innerHTML = '<div class="go-empty">' + (q ? 'No games match "' + q + '".' : 'No games found.') + '</div>';
@@ -293,8 +325,15 @@ function renderGames(filter) {
       const gameId = el.dataset.id;
       const launcher = el.dataset.launcher;
       const name = el.dataset.name;
+      const isVr = el.dataset.vr === '1';
       recordPlay(gameId);
-      parent.postMessage({ type: 'launch-game', launcher, gameId, name }, '*');
+      const sendLaunch = () => parent.postMessage({ type: 'launch-game', launcher, gameId, name }, '*');
+      // Wake the wivrn server before launching so the game finds the IPC socket.
+      if (isVr) {
+        fetch('/api/vr-wake', { method: 'POST' }).then(sendLaunch).catch(sendLaunch);
+      } else {
+        sendLaunch();
+      }
     };
   });
   body.querySelectorAll('.go-game-img').forEach(img => {
@@ -309,13 +348,17 @@ function gameTile(g) {
   const imgUrl = g.launcher === 'steam' ? '/api/game-art/' + g.id : (g.artCover || '');
   const name = g.name.replace(/[<>"&]/g, '');
   const isGrid = currentView === 'grid';
-  return '<div class="go-game' + (imgUrl ? '' : ' no-img') + '" data-id="' + g.id + '" data-launcher="' + g.launcher + '" data-name="' + name + '">'
+  const vrBadge = (vrUiEnabled && g.vr)
+    ? '<span class="go-vr-badge' + (g.vr === 'only' ? ' only' : '') + '" title="' + (g.vr === 'only' ? 'VR Only' : 'VR Supported') + '">🕶 ' + (g.vr === 'only' ? 'VR Only' : 'VR') + '</span>'
+    : '';
+  return '<div class="go-game' + (imgUrl ? '' : ' no-img') + '" data-id="' + g.id + '" data-launcher="' + g.launcher + '" data-name="' + name + '"' + (vrBadge ? ' data-vr="1"' : '') + '>'
     + '<button class="go-pin' + (pinned ? ' pinned' : '') + '" onclick="event.stopPropagation();togglePin(\'' + g.id + '\', event)" title="' + (pinned ? 'Unpin' : 'Pin') + '">' + (pinned ? '★' : '☆') + '</button>'
     + (imgUrl ? '<img class="go-game-img" src="' + imgUrl + '" alt="' + name + '" loading="lazy">' : '')
     + '<div class="go-game-info">'
     + '<span class="go-game-name">' + name + '</span>'
     + '<div class="go-game-meta">'
     + '<span class="go-game-badge">' + g.launcher + '</span>'
+    + vrBadge
     + (times ? '<span class="go-game-plays">' + times + (times === 1 ? ' play' : ' plays') + '</span>' : '')
     + '</div>'
     + '</div>'

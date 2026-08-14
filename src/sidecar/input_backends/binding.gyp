@@ -4,10 +4,14 @@
       "target_name": "uinputBridge",
       "sources": [ "uinputBridge.cpp" ],
       "include_dirs": [
-        "<!@(node -p \"require('node-addon-api').include\")"
+        "<!@(node -p \"require('node-addon-api').include\")",
+        "<!@(pkg-config --cflags-only-I dbus-1 | sed s/-I//g)"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"
+      ],
+      "libraries": [
+        "<!@(pkg-config --libs dbus-1)"
       ],
       "cflags!": [ "-fno-exceptions" ],
       "cflags_cc!": [ "-fno-exceptions" ],
@@ -16,6 +20,7 @@
     },
     {
       "target_name": "rawinput_win",
+      "type": "<!(node -e \"console.log(process.platform === 'win32' ? 'shared_library' : 'none')\")",
       "sources": [ "rawinput/rawinput-win.cc" ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")"

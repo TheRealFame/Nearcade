@@ -1,0 +1,221 @@
+name: Server
+
+# Dedicated release of the Nearcade server package: one zip with every
+# platform build inside, extract anywhere and run the launcher — it detects
+# the OS/arch and starts the correct build.
+# The Gamepad Probe is released separately in probe.yml; the nearcade-turn
+# relay binaries (and the make-entry.sh submission generator) ship from
+# build-turn.yml, which is the single home for the TURN service.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  # ── SERVER — per-platform build bundles ──
+  release-server:
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.tolerate }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-latest
+            tolerate: false
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+            tolerate: true
+          - platform: win-x64
+            os: windows-latest
+            tolerate: false
+          - platform: mac-x64
+            os: macos-15-intel
+            tolerate: false
+          - platform: mac-arm64
+            os: macos-latest
+            tolerate: false
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - name: Install Production Dependencies
+        # npm install (not ci): the repo's lockfile has historically gone stale
+        # (workspace versions drift), and install reconciles it on the fly.
+        run: npm install --omit=dev --no-audit --no-fund
+        env:
+          npm_config_build_from_source: 'false'
+
+      - name: Assemble Server Bundle (${{ matrix.platform }})
+        shell: bash
+        run: |
+          PLAT="${{ matrix.platform }}"
+          mkdir -p "bundle/nearcade-server/$PLAT"
+          cp -r src        "bundle/nearcade-server/$PLAT/src"
+          cp -r config     "bundle/nearcade-server/$PLAT/config"
+          cp -r packages   "bundle/nearcade-server/$PLAT/packages"
+          cp -r node_modules "bundle/nearcade-server/$PLAT/node_modules"
+          cp package.json package-lock.json "bundle/nearcade-server/$PLAT/"
+          echo "Nearcade server ${{ github.ref_name }} | $PLAT | node $(node --version)" \
+            > "bundle/nearcade-server/$PLAT/BUILD.txt"
+          mkdir -p "bundle/vps-config"
+          cp -r vps/Caddyfile vps/nearcade-router.service bin/setup_turn.sh bundle/vps-config/ 2>/dev/null || true
+          du -sh "bundle/nearcade-server/$PLAT"
+
+      - name: Upload Server Bundle (per-platform artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.platform }}
+          path: bundle/
+          if-no-files-found: error
+
+  # ── MERGE every platform into one "extract & run" zip ──
+  assemble-server:
+    needs: release-server
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download Platform Bundles
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: server-*
+          path: bundle
+          merge-multiple: true
+
+      - name: Write Launchers & Docs
+        shell: bash
+        run: |
+          mkdir -p nearcade-server
+
+          cat > run.sh <<'EOF'
+          #!/usr/bin/env sh
+          # Nearcade server launcher — detects OS/arch and runs the correct
+          # bundled build. Requires Node.js 22+ and Python 3 for the input
+          # sidecars.
+          set -e
+          case "$(uname -s)" in
+            Linux)  OS=linux ;;
+            Darwin) OS=mac ;;
+            *) echo "unsupported OS: $(uname -s)"; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            x86_64|amd64)      ARCH=x64 ;;
+            aarch64|arm64)     ARCH=arm64 ;;
+            *) echo "unsupported arch: $(uname -m)"; exit 1 ;;
+          esac
+          DIR="$OS-$ARCH"
+          ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          if [ ! -d "$ROOT/nearcade-server/$DIR" ]; then
+            echo "no server build for $DIR in this package"; exit 1
+          fi
+          exec node "$ROOT/nearcade-server/$DIR/src/scripts/server.js" "$@"
+          EOF
+          chmod +x run.sh
+
+          cat > run.bat <<'EOF'
+          @echo off
+          rem Nearcade server launcher (Windows) - starts the win-x64 build.
+          setlocal
+          set "ROOT=%~dp0"
+          if not exist "%ROOT%nearcade-server\win-x64" (
+            echo no server build for win-x64 in this package
+            exit /b 1
+          )
+          cd /d "%ROOT%nearcade-server\win-x64"
+          node src\scripts\server.js %*
+          EOF
+
+          cat > README.txt <<'EOF'
+          Nearcade Server <VERSION> — all platform builds in one folder.
+          ============================================================
+          Extract anywhere and run the launcher:
+            Linux/macOS : ./run.sh          Windows : run.bat
+          The launcher detects the OS + CPU and starts the matching build.
+          Also included: vps-config/ (Caddyfile, systemd service, TURN script).
+
+          Requirements:
+            - Node.js 22+ (the platform folders carry their own node_modules)
+            - Python 3 for the input sidecars (src/sidecar/input_backends)
+            - VPS routers are a separate release: nearcade-router binary
+
+          TURN relays are released separately (build-turn workflow):
+            Nearcade-Turn-<tag>.zip — one zip with every platform build
+            (nearcade-turn-linux-amd64, nearcade-turn-windows-amd64.exe,
+            nearcade-turn-macos-amd64) + the nearcade-router binary and
+            make-entry.sh, the community entry generator for adding your relay
+            to config/community-turn-servers.json so players can join it.
+
+          Each platform build ships config/community-turn-servers.json, so a
+          fresh host already serves the community relays out of the box.
+
+          Layout:
+            nearcade-server/
+              linux-x64/  linux-arm64/  win-x64/  mac-x64/  mac-arm64/
+              (each = src/ + config/ + node_modules/ + package.json)
+            vps-config/   (Caddyfile, nearcade-router.service, setup_turn.sh)
+            run.sh        run.bat       README.txt
+          EOF
+          sed -i "s/<VERSION>/${{ github.ref_name }}/" README.txt
+
+          echo "platform dirs present:"
+          ls nearcade-server/ 2>/dev/null || true
+
+      - name: Move Bundles Into Place
+        shell: bash
+        run: |
+          for p in linux-x64 linux-arm64 win-x64 mac-x64 mac-arm64; do
+            if [ -d "bundle/nearcade-server/$p" ]; then
+              cp -r "bundle/nearcade-server/$p" nearcade-server/
+              echo "merged: $p"
+            else
+              echo "warning: platform bundle missing: $p"
+            fi
+          done
+          if [ -d "bundle/vps-config" ]; then
+            cp -r bundle/vps-config .
+            echo "merged: vps-config"
+          fi
+          [ -d vps-config ] || mkdir -p vps-config
+
+      - name: Package All-Versions Zip
+        shell: bash
+        run: |
+          if [ -z "$(ls -A nearcade-server/)" ]; then
+            echo "::error::no server bundles merged at all"
+            exit 1
+          fi
+          mkdir -p release
+          zip -r -q "release/Nearcade-Server-${{ github.ref_name }}.zip" \
+            nearcade-server vps-config run.sh run.bat README.txt
+          ls -la release/
+
+      - name: Upload Server Zip to Release
+        shell: bash
+        run: |
+          # The release may not exist yet (workflows run in parallel on the tag
+          # push). Create it idempotently so the upload can never be dropped.
+          gh release create ${{ github.ref_name }} --verify-tag --latest=false || true
+          gh release upload ${{ github.ref_name }} \
+            "release/Nearcade-Server-${{ github.ref_name }}.zip" --clobber || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Server Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-all
+          path: release/Nearcade-Server-${{ github.ref_name }}.zip

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nearcade Keyboard Binds</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0d0f; --surface: #121518; --accent: #06b6d4;
+      --text: #f0f3f5; --muted: #4a5157; --border: #22282d;
+    }
+    body {
+      background: transparent; color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      margin: 0; padding: 14px;
+      display: flex; flex-direction: column; gap: 14px;
+      overflow-y: auto; height: 100vh; box-sizing: border-box;
+    }
+    .widget-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px; flex: 1;
+    }
+    .header { font-weight: bold; font-size: 16px; color: var(--accent); }
+    
+    .v-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text); padding: 8px 12px;
+      border-radius: 6px; cursor: pointer;
+      font-family: 'Outfit', sans-serif; font-size: 11px;
+      font-weight: 600; transition: 0.2s;
+    }
+    .v-btn:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2); }
+    
+    .preset-row { display: flex; gap: 8px; }
+    .preset-row .v-btn { flex: 1; text-align: center; padding: 6px; }
+
+    #keyboard-container {
+      background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px;
+      display: flex; flex-direction: column; gap: 4px;
+      flex: 1; min-height: 250px; overflow-x: auto;
+    }
+    
+    .kb-row { display: flex; gap: 4px; justify-content: center; }
+    
+    .key {
+      background: #1a1e22; border: 1px solid var(--border);
+      border-radius: 4px; height: 40px; min-width: 40px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      position: relative; transition: all 0.1s; user-select: none;
+      padding: 0 4px; color: #a0aab2;
+    }
+    
+    .key:hover { background: #262c33; border-color: #3b444f; }
+    .key.active-bind { background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: var(--accent); color: #fff; }
+    .key.active-bind:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+    .key.waiting { background: #ffbb00; color: #000; border-color: #fff; animation: pulse 1s infinite alternate; }
+    
+    @keyframes pulse { from { opacity: 1; } to { opacity: 0.7; } }
+    
+    .key-action {
+      font-size: 9px; color: var(--accent); font-weight: 700;
+      text-transform: uppercase; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    }
+    .key.active-bind .key-action { color: var(--accent); }
+    .key.waiting .key-action { color: #000; }
+    
+    .key-Space { min-width: 200px; }
+    .key-Backspace, .key-ShiftRight, .key-Enter { min-width: 80px; }
+    .key-ShiftLeft, .key-CapsLock, .key-Tab { min-width: 60px; }
+    
+    .btn-reset { color: #ff4a4a; border-color: rgba(255,74,74,0.3); margin-top: 4px; }
+    .btn-reset:hover { background: rgba(255, 74, 74, 0.1); border-color: #ff4a4a; }
+
+    #unmapped-list {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+    }
+    .unmapped-item {
+      background: rgba(255,74,74,0.1); border: 1px dashed rgba(255,74,74,0.5);
+      color: #ff4a4a; font-size: 10px; padding: 4px 8px; border-radius: 4px;
+      cursor: pointer; font-weight: bold;
+    }
+    .unmapped-item:hover { background: rgba(255,74,74,0.2); }
+    .unmapped-item.waiting { background: #ffbb00; color: #000; border-style: solid; }
+  </style>
+</head>
+<body>
+  <div class="widget-card">
+    <div style="display:flex; justify-content:flex-end; align-items:center;">
+        <div style="font-size:10px; color:var(--muted);">Click a bound key to reassign it, or click an unmapped action below.</div>
+    </div>
+    
+    <div class="preset-row">
+      <button class="v-btn" onclick="setPreset('wasd')">WASD</button>
+      <button class="v-btn" onclick="setPreset('esdf')">ESDF</button>
+      <button class="v-btn" onclick="setPreset('numpad')">Numpad</button>
+    </div>
+    
+    <div id="keyboard-container"></div>
+    
+    <div style="font-size:11px; margin-top:4px; color:var(--muted); font-weight:bold;">UNMAPPED ACTIONS:</div>
+    <div id="unmapped-list"></div>
+    
+    <button class="v-btn btn-reset" onclick="resetBinds()">Reset to Defaults</button>
+  </div>
+
+  <script src="/js/i18n.js"></script>
+  <script>
+    const T = (s) => (typeof I18N !== 'undefined' && typeof I18N.t === 'function' ? I18N.t(s) : s);
+    const savedColor = localStorage.getItem('ns_chat_color');
+    if (savedColor) document.documentElement.style.setProperty('--accent', savedColor);
+
+    let keyMap = {};
+    let waitingForRebind = null; // { oldKey: 'KEY_W', action: 'L-STICK UP', isUnmapped: false }
+
+    const layout = [
+      ['Escape', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal', 'Backspace'],
+      ['Tab', 'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP', 'BracketLeft', 'BracketRight', 'Backslash'],
+      ['CapsLock', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon', 'Quote', 'Enter'],
+      ['ShiftLeft', 'KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period', 'Slash', 'ShiftRight'],
+      ['ControlLeft', 'MetaLeft', 'AltLeft', 'Space', 'AltRight', 'MetaRight', 'ControlRight'],
+      ['ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight'] // Arrows row
+    ];
+
+    const labels = {
+      'Escape': 'Esc', 'Backspace': 'Bksp', 'ShiftLeft': 'Shift', 'ShiftRight': 'Shift',
+      'ControlLeft': 'Ctrl', 'ControlRight': 'Ctrl', 'AltLeft': 'Alt', 'AltRight': 'Alt',
+      'MetaLeft': 'Win', 'MetaRight': 'Win', 'Space': 'Space', 'Enter': 'Enter', 'CapsLock': 'Caps',
+      'ArrowUp': '↑', 'ArrowDown': '↓', 'ArrowLeft': '←', 'ArrowRight': '→',
+      'BracketLeft': '[', 'BracketRight': ']', 'Backslash': '\\', 'Semicolon': ';', 'Quote': "'",
+      'Comma': ',', 'Period': '.', 'Slash': '/', 'Minus': '-', 'Equal': '='
+    };
+
+    window.addEventListener('message', e => {
+      if (e.data?.type === 'SYNC_KEYBINDS') {
+        keyMap = e.data.map || {};
+        waitingForRebind = null; // reset state
+        renderKeyboard();
+      }
+    });
+
+    window.parent.postMessage({ type: 'REQ_KEYBINDS' }, '*');
+
+    function setPreset(p) { window.parent.postMessage({ type: 'SET_KEY_PRESET', preset: p }, '*'); }
+    function resetBinds() { window.parent.postMessage({ type: 'RESET_KEYBINDS' }, '*'); }
+
+    const DISPLAY_MAP = {
+        "KEY_W": "LS-UP", "KEY_A": "LS-L", "KEY_S": "LS-DN", "KEY_D": "LS-R",
+        "KEY_UP": "DP-UP", "KEY_DOWN": "DP-DN", "KEY_LEFT": "DP-L", "KEY_RIGHT": "DP-R",
+        "KEY_SPACE": "A", "KEY_L": "B", "KEY_J": "X", "KEY_K": "Y",
+        "KEY_U": "LB", "KEY_I": "RB", "KEY_O": "LT", "KEY_P": "RT",
+        "KEY_M": "L3", "KEY_N": "R3",
+        "KEY_ENTER": "START", "KEY_TAB": "SELECT", "KEY_ESC": "HOME"
+    };
+
+    const ALL_ACTIONS = [
+        "KEY_SPACE", "KEY_L", "KEY_J", "KEY_K",
+        "KEY_U", "KEY_I", "KEY_O", "KEY_P",
+        "KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT",
+        "KEY_W", "KEY_S", "KEY_A", "KEY_D",
+        "KEY_ENTER", "KEY_TAB", "KEY_ESC",
+        "KEY_M", "KEY_N"
+    ];
+
+    function startRebind(oldKey, actionStr, isUnmapped) {
+      if (waitingForRebind) return;
+      waitingForRebind = { oldKey, actionStr, isUnmapped };
+      renderKeyboard();
+      
+      const handler = function(e) {
+        e.preventDefault(); e.stopPropagation();
+        document.removeEventListener('keydown', handler, true);
+        
+        if (e.code === 'Escape' && !isUnmapped) {
+            // Cancel rebind
+            waitingForRebind = null;
+            renderKeyboard();
+            return;
+        }
+        
+        let newKey = e.code; // Store the exact KeyboardEvent.code
+        
+        // Tell parent to update
+        window.parent.postMessage({ type: 'UPDATE_KEYBIND', oldKey: (isUnmapped ? null : oldKey), newKey: newKey, action: actionStr }, '*');
+      };
+      document.addEventListener('keydown', handler, true);
+    }
+
+    function renderKeyboard() {
+      const container = document.getElementById('keyboard-container');
+      container.innerHTML = '';
+      
+      const mappedActions = new Set();
+      
+      layout.forEach(rowKeys => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'kb-row';
+        rowKeys.forEach(code => {
+          let shortCode = code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code;
+          if (shortCode === 'Space') shortCode = 'SPACE';
+          
+          let actionAssigned = keyMap[code]; // Use the exact event.code!
+          // Filter out raw keyboard pass-through binds that aren't controller actions
+          if (actionAssigned && !ALL_ACTIONS.includes(actionAssigned)) {
+             actionAssigned = null;
+          }
+          
+          if (actionAssigned) mappedActions.add(actionAssigned);
+          
+          const keyEl = document.createElement('div');
+          keyEl.className = `key key-${code}`;
+          
+          let displayLabel = labels[code] || shortCode;
+          keyEl.innerHTML = `<div>${displayLabel}</div>`;
+          
+if (waitingForRebind && waitingForRebind.oldKey === code && !waitingForRebind.isUnmapped) {
+              keyEl.classList.add('waiting');
+              keyEl.innerHTML += `<div class="key-action">${T('PRESS KEY')}</div>`;
+           } else if (actionAssigned) {
+             keyEl.classList.add('active-bind');
+             const displayStr = DISPLAY_MAP[actionAssigned] || actionAssigned.replace('KEY_', '');
+             keyEl.innerHTML += `<div class="key-action">${displayStr}</div>`;
+          }
+          
+          keyEl.onclick = () => {
+             if (waitingForRebind) return; // ignore clicks while waiting
+             if (actionAssigned) {
+                 startRebind(code, actionAssigned, false);
+             } else {
+                 // For fun, allow clicking any empty key and assigning an action? Hard UI.
+             }
+          };
+          
+          rowEl.appendChild(keyEl);
+        });
+        container.appendChild(rowEl);
+      });
+      
+      // Render unmapped actions below
+      const unmappedList = document.getElementById('unmapped-list');
+      unmappedList.innerHTML = '';
+      let missingCount = 0;
+      
+      ALL_ACTIONS.forEach(act => {
+          if (!mappedActions.has(act)) {
+              missingCount++;
+              const el = document.createElement('div');
+              el.className = 'unmapped-item';
+              const displayStr = DISPLAY_MAP[act] || act.replace('KEY_', '');
+              el.textContent = displayStr;
+              
+              if (waitingForRebind && waitingForRebind.actionStr === act && waitingForRebind.isUnmapped) {
+                  el.classList.add('waiting');
+                  el.textContent += ' (PRESS KEY)';
+              }
+              
+              el.onclick = () => {
+                  if (waitingForRebind) return;
+                  startRebind(null, act, true);
+              };
+              
+              unmappedList.appendChild(el);
+          }
+      });
+      
+      if (missingCount === 0) {
+          unmappedList.innerHTML = `<div style="color:var(--green);font-size:11px;padding:4px;">${T('All actions are mapped!')}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>

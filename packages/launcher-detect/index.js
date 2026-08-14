@@ -13,6 +13,15 @@ const PROTOCOLS = {
   bnet:   'battlenet://'
 };
 
+const SCHEMES = {
+  heroic: 'x-scheme-handler/heroic',
+  lutris: 'x-scheme-handler/lutris',
+  epic:   'x-scheme-handler/com.epicgames.launcher',
+  uplay:  'x-scheme-handler/uplay',
+  origin: 'x-scheme-handler/origin',
+  bnet:   'x-scheme-handler/battlenet'
+};
+
 const LAUNCHERS = [
   { id: 'steam',  label: 'Steam' },
   { id: 'heroic', label: 'Heroic' },
@@ -25,6 +34,38 @@ const LAUNCHERS = [
 
 function tryExec(cmd, opts = {}) {
   try { return execSync(cmd, { encoding: 'utf8', timeout: 3000, ...opts }).trim(); } catch { return ''; }
+}
+
+// Resolve a URL scheme to the handler desktop file's Exec line
+// (binary + args) so we can spawn it directly instead of delegating
+// to xdg-open, which on KDE routes schemes through KIO workers and
+// can pop up sandbox/worker dialogs.
+function desktopFileHandler(launcherId) {
+  const scheme = SCHEMES[launcherId];
+  if (!scheme) return null;
+  const desktopFile = tryExec(`xdg-mime query default ${scheme}`);
+  if (!desktopFile || desktopFile.includes('/')) return null;
+  const candidates = [
+    path.join(os.homedir(), '.local', 'share', 'applications', desktopFile),
+    '/usr/share/applications/' + desktopFile,
+    '/usr/local/share/applications/' + desktopFile
+  ];
+  for (const fp of candidates) {
+    let content;
+    try { content = fs.readFileSync(fp, 'utf8'); } catch { continue; }
+    const m = content.match(/^Exec=(.*)$/m);
+    if (!m) continue;
+    const execLine = m[1].replace(/%[UFifcuk%]/g, '').trim();
+    if (!execLine) continue;
+    // Split respecting double-quoted tokens (e.g. quoted AppImage paths).
+    const parts = [];
+    const re = /"([^"]*)"|(\S+)/g;
+    let mm;
+    while ((mm = re.exec(execLine)) !== null) parts.push(mm[1] || mm[2]);
+    if (parts.length === 0) continue;
+    return { cmd: parts[0], args: parts.slice(1) };
+  }
+  return null;
 }
 
 function detect() {
@@ -123,7 +164,7 @@ function launch(launcherId, gameId) {
 
   const url = buildUrl(launcherId, gameId);
   const platform = os.platform();
-  const { execFileSync } = require('child_process');
+  const { execFileSync, spawn } = require('child_process');
 
   try {
     if (platform === 'win32') {
@@ -133,7 +174,48 @@ function launch(launcherId, gameId) {
     } else if (platform === 'darwin') {
       execFileSync('open', [url], { timeout: 3000 });
     } else {
-      execFileSync('xdg-open', [url], { timeout: 3000 });
+      if (launcherId === 'steam') {
+        const runtimeDir = process.env.XDG_RUNTIME_DIR || '/run/user/' + os.userInfo().uid;
+        const baseMounts = process.env.STEAM_COMPAT_MOUNTS ? process.env.STEAM_COMPAT_MOUNTS + ':' : '';
+        const env = Object.assign({}, process.env, {
+          // Append (never clobber) Steam's own mount list; the wivrn IPC
+          // socket dir must be visible inside the game's pressure-vessel container.
+          STEAM_COMPAT_MOUNTS: baseMounts + runtimeDir + '/wivrn',
+          PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES: '1',
+          LIBVA_DRIVER_NAME: 'dummy',
+          // Point the containerized OpenXR loader straight at the wivrn runtime.
+          XR_RUNTIME_JSON: path.join(os.homedir(), '.local', 'share', 'openxr', '1', 'active_runtime.json')
+        });
+        spawn('steam', ['-applaunch', gameId], { detached: true, stdio: 'ignore', env }).unref();
+      } else {
+        // Launch known launchers directly instead of xdg-open. On KDE,
+        // xdg-open routes custom URL schemes through KIO workers, which can
+        // pop up sandbox/worker dialogs or fail silently when the launcher
+        // app is not running. Direct spawn keeps the flow popup-free.
+        const flatpaks = tryExec('flatpak list --columns=application');
+        let cmd = null, args = null;
+        if (launcherId === 'heroic') {
+          if (tryExec('command -v heroic')) { cmd = 'heroic'; args = [url]; }
+          else if (flatpaks.includes('com.heroicgameslauncher')) { cmd = 'flatpak'; args = ['run', 'com.heroicgameslauncher', url]; }
+        } else if (launcherId === 'lutris') {
+          if (tryExec('command -v lutris')) { cmd = 'lutris'; args = [url]; }
+          else if (flatpaks.includes('net.lutris.Lutris')) { cmd = 'flatpak'; args = ['run', 'net.lutris.Lutris', url]; }
+        } else if (launcherId === 'epic') {
+          if (tryExec('command -v legendary')) { cmd = 'legendary'; args = ['launch', String(gameId)]; }
+        }
+        if (cmd) {
+          spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+        } else {
+          // Exotic install (AppImage, snap, wrapper script) — run the
+          // registered scheme handler directly, still bypassing xdg-open/KIO.
+          const handler = desktopFileHandler(launcherId);
+          if (handler) {
+            spawn(handler.cmd, handler.args.concat([url]), { detached: true, stdio: 'ignore' }).unref();
+          } else {
+            execFileSync('xdg-open', [url], { timeout: 3000 });
+          }
+        }
+      }
     }
   } catch (e) {
     console.error('[launcher-detect] launch failed:', e.message);
@@ -327,4 +409,85 @@ function detectGames() {
   }
 }
 
-module.exports = { detect, detectGames, launch, buildUrl, PROTOCOLS, LAUNCHERS, protectSelf };
+module.exports = { detect, detectGames, launch, buildUrl, PROTOCOLS, LAUNCHERS, protectSelf, resolveVrInfo };
+
+// ── Steam VR capability detection via official store API ──
+const https = require('https');
+const VR_CACHE_PATH = path.join(os.homedir(), '.cache', 'Nearcade', 'steam-vr-cache.json');
+const VR_SUCCESS_TTL = 7 * 24 * 3600 * 1000;
+const VR_FAIL_TTL = 60 * 60 * 1000;
+
+function loadVrCache() {
+  try { return JSON.parse(fs.readFileSync(VR_CACHE_PATH, 'utf8')); } catch { return {}; }
+}
+
+function saveVrCache(cache) {
+  try {
+    fs.mkdirSync(path.dirname(VR_CACHE_PATH), { recursive: true });
+    const tmp = VR_CACHE_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(cache));
+    fs.renameSync(tmp, VR_CACHE_PATH);
+  } catch {}
+}
+
+function fetchJson(url, timeoutMs) {
+  return new Promise((resolve) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'Nearcade/3.0 (+https://github.com/TheRealFame/Nearcade)' } }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+        catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch {} resolve(null); });
+  });
+}
+
+function vrFromCategories(categories) {
+  if (!Array.isArray(categories)) return null;
+  let supported = false;
+  for (const c of categories) {
+    const desc = String(c.description || '');
+    if (desc === 'VR Only') return 'only';
+    if (desc === 'VR Supported' || desc.indexOf('VR Support') !== -1) supported = true;
+  }
+  return supported ? 'supported' : null;
+}
+
+// Resolves `vr: 'only' | 'supported' | null` for every Steam game on disk
+// (and refreshes names for ones missing them). Results come from
+// store.steampowered.com/api/appdetails (official, category-based — so
+// VR-mod games like Valheim are correctly NOT flagged) and are cached in
+// ~/.cache/Nearcade/steam-vr-cache.json (7d; failed fetches retried after 1h).
+async function resolveVrInfo(games) {
+  if (!Array.isArray(games)) return games;
+  const now = Date.now();
+  const cache = loadVrCache();
+  const pending = [];
+  for (const g of games) {
+    if (g.launcher !== 'steam') continue;
+    const entry = cache[g.id];
+    if (entry) {
+      const ttl = entry.failed ? VR_FAIL_TTL : VR_SUCCESS_TTL;
+      if (now - entry.ts < ttl) { g.vr = entry.vr; continue; }
+    }
+    pending.push(g);
+  }
+  const pool = async (game) => {
+    const url = 'https://store.steampowered.com/api/appdetails?cc=us&l=english&appids=' + game.id;
+    const data = await fetchJson(url, 12000);
+    const app = data && data[game.id] && data[game.id].data ? data[game.id].data : null;
+    const vr = app ? vrFromCategories(app.categories) : null;
+    cache[game.id] = { ts: Date.now(), vr, failed: !app };
+    game.vr = vr;
+    if (app && app.name && (!game.name || game.name === game.id)) game.name = app.name;
+  };
+  for (let i = 0; i < pending.length; i += 5) {
+    await Promise.all(pending.slice(i, i + 5).map(pool));
+    saveVrCache(cache);
+  }
+  return games;
+}

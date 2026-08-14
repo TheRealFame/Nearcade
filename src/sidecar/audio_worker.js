@@ -29,6 +29,11 @@ function _pactlExec(cmd) {
 // ── Stale-module cleanup ──────────────────────────────────────────────────────
 async function cleanupStaleSinks() {
   if (process.platform !== 'linux') return;
+
+  // Mute the virtual sink BEFORE touching any module. If a stale loopback is
+  // still attached, killing the sink first produces a deafening buzz.
+  await _pactlExec('pactl set-sink-mute NearcadeVirtual 1');
+
   const list = await _pactlExec('pactl list short modules');
   if (!list) return;
 
@@ -45,7 +50,20 @@ async function cleanupStaleSinks() {
 
   if (staleIds.length > 0) {
     log(`Cleaning up ${staleIds.length} stale audio modules...`);
-    for (const id of staleIds) await _pactlExec(`pactl unload-module ${id}`);
+    // THE FIX: unload loopbacks FIRST, then sinks. PulseAudio produces a
+    // permanent deafening buzz when a null-sink dies while its loopback is
+    // still attached; never unload in pactl-list order.
+    const loopbacks = [];
+    const others = [];
+    for (const line of list.split('\n')) {
+      if (!line.includes('module-loopback')) continue;
+      const id = line.trim().split(/\s+/)[0];
+      if (staleIds.includes(id)) loopbacks.push(id);
+    }
+    for (const id of staleIds) if (!loopbacks.includes(id)) others.push(id);
+
+    const ordered = loopbacks.concat(others);
+    for (const id of ordered) await _pactlExec(`pactl unload-module ${id}`);
   }
 }
 

@@ -685,34 +685,39 @@ function registerIpcHandlers(ctx) {
   async function _createDiscordClient() {
     const DiscordRPC = require('discord-rpc');
 
-    _bridgeVesktopSockets();
-    const livePath = await _findLiveSocketPath();
-    if (livePath) {
-      console.log(`[Discord RPC] IPC socket found: ${livePath}`);
+    if (process.platform === 'linux') {
+      _bridgeVesktopSockets();
+      const livePath = await _findLiveSocketPath();
+      if (livePath) {
+        console.log(`[Discord RPC] IPC socket found: ${livePath}`);
+        return new DiscordRPC.Client({ transport: 'ipc' });
+      }
+
+      // Check if Vesktop arRPC websocket 6463 is actually up before trying
+      const wsPort = 6463;
+      const wsAlive = await new Promise(resolve => {
+        const sock = new (require('net')).Socket();
+        sock.setTimeout(800);
+        sock.on('connect', () => { sock.destroy(); resolve(true); });
+        sock.on('error', () => resolve(false));
+        sock.on('timeout', () => { sock.destroy(); resolve(false); });
+        sock.connect(wsPort, '127.0.0.1');
+      });
+      if (!wsAlive) {
+        console.log('[Discord RPC] No IPC socket and ws 6463 not listening — skipping RPC');
+        return null;
+      }
+
+      console.log('[Discord RPC] No live IPC socket; trying websocket transport (6463)…');
+      try {
+        return new DiscordRPC.Client({ transport: 'websocket' });
+      } catch (err) {
+        console.log('[Discord RPC] Failed to create websocket client:', err.message);
+        return null;
+      }
+    } else {
+      console.log('[Discord RPC] Native IPC transport initialized');
       return new DiscordRPC.Client({ transport: 'ipc' });
-    }
-
-    // Check if Vesktop arRPC websocket 6463 is actually up before trying
-    const wsPort = 6463;
-    const wsAlive = await new Promise(resolve => {
-      const sock = new (require('net')).Socket();
-      sock.setTimeout(800);
-      sock.on('connect', () => { sock.destroy(); resolve(true); });
-      sock.on('error', () => resolve(false));
-      sock.on('timeout', () => { sock.destroy(); resolve(false); });
-      sock.connect(wsPort, '127.0.0.1');
-    });
-    if (!wsAlive) {
-      console.log('[Discord RPC] No IPC socket and ws 6463 not listening — skipping RPC');
-      return null;
-    }
-
-    console.log('[Discord RPC] No live IPC socket; trying websocket transport (6463)…');
-    try {
-      return new DiscordRPC.Client({ transport: 'websocket' });
-    } catch (err) {
-      console.log('[Discord RPC] Failed to create websocket client:', err.message);
-      return null;
     }
   }
 

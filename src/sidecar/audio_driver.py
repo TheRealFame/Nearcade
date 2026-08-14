@@ -53,11 +53,22 @@ def unload_stale_modules():
         sys.stderr.write('[audio_driver] Startup purge: no stale modules found.\n')
         return
 
+    # THE FIX: mute the virtual sink first, then unload loopbacks BEFORE the
+    # null-sinks. Unloading a sink while its loopback is still attached emits a
+    # permanent deafening buzz; never unload in arbitrary pactl-list order.
+    _pactl('set-sink-mute', 'NearcadeVirtual', '1')
+    loopbacks = [
+        parts[0] for parts in (
+            line.split() for line in out.splitlines()
+        ) if parts and parts[0] in stale and 'module-loopback' in line
+    ]
+    ordered = [m for m in loopbacks] + [m for m in stale if m not in loopbacks]
+
     sys.stderr.write(
         f'[audio_driver] Startup purge: unloading {len(stale)} stale '
-        f'module(s): [{", ".join(stale)}]\n'
+        f'module(s): [{", ".join(ordered)}]\n'
     )
-    for mod_id in stale:
+    for mod_id in ordered:
         _pactl('unload-module', mod_id)
         sys.stderr.write(f'[audio_driver] Unloaded stale module {mod_id}\n')
 

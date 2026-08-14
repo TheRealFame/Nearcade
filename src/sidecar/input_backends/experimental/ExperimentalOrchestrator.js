@@ -5,6 +5,10 @@ const fs = require('fs');
 const isWin = process.platform === 'win32';
 const _procs = new Map();
 
+// Maps type → whether it was enabled in the last ctrl-settings broadcast.
+// Used to detect transitions from enabled → disabled.
+const _lastEnabled = new Map();
+
 function send(msg) {
     // If the device isn't known, just drop it.
     if (!msg || !msg.type) return;
@@ -27,6 +31,21 @@ function send(msg) {
     const scriptName = typeMap[msg.type];
     if (!scriptName) {
         return; // Not an experimental device we care about
+    }
+
+    // Explicitly block hardware emulation processes if the host has not enabled them
+    const gatedTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'virtualmic'];
+    if (gatedTypes.includes(msg.type)) {
+        let isEnabled = false;
+        if (global.expDevices && Array.isArray(global.expDevices)) {
+            isEnabled = global.expDevices.some(d => {
+                if (msg.type === 'eyetracking' && d.val === 'eye') return d.enabled;
+                return d.val === msg.type && d.enabled;
+            });
+        }
+        if (!isEnabled) {
+            return;
+        }
     }
 
     let proc = _procs.get(msg.type);
@@ -71,4 +90,38 @@ function destroy() {
     console.log("[ExperimentalOrchestrator] All experimental backends destroyed.");
 }
 
-module.exports = { send, destroy };
+/**
+ * Called whenever the host broadcasts a ctrl-settings change.
+ * Kills any running sidecar whose module is no longer enabled, so its
+ * virtual uinput devices are released and don't ghost the host roster.
+ * @param {Array<{val: string, enabled: boolean}>} expDevices
+ */
+function syncEnabled(expDevices) {
+    if (!Array.isArray(expDevices)) return;
+
+    const nowEnabled = new Set(
+        expDevices.filter(d => d.enabled).map(d => d.val)
+    );
+
+    // Kill processes for types that just became disabled
+    for (const [type] of _procs.entries()) {
+        const wasEnabled = _lastEnabled.get(type) !== false; // treat unknown as enabled
+        const isEnabled  = nowEnabled.has(type);
+        if (wasEnabled && !isEnabled) {
+            const proc = _procs.get(type);
+            if (proc) {
+                console.log(`[ExperimentalOrchestrator] '${type}' disabled — terminating sidecar.`);
+                try { proc.stdin.end(); } catch (e) {}
+                setTimeout(() => { try { proc.kill(); } catch (e) {} }, 500);
+            }
+            // _procs entry cleared by the 'close' handler
+        }
+    }
+
+    // Record current state for the next diff
+    for (const d of expDevices) {
+        _lastEnabled.set(d.val, d.enabled);
+    }
+}
+
+module.exports = { send, destroy, syncEnabled };

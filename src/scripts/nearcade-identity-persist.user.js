@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nearcade Identity Persist
 // @namespace    https://github.com/TheRealFame/Nearcade
-// @version      3.0.5
+// @version      3.0.6
 // @description  Persists ALL your viewer settings (name, colors, gamepad mappings, volumes, stream quality) across all Nearcade sessions and tunnels. Install once, your setup follows you everywhere.
 // @updateURL    https://github.com/TheRealFame/Nearcade/raw/refs/heads/main/src/scripts/nearcade-identity-persist.user.js
 // @downloadURL  https://github.com/TheRealFame/Nearcade/raw/refs/heads/main/src/scripts/nearcade-identity-persist.user.js
@@ -193,6 +193,14 @@
                     </select>
                 </div>
 
+                <div class="ns-tm-group">
+                    <div class="ns-tm-row">
+                        <label>WebGPU Upscaler <span style="font-size:9px;background:rgba(139,92,246,0.2);color:#a78bfa;border:1px solid rgba(139,92,246,0.35);border-radius:3px;padding:1px 4px;margin-left:4px;">⚗ Exp.</span></label>
+                        <input type="checkbox" id="ns_gpu_backend" ${getV('ns_gpu_backend','0')==='1' ? 'checked' : ''} style="width:18px;height:18px;accent-color:#89b4fa;cursor:pointer;">
+                    </div>
+                    <span style="font-size:11px;color:#6c7086;">GPU shader pipeline. Requires page reload when toggled.</span>
+                </div>
+
                 <button class="ns-tm-close" id="ns_tm_close">Save & Close</button>
             </div>
         `;
@@ -247,6 +255,14 @@
             save('ns_global_deadzone');
             save('ns_global_sens');
             save('ns_upscale_mode');
+            // GPU backend is a checkbox — save as '1' or '0'
+            const gpuCb = document.getElementById('ns_gpu_backend');
+            if (gpuCb) {
+                const val = gpuCb.checked ? '1' : '0';
+                GM_setValue('ns_gpu_backend', val);
+                localStorage.setItem('ns_gpu_backend', val);
+                memoryCache['ns_gpu_backend'] = val;
+            }
 
             document.body.removeChild(modal);
             document.head.removeChild(style);

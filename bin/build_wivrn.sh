@@ -109,6 +109,7 @@ $APT install -y -qq \
     libboost-iostreams-dev \
     libboost-locale-dev \
     libboost-thread-dev \
+    libboost-url-dev \
     nlohmann-json3-dev \
     libeigen3-dev \
     libavahi-client-dev \
@@ -152,6 +153,9 @@ for patch in "$SRC"/contribute/nearcade-patches/*.patch; do
     fi
 done
 
+# Ensure wivrn_bridge is added to CMake
+echo "add_subdirectory(tools/wivrn_bridge)" >> "$SRC/CMakeLists.txt"
+
 BUILD_DIR=$(mktemp -d /tmp/wivrn-build.XXXXXX)
 echo "[inner] Configuring in $BUILD_DIR ..."
 cmake -S "$SRC" -B "$BUILD_DIR" \
@@ -175,11 +179,19 @@ cmake -S "$SRC" -B "$BUILD_DIR" \
     -DGIT_COMMIT="HEAD"
 
 echo "[inner] Compiling (this takes several minutes)..."
-cmake --build "$BUILD_DIR" --target wivrn-server wivrnctl -j"$(nproc)" 2>&1
+cmake --build "$BUILD_DIR" --target wivrn-server wivrnctl wivrn_bridge -j"$(nproc)" 2>&1
 
 echo "[inner] Copying outputs..."
 cp "$BUILD_DIR/server/wivrn-server" /project/bin/wivrn-server
 chmod +x /project/bin/wivrn-server
+
+WIVRN_BRIDGE="$BUILD_DIR/tools/wivrn_bridge/wivrn_bridge"
+if [ -f "$WIVRN_BRIDGE" ]; then
+    mkdir -p /project/bin/
+    cp "$WIVRN_BRIDGE" /project/bin/wivrn_bridge
+    chmod +x /project/bin/wivrn_bridge
+    echo "[inner] wivrn_bridge copied"
+fi
 
 WIVRNCTL="$BUILD_DIR/server/wivrnctl"
 if [ ! -f "$WIVRNCTL" ]; then
