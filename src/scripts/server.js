@@ -63,12 +63,12 @@ console.error = function (...args) {
   }).join(' ');
 
   // Blur sensitive data exactly like console.log
-  msg = msg.replace(/\\b(?!127\\.0\\.0\\.1)(?:\\d{1,3}\\.){3}\\d{1,3}\\b/g, '***.***.***.***');
-  msg = msg.replace(/https:\\/\\/[a-zA-Z0-9-]+\\.trycloudflare\\.com/g, 'https://********.trycloudflare.com');
-  msg = msg.replace(/https:\\/\\/[a-zA-Z0-9-]+\\.(share\\.zrok\\.io|playit\\.gg|lhr\\.life|serveo\\.net|serveousercontent\\.com)/g, 'https://********.$1');
-  msg = msg.replace(/([a-zA-Z0-9_-]+@\\*\\*\\*\\.\\*\\*\\*\\.\\*\\*\\*\\.\\*\\*\\*)/g, '********@***.***.***.***');
-  msg = msg.replace(/("?vpsMasterKey"?\\s*:\\s*['"]?)[a-fA-F0-9]{64}(['"]?)/g, '$1********$2');
-  msg = msg.replace(/("?sessionPassword"?\\s*:\\s*['"]?)[^'"\\s,]+(['"]?)/g, '$1********$2');
+  msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net|serveousercontent\.com)/g, 'https://********.$1');
+  msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
+  msg = msg.replace(/("?vpsMasterKey"?\s*:\s*['"]?)[a-fA-F0-9]{64}(['"]?)/g, '$1********$2');
+  msg = msg.replace(/("?sessionPassword"?\s*:\s*['"]?)[^'"\s,]+(['"]?)/g, '$1********$2');
   if (typeof PIN !== 'undefined' && PIN) {
     msg = msg.replace(new RegExp(PIN, 'g'), '****');
   }
