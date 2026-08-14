@@ -1,12 +1,16 @@
 {
   "name": "Nearcade",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
   "main": "electron-main.js",
   "scripts": {
     "start": "node src/scripts/server.js",
     "test": "node bin/verify.js",
+    "vr:stream": "node src/wivrn/relay.js",
+    "vr:bridge-builder": "bash bin/build_wivrn_bridge.sh",
+    "probe": "electron tools/gamepad-probe",
+    "probe:dist": "cd tools/gamepad-probe && npm install && npm run dist",
     "electron": "electron .",
     "dev": "electron . --dev",
     "build:android": "node bin/build-android.js",
