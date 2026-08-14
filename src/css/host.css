@@ -674,7 +674,7 @@ user-select: text;
 
 #chatLog::-webkit-scrollbar { width: 3px; }
 #chatLog::-webkit-scrollbar-track { background: transparent; }
-#chatLog::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+#chatLog::-webkit-scrollbar-thumb { background: var(--accent-glow, rgba(139,92,246,0.35)); border-radius: 3px; }
 
 .cmsg {
     font-size: 12px;

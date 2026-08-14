@@ -1761,7 +1761,7 @@ function showPairNotice(uuid, secret) {
     '<div style="font-weight:600; margin-bottom:4px;">' + I18N.t('Send this pairing code to your friend (along with your Friend ID):') + '</div>' +
     '<code style="display:block; user-select:all; word-break:break-all; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px; font-size:12px; color:var(--accent,#c084fc);">' + secret + '</code>' +
     '<button onclick="copyPairCode(\'' + secret + '\')" style="margin-top:8px; background:#fff; border:none; border-radius:6px; padding:6px 12px; color:#111; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit;">' + I18N.t('Copy Pairing Code') + '</button>' +
-    '<div style="margin-top:6px; color:var(--muted,#888);">' + I18N.t('They enter it in their Dashboard → Enter Pairing Code. Without it, their pings and invites to you are rejected.') + '</div>';
+    '<div style="margin-top:6px; color:var(--muted,#888);">' + I18N.t('Tell your friend: this code proves their pings and invites really come from them. They paste it in their own app — Dashboard → Enter Pairing Code, or their profile → Pairing Code — along with your Friend ID. Until they do, their pings to you are rejected.') + '</div>';
 }
 
 async function copyPairCode(secret) {

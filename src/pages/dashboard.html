@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/scrollbars.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
@@ -1009,6 +1010,11 @@
 
       <div style="padding:12px 18px; border-bottom:1px solid var(--border,#2a2833);">
         <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Add Friend</div>
+        <div style="font-size:11px; color:var(--muted,#888); margin-bottom:8px; line-height:1.4;">
+          After adding, you'll get a one-time pairing code — send it to them. They paste it (along with
+          your Friend ID) in their own app to finish pairing. Without it, their pings and invites to you
+          are rejected.
+        </div>
         <div style="display:flex; gap:8px; align-items:center;">
           <input id="friendUuidInput" type="text" placeholder="Their friend ID (full UUID)" spellcheck="false"
             onkeydown="if(event.key==='Enter')addFriend()"
@@ -1021,7 +1027,12 @@
       </div>
 
       <div style="padding:12px 18px; border-top:1px solid var(--border,#2a2833);">
-        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Enter Pairing Code</div>
+        <div style="font-size:12px; font-weight:600; margin-bottom:6px;">Enter Pairing Code</div>
+        <div style="font-size:11px; color:var(--muted,#888); margin-bottom:8px; line-height:1.4;">
+          The host sends you this code after adding you. It proves their pings and invites really come
+          from them — only enter it after they've shared it with you. Missing it? Ask them to tap
+          ⋮ → Show Pairing Code next to your name in their friend list.
+        </div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <input id="friendPairUuidInput" type="text" placeholder="Their friend ID (full UUID)" spellcheck="false"
             onkeydown="if(event.key==='Enter')enterPairCode()"

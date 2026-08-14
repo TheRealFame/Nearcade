@@ -1,0 +1,33 @@
+/* Nearcade global scrollbar theming.
+   Colors are driven by the dynamic accent palette (native-theme.js sets
+   --accent / --accent-dim / --accent-glow / --border from the host's native
+   theme), so scrollbars adapt automatically to every setup. Per-element rules
+   that intentionally override width (chat rails, panels) keep their sizes but
+   inherit these colors via var(). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-glow, rgba(139, 92, 246, 0.35)) var(--border, #2a2833);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--border, #2a2833);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--accent-glow, rgba(139, 92, 246, 0.35));
+  border-radius: 8px;
+  border: 2px solid var(--border, #2a2833);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--accent, #8b5cf6);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

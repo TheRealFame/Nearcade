@@ -25,6 +25,7 @@
     rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.2.3/css/flag-icons.min.css">
 
+  <link rel="stylesheet" href="/css/scrollbars.css">
   <style>
     /* ─── DESIGN TOKENS (matches host) ─────────────────────────────────── */
     :root {
@@ -1560,7 +1561,7 @@
     }
 
     #chatLog::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--accent-glow, rgba(139, 92, 246, 0.35));
       border-radius: 3px;
     }
 
@@ -3051,7 +3052,7 @@
     }
 
     .vc-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--accent-glow, rgba(139, 92, 246, 0.35));
       border-radius: 2px
     }
 
@@ -3236,6 +3237,9 @@
           value=""
           onchange="localStorage.setItem('ns_friend_secret', this.value.trim().toLowerCase())"
           style="width:100%; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px 10px; color:var(--text,#e8e6ef); font-size:12px; font-family:inherit; margin-top:4px;">
+        <div style="font-size:10px; color:var(--muted2); margin-top:4px; line-height:1.4;">The host gives you this
+          after adding your Friend ID — it signs your pings so the host knows they're really from you. Don't have it?
+          Ask the host: friend list → ⋮ → Show Pairing Code.</div>
 
         <button id="pingHostBtn" onclick="pingHost()" title="Ping the host"
           style="width:100%; margin-top:12px; background:var(--accent,#c084fc); border:none; border-radius:6px; padding:9px; color:#111; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit;">Ping Host</button>

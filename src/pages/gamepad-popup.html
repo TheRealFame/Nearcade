@@ -6,6 +6,7 @@
   <title>Nearcade Controller Visualizer</title>
   <script src="/js/native-theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/scrollbars.css">
   <style>
     :root {
       --bg: #0b0d0f; --surface: #121518; --accent: #ff5d3d;
@@ -120,6 +121,23 @@
       if (saved) { try { return JSON.parse(saved); } catch (_) {} }
       if (smartDb[gp.id]) return smartDb[gp.id];
       if (smartDb[safeId]) return smartDb[safeId];
+      
+      // Check for Steam virtual Xbox masking DualSense
+      const idLower = gp.id.toLowerCase();
+      const isSteamVirtualXbox = idLower.includes('xbox one s') || idLower.includes('045e-02ea') || idLower.includes('x-box one s');
+      
+      // If we have a Steam virtual Xbox, also check for DualSense entries in smartDb
+      if (isSteamVirtualXbox) {
+        for (const [key, map] of Object.entries(smartDb)) {
+          const keyLower = key.toLowerCase();
+          if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
+              keyLower.includes('playstation') || keyLower.includes('dualshock') ||
+              keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
+            return map;
+          }
+        }
+      }
+      
       for (const [key, map] of Object.entries(smartDb)) {
         const keyPrefix = key.split('(')[0].trim().toLowerCase();
         const idPrefix  = gp.id.split('(')[0].trim().toLowerCase();
@@ -331,10 +349,34 @@
 
       if (!savedMap) {
         const idLower = gp.id.toLowerCase();
+        const isSteamVirtualXbox = idLower.includes('xbox one s') || idLower.includes('045e-02ea') || idLower.includes('x-box one s');
+        const isSteamVirtual = idLower.includes('xbox') && (idLower.includes('steam') || idLower.includes('virtual') || isSteamVirtualXbox);
+        
+        // Check if there's a DualSense/PS controller also connected (Steam hides it but gamepad API may still show it at different index)
+        const gps = navigator.getGamepads();
+        let hasDualSense = false;
+        for (const otherGp of gps) {
+          if (otherGp && otherGp !== gp) {
+            const otherIdLower = otherGp.id.toLowerCase();
+            if (otherIdLower.includes('dualsense') || otherIdLower.includes('dual sense') || 
+                otherIdLower.includes('playstation') || otherIdLower.includes('dualshock') ||
+                otherIdLower.includes('sony') || otherIdLower.includes('054c-0ce6') || otherIdLower.includes('054c-09cc')) {
+              hasDualSense = true;
+              break;
+            }
+          }
+        }
+
         if (gp.mapping === 'standard' || idLower.includes('xbox') || idLower.includes('playstation') || 
-            idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box')) {
+            idLower.includes('dualshock') || idLower.includes('dualsense') || idLower.includes('x-box') || hasDualSense) {
           // Standard controllers don't need calibration
-          savedMap = { lt: {type: 'btn', idx: 6}, rt: {type: 'btn', idx: 7}, rsx: 2, rsy: 3 };
+          // If Steam virtual Xbox detected but DualSense present, use DualSense mapping
+          if (isSteamVirtualXbox && hasDualSense) {
+            savedMap = { lt: {type: 'btn', idx: 6}, rt: {type: 'btn', idx: 7}, rsx: 2, rsy: 3, ldz: 0.05, lsens: 1.5, rdz: 0.05, rsens: 1.5 };
+            if (nameEl) nameEl.textContent = 'DualSense (via Steam)';
+          } else {
+            savedMap = { lt: {type: 'btn', idx: 6}, rt: {type: 'btn', idx: 7}, rsx: 2, rsy: 3, ldz: 0.05, lsens: 1.5, rdz: 0.05, rsens: 1.5 };
+          }
         } else {
           // Clear any stale localStorage entry that normalizeStoredMap rejected
           localStorage.removeItem(STORAGE_PREFIX + safeId);
