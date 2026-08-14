@@ -44,6 +44,28 @@ function ndiKillWorker() {
 }
 app.on('before-quit', ndiKillWorker);
 
+// ── Spout2 egress (utility process, Windows only) ─────────────────────────────
+let spoutProc = null;
+function spoutForward(eventName, ...args) {
+  try { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send(eventName, ...args); } catch (_) { }
+}
+function spoutSpawnWorker() {
+  if (spoutProc) return spoutProc;
+  spoutProc = utilityProcess.fork(path.join(__dirname, 'spout-egress-worker.js'), [], { stdio: 'ignore' });
+  spoutProc.on('message', (msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.ev === 'error') spoutForward('spout-status', { running: false, error: msg.msg });
+    else spoutForward('spout-status', msg);
+  });
+  spoutProc.on('exit', () => { spoutProc = null; spoutForward('spout-status', { running: false, error: 'Spout worker exited' }); });
+  spoutProc.postMessage({ op: 'init' });
+  return spoutProc;
+}
+function spoutKillWorker() {
+  if (spoutProc) { try { spoutProc.postMessage({ op: 'stop' }); } catch (_) { } try { spoutProc.kill(); } catch (_) { } spoutProc = null; }
+}
+app.on('before-quit', spoutKillWorker);
+
 function registerIpcHandlers(ctx) {
   let gamepadProc = null;
 
@@ -532,6 +554,21 @@ function registerIpcHandlers(ctx) {
     try { ndiProc.postMessage({ op: 'frame', meta: meta || {}, buffer }, [buffer]); } catch (_) { }
   });
   ipcMain.on('ndi:stop', () => ndiKillWorker());
+
+  // ── Spout2 egress IPC (Windows only — worker fails open on other platforms) ──
+  ipcMain.on('spout:start', (_e, cfg) => {
+    try {
+      spoutSpawnWorker().postMessage({ op: 'start', cfg: cfg || {} });
+    } catch (err) {
+      spoutForward('spout-status', { running: false, error: String(err && err.message || err) });
+    }
+  });
+  ipcMain.on('spout:frame', (_e, meta, buffer) => {
+    if (!spoutProc) return;
+    try { spoutProc.postMessage({ op: 'frame', meta: meta || {}, buffer }, [buffer]); } catch (_) { }
+  });
+  ipcMain.on('spout:stop', () => spoutKillWorker());
+
   ipcMain.on('window-minimize', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.minimize(); });
   ipcMain.on('window-maximize', () => { if (ctx.win && !ctx.win.isDestroyed()) { ctx.win.isMaximized() ? ctx.win.unmaximize() : ctx.win.maximize(); } });
   ipcMain.on('window-fullscreen', () => { if (ctx.win && !ctx.win.isDestroyed()) ctx.win.setFullScreen(!ctx.win.isFullScreen()); });

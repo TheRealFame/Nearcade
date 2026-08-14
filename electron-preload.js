@@ -95,5 +95,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ndiStop: () => ipcRenderer.send('ndi:stop'),
   onNdiStatus: (cb) => ipcRenderer.on('ndi-status', (_e, s) => cb(s)),
 
+  // ── Spout2 egress (Windows only) ──
+  spoutStart: (cfg) => ipcRenderer.send('spout:start', cfg),
+  spoutFrame: (meta, buf) => ipcRenderer.send('spout:frame', meta, buf),
+  spoutStop: () => ipcRenderer.send('spout:stop'),
+  onSpoutStatus: (cb) => ipcRenderer.on('spout-status', (_e, s) => cb(s)),
+
   isElectron: true,
 });

@@ -717,6 +717,22 @@
               onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
               onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">Start Broadcast</button>
           </div>
+
+          <div class="ctrl-modal-row" id="spoutRow" style="margin-top:8px;">
+            <div class="ctrl-row-text" style="flex:1;">
+              <div class="ctrl-row-label">Spout2 Broadcast <span style="font-size:9px;color:var(--muted);">(Windows only)</span></div>
+              <div class="ctrl-row-desc">Share the stream to Windows apps as a Spout2 sender — OBS and game capture
+                tools can pick it up as a native DX11 source.</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <span id="spoutStatus" style="font-size:10px;color:var(--muted);"></span>
+              </div>
+            </div>
+            <button id="spoutToggle"
+              onclick="if(window.spoutStatusActive){window.stopSpout();window.spoutStatusActive=false;}else{if(window.startSpout&&window.startSpout()){window.spoutStatusActive=true;}}"
+              style="background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
+              onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
+              onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">Start Broadcast</button>
+          </div>
         </div>
       </div>
 

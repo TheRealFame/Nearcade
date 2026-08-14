@@ -4600,11 +4600,13 @@ document.querySelectorAll('.provider-card').forEach(card => {
     });
 });
 
-// ── NDI EGRESS ─────────────────────────────────────────────────────────────────
-// Broadcasts the host's display capture to the LAN as an NDI source (OBS picks
-// it up natively). Frames flow: hidden <video> -> canvas -> RGBA -> utility
-// process (ndi-egress-worker.js) via grandi (NDI SDK 6).
+// ── NDI / SPOUT EGRESS ─────────────────────────────────────────────────────────
+// Broadcasts the host's display capture to the LAN. NDI (OBS picks it up
+// natively) via the utilityProcess ndi-egress-worker.js (grandi: NDI SDK 6).
+// Spout2 (Windows only) via spout-egress-worker.js (koffi + SpoutLibrary.dll).
+// Frames flow: hidden <video> -> canvas -> RGBA -> utility process.
 let ndiActive = false;
+let spoutActive = false;
 let ndiVideoEl = null;
 let ndiCanvas = null;
 let ndiCtx = null;
@@ -4617,7 +4619,7 @@ function ndiResCfg() {
 }
 
 function ndiBindSource() {
-    if (!ndiActive || !currentStream) return;
+    if ((!ndiActive && !spoutActive) || !currentStream) return;
     if (!ndiVideoEl) {
         ndiVideoEl = document.createElement('video');
         ndiVideoEl.muted = true;
@@ -4633,7 +4635,7 @@ function ndiBindSource() {
 }
 
 function ndiTick(now) {
-    if (!ndiActive || !ndiVideoEl || !window.electronAPI) return;
+    if ((!ndiActive && !spoutActive) || !ndiVideoEl || !window.electronAPI) return;
     const cfg = ndiResCfg();
     const interval = 1000 / cfg.fps;
     if (now - ndiLastSend >= interval) {
@@ -4641,7 +4643,8 @@ function ndiTick(now) {
             if (ndiCanvas.width !== cfg.width) { ndiCanvas.width = cfg.width; ndiCanvas.height = cfg.height; }
             ndiCtx.drawImage(ndiVideoEl, 0, 0, cfg.width, cfg.height);
             const img = ndiCtx.getImageData(0, 0, cfg.width, cfg.height);
-            window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
+            if (ndiActive) window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
+            if (spoutActive) window.electronAPI.spoutFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
             ndiLastSend = now;
         } catch (_) { }
     }
@@ -4668,7 +4671,8 @@ window.startNdi = function () {
 
 window.stopNdi = function () {
     ndiActive = false;
-    if (ndiVideoEl) { ndiVideoEl.srcObject = null; }
+    if (!ndiVideoEl) return;
+    if (!spoutActive) { ndiVideoEl.srcObject = null; }
     if (window.electronAPI) window.electronAPI.ndiStop();
 };
 
@@ -4688,6 +4692,59 @@ if (window.electronAPI && typeof window.electronAPI.onNdiStatus === 'function' &
         }
     });
 }
+
+window.startSpout = function () {
+    if (!window.electronAPI) {
+        alert('Spout2 broadcast is only available in the desktop app.');
+        return false;
+    }
+    if (!currentStream) {
+        alert('Start the stream first, then enable Spout2 Broadcast.');
+        return false;
+    }
+    spoutActive = true;
+    if (!ndiVideoEl) {
+        ndiBindSource();
+        if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
+        else setTimeout(() => ndiTick(Date.now()), 16);
+    }
+    window.electronAPI.spoutStart({ name: 'Nearcade Host' });
+    return true;
+};
+
+window.stopSpout = function () {
+    spoutActive = false;
+    if (!ndiVideoEl) return;
+    if (!ndiActive) { ndiVideoEl.srcObject = null; }
+    if (window.electronAPI) window.electronAPI.spoutStop();
+};
+
+if (window.electronAPI && typeof window.electronAPI.onSpoutStatus === 'function' && !window._spoutStatusHooked) {
+    window._spoutStatusHooked = true;
+    window.electronAPI.onSpoutStatus((s) => {
+        const st = document.getElementById('spoutStatus');
+        if (st) {
+            if (s.error) { st.textContent = s.error; }
+            else if (s.running) st.textContent = 'Broadcasting';
+            else st.textContent = '';
+        }
+        const btn = document.getElementById('spoutToggle');
+        if (btn && s.running !== undefined) {
+            btn.textContent = s.running ? 'Stop Broadcast' : 'Start Broadcast';
+            btn.style.borderColor = s.running ? 'var(--accent)' : 'var(--border)';
+        }
+    });
+}
+
+// Spout2 is a Windows/DirectX technology — hide its control elsewhere.
+(function hideSpoutRowOnNonWindows() {
+    try {
+        if (!/Windows/i.test(navigator.userAgent)) {
+            const row = document.getElementById('spoutRow');
+            if (row) row.style.display = 'none';
+        }
+    } catch (_) { }
+})();
 
 async function checkTunnelOnConnect() {
     if (_vpsConfig && _vpsConfig.vpsEnabled) {
