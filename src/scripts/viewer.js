@@ -1785,29 +1785,6 @@ function lookupCalibMap(gp) {
     if (smartDb[gp.id]) return smartDb[gp.id];
     if (smartDb[safeId]) return smartDb[safeId];
     
-    // Check for Steam virtual Xbox masking DualSense
-    const idLower = gp.id.toLowerCase();
-    const isSteamVirtualXbox = idLower.includes('xbox one s') || idLower.includes('045e-02ea') || idLower.includes('x-box one s');
-    
-    if (isSteamVirtualXbox) {
-        for (const [key, map] of Object.entries(smartDb)) {
-            const keyLower = key.toLowerCase();
-            if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
-                keyLower.includes('playstation') || keyLower.includes('dualshock') ||
-                keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
-                return map;
-            }
-        }
-        for (const [key, map] of Object.entries(calibMaps)) {
-            const keyLower = key.toLowerCase();
-            if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
-                keyLower.includes('playstation') || keyLower.includes('dualshock') ||
-                keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
-                return map;
-            }
-        }
-    }
-    
     for (const [key, map] of Object.entries(smartDb)) {
         const keyPrefix = key.split('(')[0].trim().toLowerCase();
         const idPrefix = gp.id.split('(')[0].trim().toLowerCase();

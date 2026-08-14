@@ -2560,7 +2560,7 @@ async function startCapture() {
             }
             // Fallback: portal with instruction hint (skipped when Zero-Copy forces DRM-only capture)
             // Non-blocking hint (pointer-events:none) so the user can still reach the system dialog.
-            if (!screenStream && !zeroCopyOn) {
+            if (!screenStream && !zeroCopyOn && isLinux) {
                 const portalMsg = document.createElement('div');
                 portalMsg.id = 'ns-portal-msg';
                 portalMsg.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;background:rgba(20,22,28,0.92);color:#fff;padding:12px 20px;border-radius:10px;border:1px solid #c084fc;text-align:center;font-family:monospace;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:440px;';
