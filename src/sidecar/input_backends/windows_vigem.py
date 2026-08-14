@@ -80,8 +80,23 @@ try:
     KBM_ENABLED = True
     _log("pyautogui loaded — KBM passthrough enabled")
 except ImportError:
-    _log("WARNING: pyautogui not installed — KBM passthrough disabled. Install: pip install pyautogui")
-    KBM_ENABLED = False
+    _log("pyautogui not found — attempting auto-install via pip...")
+    import subprocess as _sp
+    _res = _sp.run([sys.executable, "-m", "pip", "install", "pyautogui", "--quiet", "--no-warn-script-location"], capture_output=True, text=True)
+    if _res.returncode == 0:
+        _log("pyautogui installed successfully — reloading...")
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = False
+            pyautogui.PAUSE = 0
+            KBM_ENABLED = True
+            _log("pyautogui loaded — KBM passthrough enabled")
+        except Exception:
+            _log("WARNING: pyautogui installed but import failed — KBM passthrough disabled.")
+            KBM_ENABLED = False
+    else:
+        _log("WARNING: pyautogui auto-install failed — KBM passthrough disabled. Install: pip install pyautogui")
+        KBM_ENABLED = False
 
 
 # ── Key map: KEY_* tokens → pyautogui key names ──────────────────────────────

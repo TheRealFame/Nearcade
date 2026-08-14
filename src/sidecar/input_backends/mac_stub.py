@@ -26,23 +26,41 @@ from typing import Set, Dict, Tuple
 try:
     import pyautogui
 except ImportError:
-    print(
-        "[input] ERROR: pyautogui not installed. Install with: pip install pyautogui",
-        flush=True,
-    )
-    sys.exit(1)
+    print("[input] pyautogui not found — attempting auto-install via pip...", flush=True)
+    import subprocess as _sp
+    _result = _sp.run([sys.executable, "-m", "pip", "install", "pyautogui", "--quiet", "--no-warn-script-location"], capture_output=True, text=True)
+    if _result.returncode == 0:
+        print("[input] pyautogui installed successfully — reloading...", flush=True)
+        try:
+            import pyautogui
+        except Exception as _e2:
+            print(f"[input] ERROR: pyautogui installed but failed to import: {_e2}", flush=True)
+            sys.exit(1)
+    else:
+        print("[input] ERROR: pyautogui not installed. Install with: pip install pyautogui", flush=True)
+        sys.exit(1)
 
 try:
     from pynput.keyboard import Controller as KeyboardController, Key
     from pynput.mouse import Controller as MouseController, Button
 except ImportError:
-    print(
-        "[input] WARNING: pynput not installed. Gamepad emulation disabled.",
-        flush=True,
-    )
-    print("[input] Install with: pip install pynput", flush=True)
-    KeyboardController = None
-    MouseController = None
+    print("[input] pynput not found — attempting auto-install via pip...", flush=True)
+    import subprocess as _sp
+    _result = _sp.run([sys.executable, "-m", "pip", "install", "pynput", "--quiet", "--no-warn-script-location"], capture_output=True, text=True)
+    if _result.returncode == 0:
+        print("[input] pynput installed successfully — reloading...", flush=True)
+        try:
+            from pynput.keyboard import Controller as KeyboardController, Key
+            from pynput.mouse import Controller as MouseController, Button
+        except Exception as _e2:
+            print(f"[input] WARNING: pynput installed but failed to import: {_e2}. Gamepad emulation disabled.", flush=True)
+            KeyboardController = None
+            MouseController = None
+    else:
+        print("[input] WARNING: pynput not installed and auto-install failed. Gamepad emulation disabled.", flush=True)
+        print("[input] Install with: pip install pynput", flush=True)
+        KeyboardController = None
+        MouseController = None
 
 # Disable failsafe (Ctrl+C) since we may want it for the host
 pyautogui.FAILSAFE = False

@@ -44,11 +44,20 @@ try:
     from pynput.keyboard import Controller as KeyboardController, Key
     from pynput.mouse import Controller as MouseController, Button
 except ImportError:
-    print(
-        "[gamepad-bridge] ERROR: pynput not installed. Install with: pip install pynput",
-        flush=True,
-    )
-    sys.exit(1)
+    print("[gamepad-bridge] pynput not found — attempting auto-install via pip...", flush=True)
+    import subprocess as _sp
+    _result = _sp.run([sys.executable, "-m", "pip", "install", "pynput", "--quiet", "--no-warn-script-location"], capture_output=True, text=True)
+    if _result.returncode == 0:
+        print("[gamepad-bridge] pynput installed successfully — reloading...", flush=True)
+        try:
+            from pynput.keyboard import Controller as KeyboardController, Key
+            from pynput.mouse import Controller as MouseController, Button
+        except Exception as _e2:
+            print(f"[gamepad-bridge] ERROR: pynput installed but failed to import: {_e2}", flush=True)
+            sys.exit(1)
+    else:
+        print("[gamepad-bridge] ERROR: pynput not installed. Install with: pip install pynput", flush=True)
+        sys.exit(1)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 DEADZONE = 0.1  # Stick values below this are treated as neutral
