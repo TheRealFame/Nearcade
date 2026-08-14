@@ -4890,6 +4890,8 @@ function showSettingsModal(tab) {
     enumerateAudioDevicesSM();
     const abSel = document.getElementById('audioBackendSelect');
     if (abSel) abSel.value = localStorage.getItem('ns_audio_backend') || 'auto';
+    const ndiSel = document.getElementById('ndiRes');
+    if (ndiSel) ndiSel.value = localStorage.getItem('ns_ndi_res') || '720p';
     switchSettingsTab(tab || 'video');
     document.getElementById('settingsModal').classList.remove('gone');
 }

@@ -703,19 +703,11 @@
               <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
                 <select id="ndiRes" style="background:var(--surface);border:1px solid var(--border);padding:4px 8px;border-radius:6px;color:var(--text);font-size:11px;font-family:var(--mono);"
                   onchange="localStorage.setItem('ns_ndi_res', this.value)">
-                <script>
-                  (function () {
-                    const sel = document.getElementById('ndiRes');
-                    if (!sel) return;
-                    ['1080p', '720p', '540p', '360p'].forEach(v => {
-                      const o = document.createElement('option');
-                      o.value = v;
-                      o.textContent = v;
-                      sel.appendChild(o);
-                    });
-                    sel.value = localStorage.getItem('ns_ndi_res') || '720p';
-                  })();
-                </script>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="540p">540p</option>
+                  <option value="360p">360p</option>
+                </select>
                 <span id="ndiStatus" style="font-size:10px;color:var(--muted);"></span>
               </div>
             </div>
