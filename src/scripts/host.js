@@ -2116,13 +2116,6 @@ async function _populateSourceGrid() {
         }
 
         const isLinux = navigator.userAgent.toLowerCase().includes('linux');
-        if (isLinux && sources.length === 1) {
-            selectedSourceId = sources[0].id;
-            selectedSourceName = sources[0].name;
-            // Never showed the modal, so no need to hide it
-            startCapture();
-            return;
-        }
 
         // Show modal now if it wasn't shown earlier
         document.getElementById('sourceModal').classList.remove('gone');
@@ -2335,6 +2328,10 @@ async function hotSwapCapture() {
 
         const prev = document.getElementById('preview');
         if (prev && !previewHidden) prev.srcObject = currentStream;
+        if (window._obsWin && !window._obsWin.closed) {
+            const obsVid = window._obsWin.document.getElementById('obs-video');
+            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(()=>{}); }
+        }
         if (ndiActive) ndiBindSource();
 
         log(I18N.t('Stream settings applied seamlessly!'), 'ok');
@@ -2910,6 +2907,11 @@ async function startCapture() {
         _elDisabled('btnKbmPanic', false);
         updatePlaygroundToolbarState(true);
 
+        if (window._obsWin && !window._obsWin.closed) {
+            const obsVid = window._obsWin.document.getElementById('obs-video');
+            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(()=>{}); }
+        }
+
     } catch (err) {
         // UNFREEZE TRIGGER: Now runs cleanly whether by user abort or by our timeout
         const sysName = isLinux ? (window.electronAPI ? "Wayland/PipeWire" : "Linux Native") : "Windows/Mac Desktop API";
@@ -3017,6 +3019,10 @@ function stopCapture() {
     if (window._gstPreviewStream) { _forceKillStream(window._gstPreviewStream); window._gstPreviewStream = null; }
     const localVideo = document.getElementById('localVideo');
     if (localVideo) { localVideo.poster = ''; localVideo.srcObject = null; }
+    if (window._obsWin && !window._obsWin.closed) {
+        const obsVid = window._obsWin.document.getElementById('obs-video');
+        if (obsVid) obsVid.srcObject = null;
+    }
     _stopStatsHud();
     _stopHostDelayLoop();
     stopAudioMeter();
@@ -3455,7 +3461,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         height: encHeight,
         bitrate: sliderBitrate > 0 ? sliderBitrate : dynamicBitrate,
         framerate: Math.round(settings.frameRate || 60),
-        hardwareAcceleration: _wcCodecSel === 'VP8' ? 'deny' : 'prefer',
+        hardwareAcceleration: _wcCodecSel === 'VP8' ? 'prefer-software' : 'prefer-hardware',
         latencyMode: 'realtime',
         ...(['VP9', 'AV1'].includes(_wcCodecSel) ? { scalabilityMode: 'L1T2' } : {})
     };
@@ -4626,7 +4632,7 @@ function ndiBindSource() {
         ndiVideoEl = document.createElement('video');
         ndiVideoEl.muted = true;
         ndiVideoEl.playsInline = true;
-        ndiVideoEl.style.cssText = 'position:fixed;width:0;height:0;opacity:0;pointer-events:none;';
+        ndiVideoEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
         document.body.appendChild(ndiVideoEl);
         ndiCanvas = document.createElement('canvas');
         ndiCtx = ndiCanvas.getContext('2d', { willReadFrequently: true });
@@ -4648,7 +4654,7 @@ function ndiTick(now) {
             if (ndiActive) window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
             if (spoutActive) window.electronAPI.spoutFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
             ndiLastSend = now;
-        } catch (_) { }
+        } catch (e) { console.error('[NDI] Tick error:', e); }
     }
     if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
     else setTimeout(() => ndiTick(Date.now()), interval);
@@ -4668,6 +4674,13 @@ window.startNdi = function () {
     if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
     else setTimeout(() => ndiTick(Date.now()), 16);
     window.electronAPI.ndiStart({ name: 'Nearcade Host' });
+
+    const btn = document.getElementById('ndiToggle');
+    if (btn) {
+        btn.textContent = 'Stop Broadcast';
+        btn.style.borderColor = 'var(--accent)';
+    }
+
     return true;
 };
 
@@ -4676,6 +4689,12 @@ window.stopNdi = function () {
     if (!ndiVideoEl) return;
     if (!spoutActive) { ndiVideoEl.srcObject = null; }
     if (window.electronAPI) window.electronAPI.ndiStop();
+
+    const btn = document.getElementById('ndiToggle');
+    if (btn) {
+        btn.textContent = 'Start Broadcast';
+        btn.style.borderColor = 'var(--border)';
+    }
 };
 
 if (window.electronAPI && typeof window.electronAPI.onNdiStatus === 'function' && !window._ndiStatusHooked) {
@@ -4691,6 +4710,7 @@ if (window.electronAPI && typeof window.electronAPI.onNdiStatus === 'function' &
         if (btn && s.running !== undefined) {
             btn.textContent = s.running ? 'Stop Broadcast' : 'Start Broadcast';
             btn.style.borderColor = s.running ? 'var(--accent)' : 'var(--border)';
+            window.ndiStatusActive = !!s.running;
         }
     });
 }
@@ -4747,6 +4767,54 @@ if (window.electronAPI && typeof window.electronAPI.onSpoutStatus === 'function'
         }
     } catch (_) { }
 })();
+// ── OBS EGRESS ─────────────────────────────────────────────────────────────────
+window.spawnOBSWindow = function () {
+    if (!currentStream) {
+        alert("Please start the stream first before spawning the OBS Target Window.");
+        return;
+    }
+    if (window._obsWin && !window._obsWin.closed) {
+        window._obsWin.focus();
+        return;
+    }
+    const obsWin = window.open('about:blank', 'OBS_Target', 'width=1280,height=720,frame=no');
+    if (!obsWin) {
+        alert("Failed to spawn OBS window. Please check your popup blocker.");
+        return;
+    }
+    window._obsWin = obsWin;
+    obsWin.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nearcade OBS Target</title>
+    <style>
+        body, html { margin:0; padding:0; background:#000; overflow:hidden; -webkit-app-region: drag; width:100vw; height:100vh; }
+        video { display:block; width:100%; height:100%; object-fit:fill; -webkit-app-region: drag; pointer-events: none; border:none; outline:none; }
+    </style>
+</head>
+<body>
+    <video id="obs-video" autoplay playsinline muted></video>
+    <script>
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.close();
+        });
+    </script>
+</body>
+</html>
+    `);
+    obsWin.document.close();
+
+    // Assign the stream directly from the host context after a brief tick to ensure the DOM is painted
+    setTimeout(() => {
+        const vid = obsWin.document.getElementById('obs-video');
+        if (vid) {
+            vid.srcObject = currentStream;
+            vid.play().catch(console.warn);
+        }
+    }, 100);
+};
+
 
 async function checkTunnelOnConnect() {
     if (_vpsConfig && _vpsConfig.vpsEnabled) {
