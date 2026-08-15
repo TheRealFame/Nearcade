@@ -121,13 +121,17 @@ event_queue      = queue.Queue()
 _active_binds    = None
 _auto_map_on     = True
 _is_hybrid       = False
+_last_focus_title = None
 
 
 
 
 
 # ── Find CSV ──────────────────────────────────────────────────────────────────
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    _SCRIPT_DIR = os.path.dirname(sys.executable)
+else:
+    _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _CSV_PATH   = None
 _search     = _SCRIPT_DIR
 for _ in range(5):
@@ -623,6 +627,11 @@ def run():
                 if not _auto_map_on:
                     continue
                 title  = msg.get("title", "")
+                
+                global _last_focus_title
+                changed = (title != _last_focus_title)
+                _last_focus_title = title
+                
                 binds  = resolve_csv(title)
                 if binds:
                     _active_binds = binds
@@ -630,10 +639,12 @@ def run():
                         # FIX: Removed the line that forced xbox360.
                         # This respects your PS4/Switch choice.
                         viewer_modes[vid] = 'kbm_emulated'
-                    print(f"[input] CSV match '{title}' → kbm_emulated ({len(binds)} binds)", flush=True)
+                    if changed:
+                        print(f"[input] CSV match '{title}' → kbm_emulated ({len(binds)} binds)", flush=True)
                 else:
                     _active_binds = None
-                    print(f"[input] No CSV match for '{title}' — using JSON fallback if kbm_emulated", flush=True)
+                    if changed:
+                        print(f"[input] No CSV match for '{title}' — using JSON fallback if kbm_emulated", flush=True)
                 continue
 
             if msg_type == "reload-csv":

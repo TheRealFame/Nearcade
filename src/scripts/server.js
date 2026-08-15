@@ -18,8 +18,8 @@ console.log = function (...args) {
     try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
   }).join(' ');
 
-  // Blur IPv4 addresses (except localhost)
-  msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  // Blur IPv4 addresses (except localhost and local LAN IPs)
+  msg = msg.replace(/\b(?!127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
 
   // Blur Cloudflare tunnel URLs
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
@@ -63,7 +63,7 @@ console.error = function (...args) {
   }).join(' ');
 
   // Blur sensitive data exactly like console.log
-  msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  msg = msg.replace(/\b(?!127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net|serveousercontent\.com)/g, 'https://********.$1');
   msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
@@ -190,6 +190,7 @@ function saveFriendsConfig(updates) {
 }
 
 let _gstOfferStr = null;
+let _lastWcConfig = null;
 let _gstIceCandidates = [];
 
 // Route GStreamer WebRTC outputs (Offers/ICE) back to viewers
@@ -708,7 +709,7 @@ function saveConfig(updates) {
     const configDir = path.dirname(CONFIG_FILE);
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), { encoding: 'utf8', flag: 'w' });
-    console.log("[config] Saved:", cfg);
+    console.log("[config] Configuration saved to disk.");
     return cfg;
   } catch (e) {
     console.error("[config] Error saving config:", e.message);
@@ -753,6 +754,7 @@ async function main() {
   const LAN_IP = getLanIP();
   getPublicIP().then(ip => { if (ip) console.log("  Public IP : http://" + ip + ":" + PORT + "/ (needs port forward)"); });
   const initialCfg = loadConfig();
+  console.log("[config] Loaded initial configuration:", initialCfg);
   initArcadeHeartbeat(initialCfg);
   let sessionPassword = initialCfg.persistentPassword || '';
   let PIN = sessionPassword ? sessionPassword : makePin();
@@ -760,8 +762,8 @@ async function main() {
 
   console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
-  console.log("  LAN URL   : http://***.***.***.***:" + PORT + "/");
-  console.log("  PIN       : \x1b[1;32m****\x1b[0m\n");
+  console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
+  console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
 
   const app = express();
   const server = http.createServer(app);
@@ -1767,15 +1769,20 @@ async function main() {
   // This will try C++ first, and automatically fall back to Python if the .node file is missing
   const inputReady = inputDriver.init(screenW, screenH);
 
+  // Track the last fatal input error to send it when the frontend connects
+  let lastFatalInputError = null;
+
   // Forward input driver errors (e.g. ViGEmBus missing on Windows) to the host UI
   inputDriver.events.on('input-error', (err) => {
     console.error('[InputOrchestrator] input-error:', err.message, '(code:', err.code + ')');
+    lastFatalInputError = err;
     if (hostWS && hostWS.readyState === 1) {
       hostWS.send(JSON.stringify({ type: 'input-error', message: err.message, code: err.code || '' }));
     }
   });
   inputDriver.events.on('input-ready', (info) => {
     console.log('[InputOrchestrator] input-ready:', info.message || '');
+    lastFatalInputError = null; // Clear if it recovered
     if (hostWS && hostWS.readyState === 1) {
       hostWS.send(JSON.stringify({ type: 'input-ready', message: info.message || '' }));
     }
@@ -1969,6 +1976,12 @@ async function main() {
     if (wsPath === "/ws/host") {
       console.log("[host] connected");
       hostWS = ws;
+      
+      // If the input driver failed during boot, surface the error banner immediately
+      if (typeof lastFatalInputError !== 'undefined' && lastFatalInputError) {
+        hostWS.send(JSON.stringify({ type: 'input-error', message: lastFatalInputError.message, code: lastFatalInputError.code || '' }));
+      }
+
       const hostClientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
       const hostAnonHash = hashIp(hostClientIp);
       const hCfgAtConnect = loadConfig();
@@ -2011,7 +2024,8 @@ async function main() {
           let msg = JSON.parse(raw);
 
           if (msg.type === "webcodecs-config") {
-            broadcast(raw);
+            _lastWcConfig = raw.toString();
+            broadcast(_lastWcConfig);
             return;
           }
 
@@ -2628,10 +2642,16 @@ async function main() {
               const cryptoLib = require('crypto');
               const expected = cryptoLib.createHash('sha256').update(challengeNonce + "nearcade_client_v3").digest('hex');
               
+              const isLanIp = clientIp.includes('192.168.') || clientIp.includes('10.') || clientIp.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || clientIp.includes('127.0.0.1') || clientIp === '::1' || clientIp.includes('::ffff:192.168.') || clientIp.includes('::ffff:10.') || clientIp.includes('::ffff:127.0.0.1');
+
               if (msg.hash !== expected) {
-                console.log(`[viewer] rejected — crypto challenge failed`);
-                ws.close(4008, "CRYPTO_FAILED");
-                return;
+                if (isLanIp && msg.hash === "LAN_INSECURE_BYPASS") {
+                  console.log(`[viewer] accepted LAN insecure bypass from ${clientIp}`);
+                } else {
+                  console.log(`[viewer] rejected — crypto challenge failed`);
+                  ws.close(4008, "CRYPTO_FAILED");
+                  return;
+                }
               }
               
               // Behavioral Heuristics Check (Option 3)
@@ -2784,6 +2804,10 @@ async function main() {
               for (const c of _gstIceCandidates) {
                 ws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
               }
+            } else if (_lastWcConfig) {
+              // Replay WebCodecs configuration state for late joiners
+              ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+              try { ws.send(_lastWcConfig); } catch (_) {}
             }
 
             // ctrl-settings and host-stream-ready for non-GStreamer mode
@@ -2800,7 +2824,8 @@ async function main() {
             }
 
             // In non-GStreamer mode, host-stream-ready is sent if already streaming
-            if (hostStreaming && !_gstOfferStr) {
+            // (Fallback for WebRTC-only pipelines without WebCodecs metadata)
+            if (hostStreaming && !_gstOfferStr && !_lastWcConfig) {
               ws.send(JSON.stringify({ type: "host-stream-ready" }));
             }
 

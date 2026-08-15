@@ -2632,12 +2632,17 @@ async function connect() {
         // sha256(nonce + "nearcade_client_v3") before it accepts any other message.
         if (msg.type === 'auth-challenge' && msg.nonce) {
             try {
+                if (!window.crypto || !window.crypto.subtle) {
+                    ws.send(JSON.stringify({ type: 'auth-response', hash: "LAN_INSECURE_BYPASS", human: !!window.__nsHumanInteraction }));
+                    return;
+                }
                 const data = new TextEncoder().encode(msg.nonce + "nearcade_client_v3");
                 const digest = await crypto.subtle.digest('SHA-256', data);
                 const hash = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
                 ws.send(JSON.stringify({ type: 'auth-response', hash, human: !!window.__nsHumanInteraction }));
             } catch (err) {
                 console.error('[auth] Failed to solve challenge:', err);
+                ws.send(JSON.stringify({ type: 'auth-response', hash: "LAN_INSECURE_BYPASS", human: !!window.__nsHumanInteraction }));
             }
             return;
         }
@@ -4040,6 +4045,11 @@ function _reportWcHealth(type, data) {
 
 // ── WEBCODECS VIEWER INITIALIZER ──
 function initWebCodecsViewer(config) {
+    if (typeof VideoDecoder === 'undefined') {
+        console.warn('[WebCodecs] VideoDecoder API is not available (likely an insecure HTTP context). Falling back to standard WebRTC.');
+        return;
+    }
+
     console.log('[WebCodecs] Received Host Configuration:', config);
 
     const videoEl = document.getElementById('video');
