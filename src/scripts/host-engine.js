@@ -894,6 +894,7 @@ async function runBenchmark(mode) {
 }
 // ── [extracted from host.js] ─────────────────────────────────────────
 async function setLowLatencyParams(pc) {
+    if (!pc || typeof pc.getSenders !== 'function') return;
     const sender = pc.getSenders().find(s => s.track?.kind === 'video');
     if (!sender) return;
     try {

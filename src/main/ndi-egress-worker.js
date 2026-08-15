@@ -60,7 +60,7 @@ function frame(meta, buf) {
       lineStrideBytes: meta.width * 4,
       data,
       timecode: grandi.TIMECODE_SYNTHESIZE,
-    }).catch(() => { });
+    }).catch((e) => { process.parentPort.postMessage({ ev: 'error', msg: 'NDI Send Error: ' + e.message }); });
   } catch (_) { }
 }
 

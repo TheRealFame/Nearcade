@@ -825,9 +825,9 @@
     /* ─── PARTY MODE: SETTINGS COG SLIDE PANEL (Phase 2) ────────────────── */
     #partyTab {
       position: fixed;
-      top: 50%;
+      top: 14vh;
       right: 0;
-      transform: translateY(-50%);
+      transform: none;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -853,6 +853,16 @@
     #partyTab.hud-open {
       opacity: 1;
       pointer-events: auto;
+    }
+
+    /* Best-guess fix: #partyTab previously sat top:50% (dead center-right),
+       directly overlapping the B action button's screen position in
+       #touchUI (also moved above, to top:14vh). Belt-and-suspenders: force
+       it non-interactive whenever touch controls are visible, regardless of
+       its own opacity/hud-open state, so it can never eat a touch meant for
+       the action-button ring. */
+    body:has(#touchUI:not(.gone)) #partyTab {
+      pointer-events: none !important;
     }
 
     #partyTab:hover {
@@ -1881,7 +1891,14 @@
     #touchUI .controls-left,
     #touchUI .controls-right {
       position: absolute;
-      bottom: 4vh;
+      /* Best-guess fix: bottom:4vh alone (~34px on a typical portrait phone)
+         sits inside or right against the OS gesture-bar / home-indicator
+         exclusion zone on the bottom edge. That zone intercepts touches
+         silently — no visual feedback, matches the "acts dead" symptom.
+         In landscape the gesture bar sits on a side edge instead, out of
+         this box's way, which is why only portrait was affected. Adding
+         the safe-area inset pushes the whole control zone clear of it. */
+      bottom: calc(4vh + env(safe-area-inset-bottom, 0px));
       width: 38vw;
       height: 42vh;
       display: flex;

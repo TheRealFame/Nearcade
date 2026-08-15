@@ -714,11 +714,17 @@
                 <span id="ndiStatus" style="font-size:10px;color:var(--muted);"></span>
               </div>
             </div>
-            <button id="ndiToggle"
-              onclick="if(window.ndiStatusActive){window.stopNdi();window.ndiStatusActive=false;}else{if(window.startNdi&&window.startNdi()){window.ndiStatusActive=true;}}"
-              style="background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
-              onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
-              onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">Start Broadcast</button>
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+              <button id="ndiToggle"
+                onclick="if(window.ndiStatusActive){window.stopNdi();window.ndiStatusActive=false;}else{if(window.startNdi&&window.startNdi()){window.ndiStatusActive=true;}}"
+                style="background:var(--surface);border:1px solid var(--border);padding:6px 12px;border-radius:6px;color:var(--text);cursor:pointer;font-size:11px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;white-space:nowrap;"
+                onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
+                onmouseleave="this.style.color='var(--text)'; this.style.borderColor='var(--border)';">Start Broadcast</button>
+              <button onclick="if(window.spawnOBSWindow) window.spawnOBSWindow();"
+                style="background:rgba(255,255,255,0.05);border:1px solid var(--border);padding:4px 8px;border-radius:6px;color:var(--muted);cursor:pointer;font-size:10px;font-weight:normal;font-family:var(--mono);transition:all 0.2s;white-space:nowrap;"
+                onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
+                onmouseleave="this.style.color='var(--muted)'; this.style.borderColor='var(--border)';">Popout Window</button>
+            </div>
           </div>
 
           <div class="ctrl-modal-row" id="spoutRow" style="margin-top:8px;">

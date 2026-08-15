@@ -551,7 +551,7 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.on('ndi:frame', (_e, meta, buffer) => {
     if (!ndiProc) return;
-    try { ndiProc.postMessage({ op: 'frame', meta: meta || {}, buffer }, [buffer]); } catch (_) { }
+    try { ndiProc.postMessage({ op: 'frame', meta: meta || {}, buffer }); } catch (_) { }
   });
   ipcMain.on('ndi:stop', () => ndiKillWorker());
 
@@ -565,7 +565,7 @@ function registerIpcHandlers(ctx) {
   });
   ipcMain.on('spout:frame', (_e, meta, buffer) => {
     if (!spoutProc) return;
-    try { spoutProc.postMessage({ op: 'frame', meta: meta || {}, buffer }, [buffer]); } catch (_) { }
+    try { spoutProc.postMessage({ op: 'frame', meta: meta || {}, buffer }); } catch (_) { }
   });
   ipcMain.on('spout:stop', () => spoutKillWorker());
 

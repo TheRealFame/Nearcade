@@ -2601,8 +2601,18 @@ async function startCapture() {
                 }
                 window.electronAPI.setSelectedSource(selectedSourceId);
                 
-                // FIXED: Use getDisplayMedia instead of deprecated getUserMedia
-                const vidStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                // MUST use getUserMedia here because getDisplayMedia strictly forbids `chromeMediaSourceId` constraints
+                const vidStream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: selectedSourceId,
+                            minFrameRate: Math.max(fpsVal, 30),
+                            maxFrameRate: fpsVal
+                        }
+                    }
+                });
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
