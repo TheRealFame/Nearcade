@@ -3522,7 +3522,9 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                 }
 
                 let frameToEncode = frame;
-                if (newEncW !== fW || newEncH !== fH) {
+                const actualFW = frame.displayWidth || frame.codedWidth;
+                const actualFH = frame.displayHeight || frame.codedHeight;
+                if (newEncW !== actualFW || newEncH !== actualFH) {
                     if (!window._wcScaleCanvas || window._wcScaleCanvas.width !== newEncW) {
                         window._wcScaleCanvas = new OffscreenCanvas(newEncW, newEncH);
                         window._wcScaleCtx = window._wcScaleCanvas.getContext('2d', { alpha: false, desynchronized: true });
