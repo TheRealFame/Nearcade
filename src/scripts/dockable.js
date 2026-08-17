@@ -73,12 +73,19 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('ns_dock_layout', JSON.stringify(config));
     }
 
+    // Expose reset to global scope because host-modals.html is injected dynamically and inline scripts don't run
+    window.resetDockLayout = function() {
+        localStorage.removeItem('ns_dock_layout');
+        window.location.reload();
+    };
+
     // CSS for predefined docks
     const style = document.createElement('style');
     style.textContent = `
         .ns-dock-zone {
             display: flex;
             gap: 12px;
+            flex-shrink: 0;
             transition: min-width 0.2s, min-height 0.2s, background 0.2s;
         }
         .ns-dock-top, .ns-dock-bottom { flex-direction: row; }
