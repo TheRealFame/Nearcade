@@ -152,8 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Update ghost position
         if (dragGhost) {
-            dragGhost.style.left = (x + 10) + 'px';
-            dragGhost.style.top = (y + 10) + 'px';
+            dragGhost.style.left = (x - 34) + 'px';
+            dragGhost.style.top = (y - 34) + 'px';
         }
         
         let targetZone = null;
@@ -214,8 +214,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Create visual ghost
                 dragGhost = originalLeft.cloneNode(true);
                 dragGhost.style.position = 'fixed';
-                dragGhost.style.left = (e.clientX + 10) + 'px';
-                dragGhost.style.top = (e.clientY + 10) + 'px';
+                // Force it into vertical mode so it's small and predictable
+                dragGhost.className = 'left-rail glass'; 
+                dragGhost.style.width = '68px';
+                dragGhost.style.height = 'auto';
+                dragGhost.style.flexDirection = 'column';
+                dragGhost.style.justifyContent = 'flex-start';
+                dragGhost.style.padding = '10px';
+                dragGhost.style.gap = '6px';
+                
+                // Center the top part of the ghost perfectly on the mouse cursor
+                dragGhost.style.left = (e.clientX - 34) + 'px';
+                dragGhost.style.top = (e.clientY - 34) + 'px';
+                
                 dragGhost.style.pointerEvents = 'none';
                 dragGhost.style.opacity = '0.7';
                 dragGhost.style.zIndex = '999999';
