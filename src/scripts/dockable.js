@@ -17,35 +17,42 @@ document.addEventListener('DOMContentLoaded', () => {
     originalMain.style.flex = '1';
     originalMain.style.minWidth = '0'; // Allow it to shrink if needed
     
+    // Change app-shell to flex-row to match original 3-column layout where sidebars are full height
+    shell.style.display = 'flex';
+    shell.style.flexDirection = 'row';
+    shell.style.alignItems = 'stretch';
+    
     // Create Defined Docks
     const dockTop = document.createElement('div');
     dockTop.className = 'ns-dock-zone ns-dock-top';
     
-    const middleRow = document.createElement('div');
-    middleRow.className = 'ns-dock-middle-row';
-    middleRow.style.display = 'flex';
-    middleRow.style.flexDirection = 'row';
-    middleRow.style.flex = '1';
-    middleRow.style.gap = '12px';
-    middleRow.style.minHeight = '0';
+    const dockBottom = document.createElement('div');
+    dockBottom.className = 'ns-dock-zone ns-dock-bottom';
+
+    // middleCol replaces originalMain's outer structure
+    const middleCol = document.createElement('div');
+    middleCol.className = 'ns-dock-middle-col';
+    middleCol.style.display = 'flex';
+    middleCol.style.flexDirection = 'column';
+    middleCol.style.flex = '1';
+    middleCol.style.minWidth = '0'; // Prevent overflow
+    middleCol.style.gap = '12px';
 
     const dockLeft = document.createElement('div');
     dockLeft.className = 'ns-dock-zone ns-dock-left';
     
     const dockRight = document.createElement('div');
     dockRight.className = 'ns-dock-zone ns-dock-right';
-    
-    const dockBottom = document.createElement('div');
-    dockBottom.className = 'ns-dock-zone ns-dock-bottom';
 
     // Assemble defined spaces
     shell.innerHTML = '';
-    shell.appendChild(dockTop);
-    shell.appendChild(middleRow);
-    middleRow.appendChild(dockLeft);
-    middleRow.appendChild(originalMain);
-    middleRow.appendChild(dockRight);
-    shell.appendChild(dockBottom);
+    shell.appendChild(dockLeft);
+    shell.appendChild(middleCol);
+    shell.appendChild(dockRight);
+
+    middleCol.appendChild(dockTop);
+    middleCol.appendChild(originalMain);
+    middleCol.appendChild(dockBottom);
 
     // Initial placement logic reading from localStorage
     const savedLayoutStr = localStorage.getItem('ns_dock_layout');
