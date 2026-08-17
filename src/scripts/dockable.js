@@ -130,6 +130,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dragHandle) {
             dragHandle.setAttribute('draggable', 'true');
             dragHandle.style.cursor = 'grab';
+            dragHandle.style.webkitUserDrag = 'element'; // Force WebKit to allow element dragging
+            
+            // Prevent the img inside from being dragged independently as a file
+            const img = dragHandle.querySelector('img');
+            if (img) {
+                img.style.pointerEvents = 'none';
+                img.style.webkitUserDrag = 'none';
+            }
 
             dragHandle.addEventListener('dragstart', (e) => {
                 e.dataTransfer.setData('text/plain', '');
