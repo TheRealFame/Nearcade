@@ -98,6 +98,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         .left-rail, .right-panel { transition: flex-direction 0.2s, height 0.2s, width 0.2s; }
         
+        /* Preserve original widths when in vertical side docks */
+        .ns-dock-left > .left-rail, .ns-dock-right > .left-rail { width: 68px; }
+        .ns-dock-left > .right-panel, .ns-dock-right > .right-panel { width: 336px; }
+
         /* Force panels in vertical docks to fill vertical space */
         .ns-dock-left > *, .ns-dock-right > * {
             flex: 1;
@@ -147,8 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dragHandle.style.cursor = 'grabbing';
                 e.stopPropagation();
                 // We do NOT prevent default here so buttons still focus, 
-                // but we capture pointer to ensure we track movement outside the handle
-                dragHandle.setPointerCapture(e.pointerId);
+                try { dragHandle.setPointerCapture(e.pointerId); } catch(err) {}
             });
 
             dragHandle.addEventListener('pointermove', (e) => {
@@ -185,9 +188,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            dragHandle.addEventListener('pointerup', (e) => {
+            const endDrag = (e) => {
                 if (!isDragging) return;
-                dragHandle.releasePointerCapture(e.pointerId);
+                try {
+                    if (dragHandle.hasPointerCapture(e.pointerId)) {
+                        dragHandle.releasePointerCapture(e.pointerId);
+                    }
+                } catch(err) {}
                 
                 if (currentHoverZone && draggedPanel) {
                     currentHoverZone.appendChild(draggedPanel);
@@ -195,7 +202,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 cancelDrag();
-            });
+            };
+
+            dragHandle.addEventListener('pointerup', endDrag);
+            dragHandle.addEventListener('pointercancel', cancelDrag);
         }
     }
 
