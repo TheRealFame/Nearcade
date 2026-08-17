@@ -77,10 +77,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function saveDockLayout() {
         const config = {};
         if (originalLeft && originalLeft.parentElement) {
-            config['left-rail'] = Array.from(originalLeft.parentElement.classList).find(c => c.startsWith('ns-dock-'));
+            config['left-rail'] = Array.from(originalLeft.parentElement.classList).find(c => c.startsWith('ns-dock-') && c !== 'ns-dock-zone');
         }
         if (originalRight && originalRight.parentElement) {
-            config['right-panel'] = Array.from(originalRight.parentElement.classList).find(c => c.startsWith('ns-dock-'));
+            config['right-panel'] = Array.from(originalRight.parentElement.classList).find(c => c.startsWith('ns-dock-') && c !== 'ns-dock-zone');
         }
         localStorage.setItem('ns_dock_layout', JSON.stringify(config));
     }
