@@ -55,6 +55,15 @@ document.addEventListener('DOMContentLoaded', () => {
         try { layoutConfig = JSON.parse(savedLayoutStr); } catch(e) {}
     }
 
+    // CRITICAL: Prevent corrupt localStorage (from older bugs) from stacking panels in the same dock on load!
+    if (layoutConfig['left-rail'] === layoutConfig['right-panel']) {
+        if (layoutConfig['left-rail'] !== 'ns-dock-right') {
+            layoutConfig['right-panel'] = 'ns-dock-right';
+        } else {
+            layoutConfig['right-panel'] = 'ns-dock-left';
+        }
+    }
+
     function placePanel(panelEl, className) {
         if (!panelEl) return;
         const targetClass = layoutConfig[className] || ('ns-dock-' + (className==='left-rail'?'left':'right'));
@@ -135,6 +144,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         .ns-dock-top .rail-btn-group, .ns-dock-bottom .rail-btn-group {
             flex-direction: row;
+        }
+        
+        /* Horizontal mode for chat panel when in top/bottom docks */
+        .ns-dock-top .right-panel, .ns-dock-bottom .right-panel {
+            width: 100%;
+            height: 260px;
+            min-height: 260px;
         }
     `;
     document.head.appendChild(style);
