@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalMain = document.querySelector('.main-stage');
     const originalRight = document.querySelector('.right-panel');
 
+    originalMain.style.flex = '1';
+    originalMain.style.minWidth = '0'; // Allow it to shrink if needed
+    
     // Create Defined Docks
     const dockTop = document.createElement('div');
     dockTop.className = 'ns-dock-zone ns-dock-top';
@@ -91,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
             transition: min-width 0.2s, min-height 0.2s, background 0.2s;
         }
         .ns-dock-top, .ns-dock-bottom { flex-direction: row; }
-        .ns-dock-left, .ns-dock-right { flex-direction: column; }
+        .ns-dock-left, .ns-dock-right { flex-direction: column; height: 100%; }
         
         .ns-dock-zone:empty { display: none; }
         
@@ -103,18 +106,19 @@ document.addEventListener('DOMContentLoaded', () => {
             border-radius: 12px;
         }
         .ns-dock-top.drag-active, .ns-dock-bottom.drag-active { min-height: 80px; }
-        .ns-dock-left.drag-active, .ns-dock-right.drag-active { min-width: 80px; }
+        .ns-dock-left.drag-active, .ns-dock-right.drag-active { min-width: 80px; height: 100%; }
         
         .left-rail, .right-panel { transition: flex-direction 0.2s, height 0.2s, width 0.2s; }
         
         /* Preserve original widths when in vertical side docks */
-        .ns-dock-left > .left-rail, .ns-dock-right > .left-rail { width: 68px; }
-        .ns-dock-left > .right-panel, .ns-dock-right > .right-panel { width: 336px; }
+        .ns-dock-left > .left-rail, .ns-dock-right > .left-rail { width: 68px; min-width: 68px; }
+        .ns-dock-left > .right-panel, .ns-dock-right > .right-panel { width: 336px; min-width: 336px; }
 
         /* Force panels in vertical docks to fill vertical space */
         .ns-dock-left > *, .ns-dock-right > * {
             flex: 1;
             height: 100%;
+            min-height: 0;
         }
 
         /* Horizontal mode for rail when in top/bottom docks */
@@ -205,6 +209,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             dragHandle.addEventListener('pointerdown', (e) => {
                 if (e.button !== 0) return; // Left click only
+                
+                // Prevent browser native drag/text-selection which aborts JS pointer events!
+                e.preventDefault();
                 
                 draggedPanel = originalLeft;
                 currentDragHandle = dragHandle;
