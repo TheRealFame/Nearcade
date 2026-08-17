@@ -1,176 +1,157 @@
 // dockable.js - OBS style docking manager
+// dockable.js - Defined Spaces OBS-Style Docking
 document.addEventListener('DOMContentLoaded', () => {
     const shell = document.querySelector('.app-shell');
     if (!shell) return;
 
-    // Convert CSS Grid to Flexbox splits
+    // 1. Convert the static grid into a defined flex structure with specific drop zones
     shell.style.display = 'flex';
-    shell.style.flexDirection = 'row';
+    shell.style.flexDirection = 'column';
+    shell.style.padding = '12px';
+    shell.style.gap = '12px';
 
-    const panels = Array.from(document.querySelectorAll('.left-rail, .topbar, .preview-stage, .bottom-dock, .right-panel, .main-stage'));
-    panels.forEach(p => {
-        p.classList.add('ns-dock-panel');
-        
-        if (p.classList.contains('left-rail')) p.style.flex = '0 0 68px';
-        else if (p.classList.contains('right-panel')) p.style.flex = '0 0 336px';
-        else if (p.classList.contains('main-stage') || p.classList.contains('preview-stage')) p.style.flex = '1 1 auto';
-        else p.style.flex = '0 0 auto';
-        
-        // Add a drag handle to panels that don't have an obvious one
-        let handle = p.querySelector('.panel-header') || p;
-        
-        // Custom handles
-        if (p.classList.contains('left-rail')) handle = p.querySelector('.rail-logo') || p;
-        if (p.classList.contains('topbar')) handle = p.querySelector('.host-meta') || p;
-        if (p.classList.contains('bottom-dock')) handle = p.querySelector('.dock-card:first-child .dock-label') || p;
+    const originalLeft = document.querySelector('.left-rail');
+    const originalMain = document.querySelector('.main-stage');
+    const originalRight = document.querySelector('.right-panel');
 
-        handle.setAttribute('draggable', 'true');
-        handle.style.cursor = 'grab';
+    // Create Defined Docks
+    const dockTop = document.createElement('div');
+    dockTop.className = 'ns-dock-zone ns-dock-top';
+    
+    const middleRow = document.createElement('div');
+    middleRow.className = 'ns-dock-middle-row';
+    middleRow.style.display = 'flex';
+    middleRow.style.flexDirection = 'row';
+    middleRow.style.flex = '1';
+    middleRow.style.gap = '12px';
+    middleRow.style.minHeight = '0';
 
-        handle.addEventListener('dragstart', (e) => {
-            e.dataTransfer.setData('text/plain', '');
-            window._dockDraggingPanel = p;
-            e.stopPropagation();
-        });
-    });
+    const dockLeft = document.createElement('div');
+    dockLeft.className = 'ns-dock-zone ns-dock-left';
+    
+    const dockRight = document.createElement('div');
+    dockRight.className = 'ns-dock-zone ns-dock-right';
+    
+    const dockBottom = document.createElement('div');
+    dockBottom.className = 'ns-dock-zone ns-dock-bottom';
 
-    // Add styles for dropzones and splits
+    // Assemble defined spaces
+    shell.innerHTML = '';
+    shell.appendChild(dockTop);
+    shell.appendChild(middleRow);
+    middleRow.appendChild(dockLeft);
+    middleRow.appendChild(originalMain);
+    middleRow.appendChild(dockRight);
+    shell.appendChild(dockBottom);
+
+    // Initial placement
+    if (originalLeft) dockLeft.appendChild(originalLeft);
+    if (originalRight) dockRight.appendChild(originalRight);
+
+    // CSS for predefined docks
     const style = document.createElement('style');
     style.textContent = `
-        .ns-split-row { display: flex; flex-direction: row; flex: 1; gap: 12px; min-height: 0; min-width: 0; width: 100%; height: 100%; }
-        .ns-split-col { display: flex; flex-direction: column; flex: 1; gap: 12px; min-height: 0; min-width: 0; width: 100%; height: 100%; }
-        .ns-dock-panel { position: relative; min-height: 0; min-width: 0; }
-        .ns-dock-panel * { user-select: none; }
-        .ns-dropzone {
-            position: absolute;
-            background: rgba(139, 92, 246, 0.2);
-            border: 2px dashed #c084fc;
-            z-index: 10000;
-            pointer-events: all;
-            opacity: 0;
-            transition: opacity 0.15s, background 0.15s;
+        .ns-dock-zone {
+            display: flex;
+            gap: 12px;
+            transition: min-width 0.2s, min-height 0.2s, background 0.2s;
         }
-        .ns-dropzone.active { opacity: 1; background: rgba(139, 92, 246, 0.5); }
+        .ns-dock-top, .ns-dock-bottom { flex-direction: row; }
+        .ns-dock-left, .ns-dock-right { flex-direction: column; }
         
-        .ns-dz-top { top: 0; left: 0; right: 0; height: 30%; }
-        .ns-dz-bottom { bottom: 0; left: 0; right: 0; height: 30%; }
-        .ns-dz-left { top: 0; bottom: 0; left: 0; width: 30%; }
-        .ns-dz-right { top: 0; bottom: 0; right: 0; width: 30%; }
-        .ns-dz-center { top: 30%; bottom: 30%; left: 30%; right: 30%; border: 2px solid #fff; }
+        .ns-dock-zone:empty { display: none; }
+        
+        /* Dragging over states */
+        .ns-dock-zone.drag-active {
+            display: flex !important;
+            background: rgba(139, 92, 246, 0.1);
+            border: 2px dashed #c084fc;
+            border-radius: 12px;
+        }
+        .ns-dock-top.drag-active, .ns-dock-bottom.drag-active { min-height: 80px; }
+        .ns-dock-left.drag-active, .ns-dock-right.drag-active { min-width: 80px; }
+        
+        .left-rail { transition: flex-direction 0.2s, height 0.2s, width 0.2s; }
+        
+        /* Horizontal mode for rail when in top/bottom docks */
+        .ns-dock-top .left-rail, .ns-dock-bottom .left-rail {
+            flex-direction: row;
+            height: 68px;
+            width: 100%;
+            justify-content: flex-start;
+        }
+        .ns-dock-top .rail-divider, .ns-dock-bottom .rail-divider {
+            width: 1px;
+            height: 28px;
+            margin: 0 4px;
+        }
+        .ns-dock-top .rail-btn-group, .ns-dock-bottom .rail-btn-group {
+            flex-direction: row;
+        }
     `;
     document.head.appendChild(style);
 
-    // Create global drop zones that appear over panels when dragging
-    let activeDropPanel = null;
-    let dzOverlay = document.createElement('div');
-    dzOverlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;display:none;';
-    
-    ['top', 'bottom', 'left', 'right', 'center'].forEach(dir => {
-        let dz = document.createElement('div');
-        dz.className = `ns-dropzone ns-dz-${dir}`;
-        dz.dataset.dir = dir;
-        dzOverlay.appendChild(dz);
+    // 2. Setup dragging logic exclusively for the sidebar (left-rail) first
+    let draggedPanel = null;
 
-        dz.addEventListener('dragenter', (e) => {
-            e.preventDefault();
-            dz.classList.add('active');
-        });
-        dz.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            dz.classList.remove('active');
-        });
-        dz.addEventListener('dragover', (e) => e.preventDefault());
-        dz.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dz.classList.remove('active');
-            handleDrop(window._dockDraggingPanel, activeDropPanel, dir);
-            hideDropZones();
-        });
-    });
+    if (originalLeft) {
+        originalLeft.setAttribute('draggable', 'true');
+        originalLeft.style.cursor = 'grab';
 
-    document.body.appendChild(dzOverlay);
+        originalLeft.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', '');
+            draggedPanel = originalLeft;
+            document.body.classList.add('is-dragging-dock');
+            
+            // Force empty docks to show up as drop targets
+            [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
+                if (d.children.length === 0) d.classList.add('drag-active');
+            });
+            e.stopPropagation();
+        });
 
-    function showDropZones(targetPanel) {
-        if (!targetPanel || targetPanel === window._dockDraggingPanel) return;
-        activeDropPanel = targetPanel;
-        const rect = targetPanel.getBoundingClientRect();
-        dzOverlay.style.top = rect.top + 'px';
-        dzOverlay.style.left = rect.left + 'px';
-        dzOverlay.style.width = rect.width + 'px';
-        dzOverlay.style.height = rect.height + 'px';
-        dzOverlay.style.display = 'block';
-        dzOverlay.style.pointerEvents = 'all';
+        originalLeft.addEventListener('dragend', () => {
+            cancelDrag();
+        });
     }
 
-    function hideDropZones() {
-        dzOverlay.style.display = 'none';
-        dzOverlay.style.pointerEvents = 'none';
-        activeDropPanel = null;
-    }
-
-    document.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        // Find panel under mouse
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const panel = el ? el.closest('.ns-dock-panel') : null;
-        
-        if (panel && panel !== window._dockDraggingPanel) {
-            showDropZones(panel);
-        } else if (!dzOverlay.contains(el)) {
-            hideDropZones();
+    // Cancel dragging on ESC
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && draggedPanel) {
+            cancelDrag();
         }
     });
 
-    document.addEventListener('dragend', () => {
-        hideDropZones();
-        window._dockDraggingPanel = null;
-    });
-
-    function handleDrop(source, target, dir) {
-        if (!source || !target || source === target || source.contains(target) || target.contains(source)) return;
-
-        const isHorizontal = dir === 'left' || dir === 'right';
-        const split = document.createElement('div');
-        split.className = isHorizontal ? 'ns-split-row' : 'ns-split-col';
-        
-        // Preserve target's outer flex behavior
-        split.style.flex = target.style.flex;
-        
-        target.parentNode.insertBefore(split, target);
-        
-        // If they are flexible panels, let them share space equally
-        if (source.style.flex.includes('auto') && target.style.flex.includes('auto')) {
-            source.style.flex = '1 1 0%';
-            target.style.flex = '1 1 0%';
-        }
-        
-        if (dir === 'left' || dir === 'top') {
-            split.appendChild(source);
-            split.appendChild(target);
-        } else if (dir === 'right' || dir === 'bottom') {
-            split.appendChild(target);
-            split.appendChild(source);
-        } else if (dir === 'center') {
-            split.appendChild(target);
-            split.appendChild(source);
-        }
-
-        cleanupSplits(document.body);
-    }
-
-    function cleanupSplits(container) {
-        // Remove empty splits or flatten nested splits of same direction
-        const splits = container.querySelectorAll('.ns-split-row, .ns-split-col');
-        splits.forEach(s => {
-            if (s.children.length === 0) {
-                s.remove();
-            } else if (s.children.length === 1) {
-                // Flatten
-                const child = s.children[0];
-                child.style.flex = s.style.flex;
-                s.parentNode.insertBefore(child, s);
-                s.remove();
-            }
+    function cancelDrag() {
+        draggedPanel = null;
+        document.body.classList.remove('is-dragging-dock');
+        [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
+            d.classList.remove('drag-active');
+            d.classList.remove('drag-over');
+            d.style.background = '';
         });
     }
+
+    // 3. Setup Drop Zones
+    [dockTop, dockBottom, dockLeft, dockRight].forEach(zone => {
+        zone.addEventListener('dragover', (e) => {
+            if (!draggedPanel) return;
+            e.preventDefault(); // Necessary to allow dropping
+            zone.style.background = 'rgba(139, 92, 246, 0.3)';
+        });
+
+        zone.addEventListener('dragleave', (e) => {
+            if (!draggedPanel) return;
+            zone.style.background = '';
+        });
+
+        zone.addEventListener('drop', (e) => {
+            if (!draggedPanel) return;
+            e.preventDefault();
+            
+            // Move panel to defined space
+            zone.appendChild(draggedPanel);
+            cancelDrag();
+        });
+    });
 });
