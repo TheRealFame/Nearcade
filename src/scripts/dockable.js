@@ -49,30 +49,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial placement logic reading from localStorage
     const savedLayoutStr = localStorage.getItem('ns_dock_layout');
-    let layoutConfig = { 'left-rail': 'ns-dock-left', 'right-panel': 'ns-dock-right' };
+    let layoutConfig = { 'left-rail': 'ns-dock-left', 'right-panel': 'ns-dock-right', 'bottom-dock': 'ns-dock-bottom' };
     
     if (savedLayoutStr) {
         try { layoutConfig = JSON.parse(savedLayoutStr); } catch(e) {}
     }
 
     // CRITICAL: Prevent corrupt localStorage (from older bugs) from stacking panels in the same dock on load!
-    if (layoutConfig['left-rail'] === layoutConfig['right-panel']) {
-        if (layoutConfig['left-rail'] !== 'ns-dock-right') {
-            layoutConfig['right-panel'] = 'ns-dock-right';
-        } else {
-            layoutConfig['right-panel'] = 'ns-dock-left';
+    const occupiedDocks = new Set();
+    const defaultDocks = {
+        'left-rail': 'ns-dock-left',
+        'right-panel': 'ns-dock-right',
+        'bottom-dock': 'ns-dock-bottom'
+    };
+
+    ['left-rail', 'right-panel', 'bottom-dock'].forEach(key => {
+        let desired = layoutConfig[key];
+        if (!desired || occupiedDocks.has(desired)) {
+            // Evict
+            desired = defaultDocks[key];
+            if (occupiedDocks.has(desired)) {
+                // Find first free dock
+                desired = ['ns-dock-left', 'ns-dock-right', 'ns-dock-top', 'ns-dock-bottom'].find(d => !occupiedDocks.has(d));
+            }
         }
-    }
+        layoutConfig[key] = desired;
+        occupiedDocks.add(desired);
+    });
 
     function placePanel(panelEl, className) {
         if (!panelEl) return;
-        const targetClass = layoutConfig[className] || ('ns-dock-' + (className==='left-rail'?'left':'right'));
+        const targetClass = layoutConfig[className];
         const targetZone = shell.querySelector('.' + targetClass);
         if (targetZone) targetZone.appendChild(panelEl);
     }
 
     placePanel(originalLeft, 'left-rail');
     placePanel(originalRight, 'right-panel');
+    const originalBottom = document.querySelector('.bottom-dock');
+    placePanel(originalBottom, 'bottom-dock');
 
     function saveDockLayout() {
         const config = {};
@@ -82,15 +97,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (originalRight && originalRight.parentElement) {
             config['right-panel'] = Array.from(originalRight.parentElement.classList).find(c => c.startsWith('ns-dock-') && c !== 'ns-dock-zone');
         }
+        if (originalBottom && originalBottom.parentElement) {
+            config['bottom-dock'] = Array.from(originalBottom.parentElement.classList).find(c => c.startsWith('ns-dock-') && c !== 'ns-dock-zone');
+        }
         localStorage.setItem('ns_dock_layout', JSON.stringify(config));
     }
 
     // Expose reset to global scope because host-modals.html is injected dynamically and inline scripts don't run
     window.resetDockLayout = function() {
         localStorage.removeItem('ns_dock_layout');
-        layoutConfig = { 'left-rail': 'ns-dock-left', 'right-panel': 'ns-dock-right' };
+        layoutConfig = { 'left-rail': 'ns-dock-left', 'right-panel': 'ns-dock-right', 'bottom-dock': 'ns-dock-bottom' };
         placePanel(originalLeft, 'left-rail');
         placePanel(originalRight, 'right-panel');
+        placePanel(originalBottom, 'bottom-dock');
     };
 
     // CSS for predefined docks
@@ -151,6 +170,19 @@ document.addEventListener('DOMContentLoaded', () => {
             width: 100%;
             height: 260px;
             min-height: 260px;
+        }
+
+        /* If bottom-dock is put into a side dock, it must become a vertical stack! */
+        .ns-dock-left > .bottom-dock, .ns-dock-right > .bottom-dock {
+            width: 336px;
+            min-width: 336px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Ensure cards stretch properly in vertical mode */
+        .ns-dock-left > .bottom-dock > .dock-card, .ns-dock-right > .bottom-dock > .dock-card {
+            flex: 1;
         }
     `;
     document.head.appendChild(style);
@@ -297,14 +329,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     initDragHandle(originalRight, '.panel-header', (ghost, e) => {
+        const rect = originalRight.getBoundingClientRect();
         ghost.style.position = 'fixed';
         ghost.className = 'right-panel glass'; 
-        ghost.style.width = '336px';
-        ghost.style.height = '200px'; // Shrunk preview
+        ghost.style.width = originalRight.offsetWidth + 'px';
+        ghost.style.height = originalRight.offsetHeight + 'px';
         ghost.style.flexDirection = 'column';
         
-        currentGhostOffsetX = 168;
-        currentGhostOffsetY = 20;
+        currentGhostOffsetX = e.clientX - rect.left;
+        currentGhostOffsetY = e.clientY - rect.top;
         
         // Center the header on the mouse
         ghost.style.left = (e.clientX - currentGhostOffsetX) + 'px';
@@ -317,7 +350,38 @@ document.addEventListener('DOMContentLoaded', () => {
         ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
     });
 
-    // Cancel dragging on ESC
+    const originalBottom = document.querySelector('.bottom-dock');
+    if (originalBottom) {
+        // Inject a header to serve as a drag handle
+        const header = document.createElement('div');
+        header.className = 'panel-header';
+        header.innerHTML = '<span>Dashboard Modules</span>';
+        header.style.gridColumn = '1 / -1';
+        header.style.marginBottom = '-4px';
+        originalBottom.insertBefore(header, originalBottom.firstChild);
+    }
+
+    initDragHandle(originalBottom, '.panel-header', (ghost, e) => {
+        const rect = originalBottom.getBoundingClientRect();
+        ghost.style.position = 'fixed';
+        ghost.className = 'bottom-dock glass'; 
+        ghost.style.width = originalBottom.offsetWidth + 'px';
+        ghost.style.height = originalBottom.offsetHeight + 'px';
+        ghost.style.display = 'grid'; // Maintain grid layout
+        ghost.style.gridTemplateColumns = 'repeat(3, 1fr)';
+        
+        currentGhostOffsetX = e.clientX - rect.left;
+        currentGhostOffsetY = e.clientY - rect.top;
+        
+        ghost.style.left = (e.clientX - currentGhostOffsetX) + 'px';
+        ghost.style.top = (e.clientY - currentGhostOffsetY) + 'px';
+        
+        ghost.style.pointerEvents = 'none';
+        ghost.style.opacity = '0.7';
+        ghost.style.zIndex = '999999';
+        ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+        ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+    });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && isDragging) {
             cancelDrag();
