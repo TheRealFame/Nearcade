@@ -96,8 +96,14 @@ document.addEventListener('DOMContentLoaded', () => {
         .ns-dock-top.drag-active, .ns-dock-bottom.drag-active { min-height: 80px; }
         .ns-dock-left.drag-active, .ns-dock-right.drag-active { min-width: 80px; }
         
-        .left-rail { transition: flex-direction 0.2s, height 0.2s, width 0.2s; }
+        .left-rail, .right-panel { transition: flex-direction 0.2s, height 0.2s, width 0.2s; }
         
+        /* Force panels in vertical docks to fill vertical space */
+        .ns-dock-left > *, .ns-dock-right > * {
+            flex: 1;
+            height: 100%;
+        }
+
         /* Horizontal mode for rail when in top/bottom docks */
         .ns-dock-top .left-rail, .ns-dock-bottom .left-rail {
             flex-direction: row;
@@ -120,24 +126,27 @@ document.addEventListener('DOMContentLoaded', () => {
     let draggedPanel = null;
 
     if (originalLeft) {
-        originalLeft.setAttribute('draggable', 'true');
-        originalLeft.style.cursor = 'grab';
+        const dragHandle = originalLeft.querySelector('.rail-logo');
+        if (dragHandle) {
+            dragHandle.setAttribute('draggable', 'true');
+            dragHandle.style.cursor = 'grab';
 
-        originalLeft.addEventListener('dragstart', (e) => {
-            e.dataTransfer.setData('text/plain', '');
-            draggedPanel = originalLeft;
-            document.body.classList.add('is-dragging-dock');
-            
-            // Force empty docks to show up as drop targets
-            [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
-                if (d.children.length === 0) d.classList.add('drag-active');
+            dragHandle.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', '');
+                draggedPanel = originalLeft;
+                document.body.classList.add('is-dragging-dock');
+                
+                // Force empty docks to show up as drop targets
+                [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
+                    if (d.children.length === 0) d.classList.add('drag-active');
+                });
+                e.stopPropagation();
             });
-            e.stopPropagation();
-        });
 
-        originalLeft.addEventListener('dragend', () => {
-            cancelDrag();
-        });
+            dragHandle.addEventListener('dragend', () => {
+                cancelDrag();
+            });
+        }
     }
 
     // Cancel dragging on ESC
