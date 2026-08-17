@@ -44,9 +44,34 @@ document.addEventListener('DOMContentLoaded', () => {
     middleRow.appendChild(dockRight);
     shell.appendChild(dockBottom);
 
-    // Initial placement
-    if (originalLeft) dockLeft.appendChild(originalLeft);
-    if (originalRight) dockRight.appendChild(originalRight);
+    // Initial placement logic reading from localStorage
+    const savedLayoutStr = localStorage.getItem('ns_dock_layout');
+    let layoutConfig = { 'left-rail': 'ns-dock-left', 'right-panel': 'ns-dock-right' };
+    
+    if (savedLayoutStr) {
+        try { layoutConfig = JSON.parse(savedLayoutStr); } catch(e) {}
+    }
+
+    function placePanel(panelEl, className) {
+        if (!panelEl) return;
+        const targetClass = layoutConfig[className] || ('ns-dock-' + (className==='left-rail'?'left':'right'));
+        const targetZone = shell.querySelector('.' + targetClass);
+        if (targetZone) targetZone.appendChild(panelEl);
+    }
+
+    placePanel(originalLeft, 'left-rail');
+    placePanel(originalRight, 'right-panel');
+
+    function saveDockLayout() {
+        const config = {};
+        if (originalLeft && originalLeft.parentElement) {
+            config['left-rail'] = Array.from(originalLeft.parentElement.classList).find(c => c.startsWith('ns-dock-'));
+        }
+        if (originalRight && originalRight.parentElement) {
+            config['right-panel'] = Array.from(originalRight.parentElement.classList).find(c => c.startsWith('ns-dock-'));
+        }
+        localStorage.setItem('ns_dock_layout', JSON.stringify(config));
+    }
 
     // CSS for predefined docks
     const style = document.createElement('style');
@@ -152,6 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Move panel to defined space
             zone.appendChild(draggedPanel);
             cancelDrag();
+            saveDockLayout();
         });
     });
 });

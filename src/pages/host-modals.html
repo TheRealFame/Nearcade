@@ -74,7 +74,22 @@
         </div>
       </div>
 
+      <div
+        style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
+        UI Layout</div>
 
+      <div class="ctrl-modal-row" style="margin-top:8px;">
+        <button class="btn-retry"
+          style="padding:8px 12px;font-size:11px;background:rgba(248,113,113,0.1);color:var(--danger);border:1px solid rgba(248,113,113,0.3);width:100%;border-radius:8px;cursor:pointer;"
+          onclick="resetDockLayout()">Reset Placements to Default</button>
+      </div>
+
+      <script>
+        function resetDockLayout() {
+            localStorage.removeItem('ns_dock_layout');
+            window.location.reload();
+        }
+      </script>
       <div
         style="font-size:9px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted2);margin:20px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
         Audio Capture</div>
