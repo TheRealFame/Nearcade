@@ -262,44 +262,53 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelDrag();
     };
 
-    const initDragHandle = (panel, handleClass, dragGhostSetup) => {
+    const initDragHandle = (panel, handles, dragGhostSetup) => {
         if (!panel) return;
-        const dragHandle = panel.querySelector(handleClass);
-        if (!dragHandle) return;
+        
+        let dragHandles = [];
+        if (typeof handles === 'string') {
+            dragHandles = Array.from(panel.querySelectorAll(handles));
+        } else if (handles instanceof NodeList || Array.isArray(handles)) {
+            dragHandles = Array.from(handles);
+        } else if (handles) {
+            dragHandles = [handles];
+        }
 
-        dragHandle.style.cursor = 'grab';
+        dragHandles.forEach(dragHandle => {
+            dragHandle.style.cursor = 'grab';
 
-        dragHandle.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0) return; // Left click only
-            if (e.target.closest('button')) return; // Don't steal clicks from buttons
-            
-            // Prevent browser native drag/text-selection which aborts JS pointer events!
-            e.preventDefault();
-            
-            draggedPanel = panel;
-            currentDragHandle = dragHandle;
-            isDragging = true;
-            document.body.style.userSelect = 'none';
-            
-            // Create visual ghost
-            dragGhost = panel.cloneNode(true);
-            dragGhostSetup(dragGhost, e);
-            document.body.appendChild(dragGhost);
-            
-            // Force empty docks to show up as drop targets
-            [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
-                if (d.children.length === 0) d.classList.add('drag-active');
+            dragHandle.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return; // Left click only
+                if (e.target.closest('button, a, input, [onclick], .tunnel-link')) return; // Don't steal clicks from interactive elements
+                
+                // Prevent browser native drag/text-selection which aborts JS pointer events!
+                e.preventDefault();
+                
+                draggedPanel = panel;
+                currentDragHandle = dragHandle;
+                isDragging = true;
+                document.body.style.userSelect = 'none';
+                
+                // Create visual ghost
+                dragGhost = panel.cloneNode(true);
+                dragGhostSetup(dragGhost, e);
+                document.body.appendChild(dragGhost);
+                
+                // Force empty docks to show up as drop targets
+                [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
+                    if (d.children.length === 0) d.classList.add('drag-active');
+                });
+                
+                dragHandle.style.cursor = 'grabbing';
+                e.stopPropagation();
+                
+                // Bind to window to guarantee we don't drop events if capture fails
+                window.addEventListener('pointermove', onPointerMove);
+                window.addEventListener('pointerup', endDrag);
+                window.addEventListener('pointercancel', cancelDrag);
+                
+                try { dragHandle.setPointerCapture(e.pointerId); } catch(err) {}
             });
-            
-            dragHandle.style.cursor = 'grabbing';
-            e.stopPropagation();
-            
-            // Bind to window to guarantee we don't drop events if capture fails
-            window.addEventListener('pointermove', onPointerMove);
-            window.addEventListener('pointerup', endDrag);
-            window.addEventListener('pointercancel', cancelDrag);
-            
-            try { dragHandle.setPointerCapture(e.pointerId); } catch(err) {}
         });
     };
 
@@ -351,36 +360,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (originalBottom) {
-        // Inject a header to serve as a drag handle
-        const header = document.createElement('div');
-        header.className = 'panel-header';
-        header.innerHTML = '<span>Dashboard Modules</span>';
-        header.style.gridColumn = '1 / -1';
-        header.style.marginBottom = '-4px';
-        originalBottom.insertBefore(header, originalBottom.firstChild);
+        // Use all existing dock labels as drag handles for the entire bottom dock!
+        const handles = originalBottom.querySelectorAll('.dock-label');
+        initDragHandle(originalBottom, handles, (ghost, e) => {
+            const rect = originalBottom.getBoundingClientRect();
+            ghost.style.position = 'fixed';
+            ghost.className = 'bottom-dock glass'; 
+            ghost.style.width = originalBottom.offsetWidth + 'px';
+            ghost.style.height = originalBottom.offsetHeight + 'px';
+            ghost.style.display = 'grid'; // Maintain grid layout
+            ghost.style.gridTemplateColumns = 'repeat(3, 1fr)';
+            
+            currentGhostOffsetX = e.clientX - rect.left;
+            currentGhostOffsetY = e.clientY - rect.top;
+            
+            ghost.style.left = (e.clientX - currentGhostOffsetX) + 'px';
+            ghost.style.top = (e.clientY - currentGhostOffsetY) + 'px';
+            
+            ghost.style.pointerEvents = 'none';
+            ghost.style.opacity = '0.7';
+            ghost.style.zIndex = '999999';
+            ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+            ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        });
     }
-
-    initDragHandle(originalBottom, '.panel-header', (ghost, e) => {
-        const rect = originalBottom.getBoundingClientRect();
-        ghost.style.position = 'fixed';
-        ghost.className = 'bottom-dock glass'; 
-        ghost.style.width = originalBottom.offsetWidth + 'px';
-        ghost.style.height = originalBottom.offsetHeight + 'px';
-        ghost.style.display = 'grid'; // Maintain grid layout
-        ghost.style.gridTemplateColumns = 'repeat(3, 1fr)';
-        
-        currentGhostOffsetX = e.clientX - rect.left;
-        currentGhostOffsetY = e.clientY - rect.top;
-        
-        ghost.style.left = (e.clientX - currentGhostOffsetX) + 'px';
-        ghost.style.top = (e.clientY - currentGhostOffsetY) + 'px';
-        
-        ghost.style.pointerEvents = 'none';
-        ghost.style.opacity = '0.7';
-        ghost.style.zIndex = '999999';
-        ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
-        ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
-    });
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && isDragging) {
             cancelDrag();
