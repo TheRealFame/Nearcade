@@ -350,7 +350,6 @@ document.addEventListener('DOMContentLoaded', () => {
         ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
     });
 
-    const originalBottom = document.querySelector('.bottom-dock');
     if (originalBottom) {
         // Inject a header to serve as a drag handle
         const header = document.createElement('div');
