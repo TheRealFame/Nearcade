@@ -76,7 +76,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Expose reset to global scope because host-modals.html is injected dynamically and inline scripts don't run
     window.resetDockLayout = function() {
         localStorage.removeItem('ns_dock_layout');
-        window.location.reload();
+        layoutConfig = { 'left-rail': 'ns-dock-left', 'right-panel': 'ns-dock-right' };
+        placePanel(originalLeft, 'left-rail');
+        placePanel(originalRight, 'right-panel');
     };
 
     // CSS for predefined docks
@@ -135,8 +137,66 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 2. Setup dragging logic exclusively for the sidebar (left-rail) first
     let draggedPanel = null;
+    let dragGhost = null;
     let isDragging = false;
     let currentHoverZone = null;
+    let currentDragHandle = null;
+
+    const onPointerMove = (e) => {
+        if (!isDragging) return;
+        
+        const x = e.clientX;
+        const y = e.clientY;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        
+        // Update ghost position
+        if (dragGhost) {
+            dragGhost.style.left = (x + 10) + 'px';
+            dragGhost.style.top = (y + 10) + 'px';
+        }
+        
+        let targetZone = null;
+        
+        // Use robust screen-percentage zones (20% edges)
+        if (y < h * 0.20) targetZone = dockTop;
+        else if (y > h * 0.80) targetZone = dockBottom;
+        else if (x < w * 0.20) targetZone = dockLeft;
+        else if (x > w * 0.80) targetZone = dockRight;
+        
+        // Prevent dropping on the zone it's already in
+        if (targetZone === draggedPanel.parentElement) {
+            targetZone = null;
+        }
+
+        // Update visual highlights
+        [dockTop, dockBottom, dockLeft, dockRight].forEach(zone => {
+            zone.style.background = '';
+        });
+        
+        if (targetZone) {
+            targetZone.style.background = 'rgba(139, 92, 246, 0.4)';
+            currentHoverZone = targetZone;
+        } else {
+            currentHoverZone = null;
+        }
+    };
+
+    const endDrag = (e) => {
+        if (!isDragging) return;
+        try {
+            if (currentDragHandle && currentDragHandle.hasPointerCapture(e.pointerId)) {
+                currentDragHandle.releasePointerCapture(e.pointerId);
+            }
+        } catch(err) {}
+        
+        if (currentHoverZone && draggedPanel) {
+            currentHoverZone.appendChild(draggedPanel);
+            saveDockLayout();
+        }
+        
+        cancelDrag();
+    };
 
     if (originalLeft) {
         const dragHandle = originalLeft.querySelector('.rail-logo');
@@ -147,8 +207,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (e.button !== 0) return; // Left click only
                 
                 draggedPanel = originalLeft;
+                currentDragHandle = dragHandle;
                 isDragging = true;
                 document.body.style.userSelect = 'none';
+                
+                // Create visual ghost
+                dragGhost = originalLeft.cloneNode(true);
+                dragGhost.style.position = 'fixed';
+                dragGhost.style.left = (e.clientX + 10) + 'px';
+                dragGhost.style.top = (e.clientY + 10) + 'px';
+                dragGhost.style.pointerEvents = 'none';
+                dragGhost.style.opacity = '0.7';
+                dragGhost.style.zIndex = '999999';
+                dragGhost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+                dragGhost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+                document.body.appendChild(dragGhost);
                 
                 // Force empty docks to show up as drop targets
                 [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
@@ -157,62 +230,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 dragHandle.style.cursor = 'grabbing';
                 e.stopPropagation();
-                // We do NOT prevent default here so buttons still focus, 
+                
+                // Bind to window to guarantee we don't drop events if capture fails
+                window.addEventListener('pointermove', onPointerMove);
+                window.addEventListener('pointerup', endDrag);
+                window.addEventListener('pointercancel', cancelDrag);
+                
                 try { dragHandle.setPointerCapture(e.pointerId); } catch(err) {}
             });
-
-            dragHandle.addEventListener('pointermove', (e) => {
-                if (!isDragging) return;
-                
-                const x = e.clientX;
-                const y = e.clientY;
-                const w = window.innerWidth;
-                const h = window.innerHeight;
-                
-                let targetZone = null;
-                
-                // Use robust screen-percentage zones (20% edges)
-                if (y < h * 0.20) targetZone = dockTop;
-                else if (y > h * 0.80) targetZone = dockBottom;
-                else if (x < w * 0.20) targetZone = dockLeft;
-                else if (x > w * 0.80) targetZone = dockRight;
-                
-                // Prevent dropping on the zone it's already in
-                if (targetZone === originalLeft.parentElement) {
-                    targetZone = null;
-                }
-
-                // Update visual highlights
-                [dockTop, dockBottom, dockLeft, dockRight].forEach(zone => {
-                    zone.style.background = '';
-                });
-                
-                if (targetZone) {
-                    targetZone.style.background = 'rgba(139, 92, 246, 0.4)';
-                    currentHoverZone = targetZone;
-                } else {
-                    currentHoverZone = null;
-                }
-            });
-
-            const endDrag = (e) => {
-                if (!isDragging) return;
-                try {
-                    if (dragHandle.hasPointerCapture(e.pointerId)) {
-                        dragHandle.releasePointerCapture(e.pointerId);
-                    }
-                } catch(err) {}
-                
-                if (currentHoverZone && draggedPanel) {
-                    currentHoverZone.appendChild(draggedPanel);
-                    saveDockLayout();
-                }
-                
-                cancelDrag();
-            };
-
-            dragHandle.addEventListener('pointerup', endDrag);
-            dragHandle.addEventListener('pointercancel', cancelDrag);
         }
     }
 
@@ -229,8 +254,20 @@ document.addEventListener('DOMContentLoaded', () => {
         currentHoverZone = null;
         document.body.style.userSelect = '';
         
-        const dragHandle = originalLeft?.querySelector('.rail-logo');
-        if (dragHandle) dragHandle.style.cursor = 'grab';
+        if (dragGhost) {
+            dragGhost.remove();
+            dragGhost = null;
+        }
+        
+        // Remove window listeners
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', endDrag);
+        window.removeEventListener('pointercancel', cancelDrag);
+        
+        if (currentDragHandle) {
+            currentDragHandle.style.cursor = 'grab';
+            currentDragHandle = null;
+        }
 
         [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
             d.classList.remove('drag-active');
