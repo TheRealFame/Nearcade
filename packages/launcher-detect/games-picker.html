@@ -26,6 +26,12 @@ html, body {
   font-family: 'IBM Plex Mono', monospace;
   overflow: hidden;
 }
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+::-webkit-scrollbar-corner { background: transparent; }
 .go-header {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 20px;
@@ -53,6 +59,33 @@ html, body {
   font-size: 13px; padding: 0;
 }
 .go-view-btn { padding: 6px 8px; font-size: 12px; }
+
+/* SVG Switch */
+.vr-switch-container {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px;
+  cursor: pointer;
+  margin-right: auto; /* Pushes everything else to the right */
+}
+.vr-switch-opt {
+  display: flex; align-items: center; justify-content: center;
+  padding: 4px 12px; border-radius: 18px;
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  transition: all 0.2s ease;
+  gap: 6px;
+}
+.vr-switch-opt svg {
+  width: 14px; height: 14px;
+  fill: currentColor;
+}
+.vr-switch-opt.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
 .go-search input {
   width: 160px; padding: 6px 9px;
   background: var(--surface); border: 1px solid var(--border);
@@ -163,12 +196,21 @@ html, body {
 </head>
 <body>
 <div class="go-header">
-  <h1>Game Library</h1>
+  <div id="vrSwitchGroup" class="vr-switch-container" style="display:none;" onclick="toggleVrFilter()">
+    <div id="swRegular" class="vr-switch-opt active">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+      Regular
+    </div>
+    <div id="swVr" class="vr-switch-opt">
+      <svg viewBox="0 0 24 24"><path d="M22 12l-4-4v3H6V8L2 12l4 4v-3h12v3z"></path><circle cx="9" cy="12" r="1"></circle><circle cx="15" cy="12" r="1"></circle></svg>
+      VR
+    </div>
+  </div>
+  <h1 style="margin-left:auto; margin-right:10px;">Game Library</h1>
   <div class="go-search">
     <input id="goSearch" placeholder="Filter..." oninput="filterGames()">
   </div>
   <button class="go-btn go-view-btn" id="goViewToggle" onclick="toggleView()" title="Toggle view">▦</button>
-  <button class="go-btn go-view-btn" id="goVrToggle" onclick="toggleVrFilter()" title="Show VR games only" style="display:none;">🕶 VR</button>
   <button class="go-btn go-btn-close" onclick="closePicker()" title="Close">✕</button>
 </div>
 <div class="go-body" id="goBody">
@@ -205,7 +247,8 @@ function lsSet(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 function toggleVrFilter() {
   vrOnly = !vrOnly;
   lsSet('ns_game_vronly', vrOnly);
-  document.getElementById('goVrToggle').classList.toggle('active', vrOnly);
+  document.getElementById('swRegular').classList.toggle('active', !vrOnly);
+  document.getElementById('swVr').classList.toggle('active', vrOnly);
   renderGames();
 }
 
@@ -241,10 +284,11 @@ function loadGames() {
   // The VR UI (badges + filter) only appears when the dashboard's Enable VR
   // setting is on — the switch drives this, nothing manual.
   fetch('/api/config').then(r => r.json()).then(cfg => {
-    vrUiEnabled = cfg && cfg.vrEnabled === true;
-    document.getElementById('goVrToggle').style.display = vrUiEnabled ? '' : 'none';
-    vrOnly = lsGet('ns_game_vronly', false);
-    document.getElementById('goVrToggle').classList.toggle('active', vrOnly);
+    vrUiEnabled = cfg && cfg.vrMode === true;
+    document.getElementById('vrSwitchGroup').style.display = vrUiEnabled ? 'flex' : 'none';
+    vrOnly = vrUiEnabled ? lsGet('ns_game_vronly', true) : false;
+    document.getElementById('swRegular').classList.toggle('active', !vrOnly);
+    document.getElementById('swVr').classList.toggle('active', vrOnly);
     renderGames();
   }).catch(() => {
     vrUiEnabled = false;
@@ -268,6 +312,12 @@ function loadGames() {
     .then(d => {
       allGames = d.games || [];
       try {
+        const cached = sessionStorage.getItem('ns_games');
+        if (cached && cached !== JSON.stringify(allGames)) {
+          parent.postMessage({ type: 'library-updated' }, '*');
+        } else if (!cached && allGames.length > 0) {
+          parent.postMessage({ type: 'library-updated' }, '*');
+        }
         sessionStorage.setItem('ns_games', JSON.stringify(allGames));
         sessionStorage.setItem('ns_games_at', String(Date.now()));
       } catch {}
@@ -295,6 +345,20 @@ function renderGames(filter) {
     const pa = counts[a.id] || 0;
     const pb = counts[b.id] || 0;
     if (pa !== pb) return pb - pa;
+    
+    // Prioritize VR tagged games ONLY if VR mode is actually enabled
+    if (vrUiEnabled) {
+      const vrA = (a.vr === true || a.vr === 'only') ? 1 : 0;
+      const vrB = (b.vr === true || b.vr === 'only') ? 1 : 0;
+      if (vrA !== vrB) return vrB - vrA; // 1 before 0
+    }
+    
+    // Sort by launcher priority
+    const launcherRank = { 'steam': 1, 'local': 2, 'heroic': 3 };
+    const ra = launcherRank[a.launcher] || 99;
+    const rb = launcherRank[b.launcher] || 99;
+    if (ra !== rb) return ra - rb;
+    
     return a.name.localeCompare(b.name);
   });
 
@@ -345,7 +409,10 @@ function gameTile(g) {
   const counts = getPlayCounts();
   const times = counts[g.id] || 0;
   const pinned = isPinned(g.id);
-  const imgUrl = g.launcher === 'steam' ? '/api/game-art/' + g.id : (g.artCover || '');
+  let imgUrl = g.launcher === 'steam' ? '/api/game-art/' + g.id : (g.artCover || '');
+  if (imgUrl && !imgUrl.startsWith('/api/') && !imgUrl.startsWith('http')) {
+    imgUrl = '/api/local-image?path=' + encodeURIComponent(imgUrl.replace(/^file:\/\//, ''));
+  }
   const name = g.name.replace(/[<>"&]/g, '');
   const isGrid = currentView === 'grid';
   const vrBadge = (vrUiEnabled && g.vr)

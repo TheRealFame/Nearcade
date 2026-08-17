@@ -23,7 +23,6 @@ function send(msg) {
         'eyetracking': 'backend_eyetracking.py',
         'lightgun': 'backend_lightguns.py',
         'adaptive': 'backend_adaptive.py',
-        'android': 'backend_android.py',
         'virtualmic': 'backend_virtualmic.py',
         'host_delay': isWin ? 'backend_hostdelay_win.py' : 'backend_hostdelay.py'
     };

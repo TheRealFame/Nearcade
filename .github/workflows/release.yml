@@ -94,7 +94,6 @@ jobs:
                 mv -f "$old" dist/Nearcade-Linux.AppImage
               fi
             done
-            rm -f dist/*-mac.yml dist/*-linux.yml dist/*.blockmap
           fi
           
           for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pacman dist/*.zip dist/*.yml dist/*.blockmap; do

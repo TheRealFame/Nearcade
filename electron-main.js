@@ -12,6 +12,8 @@ const { registerIpcHandlers } = require('./src/main/ipc');
 powerSaveBlocker.start('prevent-app-suspension');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 app.setName('Nearcade');
+app.setAppUserModelId('Nearcade');
+process.title = 'Nearcade';
 app.userAgentFallback = app.userAgentFallback + ' Nearcade/' + app.getVersion();
 
 const isArcadeWorker = process.argv.includes('--arcade-worker');

@@ -15,9 +15,11 @@
 
   <style>
     :root {
-      --bg: #050505;
-      --surface: rgba(20, 20, 25, 0.65);
-      --surface-hover: rgba(30, 30, 40, 0.85);
+      --bg-rgb: 5, 5, 5;
+      --surface-rgb: 20, 20, 25;
+      --bg: rgb(var(--bg-rgb));
+      --pg-surface: rgba(var(--surface-rgb), 0.65);
+      --pg-surface-hover: rgba(var(--surface-rgb), 0.85);
       --text: #ffffff;
       --muted: #a1a1aa;
       --border: rgba(255, 255, 255, 0.08);
@@ -153,14 +155,14 @@
 
     .action-row {
       display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr;
+      grid-template-columns: 2fr 1fr 1fr 1fr 1.5fr;
       gap: 16px;
-      height: 100px;
+      min-height: 100px;
       flex-shrink: 0;
     }
 
     .action-tile {
-      background: var(--surface);
+      background: var(--pg-surface);
       backdrop-filter: blur(20px);
       border-radius: var(--radius-md);
       border: 1px solid var(--border);
@@ -177,7 +179,7 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     }
     .action-tile:hover {
-      background: var(--surface-hover);
+      background: var(--pg-surface-hover);
       transform: translateY(-3px);
       box-shadow: 0 12px 32px rgba(0,0,0,0.4);
       border-color: rgba(255,255,255,0.2);
@@ -262,7 +264,7 @@
 
     .feed-panel {
       flex: 1;
-      background: var(--surface);
+      background: var(--pg-surface);
       backdrop-filter: blur(20px);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -356,7 +358,7 @@
 
   <!-- DASHBOARD BACK BUTTON -->
   <button onclick="if(window.electronAPI) window.electronAPI.backToDashboard(); else window.location.href='/dashboard';" 
-    style="position:fixed; top:24px; left:24px; z-index:9999; padding:10px 16px; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:8px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s;"
+    style="position:fixed; top:24px; left:24px; z-index:9999; padding:10px 16px; background:var(--pg-surface); border:1px solid var(--border); color:var(--text); border-radius:8px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s;"
     onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
     onmouseleave="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
     ← Dashboard

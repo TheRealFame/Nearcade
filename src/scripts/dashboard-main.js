@@ -161,13 +161,62 @@ function switchTab(name) {
     if (arcadeFrame && !arcadeFrame.getAttribute('src')) {
       const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
       const currentPort = _getServerPort();
-      arcadeFrame.src = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+      let url = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+      if (window.isVrFilterEnabled) {
+        url += '&vr=1';
+      }
+      arcadeFrame.src = url;
+      setTimeout(applyVrFilterState, 50); // Apply style when loaded
     }
   } else if (name === 'serverlist') {
     fetchCommunityServers();
   } else if (name === 'turnlist') {
     fetchCommunityTurnServers();
   }
+}
+
+window.isVrFilterEnabled = false; // Forced false until ready: localStorage.getItem('ns_vr_filter') === 'true';
+
+function applyVrFilterState() {
+  const btn = document.getElementById('vrFilterBtn');
+  if (!btn) return;
+  const icon = btn.querySelector('i');
+  const text = btn.querySelector('span');
+  
+  if (window.isVrFilterEnabled) {
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.boxShadow = '0 0 15px var(--accent-glow)';
+    if (icon) icon.style.color = 'var(--accent)';
+    if (text) text.style.color = 'var(--accent)';
+  } else {
+    btn.style.borderColor = 'var(--border)';
+    btn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+    if (icon) icon.style.color = 'var(--muted)';
+    if (text) text.style.color = 'var(--muted)';
+  }
+}
+
+window.toggleVrFilter = function() {
+  // Disabled until VR integration is finalized.
+  console.log("VR filter is temporarily disabled, just opening arcade.");
+  switchTab('arcade');
+  return;
+  /*
+  window.isVrFilterEnabled = !window.isVrFilterEnabled;
+  localStorage.setItem('ns_vr_filter', window.isVrFilterEnabled ? 'true' : 'false');
+  applyVrFilterState();
+
+  const arcadeFrame = document.querySelector('#panel-arcade iframe');
+  if (arcadeFrame) {
+    const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
+    const currentPort = _getServerPort();
+    let url = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+    if (window.isVrFilterEnabled) {
+      url += '&vr=1';
+    }
+    arcadeFrame.src = url;
+  }
+  */
 }
 
 let appConfig = {};
@@ -178,13 +227,14 @@ const DEFAULT_ACCENT_DIM = 'rgba(192,132,252,0.15)';
 const DEFAULT_ACCENT_GLOW = 'rgba(192,132,252,0.35)';
 
 async function applySystemAccent() {
-  const useAccent = appConfig.useSystemAccent === true;
+  const useAccent = appConfig.useSystemAccent !== undefined ? appConfig.useSystemAccent : (localStorage.getItem('ns_use_system_accent') === 'true');
   localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
   const indicator = document.getElementById('sysAccentIndicator');
   const root = document.documentElement;
 
   const applyDefault = () => {
     root.style.removeProperty('--accent');
+    root.style.removeProperty('--accent-rgb');
     root.style.removeProperty('--accent2');
     root.style.removeProperty('--accent-dim');
     root.style.removeProperty('--accent-glow');
@@ -211,6 +261,7 @@ async function applySystemAccent() {
     const g = parseInt(accent.slice(3, 5), 16);
     const b = parseInt(accent.slice(5, 7), 16);
     root.style.setProperty('--accent', accent);
+    root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
     root.style.setProperty('--accent2', accent);
     root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
     root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
@@ -236,15 +287,22 @@ async function applyNativeTheme() {
     root.style.removeProperty('--bg');
     root.style.removeProperty('--sidebar');
     root.style.removeProperty('--surface');
+    root.style.removeProperty('--surface-rgb');
     root.style.removeProperty('--surface-hover');
+    root.style.removeProperty('--card');
+    root.style.removeProperty('--card2');
     root.style.removeProperty('--text');
     root.style.removeProperty('--muted');
     root.style.removeProperty('--muted2');
     root.style.removeProperty('--border');
+    root.style.removeProperty('--bg-rgb');
     if (appConfig.useSystemAccent) {
       applySystemAccent();
     } else {
       root.style.removeProperty('--accent');
+    root.style.removeProperty('--accent-rgb');
+      root.style.removeProperty('--accent-dim');
+      root.style.removeProperty('--accent-glow');
     }
     if (indicator) indicator.style.display = 'none';
     return;
@@ -262,6 +320,33 @@ async function applyNativeTheme() {
       root.style.setProperty('--muted2', theme.muted2);
       root.style.setProperty('--border', theme.border);
       root.style.setProperty('--accent', theme.accent);
+
+      const hexToRgb = (hex) => {
+        if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
+        return {
+          r: parseInt(hex.slice(1,3), 16),
+          g: parseInt(hex.slice(3,5), 16),
+          b: parseInt(hex.slice(5,7), 16)
+        };
+      };
+
+      const acc = hexToRgb(theme.accent);
+      if (acc) {
+        root.style.setProperty('--accent-dim', `rgba(${acc.r},${acc.g},${acc.b},0.15)`);
+        root.style.setProperty('--accent-glow', `rgba(${acc.r},${acc.g},${acc.b},0.35)`);
+      }
+
+      const surf = hexToRgb(theme.surface);
+      if (surf) {
+        root.style.setProperty('--surface-rgb', `${surf.r}, ${surf.g}, ${surf.b}`);
+        root.style.setProperty('--card', `rgba(${surf.r},${surf.g},${surf.b},0.92)`);
+        root.style.setProperty('--card2', `rgba(${surf.r},${surf.g},${surf.b},0.95)`);
+      }
+
+      const bgRgb = hexToRgb(theme.bg);
+      if (bgRgb) {
+        root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
+      }
 
       appConfig.hostColor = theme.accent;
       localStorage.setItem('ns_chat_color', theme.accent);
@@ -428,6 +513,7 @@ function syncSettingsUI() {
   }
 
   document.getElementById('settingTrackRumble')?.classList.toggle('on', appConfig.rumble !== false);
+  document.getElementById('settingTrackVrMode')?.classList.toggle('on', !!appConfig.vrMode);
   document.getElementById('settingTrackHidMaestro')?.classList.toggle('on', !!appConfig.hidmaestro);
   document.getElementById('settingTrackTray')?.classList.toggle('on', appConfig.tray !== false);
   document.getElementById('settingTrackCheckForUpdates')?.classList.toggle('on', appConfig.checkForUpdates !== false);
@@ -441,6 +527,25 @@ function syncSettingsUI() {
   document.getElementById('settingTrackVsyncOff')?.classList.toggle('on', !!appConfig.vsyncOff);
   document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
   document.getElementById('settingTrackWindowsExperimental')?.classList.toggle('on', !!appConfig.windowsExperimental);
+
+  const brandText = document.querySelector('.brand-text');
+  if (brandText) {
+    brandText.textContent = appConfig.vrMode ? 'NEARCADE VR' : 'NEARCADE';
+  }
+  const gamesTabSpan = document.getElementById('gamesTab');
+  if (gamesTabSpan) {
+    gamesTabSpan.innerHTML = appConfig.vrMode ? 'V<br>R<br><br>G<br>A<br>M<br>E<br>S' : 'G<br>A<br>M<br>E<br>S';
+  }
+  const gamesLibBtn = document.querySelector('#gamesLibraryBtn span');
+  if (gamesLibBtn) {
+    gamesLibBtn.textContent = appConfig.vrMode ? 'VR Library' : 'Library';
+  }
+
+  // Expose Linux Advanced Setup on Linux regardless of vrMode
+  const linuxSetupRow = document.getElementById('settingRowLinuxSetup');
+  if (linuxSetupRow) {
+    linuxSetupRow.style.display = (window.electronAPI && navigator.platform.toLowerCase().includes('linux')) ? 'flex' : 'none';
+  }
 
   renderAutoHosts();
 
@@ -773,7 +878,7 @@ async function executeUnban(ip) {
 }
 
 function toggleAppSetting(key) {
-  if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent', 'useNativeTheme', 'windowsExperimental'].includes(key)) {
+  if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent', 'useNativeTheme', 'windowsExperimental', 'vrMode'].includes(key)) {
     appConfig[key] = !appConfig[key];
     const tk = key === 'hwDecode' ? 'HWDecode' :
       key === 'discordRPC' ? 'DiscordRPC' :
@@ -788,6 +893,37 @@ function toggleAppSetting(key) {
 
     if (key === 'useSystemAccent' && !appConfig.useNativeTheme) applySystemAccent();
     if (key === 'useNativeTheme') applyNativeTheme();
+    if (key === 'vrMode' && appConfig.vrMode && window.electronAPI && window.electronAPI.startWivrn) {
+      window.electronAPI.startWivrn().then(res => {
+        const modal = document.getElementById('wivrnModal');
+        const title = document.getElementById('wivrnModalTitle');
+        const body = document.getElementById('wivrnModalBody');
+        const actions = document.getElementById('wivrnModalActions');
+        if (modal && title && body && actions) {
+          if (res.success) {
+            title.innerHTML = '<span style="color:var(--green)">WiVRn Started</span>';
+            body.innerHTML = 'WiVRn server successfully started in the background.<br><br>Ready for headset connections!';
+            actions.innerHTML = `<button class="btn-confirm" onclick="document.getElementById('wivrnModal').classList.add('gone');">Dismiss</button>`;
+          } else {
+            title.innerHTML = '<span style="color:var(--danger)">WiVRn Failed to Start</span>';
+            body.innerHTML = `Failed to start WiVRn server.<br><br><span style="color:var(--danger)">Error: ${res.error || 'Unknown error'}</span><br><br>Did you run the Linux Advanced Installer script? It is required to install WiVRn dependencies.`;
+            actions.innerHTML = `
+              <button class="btn-skip" onclick="document.getElementById('wivrnModal').classList.add('gone'); toggleAppSetting('vrMode');" style="margin-right:8px;">Dismiss</button>
+              <button class="btn-confirm" onclick="document.getElementById('wivrnModal').classList.add('gone'); toggleAppSetting('vrMode'); if(window.electronAPI) window.electronAPI.runAdvancedLinuxSetup();">Run Installer</button>
+            `;
+          }
+          modal.classList.remove('gone');
+        }
+      }).catch(e => {
+        const modal = document.getElementById('wivrnModal');
+        if (modal) {
+          document.getElementById('wivrnModalTitle').innerHTML = '<span style="color:var(--danger)">Error</span>';
+          document.getElementById('wivrnModalBody').textContent = e.message;
+          document.getElementById('wivrnModalActions').innerHTML = `<button class="btn-confirm" onclick="document.getElementById('wivrnModal').classList.add('gone');">Dismiss</button>`;
+          modal.classList.remove('gone');
+        }
+      });
+    }
   } else {
     appConfig[key] = !appConfig[key];
   }
@@ -1087,7 +1223,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const linuxSetupRow = document.getElementById('settingRowLinuxSetup');
   if (linuxSetupRow) {
-    linuxSetupRow.style.display = (window.electronAPI && navigator.platform.toLowerCase().includes('linux')) ? 'flex' : 'none';
+    // Only expose the Advanced Setup (Linux) row if Nearcade VR Mode is actually enabled
+    linuxSetupRow.style.display = (window.electronAPI && navigator.platform.toLowerCase().includes('linux') && appConfig.vrMode) ? 'flex' : 'none';
   }
 
   // 2. Restore UI version toggle
@@ -1491,6 +1628,7 @@ function openAutoHostTerminal() {
 (function () {
   const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
   if (isLinux) { const b = document.getElementById('btnOpenTerminal'); if (b) b.style.display = 'block'; }
+  if (!isLinux) { const v = document.getElementById('settingRowVrMode'); if (v) v.style.display = 'none'; }
 })();
 
 function killGame() {

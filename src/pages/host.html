@@ -168,7 +168,10 @@
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <span id="trackInfoAlt" class="info-text"
               style="font-size:10px;color:var(--muted2);line-height:1.4;flex:1;">No stream active</span>
-            <span class="codec-badge" id="codecBadge" style="flex-shrink:0;">—</span>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <span class="codec-badge" id="vrBadge" style="display:none;background:var(--accent);color:#000;">VR</span>
+              <span class="codec-badge" id="codecBadge" style="flex-shrink:0;">—</span>
+            </div>
           </div>
 
           <div id="liveResDisplay" style="font-size:9px;color:var(--muted2);display:none;margin-top:4px;">

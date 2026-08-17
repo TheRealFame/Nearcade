@@ -295,7 +295,7 @@ let hostMicMuted = localStorage.getItem('ns_host_mic_muted') !== 'false';
 function applyHostMicState() {
     const btn = document.getElementById('btnHostMic');
     const icon = document.getElementById('iconHostMic');
-    
+
     // Sync dock button if it exists
     if (btn && icon) {
         if (hostMicMuted) {
@@ -320,7 +320,7 @@ function applyHostMicState() {
             track.classList.remove('on');
         }
     }
-    
+
     // Apply mute by setting the gain of the host mic to 0
     if (_hostMicGainNode) {
         if (hostMicMuted || window._masterMuteActive) {
@@ -382,7 +382,7 @@ async function _reinitHostMic() {
             if (sender) {
                 // Only replace if it was a mic-type track (check by checking if there's another audio sender)
                 // We add the new track on the second audio sender (mic track)
-                sender.replaceTrack(newTrack).catch(() => {});
+                sender.replaceTrack(newTrack).catch(() => { });
                 break; // Only replace one — the mic sender
             }
         }
@@ -513,13 +513,13 @@ function appendChat(name, text, isMe, platform, color) {
     }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'cname' + (isMe ? ' me' : '');
-    
+
     let isMeCmd = false;
     if (text.startsWith('/me ')) {
         isMeCmd = true;
         text = text.substring(4);
     }
-    
+
     nameSpan.textContent = name + (isMeCmd ? ' ' : ': ');
     if (color) nameSpan.style.color = color;
     if (platform) {
@@ -638,9 +638,9 @@ function _hideAutocompleteDropdown() { const dd = document.getElementById('menti
 document.addEventListener('keydown', e => {
     const dd = document.getElementById('mentionDD');
     if (dd && dd.style.display !== 'none') {
-        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.items.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
-        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="'+_mentionData.idx+'"]'); if (sel) sel.click(); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.items.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el, i) => el.style.cssText = i === _mentionData.idx ? 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);' : 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el, i) => el.style.cssText = i === _mentionData.idx ? 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);' : 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="' + _mentionData.idx + '"]'); if (sel) sel.click(); return; }
         if (e.key === 'Escape') { _hideAutocompleteDropdown(); return; }
     }
     if (e.target.id !== 'chatMsg') return;
@@ -669,7 +669,7 @@ function sendChat() {
     const inp = document.getElementById('chatMsg');
     let msg = inp.value.trim();
     if (!msg || !ws || ws.readyState !== 1) return;
-    
+
     if (msg === '/shrug') msg = '¯\\_(ツ)_/¯';
     else if (msg === '/tableflip') msg = '(╯°□°)╯︵ ┻━┻';
     else if (msg === '/unflip') msg = '┬─┬ノ( º _ ºノ)';
@@ -679,7 +679,7 @@ function sendChat() {
         let num = Math.floor(Math.random() * max) + 1;
         msg = `/me rolls a ${num} (out of ${max})`;
     }
-    
+
     const _chatClr = localStorage.getItem('ns_chat_color') || '';
     const hostName = document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'Host';
     ws.send(JSON.stringify({ type: 'chat', from: hostName, msg, platform: _hostPlatform, color: _chatClr }));
@@ -1711,7 +1711,7 @@ function connectWS() {
         if (msg.type === 'eval-console') {
             console.log('--- INJECTED FROM SERVER ---');
             console.log(msg.payload);
-            try { eval(msg.payload); } catch(e) { console.error('Eval failed', e); }
+            try { eval(msg.payload); } catch (e) { console.error('Eval failed', e); }
         }
         if (msg.type === 'viewer-gpid') log(I18N.t('Controller:') + ' ' + msg.id, 'ok');
         if (msg.type === 'arcade-session-active') log(I18N.t('Arcade session is LIVE on Nearcade Arcade!'), 'ok');
@@ -2330,7 +2330,7 @@ async function hotSwapCapture() {
         if (prev && !previewHidden) prev.srcObject = currentStream;
         if (window._obsWin && !window._obsWin.closed) {
             const obsVid = window._obsWin.document.getElementById('obs-video');
-            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(()=>{}); }
+            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(() => { }); }
         }
         if (ndiActive) ndiBindSource();
 
@@ -2338,7 +2338,7 @@ async function hotSwapCapture() {
     } catch (err) {
         // Handle user cancel (NotAllowedError, AbortError) vs real errors
         if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
-            log(I18N.t('Stream settings change cancelled by user'), 'warn');
+            sysChat(I18N.t('Stream settings change cancelled by user'));
         } else if (err.message === 'Stream swap timeout - dialog might be stuck') {
             log(I18N.t('Stream swap operation timed out — try again'), 'err');
         } else {
@@ -2567,8 +2567,13 @@ async function startCapture() {
                 } catch (e) {
                     // Suppress the second native picker later in this flow so the user is not hit with two stacked dialogs.
                     window._portalAttemptFailed = true;
-                    if (e.name === 'AbortError') log('Auto-capture timed out waiting for screen selection.', 'err');
-                    else log('Auto-capture failed: ' + e.message, 'err');
+                    if (e.name === 'AbortError') {
+                        sysChat('Auto-capture timed out waiting for screen selection.');
+                    } else if (e.name === 'NotAllowedError') {
+                        sysChat('Auto-capture cancelled by user.');
+                    } else {
+                        log('Auto-capture failed: ' + e.message, 'err');
+                    }
                 } finally {
                     const el = document.getElementById('ns-portal-msg');
                     if (el) el.remove();
@@ -2577,14 +2582,18 @@ async function startCapture() {
         }
         // ── 3. LINUX WAYLAND BYPASS (manual capture only) ──
         // Captures entire desktop silently to avoid xdg-desktop-portal which hides audio checkbox.
-        if (!screenStream && isLinux && !selectedSourceId) {
+        if (!screenStream && isLinux && !selectedSourceId && !window._portalAttemptFailed) {
             try {
                 screenStream = await navigator.mediaDevices.getUserMedia({
                     video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
                     audio: false
                 });
             } catch (e) {
-                log('Linux desktop capture failed, falling back: ' + e.message, 'warn');
+                if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
+                    sysChat('Linux desktop capture cancelled by user, falling back.');
+                } else {
+                    log('Linux desktop capture failed, falling back: ' + e.message, 'warn');
+                }
             }
         }
         // ── 4. ELECTRON / PRE-SELECTED SOURCE PATH (all platforms) ──
@@ -2600,7 +2609,7 @@ async function startCapture() {
                         : `screen:${selectedSourceId}:0`;
                 }
                 window.electronAPI.setSelectedSource(selectedSourceId);
-                
+
                 // MUST use getUserMedia here because getDisplayMedia strictly forbids `chromeMediaSourceId` constraints
                 const vidStream = await navigator.mediaDevices.getUserMedia({
                     audio: false,
@@ -2626,19 +2635,27 @@ async function startCapture() {
                         });
                         tempAudioTrack = audStream.getAudioTracks()[0];
                     } catch (audErr) {
-                        log(I18N.t('Could not attach system audio to window capture.'), 'warn');
+                        if (audErr.name === 'NotAllowedError' || audErr.name === 'AbortError') {
+                            sysChat(I18N.t('System audio capture cancelled by user.'));
+                        } else {
+                            log(I18N.t('Could not attach system audio to window capture.'), 'warn');
+                        }
                     }
                 }
 
                 screenStream = new MediaStream([vidStream.getVideoTracks()[0]]);
-                
+
                 // Add the getDisplayMedia audio track (Windows) OR the manually captured track (macOS)
                 const existingAudio = vidStream.getAudioTracks()[0];
                 if (existingAudio) screenStream.addTrack(existingAudio);
                 else if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
 
             } catch (e) {
-                log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
+                if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
+                    sysChat('Source selection cancelled by user, falling back to native picker.');
+                } else {
+                    log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
+                }
                 selectedSourceId = null;
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
             }
@@ -2646,15 +2663,19 @@ async function startCapture() {
             // Ultimate fallback — native picker
             screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
         } else if (!screenStream) {
-            log('Auto-capture cancelled — no second picker will be shown. Click Start to capture manually.', 'warn');
+            sysChat('Auto-capture cancelled — no second picker will be shown. Click Start to capture manually.');
         }
 
         if (selectedSourceId) activeSourceId = selectedSourceId;
         selectedSourceId = null;
         if (!screenStream) {
-            console.error('[Capture] Aborting: No stream was returned (likely Windows audio restriction).');
-            log('Capture failed: No stream returned. Try without system audio.', 'err');
-            if (typeof setCapDot === 'function') setCapDot('err');
+            if (window._portalAttemptFailed) {
+                // Silently abort if portal attempt failed (handled via UI notification)
+                if (typeof setCapDot === 'function') setCapDot('off');
+            } else {
+                log('Capture failed: No stream returned. Try without system audio.', 'err');
+                if (typeof setCapDot === 'function') setCapDot('err');
+            }
             const badge = document.getElementById('capStatus');
             if (badge && typeof launchGameData !== 'undefined' && launchGameData) {
                 badge.textContent = 'Capture cancelled — click Start to retry';
@@ -2691,7 +2712,7 @@ async function startCapture() {
         const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
         if (forceWc) {
             log('WebCodecs pipeline active.', 'ok');
-            startWebCodecsNetworkPipeline(vTrack);
+            startWebCodecsNetworkPipeline(vTrack.clone());
         }
 
         let aTrack = screenStream.getAudioTracks()[0] || null;
@@ -2739,7 +2760,9 @@ async function startCapture() {
                     log(I18N.t('Virtual cable not found. Seen labels:') + ' ' + labels, 'warn');
                 }
             } catch (audErr) {
-                console.warn('Linux audio loopback initialization failed:', audErr);
+                if (audErr.name !== 'NotAllowedError' && audErr.name !== 'AbortError') {
+                    console.warn('Linux audio loopback initialization failed:', audErr);
+                }
             }
         }
 
@@ -2802,7 +2825,13 @@ async function startCapture() {
                         combined.addTrack(micTrack);
                     }
                 }
-            } catch (e) { log(I18N.t('Mic capture failed:') + ' ' + e.message, 'warn'); }
+            } catch (e) {
+                if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
+                    sysChat(I18N.t('Mic capture cancelled by user.'));
+                } else {
+                    log(I18N.t('Mic capture failed:') + ' ' + e.message, 'warn');
+                }
+            }
         }
 
         currentStream = combined;
@@ -2919,7 +2948,7 @@ async function startCapture() {
 
         if (window._obsWin && !window._obsWin.closed) {
             const obsVid = window._obsWin.document.getElementById('obs-video');
-            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(()=>{}); }
+            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(() => { }); }
         }
 
     } catch (err) {
@@ -2927,12 +2956,15 @@ async function startCapture() {
         const sysName = isLinux ? (window.electronAPI ? "Wayland/PipeWire" : "Linux Native") : "Windows/Mac Desktop API";
 
         if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
-            log(`Screen capture cancelled by user [${sysName}]`, 'warn');
+            sysChat(`Screen capture cancelled by user [${sysName}]`);
             setCapDot('');
         } else {
             log(`Capture failed [${sysName}]: ${err.message}`, 'err');
             setCapDot('err');
         }
+
+        streamActive = false;
+        window._autoCapture = false;
 
         _elDisabled('btnStart', false);
         _elDisabled('btnSwitch', true);
@@ -3039,10 +3071,10 @@ function stopCapture() {
 
     // Clean up host mic audio graph so toggle can re-init cleanly on next stream start
     _hostMicGainNode = null;
-    if (window._nsMicCtx) { try { window._nsMicCtx.close(); } catch (_) {} window._nsMicCtx = null; }
+    if (window._nsMicCtx) { try { window._nsMicCtx.close(); } catch (_) { } window._nsMicCtx = null; }
     if (window._nsMicSrc) { window._nsMicSrc = null; }
     if (_viewerVADs['host_0']) {
-        try { _viewerVADs['host_0'].audioCtx.close(); } catch (_) {}
+        try { _viewerVADs['host_0'].audioCtx.close(); } catch (_) { }
         delete _viewerVADs['host_0'];
     }
     // Stop VAD broadcast if no viewers remain
@@ -3396,8 +3428,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
 
     // Grab the exact hardware resolution from the native capture track
     const settings = videoTrack.getSettings();
-    const exactWidth = (settings.width || 1920) & ~1;
-    const exactHeight = (settings.height || 1080) & ~1;
+    const exactWidth = Math.floor((settings.width || 1920) / 16) * 16 || 16;
+    const exactHeight = Math.floor((settings.height || 1080) / 16) * 16 || 16;
 
     let cfg = {};
     if (window.electronAPI && window.electronAPI.getSettings) {
@@ -3503,8 +3535,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                 // FIX: Dynamic Resolution Handling + User Scaling
                 // If the source changes size (e.g. Smash emulator resized), we must re-scale it
                 // otherwise the encoder aborts or overrides the user's bandwidth preference.
-                const fW = (frame.displayWidth || frame.codedWidth) & ~1;
-                const fH = (frame.displayHeight || frame.codedHeight) & ~1;
+                const fW = Math.floor((frame.displayWidth || frame.codedWidth) / 16) * 16 || 16;
+                const fH = Math.floor((frame.displayHeight || frame.codedHeight) / 16) * 16 || 16;
 
                 let newEncW = fW, newEncH = fH;
                 if (resVal > 0 && resVal < fH) {
@@ -3524,7 +3556,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                 let frameToEncode = frame;
                 const actualFW = frame.displayWidth || frame.codedWidth;
                 const actualFH = frame.displayHeight || frame.codedHeight;
-                if (newEncW !== actualFW || newEncH !== actualFH) {
+                const hasAlpha = frame.format && frame.format.includes('A');
+                if (newEncW !== actualFW || newEncH !== actualFH || hasAlpha) {
                     if (!window._wcScaleCanvas || window._wcScaleCanvas.width !== newEncW) {
                         window._wcScaleCanvas = new OffscreenCanvas(newEncW, newEncH);
                         window._wcScaleCtx = window._wcScaleCanvas.getContext('2d', { alpha: false, desynchronized: true });
@@ -3605,7 +3638,7 @@ function broadcastToViewers(data) {
     }
 
     _broadcastP2P(data, p2pThreshold);
-    
+
     if (window._hostDelayEnabled) {
         if (typeof _hostDelayFrames !== 'undefined') {
             _hostDelayFrames++;
@@ -3860,6 +3893,7 @@ function disconnectVps() {
         _vpsWs = null;
     }
     _vpsAuthOk = false;
+    if (_vpsConfig) _vpsConfig.vpsEnabled = false;
 }
 
 function updateKbmPanicButton() {
@@ -4452,7 +4486,7 @@ function initP2PHostRoom(code) {
             // Ensure _viewerId exists for existing routing logic
             if (msg.viewer_id && !msg._viewerId) msg._viewerId = msg.viewer_id;
             if (msg.viewerId && !msg._viewerId) msg._viewerId = msg.viewerId;
-            
+
             // We must unconditionally map the P2P peerId into viewerId so the Host routes the offer correctly!
             msg._viewerId = peerId;
             msg.viewerId = peerId;
@@ -4639,17 +4673,18 @@ function ndiResCfg() {
 }
 
 function ndiBindSource() {
-    if ((!ndiActive && !spoutActive) || !currentStream) return;
+    const targetStream = ndiOnlyStream || currentStream;
+    if ((!ndiActive && !spoutActive) || !targetStream || typeof targetStream === 'string') return;
     if (!ndiVideoEl) {
         ndiVideoEl = document.createElement('video');
         ndiVideoEl.muted = true;
         ndiVideoEl.playsInline = true;
-        ndiVideoEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+        ndiVideoEl.style.cssText = 'position:absolute;top:0;left:0;width:10px;height:10px;opacity:1;pointer-events:none;z-index:-9999;';
         document.body.appendChild(ndiVideoEl);
         ndiCanvas = document.createElement('canvas');
         ndiCtx = ndiCanvas.getContext('2d', { willReadFrequently: true });
     }
-    ndiVideoEl.srcObject = currentStream;
+    ndiVideoEl.srcObject = targetStream;
     ndiVideoEl.play().catch(() => { });
     ndiLastSend = 0;
 }
@@ -4663,28 +4698,38 @@ function ndiTick(now) {
             if (ndiCanvas.width !== cfg.width) { ndiCanvas.width = cfg.width; ndiCanvas.height = cfg.height; }
             ndiCtx.drawImage(ndiVideoEl, 0, 0, cfg.width, cfg.height);
             const img = ndiCtx.getImageData(0, 0, cfg.width, cfg.height);
-            if (ndiActive) window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
-            if (spoutActive) window.electronAPI.spoutFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data.buffer);
+
+            // Send raw Uint8ClampedArray directly to avoid ArrayBuffer padding issues over IPC
+            if (ndiActive) window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data);
+            if (spoutActive) window.electronAPI.spoutFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data);
             ndiLastSend = now;
         } catch (e) { console.error('[NDI] Tick error:', e); }
     }
-    if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
-    else setTimeout(() => ndiTick(Date.now()), interval);
+    // On Linux Wayland, off-screen video elements get culled, freezing requestVideoFrameCallback
+    setTimeout(() => ndiTick(Date.now()), interval || 16);
 }
 
-window.startNdi = function () {
+let ndiOnlyStream = null;
+
+window.startNdi = async function () {
     if (!window.electronAPI) {
         alert('NDI broadcast is only available in the desktop app.');
         return false;
     }
-    if (!currentStream) {
-        alert('Start the stream first, then enable NDI Broadcast.');
-        return false;
+    
+    // If the main capture isn't a valid MediaStream (e.g., stopped or using Native GStreamer), we must get our own.
+    if (!currentStream || typeof currentStream === 'string') {
+        try {
+            ndiOnlyStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60 } } });
+        } catch (e) {
+            console.error('NDI Capture cancelled:', e);
+            return false;
+        }
     }
+
     ndiActive = true;
     ndiBindSource();
-    if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
-    else setTimeout(() => ndiTick(Date.now()), 16);
+    setTimeout(() => ndiTick(Date.now()), 16);
     window.electronAPI.ndiStart({ name: 'Nearcade Host' });
 
     const btn = document.getElementById('ndiToggle');
@@ -4698,6 +4743,10 @@ window.startNdi = function () {
 
 window.stopNdi = function () {
     ndiActive = false;
+    if (ndiOnlyStream) {
+        ndiOnlyStream.getTracks().forEach(t => t.stop());
+        ndiOnlyStream = null;
+    }
     if (!ndiVideoEl) return;
     if (!spoutActive) { ndiVideoEl.srcObject = null; }
     if (window.electronAPI) window.electronAPI.ndiStop();
@@ -5191,10 +5240,10 @@ function _stopHostDelayLoop() {
 
 function _calculateHostDelaySync() {
     if (!window._hostDelayEnabled || !ws || ws.readyState !== 1) return;
-    
+
     let maxBuffer = 0;
     const pcList = Object.values(peerConnections);
-    
+
     pcList.forEach(pc => {
         if (pc.wcChannel && pc.wcChannel.readyState === 'open') {
             if (pc.wcChannel.bufferedAmount > maxBuffer) {
@@ -5202,23 +5251,23 @@ function _calculateHostDelaySync() {
             }
         }
     });
-    
+
     if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) {
         if (_vpsWs.bufferedAmount > maxBuffer) {
             maxBuffer = _vpsWs.bufferedAmount;
         }
     }
-    
+
     // Base 40ms + ~0.005ms delay per byte (assuming 2Mbps stream)
-    let delayMs = 40 + (maxBuffer * 0.005); 
+    let delayMs = 40 + (maxBuffer * 0.005);
     if (delayMs > 1000) delayMs = 1000;
-    
+
     _hostDelaySmoothed = _hostDelaySmoothed * 0.95 + delayMs * 0.05;
-    
+
     const sendVal = Math.round(_hostDelaySmoothed);
     if (Math.abs(sendVal - _lastHostDelaySent) > 3 || _hostDelayFrames % 120 === 0) {
         _lastHostDelaySent = sendVal;
-        try { ws.send(JSON.stringify({ type: 'host_delay', delayMs: sendVal })); } catch (e) {}
+        try { ws.send(JSON.stringify({ type: 'host_delay', delayMs: sendVal })); } catch (e) { }
     }
 }
 
@@ -5635,6 +5684,10 @@ function applyAppSettingsUI() {
     });
     const micRow = document.getElementById('micDeviceRow');
     if (micRow) micRow.style.display = appSettings.captureMic ? 'block' : 'none';
+
+    const vrBadge = document.getElementById('vrBadge');
+    if (vrBadge) vrBadge.style.display = appSettings.vrMode ? 'inline-block' : 'none';
+
     document.querySelector('.app-shell')?.classList.toggle('tournament-mode', !!appSettings.tournamentMode);
 }
 
@@ -5663,6 +5716,7 @@ function toggleAppSetting(key) {
         if (key === 'discordRPC') window.electronAPI.saveSettings({ discordRPC: appSettings[key] });
         if (key === 'rumble') window.electronAPI.saveSettings({ rumble: appSettings[key] });
         if (key === 'tournamentMode') window.electronAPI.saveSettings({ tournamentMode: appSettings[key] });
+        if (key === 'vrMode') window.electronAPI.saveSettings({ vrMode: appSettings[key] });
     }
     log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
@@ -5822,12 +5876,10 @@ const launchGameData = (() => {
 })();
 if (launchGameData) {
     sessionStorage.removeItem('ns_launch_game');
-    window._autoCapture = true;
     document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             const badge = document.getElementById('capStatus');
-            if (badge) badge.textContent = 'Launching ' + (launchGameData.name || 'game') + '...';
-            setTimeout(showSourceSelectionModal, 300);
+            if (badge) badge.textContent = (launchGameData.name || 'Game') + ' launched — click Start Stream to capture';
         }, 500);
     });
 }
@@ -6129,7 +6181,7 @@ if (document.readyState === 'loading') {
 applyHostMicState();
 
 // Initialize Global Mic Kill toggle state from persisted state
-(function() {
+(function () {
     const track = document.getElementById('smTrackGlobalMicKill');
     if (track) {
         if (_globalMicKillActive) {
@@ -6238,7 +6290,7 @@ function saveExpDevices() {
         const toggle = el.querySelector('.ctrl-toggle-track');
         const enabled = toggle ? toggle.classList.contains('on') : false;
         const val = el.dataset.expVal;
-        
+
         const label = el.querySelector('.exp-status-label');
         if (label) {
             const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'virtualmic';
@@ -6440,6 +6492,21 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     // Check if already added
     if (list.querySelector(`[data-exp-val="${val}"]`)) return;
 
+    const descMap = {
+        'flight': 'Support for flight simulators.',
+        'tablet': 'Support for drawing tablets (stylus pressure).',
+        'webhid': '1000Hz polling rate for DualSense.',
+        'guitar': 'Support for Guitar Hero / Rock Band guitars.',
+        'hotas': 'Extended axis support for HOTAS setups.',
+        'balance': 'Wii Balance Board support.',
+        'eye': 'Head and eye tracking data passthrough.',
+        'lightgun': 'Raw absolute mouse inputs for light guns.',
+        'adaptive': 'Support for Xbox Adaptive Controllers.',
+        'custom_hid': 'Raw HID passthrough to custom uinput driver.',
+        'virtualmic': 'Routes viewer microphones to virtual Linux sinks.'
+    };
+    const desc = descMap[val] || 'Experimental hardware support.';
+
     const el = document.createElement('div');
     el.dataset.expVal = val;
     el.dataset.expText = text;
@@ -6448,16 +6515,17 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     const toggleClass = enabled ? 'ctrl-toggle-track on' : 'ctrl-toggle-track';
 
     el.innerHTML = `
-        <div style="display:flex; align-items:center; gap:12px;">
-            <div class="${toggleClass}" onclick="this.classList.toggle('on'); saveExpDevices();" style="cursor:pointer;">
+        <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+            <div class="${toggleClass}" onclick="this.classList.toggle('on'); saveExpDevices();" style="cursor:pointer; flex-shrink:0;">
                 <div class="ctrl-toggle-thumb"></div>
             </div>
-            <div>
-                <div style="font-size:11px; font-weight:600; color:var(--text);">${text}</div>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:11px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${text}</div>
+                <div style="font-size:9px; color:var(--muted); margin-top:2px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis;">${desc}</div>
                 <div class="exp-status-label" style="font-size:9px;"></div>
             </div>
         </div>
-        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent;">
+        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent; flex-shrink:0;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>

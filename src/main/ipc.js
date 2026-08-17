@@ -13,11 +13,11 @@ const { loadControllers, saveSettings, saveSettingsSync } = require('./config');
 // Lazy-require InputOrchestrator so it's available after init()
 let _inputDriver = null;
 function _getInputDriver() {
-    if (!_inputDriver) {
-        try { _inputDriver = require('../sidecar/input_backends/InputOrchestrator'); }
-        catch (_) { _inputDriver = null; }
-    }
-    return _inputDriver;
+  if (!_inputDriver) {
+    try { _inputDriver = require('../sidecar/input_backends/InputOrchestrator'); }
+    catch (_) { _inputDriver = null; }
+  }
+  return _inputDriver;
 }
 
 let selectedSourceId = null;
@@ -29,18 +29,23 @@ function ndiForward(eventName, ...args) {
 }
 function ndiSpawnWorker() {
   if (ndiProc) return ndiProc;
-  ndiProc = utilityProcess.fork(path.join(__dirname, 'ndi-egress-worker.js'), [], { stdio: 'ignore' });
+  const { fork } = require('child_process');
+  ndiProc = fork(path.join(__dirname, 'ndi-egress-worker.js'), [], { 
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, 
+    stdio: 'ignore',
+    serialization: 'advanced'
+  });
   ndiProc.on('message', (msg) => {
     if (!msg || typeof msg !== 'object') return;
     if (msg.ev === 'error') ndiForward('ndi-status', { running: false, error: msg.msg });
     else ndiForward('ndi-status', msg);
   });
   ndiProc.on('exit', () => { ndiProc = null; ndiForward('ndi-status', { running: false, error: 'NDI worker exited' }); });
-  ndiProc.postMessage({ op: 'init' });
+  ndiProc.send({ op: 'init' });
   return ndiProc;
 }
 function ndiKillWorker() {
-  if (ndiProc) { try { ndiProc.postMessage({ op: 'stop' }); } catch (_) { } try { ndiProc.kill(); } catch (_) { } ndiProc = null; }
+  if (ndiProc) { try { ndiProc.send({ op: 'stop' }); } catch (_) { } try { ndiProc.kill(); } catch (_) { } ndiProc = null; }
 }
 app.on('before-quit', ndiKillWorker);
 
@@ -154,7 +159,7 @@ function registerIpcHandlers(ctx) {
           if (match) s.customUrl = (match[1] || '').trim().replace(/^['"]|['"]$/g, '');
         });
       }
-    } catch (_) {}
+    } catch (_) { }
     if (process.env.CUSTOM_URL && !s.customUrl) s.customUrl = process.env.CUSTOM_URL.trim();
     return s;
   });
@@ -168,8 +173,8 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle('save-vps-config', (_, cfg) => {
     const delta = {};
     if (typeof cfg.vpsEnabled !== 'undefined') delta.vpsEnabled = ctx.settings.vpsEnabled = !!cfg.vpsEnabled;
-    if (typeof cfg.vpsUrl !== 'undefined') delta.vpsUrl = ctx.settings.vpsUrl = String(cfg.vpsUrl).slice(0, 512);
-    if (typeof cfg.vpsMasterKey !== 'undefined') delta.vpsMasterKey = ctx.settings.vpsMasterKey = String(cfg.vpsMasterKey).slice(0, 256);
+    if (cfg.vpsUrl !== undefined) delta.vpsUrl = ctx.settings.vpsUrl = String(cfg.vpsUrl).slice(0, 512);
+    if (cfg.vpsMasterKey !== undefined) delta.vpsMasterKey = ctx.settings.vpsMasterKey = String(cfg.vpsMasterKey).slice(0, 256);
     saveSettings(delta);
     return {
       vpsEnabled: !!ctx.settings.vpsEnabled,
@@ -362,10 +367,10 @@ function registerIpcHandlers(ctx) {
     try {
       const { getThemeColors } = require('../../packages/native-palette');
       const theme = getThemeColors();
-      
+
       // Force Electron to synchronize the titlebar and dialog colors with the OS
       nativeTheme.themeSource = 'system';
-      
+
       return theme;
     } catch (e) {
       console.error('[ipc] Failed to fetch native theme:', e);
@@ -391,7 +396,7 @@ function registerIpcHandlers(ctx) {
 
     const captureParams = [];
     if (ctx.settings.captureMethod) {
-        captureParams.push(`pipeline=${encodeURIComponent(ctx.settings.captureMethod)}`);
+      captureParams.push(`pipeline=${encodeURIComponent(ctx.settings.captureMethod)}`);
     }
     // Legacy fallback flags
     if (ctx.settings.captureMethod === 'custom_webcodecs') captureParams.push('wc=2');
@@ -432,7 +437,7 @@ function registerIpcHandlers(ctx) {
         await ctx.win.webContents.executeJavaScript(
           `if (typeof stopArcadeOnly === 'function') stopArcadeOnly();`
         );
-      } catch (_) {}
+      } catch (_) { }
       await ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1`);
     }
     return true;
@@ -447,7 +452,7 @@ function registerIpcHandlers(ctx) {
       } else if (process.platform === 'win32') {
         artifactsFound = fs.existsSync('C:\\Windows\\System32\\drivers\\ViGEmBus.sys');
       }
-    } catch (_) {}
+    } catch (_) { }
 
     if (artifactsFound) {
       ctx.settings.firstRunComplete = true;
@@ -477,7 +482,7 @@ function registerIpcHandlers(ctx) {
       if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
       const buf = Buffer.from(await res.arrayBuffer());
       fs.writeFileSync(destPath, buf);
-      try { fs.chmodSync(destPath, 0o755); } catch (_) {}
+      try { fs.chmodSync(destPath, 0o755); } catch (_) { }
       return { success: true, path: destPath };
     } catch (e) {
       return { success: false, error: e.message };
@@ -489,6 +494,18 @@ function registerIpcHandlers(ctx) {
     const altPath = hmPath.replace('app.asar', 'app.asar.unpacked');
     const exists = fs.existsSync(hmPath) || fs.existsSync(altPath);
     return { exists, path: fs.existsSync(hmPath) ? hmPath : (fs.existsSync(altPath) ? altPath : null) };
+  });
+
+  ipcMain.handle('start-wivrn', async () => {
+    try {
+      const { spawn } = require('child_process');
+      const relayPath = path.join(ROOT_DIR, 'src', 'wivrn', 'relay.js');
+      const p = spawn('node', [relayPath], { detached: true, stdio: 'ignore' });
+      p.unref();
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   });
 
   ipcMain.handle('check-tunnel-installed', (_event, name) => {
@@ -512,7 +529,7 @@ function registerIpcHandlers(ctx) {
           execSync(`${c} ${n}`, { stdio: 'ignore' });
           onPath = true;
           break;
-        } catch (_) {}
+        } catch (_) { }
       }
     }
     return { installed: inConfig || onPath, inConfig, onPath };
@@ -544,14 +561,14 @@ function registerIpcHandlers(ctx) {
   // ── NDI egress IPC ──
   ipcMain.on('ndi:start', (_e, cfg) => {
     try {
-      ndiSpawnWorker().postMessage({ op: 'start', cfg: cfg || {} });
+      ndiSpawnWorker().send({ op: 'start', cfg: cfg || {} });
     } catch (err) {
       ndiForward('ndi-status', { running: false, error: String(err && err.message || err) });
     }
   });
   ipcMain.on('ndi:frame', (_e, meta, buffer) => {
     if (!ndiProc) return;
-    try { ndiProc.postMessage({ op: 'frame', meta: meta || {}, buffer }); } catch (_) { }
+    try { ndiProc.send({ op: 'frame', meta: meta || {}, buffer }); } catch (_) { }
   });
   ipcMain.on('ndi:stop', () => ndiKillWorker());
 
@@ -898,7 +915,7 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('drm-capture-stop', async () => {
     if (drmChild) {
-      try { drmChild.postMessage({ type: 'stop' }); } catch {}
+      try { drmChild.postMessage({ type: 'stop' }); } catch { }
       setTimeout(() => { if (drmChild) { drmChild.terminate(); drmChild = null; drmReady = false; drmDims = null; } }, 1000);
     }
     drmReady = false;
@@ -969,5 +986,7 @@ function registerIpcHandlers(ctx) {
     });
   }
 }
+
+module.exports = { registerIpcHandlers };
 
 module.exports = { registerIpcHandlers };

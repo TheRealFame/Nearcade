@@ -13,18 +13,21 @@ function status(kind, extra) {
     try { s.connections = sender.connections(); } catch (_) { s.connections = 0; }
   }
   Object.assign(s, extra || {});
-  process.parentPort.postMessage(s);
+  if (process.parentPort) process.parentPort.postMessage(s);
+  else if (process.send) process.send(s);
 }
 
 function init() {
   try {
     grandi = require('grandi');
   } catch (e) {
-    process.parentPort.postMessage({ ev: 'error', msg: 'grandi failed to load: ' + (e && e.message) });
+    const m = { ev: 'error', msg: 'grandi failed to load: ' + (e && e.message) };
+    if (process.parentPort) process.parentPort.postMessage(m); else if (process.send) process.send(m);
     return;
   }
   if (!grandi.initialize()) {
-    process.parentPort.postMessage({ ev: 'error', msg: 'NDI SDK failed to initialize (unsupported CPU?)' });
+    const m = { ev: 'error', msg: 'NDI SDK failed to initialize (unsupported CPU?)' };
+    if (process.parentPort) process.parentPort.postMessage(m); else if (process.send) process.send(m);
     return;
   }
   status('ready');
@@ -40,7 +43,8 @@ async function start(cfg) {
     if (timer) clearInterval(timer);
     timer = setInterval(() => status(), 2000);
   } catch (e) {
-    process.parentPort.postMessage({ ev: 'error', msg: 'NDI sender error: ' + (e && e.message) });
+    const m = { ev: 'error', msg: 'NDI sender error: ' + (e && e.message) };
+    if (process.parentPort) process.parentPort.postMessage(m); else if (process.send) process.send(m);
   }
 }
 
@@ -48,7 +52,9 @@ function frame(meta, buf) {
   if (!sender || !buf) return;
   if (meta.width < 16 || meta.height < 16) return;
   try {
-    const data = Buffer.from(buf);
+    const data = Buffer.from(buf.buffer || buf, buf.byteOffset || 0, buf.byteLength || buf.length);
+    if (data.length !== meta.width * meta.height * 4) return;
+    for (let i = 3; i < data.length; i += 4) data[i] = 255;
     sender.video({
       xres: meta.width,
       yres: meta.height,
@@ -60,7 +66,10 @@ function frame(meta, buf) {
       lineStrideBytes: meta.width * 4,
       data,
       timecode: grandi.TIMECODE_SYNTHESIZE,
-    }).catch((e) => { process.parentPort.postMessage({ ev: 'error', msg: 'NDI Send Error: ' + e.message }); });
+    }).catch((e) => {
+      const m = { ev: 'error', msg: 'NDI Send Error: ' + e.message };
+      if (process.parentPort) process.parentPort.postMessage(m); else if (process.send) process.send(m);
+    });
   } catch (_) { }
 }
 
@@ -73,12 +82,15 @@ function stop() {
   } catch (_) { }
 }
 
-process.parentPort.on('message', (msg) => {
+const handleMsg = (msg) => {
   if (!msg || typeof msg !== 'object' || !msg.op) return;
   if (msg.op === 'init') init();
   else if (msg.op === 'start') start(msg.cfg || {});
   else if (msg.op === 'frame') frame(msg.meta || {}, msg.buffer);
   else if (msg.op === 'stop') stop();
-});
+};
+
+if (process.parentPort) process.parentPort.on('message', handleMsg);
+else process.on('message', handleMsg);
 
 init();

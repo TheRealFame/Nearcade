@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadTunnel:                 (name, url) => ipcRenderer.invoke('download-tunnel', { name, url }),
   checkTunnelInstalled:           (name) => ipcRenderer.invoke('check-tunnel-installed', name),
   checkHmBridge:                  () => ipcRenderer.invoke('check-hm-bridge'),
+  startWivrn:                     () => ipcRenderer.invoke('start-wivrn'),
   openExternal:                   (url) => ipcRenderer.invoke('open-external', url),
   onSetupSuccess:                 (cb) => ipcRenderer.on('setup-success', () => cb()),
   onSetupFailed:                  (cb) => ipcRenderer.on('setup-failed', (_e, err) => cb(err)),

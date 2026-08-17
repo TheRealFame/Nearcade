@@ -110,13 +110,26 @@ function wivrnBumpVrActivity() {
 }
 
 async function wivrnEnsureRunning() {
-  if (wivrnInt._isServerOnBus()) return true;
-  const result = await wivrnInt.startServer();
-  if (!result.ok) {
-    console.log('[WiVRn] Failed to start:', result.message);
+  console.log('[WiVRn Trace] wivrnEnsureRunning called');
+  
+  // Check if the host has VR mode enabled. If not, don't spawn WiVRn.
+  const cfg = loadConfig();
+  if (!cfg.vrMode) {
+    console.log('[WiVRn Trace] Aborting: Host vrMode is OFF in settings');
     return false;
   }
-  console.log('[WiVRn] Server started on D-Bus');
+  
+  if (wivrnInt._isServerOnBus()) {
+    console.log('[WiVRn Trace] Server already on D-Bus');
+    return true;
+  }
+  console.log('[WiVRn Trace] Starting server...');
+  const result = await wivrnInt.startServer();
+  if (!result.ok) {
+    console.log('[WiVRn Trace] Failed to start:', result.message);
+    return false;
+  }
+  console.log('[WiVRn Trace] Server started on D-Bus successfully');
   return true;
 }
 const MAX_VIEWER_CONTROLLERS = 1;
@@ -981,6 +994,8 @@ async function main() {
     inputDriver.send({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode });
     _tournamentMode = !!newCfg.tournamentMode;
 
+
+
     // Broadcast roster if host identity changed
     if (oldCfg.hostColor !== newCfg.hostColor || oldCfg.hostAvatar !== newCfg.hostAvatar || oldCfg.hostName !== newCfg.hostName) {
       if (hostWS && hostWS.readyState === 1) {
@@ -1474,6 +1489,17 @@ async function main() {
   });
 
 
+
+  app.get("/api/local-image", adminMiddleware, (req, res) => {
+    const filePath = req.query.path;
+    if (!filePath || typeof filePath !== 'string') return res.status(400).end();
+    // Allow reading image files for launcher covers
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.sendFile(filePath);
+    }
+    res.status(404).end();
+  });
 
   app.get("/api/status", (req, res) => {
     res.json({
@@ -2978,7 +3004,7 @@ async function main() {
           }
 
           if (msg.type === "viewer-vr-active") {
-            console.log('[WiVRn] Viewer', id, 'entered VR mode');
+            console.log('[WiVRn Trace] Viewer', id, 'entered VR mode - triggering lifecycle');
             wivrnEnsureRunning();
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
             return;
@@ -3284,12 +3310,6 @@ async function main() {
         console.log("  ~ Tunnel: waiting for host to choose provider...");
       }
     }
-
-    // Auto-start WiVRn server on boot
-    console.log("[WiVRn] Auto-starting WiVRn server...");
-    wivrnEnsureRunning().then(running => {
-      if (running) console.log("[WiVRn] WiVRn server ready");
-    });
 
     // Periodically fetch the global ban list from the arcade directory
     if (cfg.modEndpoint) {

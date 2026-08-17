@@ -50,6 +50,20 @@
     </div>
   </div>
 
+  <div class="modal-bg gone" id="wivrnModal" style="z-index: 10000;">
+    <div class="modal" style="width: 440px; position:relative;">
+      <div class="modal-head">
+        <h3 id="wivrnModalTitle">WiVRn Status</h3>
+      </div>
+      <div class="modal-body" id="wivrnModalBody" style="padding: 20px; font-size: 13px; color: var(--text); line-height: 1.6;">
+      </div>
+      <div class="modal-footer">
+        <div class="btn-row" id="wivrnModalActions" style="justify-content: flex-end;">
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="ns-splash-screen">
     <img src="../../assets/NearcadeTitle.png" alt="Nearcade Logo">
   </div>
@@ -550,11 +564,16 @@
                 playing.</p>
             </div>
           </div>
+
+          <button id="gamesLibraryBtn" class="host-only" onclick="openGamesOverlay()" style="position:absolute; bottom:30px; right:30px; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:30px; padding:0 20px; height:48px; display:flex; justify-content:center; align-items:center; gap:8px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s; font-family:inherit; font-weight:bold; color:var(--muted);" title="Open Games Library">
+            <i class="fa-solid fa-gamepad" style="font-size:18px;"></i>
+            <span>Library</span>
+          </button>
         </div>
       </div>
 
       <div class="panel" id="panel-arcade">
-        <iframe id="arcadeIframe" src="" style="width:100%; height:100%; border:none; flex:1;" allow="gamepad"></iframe>
+        <iframe id="arcadeIframe" src="" style="width:100%; height:100%; border:none;" allow="gamepad"></iframe>
       </div>
 
       <div class="panel" id="panel-containers">
@@ -711,6 +730,15 @@
                 <p>Dynamically follow your system's background, surface, and text colors.</p>
               </div>
               <div class="toggle" id="settingTrackNativeTheme">
+                <div class="toggle-thumb"></div>
+              </div>
+            </div>
+            <div class="setting-row" onclick="toggleAppSetting('vrMode')" id="settingRowVrMode">
+              <div class="setting-info">
+                <h4>Nearcade VR Mode</h4>
+                <p>Enable VR head tracking and input routing. WiVRn backend will be started automatically.</p>
+              </div>
+              <div class="toggle" id="settingTrackVrMode">
                 <div class="toggle-thumb"></div>
               </div>
             </div>
@@ -1168,9 +1196,8 @@
     }
   </script>
   <!-- ═══ GAMES RIBBON ═══ -->
-  <div id="gamesTab" onclick="openGamesOverlay()" title="Games">‹</div>
 
-  <div id="gamesOverlay" onclick="if(event.target===this) closeGamesOverlay()">
+  <div id="gamesOverlay" class="host-only" onclick="if(event.target===this) closeGamesOverlay()">
     <div class="go-panel">
       <iframe id="gamesFrame" src="/games-picker.html"></iframe>
     </div>
@@ -1180,12 +1207,17 @@
     // ── Games Launcher ──
     (function initGamesLauncher() {
       window.openGamesOverlay = function () {
-        const panel = document.querySelector('#gamesOverlay .go-panel');
+        const overlay = document.getElementById('gamesOverlay');
+        if (overlay.classList.contains('open')) {
+          closeGamesOverlay();
+          return;
+        }
+        const panel = overlay.querySelector('.go-panel');
         if (!panel.querySelector('iframe')) {
           const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'c084fc';
           panel.innerHTML = '<iframe src="/games-picker.html?accent=' + encodeURIComponent(accent) + '"></iframe>';
         }
-        document.getElementById('gamesOverlay').classList.add('open');
+        overlay.classList.add('open');
       };
 
       window.closeGamesOverlay = function () {
