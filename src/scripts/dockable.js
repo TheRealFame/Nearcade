@@ -146,6 +146,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentHoverZone = null;
     let currentDragHandle = null;
 
+    let currentGhostOffsetX = 0;
+    let currentGhostOffsetY = 0;
+
     const onPointerMove = (e) => {
         if (!isDragging) return;
         
@@ -156,8 +159,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Update ghost position
         if (dragGhost) {
-            dragGhost.style.left = (x - 34) + 'px';
-            dragGhost.style.top = (y - 34) + 'px';
+            dragGhost.style.left = (x - currentGhostOffsetX) + 'px';
+            dragGhost.style.top = (y - currentGhostOffsetY) + 'px';
         }
         
         let targetZone = null;
@@ -195,6 +198,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(err) {}
         
         if (currentHoverZone && draggedPanel) {
+            // OBS-Style Swapping: If we drop a panel into a dock that already has a panel,
+            // we must swap the existing panel back to the dock we came from!
+            const oldZone = draggedPanel.parentElement;
+            const existingPanel = Array.from(currentHoverZone.children).find(c => c !== draggedPanel && c.tagName !== 'STYLE');
+            
+            if (existingPanel && oldZone && oldZone !== currentHoverZone) {
+                oldZone.appendChild(existingPanel);
+            }
+            
             currentHoverZone.appendChild(draggedPanel);
             saveDockLayout();
         }
@@ -202,62 +214,92 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelDrag();
     };
 
-    if (originalLeft) {
-        const dragHandle = originalLeft.querySelector('.rail-logo');
-        if (dragHandle) {
-            dragHandle.style.cursor = 'grab';
+    const initDragHandle = (panel, handleClass, dragGhostSetup) => {
+        if (!panel) return;
+        const dragHandle = panel.querySelector(handleClass);
+        if (!dragHandle) return;
 
-            dragHandle.addEventListener('pointerdown', (e) => {
-                if (e.button !== 0) return; // Left click only
-                
-                // Prevent browser native drag/text-selection which aborts JS pointer events!
-                e.preventDefault();
-                
-                draggedPanel = originalLeft;
-                currentDragHandle = dragHandle;
-                isDragging = true;
-                document.body.style.userSelect = 'none';
-                
-                // Create visual ghost
-                dragGhost = originalLeft.cloneNode(true);
-                dragGhost.style.position = 'fixed';
-                // Force it into vertical mode so it's small and predictable
-                dragGhost.className = 'left-rail glass'; 
-                dragGhost.style.width = '68px';
-                dragGhost.style.height = 'auto';
-                dragGhost.style.flexDirection = 'column';
-                dragGhost.style.justifyContent = 'flex-start';
-                dragGhost.style.padding = '10px';
-                dragGhost.style.gap = '6px';
-                
-                // Center the top part of the ghost perfectly on the mouse cursor
-                dragGhost.style.left = (e.clientX - 34) + 'px';
-                dragGhost.style.top = (e.clientY - 34) + 'px';
-                
-                dragGhost.style.pointerEvents = 'none';
-                dragGhost.style.opacity = '0.7';
-                dragGhost.style.zIndex = '999999';
-                dragGhost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
-                dragGhost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
-                document.body.appendChild(dragGhost);
-                
-                // Force empty docks to show up as drop targets
-                [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
-                    if (d.children.length === 0) d.classList.add('drag-active');
-                });
-                
-                dragHandle.style.cursor = 'grabbing';
-                e.stopPropagation();
-                
-                // Bind to window to guarantee we don't drop events if capture fails
-                window.addEventListener('pointermove', onPointerMove);
-                window.addEventListener('pointerup', endDrag);
-                window.addEventListener('pointercancel', cancelDrag);
-                
-                try { dragHandle.setPointerCapture(e.pointerId); } catch(err) {}
+        dragHandle.style.cursor = 'grab';
+
+        dragHandle.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return; // Left click only
+            if (e.target.closest('button')) return; // Don't steal clicks from buttons
+            
+            // Prevent browser native drag/text-selection which aborts JS pointer events!
+            e.preventDefault();
+            
+            draggedPanel = panel;
+            currentDragHandle = dragHandle;
+            isDragging = true;
+            document.body.style.userSelect = 'none';
+            
+            // Create visual ghost
+            dragGhost = panel.cloneNode(true);
+            dragGhostSetup(dragGhost, e);
+            document.body.appendChild(dragGhost);
+            
+            // Force empty docks to show up as drop targets
+            [dockTop, dockBottom, dockLeft, dockRight].forEach(d => {
+                if (d.children.length === 0) d.classList.add('drag-active');
             });
-        }
-    }
+            
+            dragHandle.style.cursor = 'grabbing';
+            e.stopPropagation();
+            
+            // Bind to window to guarantee we don't drop events if capture fails
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', endDrag);
+            window.addEventListener('pointercancel', cancelDrag);
+            
+            try { dragHandle.setPointerCapture(e.pointerId); } catch(err) {}
+        });
+    };
+
+    initDragHandle(originalLeft, '.rail-logo', (ghost, e) => {
+        ghost.style.position = 'fixed';
+        // Force it into vertical mode so it's small and predictable
+        ghost.className = 'left-rail glass'; 
+        ghost.style.width = '68px';
+        ghost.style.height = 'auto';
+        ghost.style.flexDirection = 'column';
+        ghost.style.justifyContent = 'flex-start';
+        ghost.style.padding = '10px';
+        ghost.style.gap = '6px';
+        
+        currentGhostOffsetX = 34;
+        currentGhostOffsetY = 34;
+        
+        // Center the top part of the ghost perfectly on the mouse cursor
+        ghost.style.left = (e.clientX - currentGhostOffsetX) + 'px';
+        ghost.style.top = (e.clientY - currentGhostOffsetY) + 'px';
+        
+        ghost.style.pointerEvents = 'none';
+        ghost.style.opacity = '0.7';
+        ghost.style.zIndex = '999999';
+        ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+        ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+    });
+
+    initDragHandle(originalRight, '.panel-header', (ghost, e) => {
+        ghost.style.position = 'fixed';
+        ghost.className = 'right-panel glass'; 
+        ghost.style.width = '336px';
+        ghost.style.height = '200px'; // Shrunk preview
+        ghost.style.flexDirection = 'column';
+        
+        currentGhostOffsetX = 168;
+        currentGhostOffsetY = 20;
+        
+        // Center the header on the mouse
+        ghost.style.left = (e.clientX - currentGhostOffsetX) + 'px';
+        ghost.style.top = (e.clientY - currentGhostOffsetY) + 'px';
+        
+        ghost.style.pointerEvents = 'none';
+        ghost.style.opacity = '0.7';
+        ghost.style.zIndex = '999999';
+        ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+        ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+    });
 
     // Cancel dragging on ESC
     document.addEventListener('keydown', (e) => {
