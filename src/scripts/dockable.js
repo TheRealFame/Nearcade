@@ -154,27 +154,32 @@ document.addEventListener('DOMContentLoaded', () => {
             dragHandle.addEventListener('pointermove', (e) => {
                 if (!isDragging) return;
                 
-                // Find which zone we are hovering over
-                // Since pointer is captured, elementFromPoint needs the pointer capture released temporarily,
-                // or we just use coordinates. Let's use coordinates mathematically.
                 const x = e.clientX;
                 const y = e.clientY;
+                const w = window.innerWidth;
+                const h = window.innerHeight;
                 
-                let foundZone = null;
+                let targetZone = null;
+                
+                // Use robust screen-percentage zones (20% edges)
+                if (y < h * 0.20) targetZone = dockTop;
+                else if (y > h * 0.80) targetZone = dockBottom;
+                else if (x < w * 0.20) targetZone = dockLeft;
+                else if (x > w * 0.80) targetZone = dockRight;
+                
+                // Prevent dropping on the zone it's already in
+                if (targetZone === originalLeft.parentElement) {
+                    targetZone = null;
+                }
+
+                // Update visual highlights
                 [dockTop, dockBottom, dockLeft, dockRight].forEach(zone => {
-                    if (zone === dockLeft && originalLeft.parentElement === dockLeft) return; // don't drop on self
-                    
-                    const rect = zone.getBoundingClientRect();
-                    // If it's empty, it has drag-active dimensions. If it's full, it has real dimensions.
-                    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-                        foundZone = zone;
-                    }
                     zone.style.background = '';
                 });
                 
-                if (foundZone) {
-                    foundZone.style.background = 'rgba(139, 92, 246, 0.3)';
-                    currentHoverZone = foundZone;
+                if (targetZone) {
+                    targetZone.style.background = 'rgba(139, 92, 246, 0.4)';
+                    currentHoverZone = targetZone;
                 } else {
                     currentHoverZone = null;
                 }
