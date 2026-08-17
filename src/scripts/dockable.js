@@ -149,6 +149,12 @@ document.addEventListener('DOMContentLoaded', () => {
             min-height: 0;
         }
 
+        /* Force panels in horizontal docks to fill horizontal space */
+        .ns-dock-top > *, .ns-dock-bottom > * {
+            flex: 1;
+            width: 100%;
+        }
+
         /* Horizontal mode for rail when in top/bottom docks */
         .ns-dock-top .left-rail, .ns-dock-bottom .left-rail {
             flex-direction: row;
@@ -178,6 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
             min-width: 336px;
             display: flex;
             flex-direction: column;
+            gap: 12px;
         }
 
         /* Ensure cards stretch properly in vertical mode */
