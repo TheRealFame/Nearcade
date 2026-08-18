@@ -26,7 +26,12 @@ from collections import deque
 import importlib.util
 
 # Add sidecar root to path to import plugin_manager
-_SIDECAR_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if '__compiled__' in globals():
+    _SIDECAR_DIR = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
+elif getattr(sys, 'frozen', False):
+    _SIDECAR_DIR = os.path.dirname(os.path.dirname(sys.executable))
+else:
+    _SIDECAR_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SIDECAR_DIR not in sys.path:
     sys.path.insert(0, _SIDECAR_DIR)
 import plugin_manager
@@ -128,7 +133,9 @@ _last_focus_title = None
 
 
 # ── Find CSV ──────────────────────────────────────────────────────────────────
-if getattr(sys, 'frozen', False):
+if '__compiled__' in globals():
+    _SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+elif getattr(sys, 'frozen', False):
     _SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
     _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -52,6 +52,37 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Nuitka & PyAutoGUI
+        run: pip install nuitka pyautogui
+
+      - name: Cache Nuitka Compiled Binaries
+        id: cache-nuitka
+        uses: actions/cache@v4
+        with:
+          path: src/sidecar/input_backends/bin/
+          key: nuitka-${{ runner.os }}-${{ hashFiles('src/sidecar/input_backends/*.py') }}
+
+      - name: Compile Sidecars with Nuitka
+        if: steps.cache-nuitka.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p src/sidecar/input_backends/bin
+          cd src/sidecar/input_backends
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            python -m nuitka --onefile --output-dir=bin mac_gamepad_bridge.py
+          elif [ "$RUNNER_OS" == "Linux" ]; then
+            python -m nuitka --onefile --output-dir=bin linux_uinput.py
+          else
+            python -m nuitka --onefile --output-dir=bin windows_hidmaestro.py
+            python -m nuitka --onefile --output-dir=bin windows_vigem.py
+          fi
+
       - name: Build Electron App
         shell: bash
         run: |

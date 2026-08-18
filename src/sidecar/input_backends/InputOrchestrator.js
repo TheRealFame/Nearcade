@@ -305,38 +305,45 @@ function init(screenWidth, screenHeight) {
         _udpSocket.close();
     });
 
-    // 2. Python Sidecar — platform-aware script selection
-    let scriptName;
-    if (isWin) scriptName = _hidmaestroEnabled ? 'windows_hidmaestro.py' : 'windows_vigem.py';
-    else if (isMac) scriptName = 'mac_gamepad_bridge.py';
-    else scriptName = 'linux_uinput.py';
-    // __dirname is already .../input_backends
-    const pythonScriptRaw = path.join(__dirname, scriptName);
+    // 2. Python/Native Sidecar — platform-aware script selection
+    let scriptBase;
+    if (isWin) scriptBase = _hidmaestroEnabled ? 'windows_hidmaestro' : 'windows_vigem';
+    else if (isMac) scriptBase = 'mac_gamepad_bridge';
+    else scriptBase = 'linux_uinput';
+
+    const binExt = isWin ? '.exe' : (isMac ? '.bin' : '.bin');
+    const binaryPathRaw = path.join(__dirname, 'bin', scriptBase + binExt);
+    const binaryPath = binaryPathRaw.replace('app.asar', 'app.asar.unpacked');
+
+    const pythonScriptRaw = path.join(__dirname, scriptBase + '.py');
     const pythonScript = pythonScriptRaw.replace('app.asar', 'app.asar.unpacked');
-    if (!fs.existsSync(pythonScript)) {
-        console.error(`[input] FATAL: Python fallback not found at ${pythonScript}`);
-        return false;
-    }
 
-    let pythonCmd = isWin ? 'python' : 'python3';
-    let extraArgs = [];
-    if (isWin) {
-        const { execSync } = require('child_process');
-        const candidates = [ {c: 'py', a: ['-3']}, {c: 'python', a: []}, {c: 'python3', a: []} ];
-        for (const cand of candidates) {
-            try {
-                // If it's the MS Store alias, it exits with 9009. execSync will throw.
-                execSync(`${cand.c} ${cand.a.join(' ')} --version`, { stdio: 'ignore', windowsHide: true });
-                pythonCmd = cand.c;
-                extraArgs = cand.a;
-                break; // Found a working Python!
-            } catch (e) { }
+    if (fs.existsSync(binaryPath)) {
+        console.log(`[input] Native binary detected! Spawning: ${binaryPath}`);
+        _pythonProc = spawn(binaryPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    } else {
+        if (!fs.existsSync(pythonScript)) {
+            console.error(`[input] FATAL: Sidecar not found at ${pythonScript}`);
+            return false;
         }
+        let pythonCmd = isWin ? 'python' : 'python3';
+        let extraArgs = [];
+        if (isWin) {
+            const { execSync } = require('child_process');
+            const candidates = [ {c: 'py', a: ['-3']}, {c: 'python', a: []}, {c: 'python3', a: []} ];
+            for (const cand of candidates) {
+                try {
+                    execSync(`${cand.c} ${cand.a.join(' ')} --version`, { stdio: 'ignore', windowsHide: true });
+                    pythonCmd = cand.c;
+                    extraArgs = cand.a;
+                    break;
+                } catch (e) { }
+            }
+        }
+        const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
+        if (isWin) spawnOpts.windowsHide = true;
+        _pythonProc = spawn(pythonCmd, [...extraArgs, pythonScript], spawnOpts);
     }
-
-    const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
-    if (isWin) spawnOpts.windowsHide = true;
-    _pythonProc = spawn(pythonCmd, [...extraArgs, pythonScript], spawnOpts);
 
     _pythonProc.stderr.on('data', (chunk) => {
         const s = chunk.toString('utf8').trim();

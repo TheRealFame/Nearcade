@@ -148,9 +148,15 @@ _viewer_pads: dict = {}
 
 
 def _find_hm_bridge() -> str | None:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if '__compiled__' in globals():
+        script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    elif getattr(sys, 'frozen', False):
+        script_dir = os.path.dirname(sys.executable)
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
     for p in [
         os.path.join(script_dir, 'HmBridge', 'HmBridge.exe'),
+        os.path.join(script_dir, '..', 'HmBridge', 'HmBridge.exe'),
         os.path.join(script_dir, 'HmBridge', 'bin', 'Release',
                      'net10.0-windows10.0.26100.0', 'win-x64', 'HmBridge.exe'),
     ]:
