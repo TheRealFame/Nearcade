@@ -374,9 +374,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (originalBottom) {
-        // Use all existing dock labels as drag handles for the entire bottom dock!
-        const handles = originalBottom.querySelectorAll('.dock-label');
-        initDragHandle(originalBottom, handles, (ghost, e) => {
+        originalBottom.style.position = 'relative';
+
+        // 1. Create a subtle vertical grip on the left edge of the bottom dock
+        const bHandle = document.createElement('div');
+        bHandle.innerHTML = '⋮⋮';
+        bHandle.style.position = 'absolute';
+        bHandle.style.left = '4px';
+        bHandle.style.top = '50%';
+        bHandle.style.transform = 'translateY(-50%)';
+        bHandle.style.cursor = 'grab';
+        bHandle.style.color = 'var(--muted)';
+        bHandle.style.fontSize = '12px';
+        bHandle.style.lineHeight = '1';
+        bHandle.style.padding = '10px 4px';
+        bHandle.style.userSelect = 'none';
+        bHandle.title = "Drag Entire Panel";
+        originalBottom.appendChild(bHandle);
+
+        initDragHandle(originalBottom, [bHandle], (ghost, e) => {
             const rect = originalBottom.getBoundingClientRect();
             ghost.style.position = 'fixed';
             ghost.className = 'bottom-dock glass'; 
@@ -396,6 +412,108 @@ document.addEventListener('DOMContentLoaded', () => {
             ghost.style.zIndex = '999999';
             ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
             ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+        });
+
+        // 2. Add internal sorting logic for the .dock-card elements
+        let draggedCard = null;
+        let cardGhost = null;
+        let cardOffsetX = 0;
+        let cardOffsetY = 0;
+        let initialCardRect = null;
+
+        // Restore card order from localStorage
+        const savedOrder = localStorage.getItem('ns_card_order');
+        if (savedOrder) {
+            try {
+                const order = JSON.parse(savedOrder);
+                const cards = Array.from(originalBottom.querySelectorAll('.dock-card'));
+                order.forEach(label => {
+                    const c = cards.find(el => el.querySelector('.dock-label').innerText.includes(label));
+                    if (c) originalBottom.appendChild(c); // appendChild moves it to the end
+                });
+            } catch(e) {}
+        }
+
+        const onCardMove = (e) => {
+            if (!draggedCard || !cardGhost) return;
+            cardGhost.style.left = (e.clientX - cardOffsetX) + 'px';
+            cardGhost.style.top = (e.clientY - cardOffsetY) + 'px';
+
+            const cards = Array.from(originalBottom.querySelectorAll('.dock-card'));
+            for (let c of cards) {
+                if (c === draggedCard) continue;
+                const r = c.getBoundingClientRect();
+                // Simple hit detection for the center of the mouse
+                if (e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom) {
+                    // Swap in DOM
+                    const nextA = draggedCard.nextSibling === c ? draggedCard : draggedCard.nextSibling;
+                    c.parentNode.insertBefore(draggedCard, c);
+                    draggedCard.parentNode.insertBefore(c, nextA);
+                    break;
+                }
+            }
+        };
+
+        const onCardUp = (e) => {
+            if (!draggedCard) return;
+            draggedCard.style.opacity = '1';
+            draggedCard.querySelector('.dock-label').style.cursor = 'grab';
+            if (cardGhost) cardGhost.remove();
+            
+            draggedCard = null;
+            cardGhost = null;
+            document.body.style.userSelect = '';
+            window.removeEventListener('pointermove', onCardMove);
+            window.removeEventListener('pointerup', onCardUp);
+            window.removeEventListener('pointercancel', onCardUp);
+            
+            // Save order
+            const order = Array.from(originalBottom.querySelectorAll('.dock-card')).map(c => {
+                const span = c.querySelector('.dock-label span') || c.querySelector('.dock-label');
+                return span.innerText.trim();
+            });
+            localStorage.setItem('ns_card_order', JSON.stringify(order));
+        };
+
+        originalBottom.querySelectorAll('.dock-card').forEach(card => {
+            const handle = card.querySelector('.dock-label');
+            if (!handle) return;
+            handle.style.cursor = 'grab';
+            handle.title = "Drag to reorder cards";
+
+            handle.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return;
+                if (e.target.closest('button, a, input, [onclick], .tunnel-link')) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                draggedCard = card;
+                handle.style.cursor = 'grabbing';
+                document.body.style.userSelect = 'none';
+
+                initialCardRect = card.getBoundingClientRect();
+                cardOffsetX = e.clientX - initialCardRect.left;
+                cardOffsetY = e.clientY - initialCardRect.top;
+
+                cardGhost = card.cloneNode(true);
+                cardGhost.style.position = 'fixed';
+                cardGhost.style.width = card.offsetWidth + 'px';
+                cardGhost.style.height = card.offsetHeight + 'px';
+                cardGhost.style.left = initialCardRect.left + 'px';
+                cardGhost.style.top = initialCardRect.top + 'px';
+                cardGhost.style.opacity = '0.8';
+                cardGhost.style.pointerEvents = 'none';
+                cardGhost.style.zIndex = '999999';
+                cardGhost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+                document.body.appendChild(cardGhost);
+                
+                card.style.opacity = '0.3';
+
+                window.addEventListener('pointermove', onCardMove);
+                window.addEventListener('pointerup', onCardUp);
+                window.addEventListener('pointercancel', onCardUp);
+                try { handle.setPointerCapture(e.pointerId); } catch(err) {}
+            });
         });
     }
     document.addEventListener('keydown', (e) => {
