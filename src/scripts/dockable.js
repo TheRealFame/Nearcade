@@ -189,14 +189,23 @@ document.addEventListener('DOMContentLoaded', () => {
         .ns-dock-left > .bottom-dock, .ns-dock-right > .bottom-dock {
             width: 336px;
             min-width: 336px;
+            max-width: 336px;
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
 
-        /* Ensure cards stretch properly in vertical mode */
+        /* Ensure cards stretch properly in vertical mode but do not break bounds */
         .ns-dock-left > .bottom-dock > .dock-card, .ns-dock-right > .bottom-dock > .dock-card {
             flex: 1;
+            min-width: 0;
+            max-width: 100%;
+        }
+        
+        /* Force URL list to shrink to enable text ellipsis */
+        .url-card-inner, #urlList {
+            min-width: 0;
+            max-width: 100%;
         }
     `;
     document.head.appendChild(style);
@@ -370,6 +379,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ghost.style.opacity = '0.7';
         ghost.style.zIndex = '999999';
         ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+        const gChat = ghost.querySelector('#chatLog');
+        if (gChat) gChat.style.flex = '1';
+        const gEmoji = ghost.querySelector('#emojiPicker');
+        if (gEmoji) gEmoji.style.display = 'none';
         ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
     });
 
@@ -411,6 +424,10 @@ document.addEventListener('DOMContentLoaded', () => {
             ghost.style.opacity = '0.7';
             ghost.style.zIndex = '999999';
             ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+            const gChat = ghost.querySelector('#chatLog');
+            if (gChat) gChat.style.flex = '1';
+            const gEmoji = ghost.querySelector('#emojiPicker');
+            if (gEmoji) gEmoji.style.display = 'none';
             ghost.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
         });
 
