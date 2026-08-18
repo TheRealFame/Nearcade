@@ -39,10 +39,7 @@ import plugin_manager
 _intercept_layer = plugin_manager.APIInterceptLayer()
 
 def _load_plugins():
-
-
-
-
+    pass
 try:
     import uinput
     UINPUT_OK = True
