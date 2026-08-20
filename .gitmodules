@@ -4,3 +4,6 @@
 [submodule "src/tools/wivrn-src"]
 	path = src/tools/wivrn-src
 	url = https://github.com/WiVRn/WiVRn.git
+[submodule "packages/open-remote-play"]
+	path = packages/open-remote-play
+	url = https://github.com/TheRealFame/OpenRemotePlay.git
