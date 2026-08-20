@@ -1891,7 +1891,7 @@ function activateGamepad() {
     const pmt = document.getElementById('gpPrompt');
     if (pmt) { pmt.classList.add('active'); pmt.textContent = 'Grab A Gamepad!'; }
     // 1ms interval (1000 Hz) for maximum competitive precision / lowest input latency
-    setInterval(pollGamepad, 1);
+    setInterval(pollGamepad, 4); // 250Hz polling (improves upscaler performance)
 }
 
 let knownNativePads = [];
@@ -3364,7 +3364,7 @@ function appendChat(name, text, isMe, platform, color, isHost) {
         text = text.substring(4);
     }
     
-    nameSpan.textContent = name + (isMeCmd ? ' ' : ': ');
+    nameSpan.textContent = name;
     if (color) nameSpan.style.color = color;
     if (platform) {
         const platBadge = document.createElement('span');
@@ -3379,6 +3379,7 @@ function appendChat(name, text, isMe, platform, color, isHost) {
         hostBadge.style.cssText = 'font-size:8px;font-weight:700;letter-spacing:0.1em;color:var(--accent);opacity:0.7;margin-left:4px;vertical-align:middle;';
         nameSpan.appendChild(hostBadge);
     }
+    nameSpan.appendChild(document.createTextNode(isMeCmd ? ' ' : ': '));
     d.appendChild(nameSpan);
     
     const msgSpan = document.createElement('span');
@@ -4044,6 +4045,73 @@ function _reportWcHealth(type, data) {
 }
 
 // ── WEBCODECS VIEWER INITIALIZER ──
+let _pendingWcFrame = null;
+let _wcRenderLoopId = null;
+
+function _wcRenderLoop() {
+    if (!wcDecoder) {
+        _wcRenderLoopId = null;
+        if (_pendingWcFrame) { _pendingWcFrame.close(); _pendingWcFrame = null; }
+        return;
+    }
+    
+    _wcRenderLoopId = requestAnimationFrame(_wcRenderLoop);
+    
+    if (_pendingWcFrame) {
+        const frame = _pendingWcFrame;
+        _pendingWcFrame = null;
+        
+        // BUG 2/5 FIX: Use hardware codedWidth, and re-acquire the context after resize!
+        if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
+            wcCanvas.width = frame.codedWidth;
+            wcCanvas.height = frame.codedHeight;
+            if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
+        }
+        
+        let handledByUpscaler = false;
+        // GPU path (WebGPU) — highest priority
+        if (_gpuUpscalerInstance && window._gpuCanvas) {
+            const gpuC = window._gpuCanvas;
+            if (gpuC.width !== frame.codedWidth || gpuC.height !== frame.codedHeight) {
+                _updateUpscaleCanvasSize(frame.codedWidth, frame.codedHeight);
+                gpuC.width  = upscalerCanvas ? upscalerCanvas.width  : frame.codedWidth;
+                gpuC.height = upscalerCanvas ? upscalerCanvas.height : frame.codedHeight;
+            }
+            gpuC.style.display = 'block';
+            wcCanvas.style.opacity = '0';
+            _gpuUpscalerInstance.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
+            _gpuUpscalerInstance.uploadAndDraw(frame);
+            handledByUpscaler = true;
+        // WebGL fallback path
+        } else if (_upscaleMode > 0 && _webglSupported && window.upscalerInstance && upscalerCanvas) {
+            _updateUpscaleCanvasSize(frame.codedWidth, frame.codedHeight);
+            upscalerCanvas.style.display = 'block';
+            wcCanvas.style.opacity = '0';
+            window.upscalerInstance.uploadAndDraw(frame);
+            handledByUpscaler = true;
+        } else {
+            if (upscalerCanvas) upscalerCanvas.style.display = 'none';
+            wcCanvas.style.opacity = '1';
+        }
+        
+        if (!handledByUpscaler) {
+            if (wcCtx && wcGlTexture) {
+                if (_applyUpscaleFilter && (_lastAppliedUpscale === null || document.body.classList.contains('pixel-mode') !== (_upscaleMode === 2))) {
+                    _applyUpscaleFilter();
+                }
+                wcCtx.activeTexture(wcCtx.TEXTURE0);
+                wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
+                wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
+                wcCtx.drawArrays(wcCtx.TRIANGLE_STRIP, 0, 4);
+            } else if (wcCtx) {
+                wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
+            }
+        }
+        frame.close();
+        if (window._trackViewerFrame) window._trackViewerFrame();
+    }
+}
+
 function initWebCodecsViewer(config) {
     if (typeof VideoDecoder === 'undefined') {
         console.warn('[WebCodecs] VideoDecoder API is not available (likely an insecure HTTP context). Falling back to standard WebRTC.');
@@ -4128,54 +4196,9 @@ function initWebCodecsViewer(config) {
 
     wcDecoder = new VideoDecoder({
         output: (frame) => {
-            // BUG 2/5 FIX: Use hardware codedWidth, and re-acquire the context after resize!
-            if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
-                wcCanvas.width = frame.codedWidth;
-                wcCanvas.height = frame.codedHeight;
-                if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
-            }
-            
-            let handledByUpscaler = false;
-            // GPU path (WebGPU) — highest priority
-            if (_gpuUpscalerInstance && window._gpuCanvas) {
-                const gpuC = window._gpuCanvas;
-                if (gpuC.width !== frame.codedWidth || gpuC.height !== frame.codedHeight) {
-                    _updateUpscaleCanvasSize(frame.codedWidth, frame.codedHeight);
-                    gpuC.width  = upscalerCanvas ? upscalerCanvas.width  : frame.codedWidth;
-                    gpuC.height = upscalerCanvas ? upscalerCanvas.height : frame.codedHeight;
-                }
-                gpuC.style.display = 'block';
-                wcCanvas.style.opacity = '0';
-                _gpuUpscalerInstance.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
-                _gpuUpscalerInstance.uploadAndDraw(frame);
-                handledByUpscaler = true;
-            // WebGL fallback path
-            } else if (_upscaleMode > 0 && _webglSupported && window.upscalerInstance && upscalerCanvas) {
-                _updateUpscaleCanvasSize(frame.codedWidth, frame.codedHeight);
-                upscalerCanvas.style.display = 'block';
-                wcCanvas.style.opacity = '0';
-                window.upscalerInstance.uploadAndDraw(frame);
-                handledByUpscaler = true;
-            } else {
-                if (upscalerCanvas) upscalerCanvas.style.display = 'none';
-                wcCanvas.style.opacity = '1';
-            }
-            
-            if (!handledByUpscaler) {
-                if (wcCtx && wcGlTexture) {
-                    if (_applyUpscaleFilter && (_lastAppliedUpscale === null || document.body.classList.contains('pixel-mode') !== (_upscaleMode === 2))) {
-                        _applyUpscaleFilter();
-                    }
-                    wcCtx.activeTexture(wcCtx.TEXTURE0);
-                    wcCtx.bindTexture(wcCtx.TEXTURE_2D, wcGlTexture);
-                    wcCtx.texImage2D(wcCtx.TEXTURE_2D, 0, wcCtx.RGBA, wcCtx.RGBA, wcCtx.UNSIGNED_BYTE, frame);
-                    wcCtx.drawArrays(wcCtx.TRIANGLE_STRIP, 0, 4);
-                } else if (wcCtx) {
-                    wcCtx.drawImage(frame, 0, 0, wcCanvas.width, wcCanvas.height);
-                }
-            }
-            frame.close();
-            if (window._trackViewerFrame) window._trackViewerFrame();
+            if (_pendingWcFrame) _pendingWcFrame.close();
+            _pendingWcFrame = frame;
+            if (!_wcRenderLoopId) _wcRenderLoopId = requestAnimationFrame(_wcRenderLoop);
 
             if (_wcFirstFrame) {
                 _wcFirstFrame = false;
@@ -4802,7 +4825,7 @@ function maybeShowVRButton() {
             btn = document.createElement('button');
             btn.id = 'btnEnterVR';
             btn.textContent = 'Enter VR Mode';
-            btn.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:9999; padding:12px 24px; font-weight:bold; background:var(--accent); color:#000; border:none; border-radius:8px; cursor:pointer; box-shadow:0 4px 15px rgba(192,132,252,0.4); font-family:sans-serif;';
+            btn.style.cssText = 'position:fixed; bottom:80px; right:20px; z-index:9999; padding:12px 24px; font-weight:bold; background:var(--accent); color:#000; border:none; border-radius:8px; cursor:pointer; box-shadow:0 4px 15px rgba(192,132,252,0.4); font-family:sans-serif;';
             btn.onclick = startVRSession;
             document.body.appendChild(btn);
         }

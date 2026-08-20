@@ -61,7 +61,7 @@ if UINPUT_OK:
         4: uinput.BTN_TL,   5: uinput.BTN_TR,
         8: uinput.BTN_SELECT, 9: uinput.BTN_START,
         10: uinput.BTN_THUMBL, 11: uinput.BTN_THUMBR,
-        16: uinput.BTN_MODE,
+        # 16: uinput.BTN_MODE (Removed to prevent viewers from opening Steam Big Picture Mode)
     }
     BTNS = list(W3C_MAP.values())
     # Add L2/R2 capabilities so the CSV shooters can actually fire

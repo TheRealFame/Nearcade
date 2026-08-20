@@ -499,7 +499,7 @@ def _apply_bitmask(gp, buttons: int, axes: list, msg: dict = None):
         _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,    _bit(0x0800))
         _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_START,          _bit(0x1000))
         _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,           _bit(0x2000))
-        _press(vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,          _bit(0x4000))
+        # Guide button (0x4000) removed to prevent viewers opening Game Bar/Big Picture Mode
     
     if msg is not None and "lx" in msg:
         lx = _axis_to_float(msg.get("lx", 0))
@@ -555,7 +555,7 @@ def _apply_w3c_array(gp, btns: list, axes: list):
     _apply_btn(gp, btns, 13, vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN)
     _apply_btn(gp, btns, 14, vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT)
     _apply_btn(gp, btns, 15, vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT)
-    _apply_btn(gp, btns, 16, vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE)
+    # _apply_btn(gp, btns, 16, vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE) - Removed to prevent Big Picture Mode access
 
     # W3C axes are already in -1.0..+1.0 range; clamp defensively.
     # Negate Y axes: W3C Y+ = down, ViGEm Y+ = up.

@@ -130,6 +130,7 @@ let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 // rather than always falling back to xbox360.
 let _defaultProfileKey = 'xbox360';
 let _hybridInputEnabled = false;
+let _disableAutoMap = false;
 
 // ── Window-title CSV detection (cross-platform) ────────────────────────────────
 let _csvKbmEntries = [];        // [{frag, binds}] — loaded from game_profiles.csv 17-col format
@@ -213,6 +214,7 @@ function _resolveWindowTitle(title) {
 }
 
 function _handleWindowFocus(title) {
+    if (_disableAutoMap) return;
     if (isWin && !_windowsExperimentalEnabled) return;
     
     if (title === _lastWindowTitle) return;
@@ -528,6 +530,16 @@ function _freeSlot(viewerId) {
     slotViewers.delete(slot);
     slotLastUsed.delete(slot);
     kbmStates.delete(viewerId);
+    
+    if (typeof viewerModes !== 'undefined') viewerModes.delete(viewerId);
+    if (typeof viewerCtrlType !== 'undefined') viewerCtrlType.delete(viewerId);
+    
+    const padPrefix = viewerId + '_';
+    [viewerHostSlots, lastPacketTime, lastPacketSequence, lastGamepadVars, viewerSeq].forEach(map => {
+        for (const key of map.keys()) {
+            if (key.startsWith(padPrefix)) map.delete(key);
+        }
+    });
 }
 
 // ── Emulation Handlers ─────────────────────────────────────────────────────────
@@ -1034,6 +1046,9 @@ function send(msg) {
     } else if (msg.type === 'ctrl-settings-hybrid') {
         _hybridInputEnabled = !!msg.enabled;
         console.log(`[input] Hybrid mode ${msg.enabled ? 'ENABLED: Routing via Python' : 'DISABLED: Restoring C++ bridge'}`);
+    } else if (msg.type === 'ctrl-settings-automap') {
+        _disableAutoMap = !msg.enabled;
+        console.log(`[input] Auto-mapping CSV ${msg.enabled ? 'ENABLED' : 'DISABLED'}`);
     } else if (msg.type === 'force-slot') {
         const padId = msg.pad_id || (msg.viewerId + '_0');
         if (msg.slot == null || msg.slot === -1) {
@@ -1168,7 +1183,7 @@ setInterval(() => {
     const now = Date.now();
     for (const padId of viewerSlots.keys()) {
         const lastT = lastPacketTime.get(padId) || 0;
-        if (now - lastT > 60 && lastT !== 0) {
+        if (now - lastT > 150 && lastT !== 0) {
             const lastVars = lastGamepadVars.get(padId) || { buttons: 0, lt: 0, rt: 0 };
             const lastMask = typeof lastVars === 'number' ? lastVars : (lastVars.buttons || 0); 
             _handleGamepad({

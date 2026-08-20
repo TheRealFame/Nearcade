@@ -532,6 +532,14 @@ function syncSettingsUI() {
   if (brandText) {
     brandText.textContent = appConfig.vrMode ? 'NEARCADE VR' : 'NEARCADE';
   }
+  
+  const brandLogo = document.querySelector('.brand-logo');
+  if (brandLogo) {
+    let use3D = !!appConfig.vrMode;
+    if (appConfig.overrideLogo === '3d') use3D = true;
+    if (appConfig.overrideLogo === '2d') use3D = false;
+    brandLogo.src = use3D ? '../../assets/NearcadeIcon3D.png' : '../../assets/NearcadeLogo.png';
+  }
   const gamesTabSpan = document.getElementById('gamesTab');
   if (gamesTabSpan) {
     gamesTabSpan.innerHTML = appConfig.vrMode ? 'V<br>R<br><br>G<br>A<br>M<br>E<br>S' : 'G<br>A<br>M<br>E<br>S';
@@ -576,6 +584,14 @@ function saveHostName(val) {
 
   saveAppConfigToElectron();
   syncToNode();
+}
+
+function toggleBrandLogo() {
+  const isCurrently3D = document.querySelector('.brand-logo').src.includes('NearcadeIcon3D');
+  appConfig.overrideLogo = isCurrently3D ? '2d' : '3d';
+  saveAppConfigToElectron();
+  syncToNode();
+  syncSettingsUI();
 }
 
 let _tunnelProviders = null;
@@ -2095,3 +2111,16 @@ function timeAgo(at) {
 }
 
 setInterval(loadFriends, 8000);
+
+document.addEventListener('DOMContentLoaded', () => {
+    fetch('/api/game-profiles').then(r => r.json()).then(titles => {
+        const dl = document.getElementById('arcadeGameTitles');
+        if (dl && Array.isArray(titles)) {
+            titles.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                dl.appendChild(opt);
+            });
+        }
+    }).catch(e => console.error('[dashboard] failed to load game profiles:', e));
+});

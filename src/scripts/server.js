@@ -1328,6 +1328,24 @@ async function main() {
     }
   });
 
+  app.get("/api/game-profiles", (req, res) => {
+    const csvPath = path.join(projectRoot, 'config', 'game_profiles.csv');
+    if (!fs.existsSync(csvPath)) return res.json([]);
+    try {
+      const lines = fs.readFileSync(csvPath, 'utf8').split('\n');
+      const titles = [];
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t || t.startsWith('#')) continue;
+        const cols = t.split(',');
+        if (cols[0]) titles.push(cols[0].trim());
+      }
+      res.json(titles);
+    } catch (e) {
+      res.json([]);
+    }
+  });
+
   app.get("/api/turn", (req, res) => {
     const iceServers = [];
 

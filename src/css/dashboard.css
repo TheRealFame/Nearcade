@@ -131,7 +131,7 @@
          The fixed #titlebar at the top of the window is the only drag zone.
          Having drag on the sidebar caused intermittent click failures on
          Linux/Electron even when child buttons declared no-drag. */
-      overflow: hidden; white-space: nowrap;
+      overflow-y: auto; overflow-x: hidden; white-space: nowrap;
     }
     #sidebar.collapsed { width: 76px; }
 

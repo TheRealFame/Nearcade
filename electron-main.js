@@ -253,8 +253,12 @@ if (isArcadeWorker && process.platform === 'linux') {
   if (isGamescope) {
     // Prevent Steam Deck virtual keyboard from constantly popping up and crashing the app
     process.env.GTK_IM_MODULE = 'None';
-    app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization');
+    
+    // Force native Wayland instead of X11/XWayland to prevent Gamescope scaling/compositing issues
+    app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations');
+    
+    // Gamescope often struggles with Chromium's sandbox, so these are kept disabled
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-gpu-sandbox');
   } else {

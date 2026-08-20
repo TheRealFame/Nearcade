@@ -234,8 +234,10 @@
     <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
       <div style="display:flex;flex-direction:column;gap:6px;">
         <label style="font-size:11px;font-weight:600;color:var(--text);">Game Title</label>
-        <input type="text" id="arcadeGameTitle" placeholder="e.g., Street Fighter II"
+        <input type="text" id="arcadeGameTitle" list="arcadeGameTitles" placeholder="e.g., Street Fighter II"
+          oninput="this.style.borderColor=''" maxlength="64"
           style="width:100%;padding:8px 10px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:11px;font-family:inherit;outline:none;">
+        <datalist id="arcadeGameTitles"></datalist>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         <label style="font-size:11px;font-weight:600;color:var(--text);">Game Description</label>
@@ -980,6 +982,17 @@
               disables
               window-title auto-mapping.</div>
           </div>
+        </div>
+
+        <div class="ctrl-modal-row" id="ctrlRowAutoMap" onclick="document.getElementById('autoMapToggle').click()" style="margin-top:8px;">
+          <div class="ctrl-toggle-track" id="ctrlTrackAutoMap">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Disable Auto-Mapping</div>
+            <div class="ctrl-row-desc">Prevents Nearcade from automatically switching to KBM Emulated mode based on the active window title.</div>
+          </div>
+          <input type="checkbox" id="autoMapToggle" style="display:none;" onchange="if(ws && ws.readyState===1) ws.send(JSON.stringify({type:'ctrl-settings-automap', enabled: this.checked})); document.getElementById('ctrlTrackAutoMap').classList.toggle('on', this.checked);">
         </div>
 
         <div class="ctrl-modal-row" id="ctrlRowHostDelay" onclick="document.getElementById('hostDelayToggle').click()"

@@ -520,7 +520,7 @@ function appendChat(name, text, isMe, platform, color) {
         text = text.substring(4);
     }
 
-    nameSpan.textContent = name + (isMeCmd ? ' ' : ': ');
+    nameSpan.textContent = name;
     if (color) nameSpan.style.color = color;
     if (platform) {
         const platBadge = document.createElement('span');
@@ -534,6 +534,7 @@ function appendChat(name, text, isMe, platform, color) {
         hostBadge.style.cssText = 'font-size:8px;font-weight:700;letter-spacing:0.1em;color:var(--accent);opacity:0.7;margin-left:4px;vertical-align:middle;';
         nameSpan.appendChild(hostBadge);
     }
+    nameSpan.appendChild(document.createTextNode(isMeCmd ? ' ' : ': '));
     d.appendChild(nameSpan);
     const parseMarkdown = (str) => {
         let html = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -6590,4 +6591,44 @@ window.addEventListener('keydown', (e) => {
             }
         }
     }
+});
+
+// ── BRAND LOGO VR TOGGLE ──
+document.addEventListener('DOMContentLoaded', async () => {
+    const logo = document.querySelector('.rail-logo img') || document.querySelector('img[alt="Nearcade"][src*="NearcadeLogo"]');
+    
+    if (logo) {
+        logo.style.cursor = 'pointer';
+        logo.title = 'Toggle 3D Logo';
+        
+        window.toggleBrandLogo = async function() {
+            const isCurrently3D = logo.src.includes('NearcadeIcon3D');
+            const newOverride = isCurrently3D ? '2d' : '3d';
+            if (typeof saveAppConfig === 'function') {
+               await saveAppConfig({ overrideLogo: newOverride });
+            }
+            logo.src = (newOverride === '3d') ? '/assets/NearcadeIcon3D.png' : '/assets/NearcadeLogo.png';
+        };
+        logo.onclick = window.toggleBrandLogo;
+        
+        if (typeof loadAppConfig === 'function') {
+            const cfg = await loadAppConfig();
+            let use3D = !!cfg.vrMode;
+            if (cfg.overrideLogo === '3d') use3D = true;
+            if (cfg.overrideLogo === '2d') use3D = false;
+            logo.src = use3D ? '/assets/NearcadeIcon3D.png' : '/assets/NearcadeLogo.png';
+        }
+    }
+    
+    // Populate Arcade Game Titles datalist
+    fetch('/api/game-profiles').then(r => r.json()).then(titles => {
+        const dl = document.getElementById('arcadeGameTitles');
+        if (dl && Array.isArray(titles)) {
+            titles.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                dl.appendChild(opt);
+            });
+        }
+    }).catch(e => console.error('[host] failed to load game profiles:', e));
 });

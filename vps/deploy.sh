@@ -98,7 +98,7 @@ echo ""
 echo "[5/5] Starting services..."
 
 echo "      Setting permissions on project directory..."
-chmod -R 755 "$PROJECT_ROOT"
+chmod -R 755 "$PROJECT_ROOT" || true
 
 # Node.js application server on port 3001
 nohup env PORT=3001 node "$PROJECT_ROOT/src/scripts/server.js" \
