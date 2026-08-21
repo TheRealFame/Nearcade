@@ -693,12 +693,44 @@ Napi::Value DestroyDevice(const Napi::CallbackInfo& info) {
     return info.Env().Undefined();
 }
 
+// ── N-API: Get Gamepad Event Path ─────────────────────────────────────────────
+Napi::Value GetGamepadEventPath(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 1) return env.Undefined();
+    uint8_t slot = info[0].As<Napi::Number>().Uint32Value();
+    
+    auto it = gp_fds.find(slot);
+    if (it == gp_fds.end()) return env.Undefined();
+    
+    char sysname[256] = {};
+    if (ioctl(it->second, UI_GET_SYSNAME(sizeof(sysname)), sysname) < 0) return env.Undefined();
+    
+    char dir_path[512];
+    snprintf(dir_path, sizeof(dir_path), "/sys/devices/virtual/input/%s", sysname);
+    DIR* d = opendir(dir_path);
+    if (!d) return env.Undefined();
+    
+    std::string ev_path;
+    struct dirent* ent;
+    while ((ent = readdir(d)) != nullptr) {
+        if (strncmp(ent->d_name, "event", 5) == 0) {
+            ev_path = std::string("/dev/input/") + ent->d_name;
+            break;
+        }
+    }
+    closedir(d);
+    
+    if (ev_path.empty()) return env.Undefined();
+    return Napi::String::New(env, ev_path);
+}
+
 // ── Module init ───────────────────────────────────────────────────────────────
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("initializeDevice",  Napi::Function::New(env, InitializeDevice));
     exports.Set("submitInputPacket", Napi::Function::New(env, SubmitInputPacket));
     exports.Set("destroyDevice",     Napi::Function::New(env, DestroyDevice));
     exports.Set("setRumbleCallback", Napi::Function::New(env, SetRumbleCallback));
+    exports.Set("getGamepadEventPath", Napi::Function::New(env, GetGamepadEventPath));
     return exports;
 }
 

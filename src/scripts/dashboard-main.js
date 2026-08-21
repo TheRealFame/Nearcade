@@ -319,7 +319,6 @@ async function applyNativeTheme() {
       root.style.setProperty('--muted', theme.muted);
       root.style.setProperty('--muted2', theme.muted2);
       root.style.setProperty('--border', theme.border);
-      root.style.setProperty('--accent', theme.accent);
 
       const hexToRgb = (hex) => {
         if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
@@ -329,12 +328,6 @@ async function applyNativeTheme() {
           b: parseInt(hex.slice(5,7), 16)
         };
       };
-
-      const acc = hexToRgb(theme.accent);
-      if (acc) {
-        root.style.setProperty('--accent-dim', `rgba(${acc.r},${acc.g},${acc.b},0.15)`);
-        root.style.setProperty('--accent-glow', `rgba(${acc.r},${acc.g},${acc.b},0.35)`);
-      }
 
       const surf = hexToRgb(theme.surface);
       if (surf) {
@@ -348,8 +341,6 @@ async function applyNativeTheme() {
         root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
       }
 
-      appConfig.hostColor = theme.accent;
-      localStorage.setItem('ns_chat_color', theme.accent);
       localStorage.setItem('ns_native_theme_payload', JSON.stringify(theme));
       syncToNode();
 
@@ -907,7 +898,7 @@ function toggleAppSetting(key) {
     if (tr) tr.classList.toggle('on', appConfig[key]);
     if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
 
-    if (key === 'useSystemAccent' && !appConfig.useNativeTheme) applySystemAccent();
+    if (key === 'useSystemAccent') applySystemAccent();
     if (key === 'useNativeTheme') applyNativeTheme();
     if (key === 'vrMode' && appConfig.vrMode && window.electronAPI && window.electronAPI.startWivrn) {
       window.electronAPI.startWivrn().then(res => {

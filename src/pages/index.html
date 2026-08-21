@@ -1306,30 +1306,47 @@
     }
 
     /* ─── SLIDE-OUT CONTROL BAR ─────────────────────────────────────────── */
+    /* Root cause found: this bar's closed-state box (right:-220px on a
+       380px-wide element) still occupies a 160px-wide strip of ACTUAL
+       SCREEN SPACE at all times, regardless of pointer-events. On a narrow
+       portrait phone (~390px wide) that strip covers 100% of the width of
+       #touchUI .controls-right (~148px wide), silently sitting over the
+       whole A/B/X/Y ring. In landscape the strip only covers ~50% of that
+       box's width, which is why B (pinned right:0, always inside the
+       strip) failed in both orientations while A/X/Y only failed in
+       portrait. Fix: give it zero width/pointer-events while closed and
+       expand only when actually open, instead of leaving a permanent
+       fixed-pixel hit area sitting on top of the touch controls. */
     #nsBar {
       position: fixed;
-      right: -220px;
+      right: 0;
       top: 0;
       height: 100vh;
-      width: 380px;
-      padding-left: 160px;
+      width: 0;
+      overflow: hidden;
+      padding-left: 0;
       display: flex;
       align-items: center;
-      transition: right 0.35s cubic-bezier(0.1, 0.9, 0.2, 1);
+      transition: width 0.35s cubic-bezier(0.1, 0.9, 0.2, 1), padding-left 0.35s cubic-bezier(0.1, 0.9, 0.2, 1);
       transition-delay: 0.6s;
       z-index: 300;
+      pointer-events: none;
     }
 
     @media (hover: hover) {
       #nsBar:hover {
-        right: 0;
+        width: 380px;
+        padding-left: 160px;
         transition-delay: 0s;
+        pointer-events: auto;
       }
     }
 
     #nsBar.open {
-      right: 0;
+      width: 380px;
+      padding-left: 160px;
       transition-delay: 0s;
+      pointer-events: auto;
     }
 
     #nsBarInner {
@@ -1919,9 +1936,8 @@
       width: min(30vw, 180px);
       height: min(30vw, 180px);
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(20, 20, 28, 0.45);
       border: 2px solid rgba(139, 92, 246, 0.25);
-      backdrop-filter: blur(8px);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1949,16 +1965,23 @@
       height: min(14vw, 78px);
       border-radius: 50%;
       border: none;
-      background: rgba(255, 255, 255, 0.08);
-      border: 2px solid rgba(255, 255, 255, 0.12);
+      /* Best-guess fix (backed by real Chromium bug reports on nested/repeated
+         backdrop-filter recalculation, and confirmed against a working MIT
+         reference touch-gamepad implementation that uses plain box-shadow
+         for its pressed state, not blur+transform): dropped backdrop-filter
+         entirely and switched to a solid, higher-contrast background so the
+         buttons (a) can't get stuck in a broken GPU compositing state after
+         many rapid taps, and (b) stay visible over bright/white game scenes
+         instead of nearly disappearing. */
+      background: rgba(20, 20, 28, 0.55);
+      border: 2px solid rgba(255, 255, 255, 0.35);
       color: white;
       font-size: clamp(16px, 2vw, 24px);
-      backdrop-filter: blur(8px);
     }
 
     #touchUI .button:active {
-      transform: scale(0.92);
-      background: rgba(139, 92, 246, 0.2);
+      box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.45);
+      background: rgba(139, 92, 246, 0.35);
     }
 
     #touchUI .y {
@@ -1991,16 +2014,15 @@
       position: absolute;
       width: 30%;
       height: 30%;
-      background: rgba(255, 255, 255, 0.08);
-      border: 2px solid rgba(255, 255, 255, 0.12);
-      backdrop-filter: blur(8px);
+      background: rgba(20, 20, 28, 0.55);
+      border: 2px solid rgba(255, 255, 255, 0.35);
       border-radius: 8px;
       color: white;
     }
 
     #touchUI .dpad-btn:active {
-      background: rgba(139, 92, 246, 0.2);
-      transform: scale(0.92);
+      background: rgba(139, 92, 246, 0.35);
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.45);
     }
 
     #touchUI .up {
@@ -2041,19 +2063,18 @@
       width: min(22vw, 140px);
       height: min(9vh, 56px);
       border-radius: 16px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 2px solid rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.7);
+      background: rgba(20, 20, 28, 0.5);
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.9);
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: clamp(13px, 1.5vw, 17px);
-      backdrop-filter: blur(8px);
     }
 
     #touchUI .trigger:active {
-      background: rgba(139, 92, 246, 0.2);
-      transform: scale(0.95);
+      background: rgba(139, 92, 246, 0.35);
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.45);
     }
 
     #touchUI .center-ui {
@@ -3819,27 +3840,7 @@
 
         <div class="v-settings-group">
           <div class="v-settings-label">Controller & Input</div>
-          <div class="v-settings-row">
-            <div class="v-settings-row-title">Analog Sensitivity</div>
-            <div class="v-settings-row-subtitle" style="font-size:10px; color:var(--muted); margin-bottom:4px;">
-              Multiplier for joystick inputs.</div>
-            <div style="display:flex;align-items:center;gap:12px;">
-              <span id="vSensVal" style="font-size:11px;font-family:var(--mono);color:var(--muted);">1.00</span>
-              <input type="range" class="v-range" id="vSensSlider" min="0.10" max="5.0" step="0.05" value="1.00"
-                oninput="updateAnalogSens(this.value)">
-            </div>
-          </div>
-          <div class="v-settings-row">
-            <div class="v-settings-row-info">
-              <div class="v-settings-row-title">Analog Deadzone</div>
-              <div class="v-settings-row-desc">Increase if your character moves on their own (stick drift).</div>
-            </div>
-            <div class="v-settings-control">
-              <span id="vDeadzoneVal" style="font-size:11px;font-family:var(--mono);color:var(--muted);">0.10</span>
-              <input type="range" class="v-range" id="vDeadzoneSlider" min="0.01" max="0.5" step="0.01" value="0.10"
-                oninput="updateDeadzone(this.value)">
-            </div>
-          </div>
+
 
           <div class="v-settings-row">
             <div class="v-settings-row-info">
@@ -4404,6 +4405,19 @@
       localStorage.setItem('ns_gp_ui_nav', window.gpUiNavEnabled);
       const toggle = document.getElementById('vGpUiNavToggle');
       if (toggle) toggle.classList.toggle('on', window.gpUiNavEnabled);
+    };
+
+    window._nsBarAnimated = false;
+    window.playNsBarAnimation = function() {
+      if (window._nsBarAnimated) return;
+      window._nsBarAnimated = true;
+      const nsBar = document.getElementById('nsBar');
+      if (nsBar && !nsBar.classList.contains('open')) {
+        nsBar.style.transform = 'translateX(-70px)';
+        setTimeout(() => {
+          if (!nsBar.classList.contains('open')) nsBar.style.transform = '';
+        }, 800);
+      }
     };
 
     // Restore saved bandwidth profile button state

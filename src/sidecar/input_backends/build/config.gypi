@@ -483,7 +483,17 @@
     "ossfuzz": "false",
     "nodedir": "/home/fame/.cache/node-gyp/22.23.2",
     "python": "/usr/bin/python3",
-    "standalone_static_library": 1
+    "standalone_static_library": 1,
+    "global_prefix": "/usr",
+    "init_module": "/home/fame/.npm-init.js",
+    "globalconfig": "/usr/etc/npmrc",
+    "node_gyp": "/usr/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js",
+    "cache": "/home/fame/.npm",
+    "npm_version": "10.9.8",
+    "prefix": "/usr",
+    "local_prefix": "/home/fame/Documents/Nearcade/src/sidecar/input_backends",
+    "userconfig": "/home/fame/.npmrc",
+    "user_agent": "npm/10.9.8 node/v22.23.2 linux x64 workspaces/false"
   },
   "target_defaults": {
     "include_dirs": [],

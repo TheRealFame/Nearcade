@@ -3497,12 +3497,14 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     // Honor the user's configured bitrate — if they explicitly set one, use it.
     // Otherwise fall back to resolution-scaled dynamic bitrate (Auto mode).
     const sliderBitrate = parseInt(document.getElementById('bitrateSelect')?.value, 10) || 0;
+    const cbrEnabled = document.getElementById('cbrToggle') ? document.getElementById('cbrToggle').checked : true;
 
     const wcConfig = {
         codec: _wcCodecStr,
         width: encWidth,
         height: encHeight,
         bitrate: sliderBitrate > 0 ? sliderBitrate : dynamicBitrate,
+        ...(cbrEnabled ? { bitrateMode: 'constant' } : { bitrateMode: 'variable' }),
         framerate: Math.round(settings.frameRate || 60),
         hardwareAcceleration: _wcCodecSel === 'VP8' ? 'prefer-software' : 'prefer-hardware',
         latencyMode: 'realtime',

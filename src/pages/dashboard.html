@@ -466,6 +466,9 @@
           <button onclick="loadDoc('NEARCADE_ARCADE.md')"
             style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
             onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearcade</button>
+          <button onclick="loadDoc('OPEN_PROTOCOL.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Open Protocol (ORP)</button>
           <button onclick="loadDoc('ERROR_CODES.md')"
             style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
             onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Error
@@ -678,7 +681,7 @@
           </div>
         </div>
         
-        <button id="gamesLibraryBtn" class="host-only" onclick="openGamesOverlay()" style="position:absolute; bottom:90px; right:30px; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:30px; padding:0 20px; height:48px; display:flex; justify-content:center; align-items:center; gap:8px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s; font-family:inherit; font-weight:bold; color:var(--muted);" title="Open Games Library">
+        <button id="gamesLibraryBtn" class="host-only" onclick="openGamesOverlay()" style="position:absolute; bottom:95px; right:45px; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:30px; padding:0 20px; height:48px; display:flex; justify-content:center; align-items:center; gap:8px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s; font-family:inherit; font-weight:bold; color:var(--muted);" title="Open Games Library">
           <i class="fa-solid fa-gamepad" style="font-size:18px;"></i>
           <span>Library</span>
         </button>
@@ -838,7 +841,7 @@
             <div class="setting-row" onclick="toggleAppSetting('useNativeTheme')">
               <div class="setting-info">
                 <h4>Native OS Theming <span id="nativeThemeIndicator"
-                    style="display:none;font-size:9px;font-weight:400;color:var(--bg);background:var(--text);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span>
+                    style="display:none;font-size:9px;font-weight:400;color:var(--accent);background:var(--accent-dim);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span>
                 </h4>
                 <p>Dynamically follow your system's background, surface, and text colors.</p>
               </div>

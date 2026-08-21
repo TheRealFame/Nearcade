@@ -249,9 +249,9 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.on('run-setup', (event) => {
     if (os.platform() === 'win32') {
-      let scriptPath = path.join(ROOT_DIR, 'bin', 'windows_setup.ps1');
+      let scriptPath = path.join(ROOT_DIR, 'bin', 'setup', 'windows_setup.ps1');
       if (__dirname.includes('app.asar')) {
-        scriptPath = path.join(process.resourcesPath, 'bin', 'windows_setup.ps1');
+        scriptPath = path.join(process.resourcesPath, 'bin', 'setup', 'windows_setup.ps1');
       }
       if (!fs.existsSync(scriptPath)) {
         console.error('[Setup] windows_setup.ps1 not found at', scriptPath);
@@ -268,10 +268,10 @@ function registerIpcHandlers(ctx) {
         }
       });
     } else if (os.platform() === 'linux') {
-      let scriptPath = path.join(ROOT_DIR, 'bin', 'linux_setup.sh');
+      let scriptPath = path.join(ROOT_DIR, 'bin', 'setup', 'linux_setup.sh');
       let iconPath = path.join(ROOT_DIR, 'assets', 'NearcadeLogo.png');
       if (__dirname.includes('app.asar')) {
-        scriptPath = path.join(process.resourcesPath, 'bin', 'linux_setup.sh');
+        scriptPath = path.join(process.resourcesPath, 'bin', 'setup', 'linux_setup.sh');
         iconPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'NearcadeLogo.png');
       }
       try { fs.chmodSync(scriptPath, 0o755); } catch (e) { console.warn('[Setup] chmod:', e.message); }
@@ -304,9 +304,9 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.on('run-vbcable-setup', (event) => {
     if (os.platform() === 'win32') {
-      let scriptPath = path.join(ROOT_DIR, 'bin', 'install_vbcable.ps1');
+      let scriptPath = path.join(ROOT_DIR, 'bin', 'setup', 'install_vbcable.ps1');
       if (__dirname.includes('app.asar')) {
-        scriptPath = path.join(process.resourcesPath, 'bin', 'install_vbcable.ps1');
+        scriptPath = path.join(process.resourcesPath, 'bin', 'setup', 'install_vbcable.ps1');
       }
       if (!fs.existsSync(scriptPath)) {
         console.error('[Setup] install_vbcable.ps1 not found at', scriptPath);
@@ -321,9 +321,9 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.on('run-advanced-linux-setup', (event) => {
     if (os.platform() === 'linux') {
-      let scriptPath = path.join(ROOT_DIR, 'bin', 'linux_advanced_setup.sh');
+      let scriptPath = path.join(ROOT_DIR, 'bin', 'setup', 'linux_advanced_setup.sh');
       if (__dirname.includes('app.asar')) {
-        scriptPath = path.join(process.resourcesPath, 'bin', 'linux_advanced_setup.sh');
+        scriptPath = path.join(process.resourcesPath, 'bin', 'setup', 'linux_advanced_setup.sh');
       }
       if (!fs.existsSync(scriptPath)) return;
       const command = `x-terminal-emulator -e "bash ${scriptPath}" || konsole -e "bash ${scriptPath}" || gnome-terminal -- bash ${scriptPath} || xterm -e "bash ${scriptPath}"`;

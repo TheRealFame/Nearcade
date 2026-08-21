@@ -16,6 +16,13 @@ app.setAppUserModelId('Nearcade');
 process.title = 'Nearcade';
 app.userAgentFallback = app.userAgentFallback + ' Nearcade/' + app.getVersion();
 
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('openremoteplay', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('openremoteplay');
+}
 const isArcadeWorker = process.argv.includes('--arcade-worker');
 const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
 let isWebCodecs = process.argv.includes('--webcodecs');
@@ -55,18 +62,36 @@ function registerDiscordProtocol(clientId) {
         .split('\n')
         .filter(l => {
           if (l.startsWith(mimeType + '=')) return false;
+          if (l.startsWith('x-scheme-handler/openremoteplay=')) return false;
           if (l.includes(mimeType) && !l.startsWith('[') && !l.startsWith('#')) return false;
           return true;
         })
         .join('\n');
     }
 
+    // Also register openremoteplay:// protocol for Linux
+    const openremoteDesktopFile = path.join(appsDir, 'openremoteplay-protocol.desktop');
+    fs.writeFileSync(openremoteDesktopFile, [
+      '[Desktop Entry]',
+      'Type=Application',
+      'Name=Nearcade Deep Link Handler',
+      'Exec=' + execLine,
+      'MimeType=x-scheme-handler/openremoteplay;',
+      'StartupNotify=true',
+      'Categories=Network;',
+      'NoDisplay=true',
+    ].join('\n'), 'utf-8');
+
     const marker = '[Default Applications]';
-    const newLine = mimeType + '=' + protocol + '.desktop';
+    const newLines = [
+      mimeType + '=' + protocol + '.desktop',
+      'x-scheme-handler/openremoteplay=openremoteplay-protocol.desktop'
+    ].join('\n');
+    
     if (mimeContent.includes(marker)) {
-      mimeContent = mimeContent.replace(marker, marker + '\n' + newLine);
+      mimeContent = mimeContent.replace(marker, marker + '\n' + newLines);
     } else {
-      mimeContent += (mimeContent ? '\n' : '') + marker + '\n' + newLine + '\n';
+      mimeContent += (mimeContent ? '\n' : '') + marker + '\n' + newLines + '\n';
     }
 
     fs.writeFileSync(mimeAppsPath, mimeContent, 'utf-8');
@@ -609,6 +634,30 @@ app.on('second-instance', (_event, argv) => {
   }
 
   if (!win || !serverPort) return;
+  
+// 1. Handle custom 'openremoteplay://' protocol links
+  const nearcadeArg = argv.find(a => a.startsWith('openremoteplay://'));
+  if (nearcadeArg) {
+    try {
+      const urlObj = new URL(nearcadeArg);
+      if (urlObj.hostname === 'join' || urlObj.pathname.includes('join')) {
+        const targetUrl = urlObj.searchParams.get('url');
+        if (targetUrl) {
+          console.log('[Protocol] Deep link join received:', targetUrl);
+          const isUrl = targetUrl.startsWith('http://') || targetUrl.startsWith('https://');
+          const viewerUrl = isUrl
+            ? `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(targetUrl)}`
+            : `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + targetUrl)}`;
+          win.loadURL(viewerUrl);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('[Protocol] Failed to parse openremoteplay:// URI:', e.message);
+    }
+  }
+
+  // 2. Handle legacy Discord 'Ask to Join' protocol
   const joinArg = argv.find(a => a.startsWith('discord-'));
   if (!joinArg) return;
 

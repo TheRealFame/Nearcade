@@ -961,6 +961,9 @@ async function applyBitrateToAll() {
         const fpsVal = parseInt(document.getElementById('fpsSelect')?.value || 60, 10);
         if (fpsVal > 0) wcConfig.framerate = fpsVal;
 
+        const cbrEnabled = document.getElementById('cbrToggle') ? document.getElementById('cbrToggle').checked : true;
+        wcConfig.bitrateMode = cbrEnabled ? 'constant' : 'variable';
+
         try {
             _wcEncoder.configure(wcConfig);
             _wcEncoder._lastConfig = wcConfig;

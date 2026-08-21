@@ -664,6 +664,22 @@
             oninput="document.getElementById('fpsVal').textContent = this.value + ' FPS'"
             onchange="applyBitrateToAll()">
         </div>
+        <div class="ctrl-modal-row" id="ctrlRowCbr" onclick="document.getElementById('cbrToggle').click()" style="margin-top:8px;">
+          <div class="ctrl-toggle-track on" id="ctrlTrackCbr">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Constant Framerate (CBR)</div>
+            <div class="ctrl-row-desc">Force the encoder to output frames constantly, ignoring scene complexity. Fixes VBR stutter.</div>
+          </div>
+          <input type="checkbox" id="cbrToggle" checked style="display:none;" onchange="if(typeof saveSetting === 'function') saveSetting('ns_cbr', this.checked); else localStorage.setItem('ns_cbr', this.checked); document.getElementById('ctrlTrackCbr').classList.toggle('on', this.checked); applyBitrateToAll();">
+        </div>
+        <script>
+            if (localStorage.getItem('ns_cbr') === 'false') {
+                document.getElementById('cbrToggle').checked = false;
+                document.getElementById('ctrlTrackCbr').classList.remove('on');
+            }
+        </script>
         <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">
           <div class="ctrl-row-text" style="display:flex; justify-content:space-between; width:100%;">
             <div>

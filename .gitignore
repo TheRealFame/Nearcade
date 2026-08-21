@@ -21,21 +21,21 @@ dist/
 vps/target/
 drafts/
 
-# WiVRn compiled binaries (produced by bin/build_wivrn.sh)
-bin/wivrn-server
-bin/wivrnctl
-bin/wivrnctl.new
-bin/wivrn_bridge
+# WiVRn compiled binaries (produced by build_wivrn.sh)
+tools/nearcade-vr/build/wivrn-server
+tools/nearcade-vr/build/wivrnctl
+tools/nearcade-vr/build/wivrnctl.new
+tools/nearcade-vr/build/wivrn_bridge
 
-# WiVRn build output directories (produced by bin/build_wivrn.sh)
-bin/bin/
-bin/lib/
-bin/share/
+# WiVRn build output directories (produced by build_wivrn.sh)
+tools/nearcade-vr/build/bin/
+tools/nearcade-vr/build/lib/
+tools/nearcade-vr/build/share/
 lib/
 
 # WiVRn / Monado source build directories
-src/tools/wivrn-src/build/
-src/tools/wivrn-src/build-*/
+tools/nearcade-vr/src/build/
+tools/nearcade-vr/src/build-*/
 
 # Stale Docker-generated output (root-owned, clean up with sudo)
 share/

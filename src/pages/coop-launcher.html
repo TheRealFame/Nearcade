@@ -268,9 +268,28 @@
         return;
       }
 
+      let availablePaths = [];
+      try {
+        const activePath = path.join(__dirname, '../../config/active_controllers.json');
+        if (fs.existsSync(activePath)) {
+            const active = JSON.parse(fs.readFileSync(activePath, 'utf8'));
+            for (const vid in active) {
+                if (active[vid].path && active[vid].path !== 'N/A') {
+                    availablePaths.push(active[vid].path);
+                }
+            }
+        }
+      } catch (e) {
+          console.error("Could not read active_controllers.json", e);
+      }
+      
+      if (availablePaths.length === 0) {
+          alert("No active virtual gamepads found! Ensure viewers are connected and have gamepads active before launching co-op.");
+          return;
+      }
+
       for (let i = 0; i < num; i++) {
-        // We'll mock the evdev assignment for now. In reality, it would pull from active viewers.
-        const evdevPath = `/dev/input/event${i + 10}`;
+        const evdevPath = availablePaths[i % availablePaths.length];
 
         const env = Object.assign({}, process.env, {
           LD_PRELOAD: isolatorPath,

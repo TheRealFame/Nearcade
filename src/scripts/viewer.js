@@ -1155,38 +1155,9 @@ if (!storedSens) { localStorage.setItem('ns_analog_sens', '1.00'); storedSens = 
 window._globalSens = parseFloat(storedSens);
 window.electronAPI?.saveGlobalSetting('ns_analog_sens', storedSens);
 
-function updateDeadzone(val) {
-    const num = parseFloat(val);
-    window._globalDeadzone = num;
-    localStorage.setItem('ns_deadzone', num.toString());
-    const valEl = document.getElementById('vDeadzoneVal');
-    if (valEl) valEl.textContent = num.toFixed(2);
-}
 
-function updateAnalogSens(val) {
-    const num = parseFloat(val).toFixed(2);
-    document.getElementById('vSensVal').textContent = num;
-    window._globalSens = parseFloat(num);
-    localStorage.setItem('ns_analog_sens', num);
-    window.electronAPI?.saveGlobalSetting('ns_analog_sens', num);
-}
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Restore saved settings on load
-    let savedStoredDz = localStorage.getItem('ns_deadzone');
-    const savedDz = savedStoredDz !== null ? parseFloat(savedStoredDz) : 0.01;
-    const dzSlider = document.getElementById('vDeadzoneSlider');
-    const dzVal = document.getElementById('vDeadzoneVal');
-    if (dzSlider) dzSlider.value = savedDz;
-    if (dzVal) dzVal.textContent = savedDz.toFixed(2);
-
-    let savedStoredSens = localStorage.getItem('ns_analog_sens');
-    const savedSens = savedStoredSens !== null ? parseFloat(savedStoredSens) : 1.00;
-    const sensSlider = document.getElementById('vSensSlider');
-    const sensVal = document.getElementById('vSensVal');
-    if (sensSlider) sensSlider.value = savedSens;
-    if (sensVal) sensVal.textContent = savedSens.toFixed(2);
-    
     const savedBw = localStorage.getItem('ns_bw_profile') || 'auto';
     const bwSel = document.getElementById('vBwSelect');
     if (bwSel) bwSel.value = savedBw;
@@ -2300,7 +2271,22 @@ function setStatus(msg, live) {
     if (ts) ts.textContent = msg;
     if (live) { const ld = document.getElementById('liveDot'); if (ld) ld.style.display = 'inline-block'; }
 }
-function showOverlay(v) { const el = document.getElementById('overlay'); if (el) el.classList.toggle('gone', !v); }
+function showOverlay(v) { 
+    const el = document.getElementById('overlay'); 
+    if (el) el.classList.toggle('gone', !v); 
+    
+    // Hide HUD and nsBar when overlay is active (host disconnected / waiting)
+    if (v) {
+        const hud = document.getElementById('hudWidget');
+        if (hud) hud.classList.add('hide');
+        const nsBar = document.getElementById('nsBar');
+        if (nsBar) nsBar.classList.remove('open');
+    }
+    
+    if (!v && typeof window.playNsBarAnimation === 'function') {
+        window.playNsBarAnimation();
+    }
+}
 
 // Captures the current rendered frame into _swapOverlayEl so the viewer sees
 // a freeze-frame (rather than black) during host disconnects / codec swaps.
@@ -4211,6 +4197,7 @@ function initWebCodecsViewer(config) {
                 const overlay = document.getElementById('overlay');
                 if (overlay) overlay.style.backgroundColor = '';
             }
+            window._wcFramesDecoded = (window._wcFramesDecoded || 0) + 1;
         },
         error: (e) => {
             console.error('[WebCodecs] Decoder Error:', e);
@@ -4583,7 +4570,7 @@ setInterval(async () => {
     if (window._hudCodec) g('hudCodec').textContent = window._hudCodec;
     if (window._hudResolution) g('hudRes').textContent = window._hudResolution;
     
-    if (pc) {
+        if (pc) {
         let currentFps = 0, currentRtt = 0;
         const stats = await pc.getStats();
         stats.forEach(report => {
@@ -4594,7 +4581,18 @@ setInterval(async () => {
                 currentRtt = report.currentRoundTripTime * 1000;
             }
         });
-        
+
+        // WebCodecs fallback for FPS
+        if (USE_WEBCODECS && window._wcFramesDecoded !== undefined) {
+            if (window._lastWcFpsTime) {
+                const delta = performance.now() - window._lastWcFpsTime;
+                const frames = window._wcFramesDecoded - window._lastWcFrames;
+                if (delta > 0) currentFps = (frames / (delta / 1000));
+            }
+            window._lastWcFpsTime = performance.now();
+            window._lastWcFrames = window._wcFramesDecoded;
+        }
+
         g('hudFps').textContent = currentFps.toFixed(0) + ' fps';
         g('hudRtt').textContent = currentRtt.toFixed(0) + ' ms';
         
@@ -4790,11 +4788,37 @@ window.startNetStats = function() {
                     if(el) el.textContent = (report.jitter * 1000).toFixed(0) + ' ms';
                 }
             }
+            if (USE_WEBCODECS && report.type === 'data-channel' && report.label === 'webcodecs') {
+                if (lastTime && report.bytesReceived > lastBytes) {
+                    const kbps = ((report.bytesReceived - lastBytes) * 8 / (report.timestamp - lastTime)).toFixed(0);
+                    const el = document.getElementById('nsBitrate');
+                    if(el) el.textContent = kbps + ' kbps';
+                }
+                lastBytes = report.bytesReceived;
+                lastTime = report.timestamp;
+            }
             if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime != null) {
                 const el = document.getElementById('nsPing');
                 if(el) el.textContent = (report.currentRoundTripTime * 1000).toFixed(0) + ' ms';
             }
         });
+        
+        if (USE_WEBCODECS) {
+            const elCodec = document.getElementById('nsCodec');
+            if(elCodec && window._hudCodec) elCodec.textContent = window._hudCodec;
+            const elRes = document.getElementById('nsRes');
+            if(elRes && window._hudResolution) elRes.textContent = window._hudResolution;
+            const elFps = document.getElementById('nsFps');
+            if(elFps) {
+                const delta = performance.now() - (window._lastWcFpsTime2 || performance.now());
+                const frames = window._wcFramesDecoded - (window._lastWcFrames2 || window._wcFramesDecoded || 0);
+                if (delta > 0) elFps.textContent = (frames / (delta / 1000)).toFixed(0);
+                window._lastWcFpsTime2 = performance.now();
+                window._lastWcFrames2 = window._wcFramesDecoded;
+            }
+            const elLoss = document.getElementById('nsLoss');
+            if (elLoss) elLoss.textContent = 'N/A';
+        }
     }, 1000);
 };
 

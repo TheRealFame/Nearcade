@@ -524,6 +524,18 @@ function _freeSlot(viewerId) {
         _bridge.submitInputPacket(_flBuf);
         _frBuf[1] = slot;
         _bridge.submitInputPacket(_frBuf);
+        
+        // Update active controllers JSON
+        const pth = path.join(__dirname, '..', '..', '..', 'config', 'active_controllers.json');
+        try {
+            if (fs.existsSync(pth)) {
+                let active = JSON.parse(fs.readFileSync(pth, 'utf8'));
+                delete active[viewerId];
+                fs.writeFileSync(pth, JSON.stringify(active, null, 2));
+            }
+        } catch (e) {
+            console.error("Failed to write active_controllers.json:", e);
+        }
     }
 
     viewerSlots.delete(viewerId);
@@ -542,7 +554,15 @@ function _freeSlot(viewerId) {
     });
 }
 
-// ── Emulation Handlers ─────────────────────────────────────────────────────────
+// ── Clear active controllers on startup ───────────────────────────────────────
+try {
+    const activePth = path.join(__dirname, '..', '..', '..', 'config', 'active_controllers.json');
+    fs.writeFileSync(activePth, JSON.stringify({}));
+} catch (e) {
+    console.error("Failed to clear active_controllers.json on startup", e);
+}
+
+// ── Native Addon Loading ─────────────────────────────────────────────────────────
 function _handleGamepad(msg) {
     const viewerId = msg.pad_id;
     if (!viewerId) return;
@@ -557,10 +577,25 @@ function _handleGamepad(msg) {
 
     const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
-    console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex}`);
     if (slotIndex < 0) return;
 
     if (!_bridge) return;
+    
+    setTimeout(() => {
+        const eventPath = _bridge ? _bridge.getGamepadEventPath(slotIndex) : 'N/A';
+        console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex} at ${eventPath}`);
+        
+        // Update active controllers JSON
+        const pth = path.join(__dirname, '..', '..', '..', 'config', 'active_controllers.json');
+        try {
+            let active = {};
+            if (fs.existsSync(pth)) active = JSON.parse(fs.readFileSync(pth, 'utf8'));
+            active[viewerId] = { slot: slotIndex, path: eventPath, profile: profileKey };
+            fs.writeFileSync(pth, JSON.stringify(active, null, 2));
+        } catch (e) {
+            console.error("Failed to write active_controllers.json:", e);
+        }
+    }, 300);
 
     // Convert JS viewer bitmask to C++ W3C_BTN format and extract dpad as hx/hy
     // (profileKey enables the Switch Pro A/B, X/Y swap for this viewer's session)

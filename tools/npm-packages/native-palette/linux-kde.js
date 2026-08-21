@@ -1,7 +1,24 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const ini = require('ini');
+function parseIni(str) {
+  const result = {};
+  let currentSection = null;
+  for (let line of str.split('\n')) {
+    line = line.trim();
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+    if (line.startsWith('[') && line.endsWith(']')) {
+      currentSection = line.substring(1, line.length - 1);
+      result[currentSection] = {};
+    } else if (currentSection && line.includes('=')) {
+      const idx = line.indexOf('=');
+      const key = line.substring(0, idx).trim();
+      const val = line.substring(idx + 1).trim();
+      result[currentSection][key] = val;
+    }
+  }
+  return result;
+}
 
 function parseRgbToHex(rgbStr) {
   if (!rgbStr) return null;
@@ -18,7 +35,7 @@ function getKdeTheme() {
     if (!fs.existsSync(kdeglobalsPath)) return null;
 
     const raw = fs.readFileSync(kdeglobalsPath, 'utf-8');
-    const config = ini.parse(raw);
+    const config = parseIni(raw);
 
     const colors = {};
 
