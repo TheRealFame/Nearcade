@@ -1053,6 +1053,28 @@ window.addEventListener('gamepadconnected', () => {
   requestAnimationFrame(updateGamepad);
 });
 
+window.addEventListener('keydown', (e) => {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) {
+    cursor.style.display = 'block';
+    if (e.key === 'ArrowUp') cy -= 40;
+    if (e.key === 'ArrowDown') cy += 40;
+    if (e.key === 'ArrowLeft') cx -= 40;
+    if (e.key === 'ArrowRight') cx += 40;
+    
+    cx = Math.max(0, Math.min(window.innerWidth, cx));
+    cy = Math.max(0, Math.min(window.innerHeight, cy));
+    cursor.style.left = cx + 'px';
+    cursor.style.top = cy + 'px';
+    
+    if (e.key === 'Enter') {
+      cursor.classList.add('clicking');
+      setTimeout(() => cursor.classList.remove('clicking'), 150);
+      const el = document.elementFromPoint(cx, cy);
+      if (el && typeof el.click === 'function') el.click();
+    }
+  }
+});
+
 async function checkFirstRun() {
   if (window.Capacitor || window.IS_CLIENT_ONLY) {
     document.body.classList.add('client-only');

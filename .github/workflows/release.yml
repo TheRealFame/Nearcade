@@ -138,31 +138,6 @@ jobs:
 
 
 
-  # ── 2. VPS ROUTER (RUST) ──
-  release-router:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          
-      - name: Build Router
-        working-directory: ./vps
-        run: cargo build --release
-        
-      - name: Rename Binary
-        run: mv vps/target/release/nearcade-router nearcade-router
-
-      - name: Upload Router to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: nearcade-router
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── 3. ANDROID APK BUILD ──
   release-android:

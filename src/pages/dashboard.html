@@ -586,7 +586,7 @@
       </button>
 
       <div style="display:flex; align-items:center; justify-content:space-between; margin-top: auto; padding: 0 16px; margin-bottom: 12px;">
-        <button class="host-only" onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open')" title="Mobile Link" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:8px; display:flex; align-items:center; justify-content:center; border-radius:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--surface-hover)'; this.style.color='var(--text)'" onmouseout="this.style.background='none'; this.style.color='var(--muted)'">
+        <button onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open')" title="Mobile Link" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:8px; display:flex; align-items:center; justify-content:center; border-radius:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--surface-hover)'; this.style.color='var(--text)'" onmouseout="this.style.background='none'; this.style.color='var(--muted)'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
             <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
             <line x1="10" y1="19" x2="14" y2="19"></line>
@@ -652,7 +652,7 @@
           </div>
         </div>
         
-        <div class="host-only" style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+        <div style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
           
           <!-- Add Button -->
           <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open'); startCompanionPairing();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">
