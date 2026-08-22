@@ -91,7 +91,7 @@ const open = (...args) => import('open').then(({ default: open }) => open(...arg
 const which = require("which");
 const tunnels = require('./tunnels.js');
 const killPort = require("kill-port");
-const captureManager = require('../sidecar/CaptureManager.js');
+const captureManager = require('../sidecar/capture/CaptureManager.js');
 let activePort = 3000;
 let hostWS = null;
 let hostRegion = '';
