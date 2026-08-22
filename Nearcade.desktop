@@ -2,7 +2,7 @@
 Categories=Game;Utility;
 Comment=Browser-based game streaming host
 Exec=bash -c 'cd "$(dirname "%k")" && ./bin/start.cmd'
-Icon=/assets/NearcadeLogo.png
+Icon=/home/fame/Documents/Nearcade/assets/NearcadeLogo.png
 Name=Nearcade
 Path=
 StartupNotify=true

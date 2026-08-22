@@ -9,6 +9,11 @@ BATCH_SECTION
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
+# Auto-update the portable .desktop icon to the absolute path
+if [ -f "Nearcade.desktop" ]; then
+    sed -i "s|^Icon=.*|Icon=$DIR/assets/NearcadeLogo.png|" Nearcade.desktop
+fi
+
 # 1. GRACEFUL GHOST CLEANUP (UNIX)
 # Ask the process holding Port 3000 (Nearcade) to close nicely
 PORT_PID=$(lsof -ti:3000)
