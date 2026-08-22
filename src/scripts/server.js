@@ -917,7 +917,7 @@ async function main() {
   app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
   app.get("/keyboard-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "keyboard-popup.html")); });
   app.get("/display-color-tweaks.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "display-color-tweaks.html")); });
-  app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
+  app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(path.dirname(require.resolve('@nearcade/launcher-detect')), 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
 

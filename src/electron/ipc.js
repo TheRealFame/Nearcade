@@ -347,7 +347,7 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-accent-color', () => {
     try {
-      const accent = require('../../packages/accent-color');
+      const accent = require('@nearcade/accent-color');
       const c = accent.get();
       if (c && c.hex) return c.hex;
     } catch (_) { }
@@ -365,7 +365,7 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-native-theme', () => {
     try {
-      const { getThemeColors } = require('../../packages/native-palette');
+      const { getThemeColors } = require('@nearcade/native-palette');
       const theme = getThemeColors();
 
       // Force Electron to synchronize the titlebar and dialog colors with the OS
