@@ -228,7 +228,7 @@ const PusherRaw = require('pusher-js');
 const isPackaged = __dirname.includes('app.asar');
 const inputDriver = require('../sidecar/input_backends/InputOrchestrator.js');
 const experimentalDriver = require('../sidecar/input_backends/experimental/ExperimentalOrchestrator.js');
-const wivrnInt = require('../sidecar/wivrn-integration.js');
+const wivrnInt = require('../sidecar/capture/wivrn-integration.js');
 // ══════════════════════════════════════════════════════════════════════════════
 // VIRTUAL AUDIO — delegated to audio_worker.js via worker_threads IPC
 // The main event loop never calls pactl directly; all blocking OS shell work
@@ -249,9 +249,9 @@ let _audioWorker = null;
 function spawnAudioWorker() {
   if (process.platform !== 'linux') return;
 
-  const daemonPath = path.join(__dirname, '..', 'sidecar', 'audio_blacklist_daemon.js');
+  const daemonPath = path.join(__dirname, '..', 'sidecar', 'audio', 'audio_blacklist_daemon.js');
 
-  _audioWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'audio_worker.js'), {
+  _audioWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'audio', 'audio_worker.js'), {
     workerData: {
       isPackaged,
       daemonPath: fs.existsSync(daemonPath) ? daemonPath : null,
@@ -385,7 +385,7 @@ function initPusher(cfg) {
 let _arcadeWorker = null;
 
 function spawnArcadeHeartbeatWorker() {
-  _arcadeWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'arcade_heartbeat_worker.js'), {
+  _arcadeWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'workers', 'arcade_heartbeat_worker.js'), {
     workerData: { syncIntervalMs: 30_000, pingIntervalMs: 25_000 }
   });
 
@@ -1825,7 +1825,7 @@ async function main() {
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'leavesound.wav')
     : path.join(__dirname, '../../assets/leavesound.wav');
 
-  const { playSound: playSoundUtil } = require('./audio-util');
+  const { playSound: playSoundUtil } = require('./core/audio/audio-util.js');
 
   function playSound(file) {
     if (!fs.existsSync(file)) return;
