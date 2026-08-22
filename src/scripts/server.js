@@ -1346,54 +1346,7 @@ async function main() {
     }
   });
 
-  app.get("/api/turn", (req, res) => {
-    const iceServers = [];
-
-    // ── Custom STUN server (optional) ───────────────────────────────────────
-    if (process.env.STUN_URL) {
-      iceServers.push({ urls: process.env.STUN_URL });
-    }
-
-    // ── Custom TURN server (optional) ───────────────────────────────────────
-    if (process.env.TURN_URL) {
-      const entry = { urls: [] };
-      entry.urls.push(process.env.TURN_URL);
-      if (process.env.TURN_URL_TLS) entry.urls.push(process.env.TURN_URL_TLS);
-      
-      if (process.env.TURN_SECRET) {
-        // Use TURN REST API to generate time-limited (24 hour) credentials
-        const crypto = require('crypto');
-        const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
-        const usernameBase = process.env.TURN_USERNAME || 'nearcade';
-        entry.username = `${unixTimeStamp}:${usernameBase}`;
-        
-        const hmac = crypto.createHmac('sha1', process.env.TURN_SECRET);
-        hmac.update(entry.username);
-        entry.credential = hmac.digest('base64');
-      } else {
-        // Fallback to static credentials if secret is not provided
-        if (process.env.TURN_USERNAME) entry.username = process.env.TURN_USERNAME;
-        if (process.env.TURN_CREDENTIAL) entry.credential = process.env.TURN_CREDENTIAL;
-      }
-      iceServers.push(entry);
-    }
-
-    // ── Legacy Metered.ca env vars (backward compat) ────────────────────────
-    if (!process.env.TURN_URL && process.env.METERED_TURN_URL) {
-      iceServers.push({
-        urls: [
-          process.env.METERED_TURN_URL,
-          process.env.METERED_TURN_URL_SECURE || ''
-        ].filter(Boolean),
-        username: process.env.METERED_TURN_USERNAME || 'openrelayproject',
-        credential: process.env.METERED_TURN_CREDENTIAL || 'openrelayproject'
-      });
-    }
-
-    // Return null if nothing is configured — clients will use their built-in STUN pool
-    if (iceServers.length === 0) return res.json(null);
-    res.json(iceServers.length === 1 ? iceServers[0] : iceServers);
-  });
+  require('./core/server/turn-auth.js')(app);
 
   function freshLauncherDetect() {
     const modPath = require.resolve('@nearcade/launcher-detect');
@@ -1443,56 +1396,7 @@ async function main() {
     });
   });
 
-  const gameArtCacheDir = path.join(os.homedir(), '.cache', 'Nearcade', 'game-art');
-  const GAME_ART_MAX_MB = 200;
-  function evictGameArtCache() {
-    try {
-      const files = fs.readdirSync(gameArtCacheDir).map(f => {
-        const fp = path.join(gameArtCacheDir, f);
-        const s = fs.statSync(fp);
-        return { fp, mtime: s.mtimeMs, size: s.size };
-      }).sort((a, b) => a.mtime - b.mtime); // oldest first
-      let totalBytes = files.reduce((s, f) => s + f.size, 0);
-      const limitBytes = GAME_ART_MAX_MB * 1024 * 1024;
-      for (const f of files) {
-        if (totalBytes <= limitBytes) break;
-        try { fs.unlinkSync(f.fp); totalBytes -= f.size; } catch (_) {}
-      }
-    } catch (_) {}
-  }
-  app.get("/api/game-art/:appId", (req, res) => {
-    const { appId } = req.params;
-    if (!/^\d+$/.test(appId)) return res.status(400).end();
-    fs.mkdirSync(gameArtCacheDir, { recursive: true });
-    const cachePath = path.join(gameArtCacheDir, appId + '.jpg');
-    if (fs.existsSync(cachePath)) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.sendFile(cachePath);
-    }
-    const urls = [
-      `https://shared.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
-      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
-      `https://steamcdn-a.akamaihd.net/steam/apps/${appId}/header.jpg`,
-    ];
-    let idx = 0;
-    function tryFetch() {
-      if (idx >= urls.length) return res.status(404).end();
-      const url = urls[idx++];
-      https.get(url, (resp) => {
-        if (resp.statusCode !== 200) { resp.resume(); return tryFetch(); }
-        const chunks = [];
-        resp.on('data', c => chunks.push(c));
-        resp.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          fs.writeFileSync(cachePath, buf);
-          evictGameArtCache(); // trim oldest files if over 200MB
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          res.sendFile(cachePath);
-        });
-      }).on('error', tryFetch);
-    }
-    tryFetch();
-  });
+  require('./core/server/game-art.js')(app);
 
   app.post("/api/launch-game", adminMiddleware, express.json(), (req, res) => {
     const { launch } = freshLauncherDetect();
