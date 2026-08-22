@@ -89,7 +89,7 @@ const sidecarPath = __dirname.includes('app.asar')
 const { exec, spawn } = require("child_process");
 const open = (...args) => import('open').then(({ default: open }) => open(...args));
 const which = require("which");
-const tunnels = require('./tunnels.js');
+const tunnels = require('./core/network/tunnels.js');
 const killPort = require("kill-port");
 const captureManager = require('../sidecar/capture/CaptureManager.js');
 let activePort = 3000;

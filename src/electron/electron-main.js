@@ -6,8 +6,8 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { powerSaveBlocker } = require('electron');
-const { loadSettings, saveSettings, CONFIG_DIR, LOG_FILE } = require('./src/main/config');
-const { registerIpcHandlers } = require('./src/main/ipc');
+const { loadSettings, saveSettings, CONFIG_DIR, LOG_FILE } = require('./config');
+const { registerIpcHandlers } = require('./ipc');
 
 powerSaveBlocker.start('prevent-app-suspension');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
@@ -332,7 +332,7 @@ function startServer() {
   return new Promise((resolve) => {
     process.env.ELECTRON_MODE = '1';
 
-    serverCore = require('./src/scripts/server.js');
+    serverCore = require('../scripts/server.js');
     const _appLog = console.log.bind(console);
 
     const _serverLog = console.log;

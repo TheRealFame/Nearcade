@@ -3,7 +3,7 @@
   "version": "3.0.6",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
-  "main": "electron-main.js",
+  "main": "src/electron/electron-main.js",
   "scripts": {
     "start": "node src/scripts/server.js",
     "test": "node bin/verify.js",

@@ -499,7 +499,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle('start-wivrn', async () => {
     try {
       const { spawn } = require('child_process');
-      const relayPath = path.join(ROOT_DIR, 'src', 'wivrn', 'relay.js');
+      const relayPath = path.join(ROOT_DIR, 'tools', 'nearcade-vr', 'web', 'relay.js');
       const p = spawn('node', [relayPath], { detached: true, stdio: 'ignore' });
       p.unref();
       return { success: true };

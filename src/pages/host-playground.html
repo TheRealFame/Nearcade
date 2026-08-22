@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
   <title>Host Concept - Stadia Inspired</title>
-  <script src="/js/native-theme.js"></script>
+  <script src="/js/extended/ui/native-theme.js"></script>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -477,7 +477,7 @@
   </div>
 
   <!-- INJECT SCRIPTS -->
-  <script src="/js/version.js"></script>
+  <script src="/js/extended/misc/version.js"></script>
   <script src="/js/i18n.js"></script>
   <script>
     var xhr = new XMLHttpRequest();
@@ -485,9 +485,9 @@
     xhr.send(null);
     if (xhr.status === 200) document.body.insertAdjacentHTML("beforeend", xhr.responseText);
   </script>
-  <script type="module" src="/js/p2p-signaler.js"></script>
-  <script src="/js/emoji-data.js"></script>
-  <script src="/js/signaling.js"></script>
+  <script type="module" src="/js/core/network/p2p-signaler.js"></script>
+  <script src="/js/extended/ui/emoji-data.js"></script>
+  <script src="/js/core/network/signaling.js"></script>
   <script src="/js/gamepad-nav.js"></script>
   <script src="/js/host-engine.js"></script>
   <script src="/js/host.js"></script>

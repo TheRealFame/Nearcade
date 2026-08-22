@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <title>Nearcade</title>
-  <script src="/js/native-theme.js"></script>
+  <script src="/js/extended/ui/native-theme.js"></script>
   <link rel="stylesheet" href="/css/scrollbars.css">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap');
@@ -1391,7 +1391,7 @@
 
 
   <!-- ══ APP SETTINGS MODAL ══════════════════════════════════════════════════ -->
-  <script src="/js/version.js"></script>
+  <script src="/js/extended/misc/version.js"></script>
   <script src="/js/i18n.js"></script>
   <script>
     (async function(){
@@ -1416,8 +1416,8 @@
     xhr.send(null);
     if (xhr.status === 200) document.body.insertAdjacentHTML('beforeend', xhr.responseText);
   </script>
-  <script src="/js/emoji-data.js"></script>
-  <script src="/js/signaling.js"></script>
+  <script src="/js/extended/ui/emoji-data.js"></script>
+  <script src="/js/core/network/signaling.js"></script>
   <script src="/js/host-engine.js"></script>
   <script src="/js/host.js"></script>
   <script>
