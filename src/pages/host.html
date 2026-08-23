@@ -424,7 +424,7 @@
       setInterval(() => {
         // Electron exposes the active window title via a dedicated IPC call.
         // If that's unavailable, fall back to document.title of the captured source.
-        const captureTitle = (typeof currentStream !== 'undefined' && currentStream)
+        const captureTitle = (typeof currentStream !== 'undefined' && currentStream && typeof currentStream.getVideoTracks === 'function')
           ? (currentStream.getVideoTracks()[0]?.label || '')
           : '';
         if (captureTitle && captureTitle !== _lastTitle) {

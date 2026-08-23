@@ -174,7 +174,14 @@ try {
       const rawConfig = fs.readFileSync(configFile, 'utf8');
       const parsedConfig = JSON.parse(rawConfig);
       if (!process.argv.includes('--webcodecs') && !process.argv.includes('--ffmpeg') && !process.argv.includes('--webrtc')) {
-        const method = parsedConfig.captureMethod || 'webcodecs';
+        let method = parsedConfig.captureMethod || 'webcodecs';
+        
+        // Force DXGI zero-copy pipeline for Windows testers for this build
+        if (process.platform === 'win32') {
+            method = 'windows_dxgi';
+            parsedConfig.captureMethod = method; // Ensure it propagates to the host UI
+        }
+
         if (method === 'webcodecs' || method === 'custom_webcodecs') isWebCodecs = true;
         if (method === 'ffmpeg') isFFmpegCapture = true;
         if (method === 'gstreamer_webrtc') isGstWebRTC = true;
@@ -262,9 +269,13 @@ if (process.platform === 'linux') {
   } catch (_) { }
 }
 
-if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, 'assets/NearcadeLogo.png'));
+if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'));
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
+}
 
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
@@ -373,7 +384,7 @@ async function createWindow() {
     minWidth: 600,
     minHeight: 500,
     title: 'Nearcade',
-    icon: path.join(__dirname, 'assets/NearcadeLogo.png'),
+    icon: path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'),
     backgroundColor: '#111111',
     alwaysOnTop: settings.alwaysOnTop,
     show: isGamescopeEnv ? true : false,
@@ -488,7 +499,7 @@ async function createWindow() {
   win.on('closed', () => { win = null; ctx.win = null; });
 
   if (!isGamescopeEnv) {
-    const trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets/NearcadeLogo.png')).resize({ height: 22 });
+    const trayIcon = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png')).resize({ height: 22 });
     tray = new Tray(trayIcon);
     ctx.tray = tray;
     tray.setToolTip('Nearcade');

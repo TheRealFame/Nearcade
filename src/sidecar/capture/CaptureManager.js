@@ -64,6 +64,8 @@ class CaptureManager {
                 return await this._startWiVRn(options);
             case 'webcodecs':
                 return { ok: true, message: 'WebCodecs armed on backend. Waiting for frontend execution.' };
+            case 'windows_dxgi':
+                return await this._startWindowsDXGI(options);
             case 'gstreamer_webrtc':
                 return await this._startGstWebRTC(options);
             case 'webrtc':
@@ -83,6 +85,8 @@ class CaptureManager {
             this._stopPipeWire();
         } else if (this._activeMethod === 'wivrn') {
             this._stopWiVRn();
+        } else if (this._activeMethod === 'windows_dxgi') {
+            this._stopWindowsDXGI();
         } else if (this._activeMethod === 'gstreamer_webrtc') {
             this._stopGstWebRTC();
         }
@@ -98,9 +102,99 @@ class CaptureManager {
             details: this._activeMethod === 'ffmpeg' ? `FFmpeg via ${this._ffmpegEncoder}` :
                      this._activeMethod === 'pipewire' ? `PipeWire node: ${this._pipewireNodeName || 'auto'}` :
                      this._activeMethod === 'wivrn' ? `WiVRn stream: ${this._wivrnPort || 'not started'}` :
+                     this._activeMethod === 'windows_dxgi' ? `Windows DXGI Desktop Duplication (Port: ${this._ffmpegPort || '...'})` :
                      this._activeMethod === 'gstreamer_webrtc' ? 'Native C++ GStreamer WebRTC' :
                      'Frontend Execution'
         };
+    }
+
+    // ── Windows DXGI (Zero-Copy) Implementation ─────────────────────────────
+
+    async _startWindowsDXGI({ width = 1920, height = 1080, fps = 60, bitrate = 15000000 } = {}) {
+        if (os.platform() !== 'win32') {
+            throw new Error('Windows DXGI capture only supports Windows.');
+        }
+
+        console.log(`[CaptureManager] Starting DXGI zero-copy capture...`);
+
+        // Use FFmpeg's ddagrab (Desktop Duplication API) for zero-copy VRAM capture
+        const args = [
+            '-hide_banner',
+            '-loglevel', 'info',    // Verbose logging for testing
+            '-f', 'ddagrab',
+            '-framerate', String(fps),
+            '-video_size', `${width}x${height}`,
+            '-hwaccel', 'auto',     // Keep it in VRAM
+            '-i', 'desktop',
+            '-c:v', 'h264_nvenc',   // Force hardware encoding
+            '-preset', 'p1',        // Ultra fast preset
+            '-tune', 'll',          // Low latency tuning
+            '-b:v', `${Math.round(bitrate / 1000)}k`,
+            '-g', String(fps * 2),  // Keyframe interval
+            '-cq', '20',
+            '-f', 'mp4',
+            '-movflags', 'empty_moov+default_base_moof+frag_keyframe+skip_sidx',
+            'pipe:1'
+        ];
+
+        // We reuse the FFmpeg state variables since it's an FFmpeg process
+        this._ffmpegProc = spawn('ffmpeg', args, {
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        // Capture logs reliably for the Windows testers
+        this._ffmpegProc.stderr.on('data', (d) => {
+            const logLine = d.toString().trim();
+            if (logLine) console.log(`[DXGI-FFMPEG] ${logLine}`);
+        });
+
+        this._ffmpegServer = http.createServer((req, res) => {
+            res.writeHead(200, {
+                'Content-Type': 'video/mp4',
+                'Cache-Control': 'no-cache',
+                'Access-Control-Allow-Origin': '*'
+            });
+            this._ffmpegStreamRes = res;
+            if (this._ffmpegProc && this._ffmpegProc.stdout) {
+                this._ffmpegProc.stdout.pipe(res);
+            }
+        });
+
+        await new Promise((resolve) => {
+            this._ffmpegServer.listen(0, '127.0.0.1', () => {
+                this._ffmpegPort = this._ffmpegServer.address().port;
+                resolve();
+            });
+        });
+
+        this._ffmpegProc.on('error', (err) => {
+            console.error('[CaptureManager] DXGI FFmpeg error:', err.message);
+            this._stopWindowsDXGI();
+        });
+
+        this._ffmpegProc.on('close', (code) => {
+            console.log(`[CaptureManager] DXGI FFmpeg exited with code ${code}`);
+            this._stopWindowsDXGI();
+        });
+
+        console.log(`[CaptureManager] DXGI Capture active. Stream available on local port ${this._ffmpegPort}`);
+        return { ok: true, streamPort: this._ffmpegPort, method: 'windows_dxgi' };
+    }
+
+    _stopWindowsDXGI() {
+        if (this._ffmpegStreamRes) {
+            this._ffmpegStreamRes.end();
+            this._ffmpegStreamRes = null;
+        }
+        if (this._ffmpegProc) {
+            this._ffmpegProc.kill('SIGKILL');
+            this._ffmpegProc = null;
+        }
+        if (this._ffmpegServer) {
+            this._ffmpegServer.close();
+            this._ffmpegServer = null;
+        }
+        this._ffmpegPort = null;
     }
 
     // ── PipeWire Implementation (Gamescope/SteamVR) ───────────────────────────
@@ -439,18 +533,23 @@ class CaptureManager {
         const args = ['-u', pyScript];
         
         // Attempt headless PipeWire node discovery (Gamescope/SteamVR/WiVRn)
-        try {
-            const { findGamescopeNode } = require('./pipewire-capture.js');
-            const targetNode = findGamescopeNode();
-            if (targetNode) {
-                const targetStr = targetNode.serial || targetNode.name || targetNode.id;
-                console.log(`[CaptureManager] Auto-discovered PipeWire target node: ${targetNode.name} (ID: ${targetNode.id}, Serial: ${targetNode.serial}) -> Passing ${targetStr}`);
-                args.push('--node', targetStr);
-            } else {
-                console.warn('[CaptureManager] No headless PipeWire node found. GStreamer will fallback to default video source.');
+        if (options && options.sourceId) {
+            console.log(`[CaptureManager] Using explicitly requested source node ID: ${options.sourceId}`);
+            args.push('--node', String(options.sourceId));
+        } else {
+            try {
+                const { findGamescopeNode } = require('./pipewire-capture.js');
+                const targetNode = findGamescopeNode();
+                if (targetNode) {
+                    const targetStr = targetNode.serial || targetNode.name || targetNode.id;
+                    console.log(`[CaptureManager] Auto-discovered PipeWire target node: ${targetNode.name} -> Passing ${targetStr}`);
+                    args.push('--node', targetStr);
+                } else {
+                    console.warn('[CaptureManager] No headless PipeWire node found. GStreamer will fallback to default video source.');
+                }
+            } catch (err) {
+                console.error('[CaptureManager] Error resolving PipeWire node:', err.message);
             }
-        } catch (err) {
-            console.error('[CaptureManager] Error resolving PipeWire node:', err.message);
         }
 
         console.log('[CaptureManager] Spawning GStreamer WebRTC Python Daemon with args:', args);
@@ -458,9 +557,12 @@ class CaptureManager {
             stdio: ['pipe', 'pipe', 'inherit']
         });
 
-        // Listen for raw SDP / ICE candidates from Python
+        // Listen for raw SDP / ICE candidates and thumbnails from Python
+        this._gstStdoutBuf = '';
         this._gstProc.stdout.on('data', (data) => {
-            const lines = data.toString().split('\n');
+            this._gstStdoutBuf += data.toString();
+            const lines = this._gstStdoutBuf.split('\n');
+            this._gstStdoutBuf = lines.pop(); // Keep the last incomplete line in the buffer
             for (const line of lines) {
                 if (!line.trim()) continue;
                 try {
@@ -491,7 +593,14 @@ class CaptureManager {
 
     _stopGstWebRTC() {
         if (this._gstProc) {
-            try { this._gstProc.kill('SIGTERM'); } catch (_) {}
+            try {
+                this._gstProc.kill('SIGTERM');
+                setTimeout(() => {
+                    if (this._gstProc && !this._gstProc.killed) {
+                        this._gstProc.kill('SIGKILL');
+                    }
+                }, 1000);
+            } catch (_) {}
             this._gstProc = null;
         }
         this._gstSignalingCallback = null;

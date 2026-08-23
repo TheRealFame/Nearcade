@@ -1532,6 +1532,22 @@ function connectWS() {
             }
             return;
         }
+        if (msg.type === 'thumbnail') {
+            const mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
+            if (mjpegImg) {
+                mjpegImg.src = 'data:image/jpeg;base64,' + msg.data;
+                mjpegImg.style.display = 'block';
+            }
+            return;
+        }
+        if (msg.type === 'info') {
+            console.log(`[GST] ${msg.message}`);
+            return;
+        }
+        if (msg.type === 'error') {
+            console.error(`[GST ERROR] ${msg.message}`);
+            return;
+        }
         if (msg.type === 'webcodecs-health') {
             const vid = msg.viewerId || '(unknown)';
             const htype = msg.wcHealthType || '?';
@@ -2066,8 +2082,9 @@ async function showSourceSelectionModal() {
     const pSelect = document.getElementById('pipelineSelect');
     const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
 
-    // Only show modal if electronAPI is available AND we are not on Linux or macOS (UNLESS using GStreamer)
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || ((isLinux || isMac) && !isGStreamer)) {
+    // Only show modal if electronAPI is available AND we are not on Linux or macOS.
+    // (GStreamer uses its own native dbus portal picker on Linux, so we bypass Electron's picker for it too)
+    if (!window.electronAPI || !window.electronAPI.getWindowSources || (isLinux || isMac)) {
         if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
         else log(I18N.t('Source selection not available on this platform'), 'warn');
 
@@ -2461,11 +2478,36 @@ async function startCapture() {
                     ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '' }));
                     sysChat('Native WebRTC daemon started.');
 
+                    // Update UI: Connect to the new GStreamer MJPEG local server!
+                    const overlaySpan = document.getElementById('previewOverlayText');
+                    if (overlaySpan) overlaySpan.textContent = '';
+                    
+                    const localVideo = document.getElementById('preview') || document.getElementById('localVideo');
+                    if (localVideo) {
+                        let mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
+                        if (!mjpegImg) {
+                            mjpegImg = document.createElement('img');
+                            mjpegImg.id = 'ns-gstreamer-mjpeg';
+                            mjpegImg.style.position = 'absolute';
+                            mjpegImg.style.top = '0';
+                            mjpegImg.style.left = '0';
+                            mjpegImg.style.width = '100%';
+                            mjpegImg.style.height = '100%';
+                            mjpegImg.style.objectFit = 'contain';
+                            mjpegImg.style.zIndex = '';
+                            mjpegImg.style.pointerEvents = 'none';
+                            localVideo.insertAdjacentElement('afterend', mjpegImg);
+                        }
+                        // The server will push base64 thumbnail frames via websocket, which are handled in ws.onmessage
+                    }
+
                     // We DO NOT capture screen here for WebRTC. Fake the stream state so the UI knows we are running.
                     currentStream = 'gstreamer'; // Truthy value so toggleStreamState knows to STOP
                     _elDisabled('btnSwitch', false);
                     _elDisabled('btnStop', false);
                     _elDisabled('btnKbmPanic', false);
+                    const pOverlay = document.getElementById('prevOverlay');
+                    if (pOverlay) pOverlay.classList.add('hidden');
                     if (typeof updatePlaygroundToolbarState === 'function') updatePlaygroundToolbarState(true);
                     return;
                 } else {
@@ -2481,26 +2523,28 @@ async function startCapture() {
             }
         }
 
-        // ── 1. FFMPEG EXPERIMENTAL INTERCEPTOR ──
-        // Ask the backend directly if FFmpeg is active, bypassing UI state
-        /*
-        let backendHasFfmpeg = false;
+        // ── 1. NATIVE SIDECAR INTERCEPTOR (DXGI / FFmpeg) ──
+        // Ask the backend directly if a native sidecar is active, bypassing UI state
+        let backendSidecarActive = false;
+        let backendMethod = null;
         try {
             const statusRes = await fetch('/api/capture/status').then(r => r.json());
-            if (statusRes.active && statusRes.method === 'ffmpeg') backendHasFfmpeg = true;
+            if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi')) {
+                backendSidecarActive = true;
+                backendMethod = statusRes.method;
+            }
         } catch (e) { }
 
-        if (backendHasFfmpeg) {
-            log('Routing capture through experimental FFmpeg pipeline...', 'warn');
+        if (backendSidecarActive) {
+            log(`Routing capture through native sidecar pipeline (${backendMethod})...`, 'warn');
             try {
-                const ffmpegTrack = await startFFmpegCapture();
-                screenStream = new MediaStream([ffmpegTrack]);
+                const sidecarTrack = await startSidecarCapture(backendMethod);
+                screenStream = new MediaStream([sidecarTrack]);
             } catch (e) {
-                console.error('FFmpeg pipeline failed:', e);
-                log('FFmpeg failed. Falling back to native Wayland portal.', 'err');
+                console.error('Sidecar pipeline failed:', e);
+                log('Sidecar failed. Falling back to native UI picker.', 'err');
             }
         }
-        */
 
         // ── 2. AUTO-CAPTURE: DRM addon → fallback to Portal ──
         if (!screenStream && window._autoCapture && window.electronAPI) {
@@ -3062,6 +3106,12 @@ function stopCapture() {
     if (window._gstPreviewStream) { _forceKillStream(window._gstPreviewStream); window._gstPreviewStream = null; }
     const localVideo = document.getElementById('localVideo');
     if (localVideo) { localVideo.poster = ''; localVideo.srcObject = null; }
+    window._nsPollId = null;
+    const mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
+    if (mjpegImg) {
+        mjpegImg.src = '';
+        mjpegImg.style.display = 'none';
+    }
     if (window._obsWin && !window._obsWin.closed) {
         const obsVid = window._obsWin.document.getElementById('obs-video');
         if (obsVid) obsVid.srcObject = null;
@@ -3341,19 +3391,20 @@ async function startWebCodecsPipeline(videoTrack, dataChannel) {
     console.log("WebCodecs Pipeline is now pushing raw frames.");
 }
 
-async function startFFmpegCapture() {
+async function startSidecarCapture(methodName) {
     return new Promise(async (resolve, reject) => {
         try {
-            // 1. Tell the backend to spin up the FFmpeg hardware encoder
+            // 1. Tell the backend to spin up the hardware encoder
             const capRes = await fetch('/api/capture/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ method: 'ffmpeg' })
+                body: JSON.stringify({ method: methodName || 'ffmpeg' })
             });
             const capData = await capRes.json();
-            if (!capData.ok || !capData.port) {
-                return reject(new Error('Failed to start FFmpeg capture on backend'));
+            if (!capData.ok || (!capData.port && !capData.streamPort)) {
+                return reject(new Error('Failed to start sidecar capture on backend'));
             }
+            const activePort = capData.streamPort || capData.port;
 
             // Clean up any old instances
             let oldVideo = document.getElementById('ffmpeg-hidden-video');
@@ -3376,8 +3427,8 @@ async function startFFmpegCapture() {
             ms.addEventListener('sourceopen', async () => {
                 const sourceBuffer = ms.addSourceBuffer('video/mp4; codecs="avc1.64002a"');
 
-                // 3. Connect to our new dedicated FFmpeg HTTP stream port
-                const response = await fetch(`http://127.0.0.1:${capData.port}/`);
+                // 3. Connect to our new dedicated HTTP stream port
+                const response = await fetch(`http://127.0.0.1:${activePort}/`);
                 const reader = response.body.getReader();
 
                 const pushChunk = async () => {
@@ -3598,6 +3649,69 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         }
         _wcForceKeyframe = true;
     }, KEYFRAME_INTERVAL_MS);
+
+    let _abrCurrentBitrate = wcConfig.bitrate;
+    const _abrBaseBitrate = wcConfig.bitrate;
+    
+    // Only run Adaptive Bitrate if the user has Constant Bitrate (CBR) DISABLED.
+    // Otherwise, it directly overrides their forced quality preferences.
+    if (!cbrEnabled) {
+        const _abrInterval = setInterval(() => {
+            if (!_wcEncoder || _wcEncoder.state !== 'configured') {
+                clearInterval(_abrInterval);
+                return;
+            }
+
+            const pcList = Object.values(peerConnections);
+            if (!pcList.length) return;
+
+            const rttValues = [];
+            const promises = pcList.map(pc => {
+                if (typeof pc.getStats !== 'function') return Promise.resolve();
+                return pc.getStats().then(stats => {
+                    let bestPair = null;
+                    stats.forEach(r => {
+                        if (r.type === 'candidate-pair' && r.state === 'succeeded') {
+                            if (!bestPair || r.currentRoundTripTime < (bestPair.currentRoundTripTime || 1)) {
+                                bestPair = r;
+                            }
+                        }
+                    });
+                    if (bestPair?.currentRoundTripTime != null) {
+                        rttValues.push(Math.round(bestPair.currentRoundTripTime * 1000));
+                    }
+                }).catch(() => {});
+            });
+
+            Promise.all(promises).then(() => {
+                if (rttValues.length === 0) return;
+
+                // Sort and find median RTT to prevent one bad connection from dragging down everyone's quality
+                rttValues.sort((a, b) => a - b);
+                const mid = Math.floor(rttValues.length / 2);
+                const medianRttMs = rttValues.length % 2 !== 0 ? rttValues[mid] : (rttValues[mid - 1] + rttValues[mid]) / 2;
+
+                let newBitrate = _abrCurrentBitrate;
+                if (medianRttMs > 150) {
+                    newBitrate = Math.max(1000000, Math.round(_abrCurrentBitrate * 0.5));
+                } else if (medianRttMs > 80) {
+                    newBitrate = Math.max(1000000, Math.round(_abrCurrentBitrate * 0.9));
+                } else if (medianRttMs < 50) {
+                    newBitrate = Math.min(_abrBaseBitrate, Math.round(_abrCurrentBitrate * 1.1 + 250000));
+                }
+
+                if (newBitrate !== _abrCurrentBitrate && _wcEncoder && _wcEncoder.state === 'configured') {
+                    _abrCurrentBitrate = newBitrate;
+                    const nextConfig = { ...encoder._lastConfig, bitrate: newBitrate };
+                    try {
+                        _wcEncoder.configure(nextConfig);
+                        encoder._lastConfig = nextConfig;
+                        console.log(`[ABR] Median RTT: ${medianRttMs}ms | Adjusted Bitrate to ${Math.round(newBitrate/1000)}kbps`);
+                    } catch (e) { }
+                }
+            });
+        }, 2000);
+    }
 }
 
 let _lastKeyframeTime = 0;

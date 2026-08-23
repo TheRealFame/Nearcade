@@ -4559,6 +4559,10 @@ function wireHudInteractions() {
 // Feed live stats into the HUD when it's visible
 let _hudGraphDataFps = [];
 let _hudGraphDataRtt = [];
+let _hudLastBytes = 0;
+let _hudLastTime = 0;
+let _hudLastDecodeTime = 0;
+let _hudLastFramesDecoded = 0;
 
 setInterval(async () => {
     const el = document.getElementById('hudWidget');
@@ -4571,11 +4575,32 @@ setInterval(async () => {
     if (window._hudResolution) g('hudRes').textContent = window._hudResolution;
     
         if (pc) {
-        let currentFps = 0, currentRtt = 0;
+        let currentFps = 0, currentRtt = 0, currentBitrateKbps = 0, currentDecodeLat = 0;
         const stats = await pc.getStats();
         stats.forEach(report => {
-            if (report.type === 'inbound-rtp' && report.kind === 'video' && report.framesPerSecond != null) {
-                currentFps = report.framesPerSecond;
+            if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                if (report.framesPerSecond != null) currentFps = report.framesPerSecond;
+                if (_hudLastTime && report.bytesReceived > _hudLastBytes) {
+                    currentBitrateKbps = ((report.bytesReceived - _hudLastBytes) * 8 / (report.timestamp - _hudLastTime)).toFixed(0);
+                }
+                if (report.totalDecodeTime != null && report.framesDecoded != null) {
+                    if (_hudLastFramesDecoded && report.framesDecoded > _hudLastFramesDecoded) {
+                        const decodeDelta = report.totalDecodeTime - _hudLastDecodeTime;
+                        const framesDelta = report.framesDecoded - _hudLastFramesDecoded;
+                        currentDecodeLat = (decodeDelta / framesDelta) * 1000;
+                    }
+                    _hudLastDecodeTime = report.totalDecodeTime;
+                    _hudLastFramesDecoded = report.framesDecoded;
+                }
+                _hudLastBytes = report.bytesReceived;
+                _hudLastTime = report.timestamp;
+            }
+            if (USE_WEBCODECS && report.type === 'data-channel' && report.label === 'webcodecs') {
+                if (_hudLastTime && report.bytesReceived > _hudLastBytes) {
+                    currentBitrateKbps = ((report.bytesReceived - _hudLastBytes) * 8 / (report.timestamp - _hudLastTime)).toFixed(0);
+                }
+                _hudLastBytes = report.bytesReceived;
+                _hudLastTime = report.timestamp;
             }
             if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime != null) {
                 currentRtt = report.currentRoundTripTime * 1000;
@@ -4595,6 +4620,8 @@ setInterval(async () => {
 
         g('hudFps').textContent = currentFps.toFixed(0) + ' fps';
         g('hudRtt').textContent = currentRtt.toFixed(0) + ' ms';
+        if (g('hudBitrate')) g('hudBitrate').textContent = currentBitrateKbps > 0 ? currentBitrateKbps + ' kbps' : '—';
+        if (g('hudDecodeLat')) g('hudDecodeLat').textContent = currentDecodeLat > 0 ? currentDecodeLat.toFixed(1) + ' ms' : '—';
         
         _hudGraphDataFps.push(currentFps);
         if (_hudGraphDataFps.length > 30) _hudGraphDataFps.shift();

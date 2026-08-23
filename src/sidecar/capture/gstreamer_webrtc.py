@@ -11,11 +11,16 @@ import json
 import threading
 import argparse
 import random
-
+import base64
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
 
 import gi
+
+PRINT_LOCK = threading.Lock()
+def emit_ipc(msg_dict):
+    with PRINT_LOCK:
+        print(json.dumps(msg_dict), flush=True)
 gi.require_version('Gst', '1.0')
 try:
     gi.require_version('GstWebRTC', '1.0')
@@ -24,6 +29,24 @@ except ValueError:
     sys.exit(1)
 
 from gi.repository import Gst, GstWebRTC, GLib
+import signal
+import dbus
+
+PORTAL_SESSION_HANDLE = None
+
+def cleanup_and_exit(signum, frame):
+    global PORTAL_SESSION_HANDLE
+    if PORTAL_SESSION_HANDLE:
+        try:
+            bus = dbus.SessionBus()
+            session = bus.get_object("org.freedesktop.portal.Desktop", PORTAL_SESSION_HANDLE)
+            session.Close()
+        except Exception:
+            pass
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, cleanup_and_exit)
+signal.signal(signal.SIGINT, cleanup_and_exit)
 
 # ─── STUN Servers (same pool as host.js) ──────────────────────────────────────
 STUN_SERVER = "stun://stun.l.google.com:19302"
@@ -57,7 +80,7 @@ class GstWebRTCBackend:
             nonlocal fd_out, node_id_out
             bus.remove_signal_receiver(on_start_response, signal_name="Response", path=req_path_start)
             if response != 0:
-                print(json.dumps({"type": "error", "message": f"Start failed: {response}"}), flush=True)
+                emit_ipc({"type": "error", "message": f"Start failed: {response}"})
                 portal_loop.quit()
                 return
             streams = results.get('streams', [])
@@ -70,13 +93,13 @@ class GstWebRTCBackend:
                     )
                     fd_out = unix_fd.take()
                 except Exception as e:
-                    print(json.dumps({"type": "error", "message": f"OpenPipeWireRemote failed: {e}"}), flush=True)
+                    emit_ipc({"type": "error", "message": f"OpenPipeWireRemote failed: {e}"})
             portal_loop.quit()
 
         def on_select_sources_response(response, results):
             bus.remove_signal_receiver(on_select_sources_response, signal_name="Response", path=req_path_select)
             if response != 0:
-                print(json.dumps({"type": "error", "message": f"SelectSources failed: {response}"}), flush=True)
+                emit_ipc({"type": "error", "message": f"SelectSources failed: {response}"})
                 portal_loop.quit()
                 return
             bus.add_signal_receiver(
@@ -90,9 +113,10 @@ class GstWebRTCBackend:
 
         def on_create_session_response(response, results):
             nonlocal session_handle
+            global PORTAL_SESSION_HANDLE
             bus.remove_signal_receiver(on_create_session_response, signal_name="Response", path=req_path_create)
             if response != 0:
-                print(json.dumps({"type": "error", "message": f"CreateSession failed: {response}"}), flush=True)
+                emit_ipc({"type": "error", "message": f"CreateSession failed: {response}"})
                 portal_loop.quit()
                 return
             session_str = results.get('session_handle')
@@ -100,6 +124,7 @@ class GstWebRTCBackend:
                 portal_loop.quit()
                 return
             session_handle = str(session_str)
+            PORTAL_SESSION_HANDLE = session_handle
             bus.add_signal_receiver(
                 on_select_sources_response, signal_name="Response",
                 bus_name="org.freedesktop.portal.Desktop", path=req_path_select
@@ -139,15 +164,15 @@ class GstWebRTCBackend:
         # ── Resolve capture source ─────────────────────────────────────────
         if args.node:
             capture_element = f"pipewiresrc target-object={args.node}"
-            print(json.dumps({"type": "info", "message": f"Headless PipeWire capture: node {args.node}"}), flush=True)
+            emit_ipc({"type": "info", "message": f"Headless PipeWire capture: node {args.node}"})
         else:
-            print(json.dumps({"type": "info", "message": "Requesting Wayland XDG Portal capture..."}), flush=True)
+            emit_ipc({"type": "info", "message": "Requesting Wayland XDG Portal capture..."})
             fd, node_id = self.request_portal_screencast()
             if fd is None:
-                print(json.dumps({"type": "error", "message": "Portal denied or timed out."}), flush=True)
+                emit_ipc({"type": "error", "message": "Portal denied or timed out."})
                 sys.exit(1)
             capture_element = f"pipewiresrc fd={fd} path={node_id}"
-            print(json.dumps({"type": "info", "message": f"Portal capture: fd={fd} node={node_id}"}), flush=True)
+            emit_ipc({"type": "info", "message": f"Portal capture: fd={fd} node={node_id}"})
 
         # ── Pipeline ───────────────────────────────────────────────────────
         # Notes:
@@ -156,31 +181,48 @@ class GstWebRTCBackend:
         #  - config-interval=-1 embeds SPS/PPS in every keyframe packet
         #  - queue elements prevent blocking between encode and network stages
         #  - stun-server property gives webrtcbin public IP awareness
+        # Auto-detect Hardware Encoding
+        # Force Software Encoder (x264enc) for all Linux captures.
+        # Hardware encoders like vaapih264enc frequently crash the GStreamer pipeline
+        # during DMABuf memory uploads, which kills both WebRTC and the thumbnail feed.
+        hw_encoder = "x264enc tune=zerolatency speed-preset=ultrafast byte-stream=true"
+        emit_ipc({"type": "info", "message": "Using stable Software Encoder (x264enc)"})
+
         PIPELINE_DESC = f"""
             webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN_SERVER}
+            
             {capture_element} do-timestamp=true
-              ! video/x-raw ! videoconvert ! videorate
-              ! video/x-raw,framerate=30/1
-              ! x264enc tune=zerolatency bitrate=4000 speed-preset=ultrafast
-                  key-int-max=60
+              ! video/x-raw ! videoconvert
+              ! tee name=t
+              
+            t. ! queue max-size-time=500000000 leaky=downstream
+              ! videoconvert
+              ! {hw_encoder}
               ! rtph264pay config-interval=-1 aggregate-mode=zero-latency
               ! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000
-              ! queue max-size-time=200000000
               ! sendrecv.
+              
+            t. ! queue max-size-buffers=1 leaky=downstream
+              ! videoconvert
+              ! videoscale ! video/x-raw,width=960,height=540
+              ! videorate ! video/x-raw,framerate=30/1
+              ! jpegenc quality=65
+              ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false
+              
             pulsesrc
               ! audio/x-raw,rate=48000,channels=1
               ! audioconvert ! audioresample
               ! opusenc bitrate=128000
               ! rtpopuspay
               ! application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000
-              ! queue max-size-time=200000000
+              ! queue max-size-time=500000000 leaky=downstream
               ! sendrecv.
         """
 
         try:
             self.pipe = Gst.parse_launch(PIPELINE_DESC)
         except GLib.Error as e:
-            print(json.dumps({"type": "error", "message": f"Pipeline parse error: {e}"}), flush=True)
+            emit_ipc({"type": "error", "message": f"Pipeline parse error: {e}"})
             sys.exit(1)
 
         self.webrtc = self.pipe.get_by_name('sendrecv')
@@ -197,26 +239,52 @@ class GstWebRTCBackend:
         bus.add_signal_watch()
         bus.connect('message::error', self.on_bus_error)
         bus.connect('message::state-changed', self.on_state_changed)
+        
+        # Connect appsink to extract thumbnails
+        thumb_sink = self.pipe.get_by_name("thumb_sink")
+        if thumb_sink:
+            thumb_sink.connect("new-sample", self.on_new_thumbnail)
 
         ret = self.pipe.set_state(Gst.State.PLAYING)
         if ret == Gst.StateChangeReturn.FAILURE:
-            print(json.dumps({"type": "error", "message": "Pipeline failed to start (PLAYING state failed)."}), flush=True)
+            emit_ipc({"type": "error", "message": "Pipeline failed to start (PLAYING state failed)."})
             sys.exit(1)
+            
+    def on_new_thumbnail(self, sink):
+        try:
+            sample = sink.emit("pull-sample")
+            if not sample:
+                return Gst.FlowReturn.OK
+
+            buf = sample.get_buffer()
+            result, mapinfo = buf.map(Gst.MapFlags.READ)
+            if result:
+                b64 = base64.b64encode(mapinfo.data).decode('utf-8')
+                emit_ipc({"type": "thumbnail", "data": b64})
+                buf.unmap(mapinfo)
+                
+                if not hasattr(self, 'frame_count'):
+                    self.frame_count = 0
+                self.frame_count += 1
+                if self.frame_count % 10 == 0:
+                    emit_ipc({"type": "info", "message": f"Thumbnail frame {self.frame_count}"})
+                
+        except Exception as e:
+            emit_ipc({"type": "error", "message": f"Thumbnail error: {e}"})
+        return Gst.FlowReturn.OK
 
     # ── GStreamer Bus Callbacks ────────────────────────────────────────────────
     def on_bus_error(self, bus, message):
         err, debug = message.parse_error()
-        print(json.dumps({"type": "error", "message": f"GST: {err.message}", "debug": debug}), flush=True)
-
     def on_state_changed(self, bus, message):
         if message.src != self.pipe:
             return
         old, new, pending = message.parse_state_changed()
-        print(json.dumps({"type": "info", "message": f"Pipeline state: {old.value_nick} -> {new.value_nick}"}), flush=True)
+        emit_ipc({"type": "info", "message": f"Pipeline state: {old.value_nick} -> {new.value_nick}"})
 
     # ── WebRTC Offer / Answer ─────────────────────────────────────────────────
     def on_negotiation_needed(self, element):
-        print(json.dumps({"type": "info", "message": "WebRTC negotiation needed — creating offer"}), flush=True)
+        emit_ipc({"type": "info", "message": "WebRTC negotiation needed — creating offer"})
         promise = Gst.Promise.new_with_change_func(self.on_offer_created, element, None)
         element.emit('create-offer', None, promise)
 
@@ -230,8 +298,8 @@ class GstWebRTCBackend:
         set_promise.interrupt()
 
         sdp_text = offer.sdp.as_text()
-        print(json.dumps({'type': 'sdp', 'sdp': sdp_text}), flush=True)
-        print(json.dumps({"type": "info", "message": "SDP offer sent to server"}), flush=True)
+        emit_ipc({'type': 'sdp', 'sdp': sdp_text})
+        emit_ipc({"type": "info", "message": "SDP offer sent to server"})
 
     def send_ice_candidate(self, element, mlineindex, candidate):
         print(json.dumps({
@@ -249,17 +317,17 @@ class GstWebRTCBackend:
             promise = Gst.Promise.new()
             self.webrtc.emit('set-remote-description', answer, promise)
             promise.interrupt()
-            print(json.dumps({"type": "info", "message": "Remote SDP answer applied"}), flush=True)
+            emit_ipc({"type": "info", "message": "Remote SDP answer applied"})
             self._answer_received = True
         except Exception as e:
-            print(json.dumps({"type": "error", "message": f"Failed to apply SDP answer: {e}"}), flush=True)
+            emit_ipc({"type": "error", "message": f"Failed to apply SDP answer: {e}"})
         return False  # Remove from GLib idle
 
     def handle_incoming_ice(self, mlineindex, candidate_str):
         try:
             self.webrtc.emit('add-ice-candidate', mlineindex, candidate_str)
         except Exception as e:
-            print(json.dumps({"type": "error", "message": f"Failed to add ICE candidate: {e}"}), flush=True)
+            emit_ipc({"type": "error", "message": f"Failed to add ICE candidate: {e}"})
         return False  # Remove from GLib idle
 
     # ── Stdin Reader (Signaling from Node.js → Python) ────────────────────────

@@ -102,19 +102,18 @@
             timer.style.display = 'block';
             timer.style.animation = 'none';
             void timer.offsetWidth; // trigger reflow
-            timer.style.animation = 'pinTimer 10s linear forwards';
+            timer.style.animation = 'pinTimer 30s linear forwards';
             
-            // After 10s, mock a successful pairing by generating a fingerprint
-            setTimeout(() => {
-              if (document.getElementById('mobileLinkModal').classList.contains('gone')) return;
-              label.innerText = 'Paired Fingerprint';
-              el.style.fontSize = '12px';
-              el.style.letterSpacing = '1px';
-              // Generate mock UUID
-              el.innerText = 'f4a38b29-9dee-4741-9fed-a6aee1d9f05e';
-              box.style.borderColor = '#2ecc71';
-              timer.style.display = 'none';
-            }, 10000);
+            // Loop the PIN generation when the animation finishes
+            timer.onanimationend = () => {
+                if (!document.getElementById('mobileLinkModal').classList.contains('gone')) {
+                    startCompanionPairing();
+                }
+            };
+            
+            // Note: Actual pairing logic should be driven by a WebSocket event from the server.
+            // When the server confirms the PIN was entered on the companion device, 
+            // the server will emit an event that closes this modal and adds the device to the list.
           }
           
           // Hook into the open button
@@ -131,6 +130,13 @@
           <li>Select <strong>Link to Host</strong> and enter the PIN above.</li>
           <li>Your device will instantly appear on your Home tab, ready for one-click streaming!</li>
         </ol>
+
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: var(--text);">Paired Devices</div>
+          <div id="pairedDevicesListModal" style="color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end;">
         <div class="btn-row">
@@ -668,16 +674,8 @@
           <div style="width: 32px; height: 1px; background: rgba(255,255,255,0.1);"></div>
 
           <!-- Dynamic Devices List Container -->
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <!-- Generic Active Placeholder (Until implemented) -->
-            <button title="Linked Device (Online)" style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.03); border: 1px solid var(--border); cursor: pointer; display: flex; justify-content: center; align-items: center; position: relative; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='var(--accent)';" onmouseout="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='var(--border)';" onclick="alert('Establishing Local P2P Connection...')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: var(--text);">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                <line x1="8" y1="21" x2="16" y2="21"></line>
-                <line x1="12" y1="17" x2="12" y2="21"></line>
-              </svg>
-              <div style="position: absolute; top: 0px; right: 0px; width: 10px; height: 10px; background: #2ecc71; border-radius: 50%; border: 2px solid var(--surface);"></div>
-            </button>
+          <div id="companionDevicesList" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Devices will be injected here after pairing -->
           </div>
         </div>
         

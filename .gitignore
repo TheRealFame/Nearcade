@@ -51,3 +51,4 @@ nearcade_layer.log
 # Capacitor Android Build Output
 dist-android/
 server/target/
+__pycache__/

@@ -91,8 +91,8 @@ function findGamescopeNode() {
         if (match) return match;
     }
     
-    // Fallback to first Video/Sink node
-    return nodes.find(n => n.class === 'Video/Sink') || nodes[0] || null;
+    // If no explicit gaming node is found, return null to force XDG Desktop Portal fallback
+    return null;
 }
 
 // ── WiVRn Support Functions ─────────────────────────────────────────────────
