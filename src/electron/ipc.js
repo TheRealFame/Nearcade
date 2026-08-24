@@ -965,7 +965,7 @@ function registerIpcHandlers(ctx) {
           }
         }
 
-        console.log(\`[electron] Executing capture for source - ID: \${chosenSource.id} | Name: \${chosenSource.name}\`);
+        console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name}`);
         // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio on Windows.
         // Do not pass audio on other platforms; PipeWire handles it separately.
         if (process.platform === 'win32') callback({ video: chosenSource, audio: 'loopback' });
