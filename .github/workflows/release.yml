@@ -93,8 +93,8 @@ jobs:
             python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin linux_uinput.py
           else
             VGP=$(python -c "import vgamepad, os; print(os.path.dirname(vgamepad.__file__))")
-            pyinstaller -y --onefile --add-data "$VGP\\win\\vigem\\client;vgamepad\\win\\vigem\\client" --distpath bin --name windows_hidmaestro windows_hidmaestro.py
-            pyinstaller -y --onefile --add-data "$VGP\\win\\vigem\\client;vgamepad\\win\\vigem\\client" --distpath bin --name windows_vigem windows_vigem.py
+            pyinstaller -y --onefile --add-data "$VGP/win/vigem/client;vgamepad/win/vigem/client" --distpath bin --name windows_hidmaestro windows_hidmaestro.py
+            pyinstaller -y --onefile --add-data "$VGP/win/vigem/client;vgamepad/win/vigem/client" --distpath bin --name windows_vigem windows_vigem.py
           fi
 
       - name: Build Electron App
