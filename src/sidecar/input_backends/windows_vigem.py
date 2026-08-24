@@ -7,6 +7,8 @@ All errors are emitted as JSON to stdout so the Node.js orchestrator
   {"type": "error",   "message": "...", "code": "..."}
   {"type": "ready",   "message": "..."}
   {"type": "log",     "message": "..."}
+
+# Cache buster to force Nuitka recompilation
 """
 
 import sys
