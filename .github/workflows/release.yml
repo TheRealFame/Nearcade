@@ -76,12 +76,12 @@ jobs:
           mkdir -p src/sidecar/input_backends/bin
           cd src/sidecar/input_backends
           if [ "$RUNNER_OS" == "macOS" ]; then
-            python -m nuitka --onefile --output-dir=bin mac_gamepad_bridge.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin mac_gamepad_bridge.py
           elif [ "$RUNNER_OS" == "Linux" ]; then
-            python -m nuitka --onefile --output-dir=bin linux_uinput.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin linux_uinput.py
           else
-            python -m nuitka --onefile --output-dir=bin windows_hidmaestro.py
-            python -m nuitka --onefile --output-dir=bin windows_vigem.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin windows_hidmaestro.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin windows_vigem.py
           fi
 
       - name: Build Electron App
