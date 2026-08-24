@@ -8,7 +8,7 @@ on:
   pull_request:
     branches: [ "main" ]
     paths:
-      - 'server/**'
+      - 'tools/nearcade-turn/**'
       - 'vps/**'
   workflow_dispatch:
 
@@ -41,16 +41,16 @@ jobs:
         targets: ${{ matrix.target }}
 
     - name: Build Release
-      run: cargo build --release --manifest-path server/Cargo.toml --target ${{ matrix.target }}
+      run: cargo build --release --manifest-path tools/nearcade-turn/Cargo.toml --target ${{ matrix.target }}
 
     - name: Prepare Artifact
       shell: bash
       run: |
         mkdir -p dist
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp server/target/${{ matrix.target }}/release/nearcade-turn.exe dist/${{ matrix.artifact_name }}
+          cp tools/nearcade-turn/target/${{ matrix.target }}/release/nearcade-turn.exe dist/${{ matrix.artifact_name }}
         else
-          cp server/target/${{ matrix.target }}/release/nearcade-turn dist/${{ matrix.artifact_name }}
+          cp tools/nearcade-turn/target/${{ matrix.target }}/release/nearcade-turn dist/${{ matrix.artifact_name }}
         fi
 
     - name: Upload Artifact
@@ -118,8 +118,8 @@ jobs:
           # Router stays as its own asset below (self_update needs the bare
           # triple-named file), but a copy also ships inside the zip.
           # Make the entry generator executable next to the binaries.
-          chmod +x server/make-entry.sh
-          cp server/make-entry.sh assemble/make-entry.sh
+          chmod +x tools/nearcade-turn/make-entry.sh
+          cp tools/nearcade-turn/make-entry.sh assemble/make-entry.sh
           ls -la assemble/
           mkdir -p release
           (cd assemble && zip -r -q "../release/Nearcade-Turn-${{ github.ref_name }}.zip" .)

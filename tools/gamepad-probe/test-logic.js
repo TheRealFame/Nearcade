@@ -5,6 +5,7 @@
 //      config/controllers.json, including the user's DualSense + Steam setup.
 const fs = require('fs');
 const vm = require('vm');
+const path = require('path');
 
 const results = [];
 function check(name, cond, detail) {
@@ -12,8 +13,8 @@ function check(name, cond, detail) {
 }
 
 // ── 1. Extraction integrity ───────────────────────────────────────────────────
-const viewer = fs.readFileSync('src/scripts/viewer.js', 'utf8');
-const viewerSim = fs.readFileSync('tools/gamepad-probe/www/viewer-sim.js', 'utf8');
+const viewer = fs.readFileSync(path.join(__dirname, '../../src/scripts/viewer.js'), 'utf8');
+const viewerSim = fs.readFileSync(path.join(__dirname, 'www/viewer-sim.js'), 'utf8');
 const START = '// ── NEARCADE PROBE SIM CORE: START ─';
 const END = '// ── NEARCADE PROBE SIM CORE: END ─';
 
@@ -30,7 +31,7 @@ while (true) {
 check('sim core has 2 marker blocks in viewer.js', blocks.length === 2, 'blocks=' + blocks.length);
 blocks.forEach((b, n) => check('viewer-sim.js contains block ' + (n + 1) + ' verbatim', viewerSim.includes(b), b.slice(0, 40).replace(/\n/g, ' ') + '...'));
 
-const src = fs.readFileSync('tools/gamepad-probe/www/renderer.js', 'utf8');
+const src = fs.readFileSync(path.join(__dirname, 'www/renderer.js'), 'utf8');
 const logic = src.slice(0, src.indexOf('// ── DOM'));
 const sandbox2 = { console: { log() {} }, Date, Math, JSON, Object, String, Array, Number };
 vm.createContext(sandbox2);
@@ -114,7 +115,7 @@ check('task extra: button tasks carry no evidence text',
   pure.taskExtra(2, pure.newStickAcc(), pure.newStickAcc(), 0, 0) === '');
 
 // ── 2. Behavior against the real config ───────────────────────────────────────
-const db = JSON.parse(fs.readFileSync('config/controllers.json', 'utf8'));
+const db = JSON.parse(fs.readFileSync(path.join(__dirname, '../../config/controllers.json'), 'utf8'));
 
 const sandbox = {
   window: {},
