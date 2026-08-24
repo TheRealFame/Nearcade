@@ -59,12 +59,15 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'bin/requirements-linux.txt'
 
-      - name: Install Nuitka & Dependencies
+      - name: Install Compilers & Dependencies
         shell: bash
         run: |
-          pip install nuitka pyautogui
-          if [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "Linux" ]; then
-            pip install vgamepad
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            pip install pyinstaller pyautogui vgamepad
+          elif [ "$RUNNER_OS" == "Linux" ]; then
+            pip install nuitka pyautogui vgamepad
+          else
+            pip install nuitka pyautogui
           fi
 
       - name: Cache Nuitka Compiled Binaries
@@ -74,7 +77,7 @@ jobs:
           path: src/sidecar/input_backends/bin/
           key: nuitka-${{ runner.os }}-${{ hashFiles('src/sidecar/input_backends/*.py') }}
 
-      - name: Compile Sidecars with Nuitka
+      - name: Compile Sidecars
         if: steps.cache-nuitka.outputs.cache-hit != 'true'
         shell: bash
         run: |
@@ -85,8 +88,8 @@ jobs:
           elif [ "$RUNNER_OS" == "Linux" ]; then
             python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin linux_uinput.py
           else
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin windows_hidmaestro.py
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin windows_vigem.py
+            pyinstaller --onefile --distpath bin --name windows_hidmaestro windows_hidmaestro.py
+            pyinstaller --onefile --distpath bin --name windows_vigem windows_vigem.py
           fi
 
       - name: Build Electron App

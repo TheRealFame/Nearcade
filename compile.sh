@@ -44,16 +44,16 @@ compile_mac() {
 }
 
 compile_windows() {
-    echo "[ Nuitka ] Compiling Windows sidecars via Wine..."
+    echo "[ PyInstaller ] Compiling Windows sidecars via Wine..."
     # Ensure wine and python are available
     if ! command -v wine &> /dev/null; then
         echo "Error: 'wine' is not installed, cannot compile Windows sidecars locally."
         exit 1
     fi
     cd src/sidecar/input_backends
-    # Assuming Wine has Python 3.11 installed inside it
-    wine python -m nuitka --onefile --output-dir=bin windows_hidmaestro.py
-    wine python -m nuitka --onefile --output-dir=bin windows_vigem.py
+    # Assuming Wine has Python 3.11 installed inside it with pyinstaller
+    wine python -m pyinstaller --onefile --distpath bin --name windows_hidmaestro windows_hidmaestro.py
+    wine python -m pyinstaller --onefile --distpath bin --name windows_vigem windows_vigem.py
     cd ../../../
 }
 
