@@ -52,8 +52,9 @@ compile_windows() {
     fi
     cd src/sidecar/input_backends
     # Assuming Wine has Python 3.11 installed inside it with pyinstaller
-    wine pyinstaller -y --onefile --collect-all vgamepad --distpath bin --name windows_hidmaestro windows_hidmaestro.py
-    wine pyinstaller -y --onefile --collect-all vgamepad --distpath bin --name windows_vigem windows_vigem.py
+    VGP=$(wine python -c "import vgamepad, os; print(os.path.dirname(vgamepad.__file__))" | tr -d '\r')
+    wine pyinstaller -y --onefile --add-data "$VGP\win\vigem\client;vgamepad\win\vigem\client" --distpath bin --name windows_hidmaestro windows_hidmaestro.py
+    wine pyinstaller -y --onefile --add-data "$VGP\win\vigem\client;vgamepad\win\vigem\client" --distpath bin --name windows_vigem windows_vigem.py
     cd ../../../
 }
 
