@@ -175,12 +175,6 @@ try {
       const parsedConfig = JSON.parse(rawConfig);
       if (!process.argv.includes('--webcodecs') && !process.argv.includes('--ffmpeg') && !process.argv.includes('--webrtc')) {
         let method = parsedConfig.captureMethod || 'webcodecs';
-        
-        // Force DXGI zero-copy pipeline for Windows testers for this build
-        if (process.platform === 'win32') {
-            method = 'windows_dxgi';
-            parsedConfig.captureMethod = method; // Ensure it propagates to the host UI
-        }
 
         if (method === 'webcodecs' || method === 'custom_webcodecs') isWebCodecs = true;
         if (method === 'ffmpeg') isFFmpegCapture = true;
