@@ -165,7 +165,10 @@ let _autoJoinedVps = false;
 // peer-to-peer local server, this route doesn't exist and will silently fail (404),
 // which is perfectly fine. If we are on the VPS, it connects and instantly checks state.
 const urlParamsGlobal = new URLSearchParams(window.location.search);
-const standbyWs = new WebSocket(`${proto}://${host}/vps?standby=true`);
+const isP2PGlobal = (urlParamsGlobal.get('host') || '').startsWith('p2p://');
+// Only connect to the VPS standby lane if this is not a P2P session. P2P sessions are
+// completely disjoint from the VPS and must not inherit its PIN or stream-state rules.
+const standbyWs = !isP2PGlobal ? new WebSocket(`${proto}://${host}/vps?standby=true`) : { onmessage: null, onerror: null };
 
 // Hide host-specific UI elements when loading the viewer client
 if (document.getElementById('quickHostBtn')) document.getElementById('quickHostBtn').style.display = 'none';
