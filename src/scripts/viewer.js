@@ -4875,8 +4875,11 @@ function maybeShowVRButton() {
         if (!btn) {
             btn = document.createElement('button');
             btn.id = 'btnEnterVR';
-            btn.textContent = 'Enter VR Mode';
-            btn.style.cssText = 'position:fixed; bottom:80px; right:20px; z-index:9999; padding:12px 24px; font-weight:bold; background:var(--accent); color:#000; border:none; border-radius:8px; cursor:pointer; box-shadow:0 4px 15px rgba(192,132,252,0.4); font-family:sans-serif;';
+            btn.title = 'Enter VR Mode';
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><path d="M4 14V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6m-16 0a2 2 0 0 0 2 2h3.5l1.5-2h2l1.5 2H18a2 2 0 0 0 2-2m-16 0h16"/></svg>`;
+            btn.style.cssText = 'position:fixed; bottom:20px; right:20px; z-index:9999; background:rgba(9,10,14,0.7); backdrop-filter:blur(8px); border:1px solid rgba(139,92,246,0.3); border-radius:50%; width:48px; height:48px; display:flex; align-items:center; justify-content:center; color:var(--accent2); cursor:pointer; box-shadow:0 4px 15px rgba(0,0,0,0.5); transition:all 0.2s;';
+            btn.onmouseover = () => { btn.style.background = 'var(--accent)'; btn.style.color = '#fff'; btn.style.transform = 'scale(1.1)'; };
+            btn.onmouseout = () => { btn.style.background = 'rgba(9,10,14,0.7)'; btn.style.color = 'var(--accent2)'; btn.style.transform = 'scale(1)'; };
             btn.onclick = startVRSession;
             document.body.appendChild(btn);
         }
