@@ -52,8 +52,8 @@ compile_windows() {
     fi
     cd src/sidecar/input_backends
     # Assuming Wine has Python 3.11 installed inside it with pyinstaller
-    wine python -m pyinstaller -y --onefile --distpath bin --name windows_hidmaestro windows_hidmaestro.py
-    wine python -m pyinstaller -y --onefile --distpath bin --name windows_vigem windows_vigem.py
+    wine pyinstaller -y --onefile --distpath bin --name windows_hidmaestro windows_hidmaestro.py
+    wine pyinstaller -y --onefile --distpath bin --name windows_vigem windows_vigem.py
     cd ../../../
 }
 

@@ -92,8 +92,8 @@ jobs:
           elif [ "$RUNNER_OS" == "Linux" ]; then
             python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin linux_uinput.py
           else
-            python -m pyinstaller -y --onefile --distpath bin --name windows_hidmaestro windows_hidmaestro.py
-            python -m pyinstaller -y --onefile --distpath bin --name windows_vigem windows_vigem.py
+            pyinstaller -y --onefile --distpath bin --name windows_hidmaestro windows_hidmaestro.py
+            pyinstaller -y --onefile --distpath bin --name windows_vigem windows_vigem.py
           fi
 
       - name: Build Electron App
