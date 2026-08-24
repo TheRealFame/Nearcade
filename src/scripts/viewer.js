@@ -3245,9 +3245,25 @@ async function connect() {
 // For local (non-VPS) servers, check the HTTP API on load.
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
+    const hostParam = urlParams.get('host') || '';
+    const isP2P = hostParam.startsWith('p2p://');
+    
     useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
-    if (!useVps) {
-        safeApiJson('/api/pin-required', { required: true }).then(d => {
+    
+    if (isP2P) {
+        // P2P rooms authenticate via the signaling room code itself. We cannot probe the
+        // host beforehand, so we make the PIN field optional and defer auth to the host.
+        pinRequired = false;
+        const wrap = document.getElementById('pinWrap');
+        if (wrap) wrap.style.display = 'none';
+    } else if (!useVps) {
+        // If an explicit HTTP host is provided, query its API instead of the local one
+        let apiUrl = '/api/pin-required';
+        if (hostParam && hostParam.includes('://')) {
+            apiUrl = hostParam.replace(/\/$/, '') + '/api/pin-required';
+        }
+        
+        safeApiJson(apiUrl, { required: true }).then(d => {
             pinRequired = d.required !== false;
             if (!pinRequired) {
                 const wrap = document.getElementById('pinWrap');
