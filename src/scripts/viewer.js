@@ -1761,6 +1761,14 @@ function lookupCalibMap(gp) {
         const idPrefix = gp.id.split('(')[0].trim().toLowerCase();
         if (keyPrefix && idPrefix && (gp.id.includes(key) || key.includes(gp.id) || keyPrefix === idPrefix)) return map;
     }
+    
+    // Fallback: If Steam masks the pad as an Xbox One S controller (045e-02ea) but it has 17+ buttons, it might be a DualSense.
+    if (gp.id.includes('045e-02ea') && gp.buttons.length >= 17) {
+        for (const key of Object.keys(smartDb)) {
+            if (key.includes('DualSense')) return smartDb[key];
+        }
+    }
+    
     return null;
 }
 

@@ -37,7 +37,7 @@ jobs:
           ./bin/build-android.sh
 
       - name: Initialize Capacitor iOS
-        working-directory: ./packaging
+        working-directory: ./tools/os-installers
         run: |
           npm init -y
           npm install @capacitor/core @capacitor/ios
@@ -47,7 +47,7 @@ jobs:
           npx cap sync ios
 
       - name: Build Unsigned Xcode Project
-        working-directory: ./packaging/ios/App
+        working-directory: ./tools/os-installers/ios/App
         run: |
           xcodebuild -project App.xcodeproj \
             -scheme App \
@@ -61,7 +61,7 @@ jobs:
             build
 
       - name: Package into IPA
-        working-directory: ./packaging/ios/App
+        working-directory: ./tools/os-installers/ios/App
         run: |
           mkdir -p Payload
           cp -r build/Release-iphoneos/App.app Payload/
@@ -71,6 +71,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: "./packaging/ios/App/NearcadeExperimental.ipa"
+          files: "./tools/os-installers/ios/App/NearcadeExperimental.ipa"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

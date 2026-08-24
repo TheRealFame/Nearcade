@@ -66,7 +66,8 @@ jobs:
           mkdir -p "bundle/nearcade-server/$PLAT"
           cp -r src        "bundle/nearcade-server/$PLAT/src"
           cp -r config     "bundle/nearcade-server/$PLAT/config"
-          cp -r packages   "bundle/nearcade-server/$PLAT/packages"
+          mkdir -p "bundle/nearcade-server/$PLAT/tools"
+          cp -r tools/npm-packages "bundle/nearcade-server/$PLAT/tools/npm-packages"
           cp -r node_modules "bundle/nearcade-server/$PLAT/node_modules"
           cp package.json package-lock.json "bundle/nearcade-server/$PLAT/"
           echo "Nearcade server ${{ github.ref_name }} | $PLAT | node $(node --version)" \
