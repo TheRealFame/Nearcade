@@ -63,6 +63,10 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
+            mkdir -p dummy_bin
+            echo "@echo off" > dummy_bin/msiexec.bat
+            echo "echo Skipping interactive ViGEmBus MSI installation during CI..." >> dummy_bin/msiexec.bat
+            export PATH="$PWD/dummy_bin:$PATH"
             pip install pyinstaller pyautogui vgamepad
           elif [ "$RUNNER_OS" == "Linux" ]; then
             pip install nuitka pyautogui vgamepad
