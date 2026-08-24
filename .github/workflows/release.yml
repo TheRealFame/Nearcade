@@ -59,8 +59,13 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'bin/requirements-linux.txt'
 
-      - name: Install Nuitka & PyAutoGUI
-        run: pip install nuitka pyautogui vgamepad
+      - name: Install Nuitka & Dependencies
+        shell: bash
+        run: |
+          pip install nuitka pyautogui
+          if [ "$RUNNER_OS" == "Windows" ] || [ "$RUNNER_OS" == "Linux" ]; then
+            pip install vgamepad
+          fi
 
       - name: Cache Nuitka Compiled Binaries
         id: cache-nuitka

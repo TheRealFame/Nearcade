@@ -76,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: probe-${{ matrix.platform }}
-          path: ${{ matrix.src }}
+          path: tools/gamepad-probe/${{ matrix.src }}
 
   assemble-probe:
     needs: release-probe
