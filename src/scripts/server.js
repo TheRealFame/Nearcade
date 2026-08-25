@@ -895,15 +895,19 @@ async function main() {
   // ── SECURITY MIDDLEWARE ──
   // Prevents remote viewers from accessing the Host UI or privileged APIs 
   // via reverse tunnels (Cloudflare, zrok) by checking for proxy headers.
+  // Also strictly enforces that the UI is only accessible from within the Electron App.
   const adminMiddleware = (req, res, next) => {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
     const isForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+    const userAgent = req.headers['user-agent'] || '';
+    const isApp = userAgent.includes('Nearcade/');
+    const isArcade = process.argv.includes('--arcade-worker');
 
-    if (isLocal && !isForwarded) {
+    if (isLocal && !isForwarded && (isApp || isArcade)) {
       next();
     } else {
-      res.status(403).json({ ok: false, error: "Forbidden: Host actions cannot be performed remotely over a tunnel." });
+      res.status(403).json({ ok: false, error: "Forbidden: Host actions cannot be performed remotely or outside the Nearcade app." });
     }
   };
 
@@ -1934,8 +1938,12 @@ async function main() {
       const hostAddr = req.socket.remoteAddress || '';
       const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1';
       const hostIsForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
-      if (!hostIsLoopback || hostIsForwarded) {
-        ws.close(4403, "HOST_LOCAL_ONLY");
+      const userAgent = req.headers['user-agent'] || '';
+      const isApp = userAgent.includes('Nearcade/');
+      const isArcade = process.argv.includes('--arcade-worker');
+
+      if (!hostIsLoopback || hostIsForwarded || (!isApp && !isArcade && !process.env.NEARCADE_TEST)) {
+        ws.close(4403, "HOST_LOCAL_ONLY_AND_APP_ONLY");
         return;
       }
       
