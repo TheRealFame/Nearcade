@@ -73,50 +73,18 @@
         <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
         
         <div id="companionPairingBox" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
-          <div id="companionPinLabel" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Pairing PIN</div>
-          <div id="companionPinDisplay" style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace;">842915</div>
-          <div id="companionPinTimer" style="position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); width: 100%; animation: pinTimer 10s linear forwards;"></div>
+          <div id="companionPinLabel" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Enter PIN from Companion</div>
+          <input type="text" id="companionPinInput" placeholder="000000" maxlength="6" style="width: 160px; font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace; background: transparent; border: none; text-align: center; outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px;">
         </div>
-        <style>
-          @keyframes pinTimer {
-            0% { width: 100%; }
-            100% { width: 0%; }
-          }
-        </style>
         <script>
-          // Mock PIN to Fingerprint pairing flow
           function startCompanionPairing() {
-            const el = document.getElementById('companionPinDisplay');
-            const label = document.getElementById('companionPinLabel');
-            const timer = document.getElementById('companionPinTimer');
-            const box = document.getElementById('companionPairingBox');
-            
-            if(!el || !label || !timer || !box) return;
-            
-            // Reset to PIN state
-            el.style.fontSize = '36px';
-            el.style.letterSpacing = '6px';
-            el.innerText = Math.floor(100000 + Math.random() * 900000).toString();
-            label.innerText = 'Pairing PIN';
-            box.style.borderColor = 'var(--accent)';
-            timer.style.display = 'block';
-            timer.style.animation = 'none';
-            void timer.offsetWidth; // trigger reflow
-            timer.style.animation = 'pinTimer 30s linear forwards';
-            
-            // Loop the PIN generation when the animation finishes
-            timer.onanimationend = () => {
-                if (!document.getElementById('mobileLinkModal').classList.contains('gone')) {
-                    startCompanionPairing();
-                }
-            };
-            
-            // Note: Actual pairing logic should be driven by a WebSocket event from the server.
-            // When the server confirms the PIN was entered on the companion device, 
-            // the server will emit an event that closes this modal and adds the device to the list.
+            const input = document.getElementById('companionPinInput');
+            if(input) {
+              input.value = '';
+              setTimeout(() => input.focus(), 100);
+            }
           }
           
-          // Hook into the open button
           document.addEventListener('DOMContentLoaded', () => {
              const btn = document.getElementById('pairNewDeviceBtn');
              if(btn) {
@@ -127,8 +95,8 @@
 
         <ol style="margin-top: 10px; margin-left: 20px;">
           <li>Open Nearcade on your companion device.</li>
-          <li>Select <strong>Link to Host</strong> and enter the PIN above.</li>
-          <li>Your device will instantly appear on your Home tab, ready for one-click streaming!</li>
+          <li>Select <strong>Link to Host</strong> to generate a pairing PIN.</li>
+          <li>Enter the PIN above to authorize the device.</li>
         </ol>
 
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
@@ -138,9 +106,10 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end;">
+      <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end; gap: 8px;">
         <div class="btn-row">
-          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Close</button>
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Cancel</button>
+          <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="alert('Pairing system not fully implemented yet.')">Pair Device</button>
         </div>
       </div>
     </div>
