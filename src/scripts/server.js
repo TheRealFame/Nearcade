@@ -2242,6 +2242,10 @@ async function main() {
             global.enableMotion = !!msg.enableMotion;
             global.expDevices = msg.expDevices || [];
 
+            // Kill any experimental sidecars (e.g. guitar) that were just disabled.
+            // This prevents stale uinput devices from ghosting the roster.
+            experimentalDriver.syncEnabled(global.expDevices);
+
             // Update the orchestrator's global default FIRST (no viewerId = set global default),
             // then update each connected viewer's per-viewer entry.
             toUinput({ type: 'set-ctrl-type', viewerId: null, ctrlType: global.currentCtrlType });
