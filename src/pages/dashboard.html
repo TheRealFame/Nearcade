@@ -64,6 +64,7 @@
     </div>
   </div>
 
+  <!-- Generate PIN Modal (for Companion Devices) -->
   <div class="modal-bg gone" id="mobileLinkModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="this.classList.add('gone'); this.classList.remove('open');">
     <div class="modal" style="width: 440px; position:relative; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;" onclick="event.stopPropagation()">
       <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
@@ -72,25 +73,86 @@
       <div class="modal-body" style="padding: 24px; font-size: 13px; color: var(--text); line-height: 1.6;">
         <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
         
-        <div id="companionPairingBox" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
-          <div id="companionPinLabel" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Enter PIN from Companion</div>
-          <input type="text" id="companionPinInput" placeholder="000000" maxlength="6" style="width: 160px; font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace; background: transparent; border: none; text-align: center; outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px;">
+        <div id="companionPairingBoxGen" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
+          <div id="companionPinLabelGen" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Pairing PIN</div>
+          <div id="companionPinDisplayGen" style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace;">842915</div>
+          <div id="companionPinTimerGen" style="position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); width: 100%; animation: pinTimerGen 10s linear forwards;"></div>
+        </div>
+        <style>
+          @keyframes pinTimerGen {
+            0% { width: 100%; }
+            100% { width: 0%; }
+          }
+        </style>
+        <script>
+          function startCompanionPairingGen() {
+            const el = document.getElementById('companionPinDisplayGen');
+            const label = document.getElementById('companionPinLabelGen');
+            const timer = document.getElementById('companionPinTimerGen');
+            const box = document.getElementById('companionPairingBoxGen');
+            
+            if(!el || !label || !timer || !box) return;
+            
+            el.style.fontSize = '36px';
+            el.style.letterSpacing = '6px';
+            el.innerText = Math.floor(100000 + Math.random() * 900000).toString();
+            label.innerText = 'Pairing PIN';
+            box.style.borderColor = 'var(--accent)';
+            timer.style.display = 'block';
+            timer.style.animation = 'none';
+            void timer.offsetWidth;
+            timer.style.animation = 'pinTimerGen 30s linear forwards';
+            
+            timer.onanimationend = () => {
+                if (!document.getElementById('mobileLinkModal').classList.contains('gone')) {
+                    startCompanionPairingGen();
+                }
+            };
+          }
+        </script>
+
+        <ol style="margin-top: 10px; margin-left: 20px;">
+          <li>Open Nearcade on your companion device.</li>
+          <li>Select <strong>Link to Host</strong> and enter the PIN above.</li>
+          <li>Your device will instantly appear on your Home tab, ready for one-click streaming!</li>
+        </ol>
+
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: var(--text);">Paired Devices</div>
+          <div id="pairedDevicesListModalGen" style="color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end;">
+        <div class="btn-row">
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Authenticate PIN Modal (for Host PC) -->
+  <div class="modal-bg gone" id="mobileAuthModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="this.classList.add('gone'); this.classList.remove('open');">
+    <div class="modal" style="width: 440px; position:relative; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;" onclick="event.stopPropagation()">
+      <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
+        <h3 style="margin: 0; font-size: 18px;">Authorize Companion Device</h3>
+      </div>
+      <div class="modal-body" style="padding: 24px; font-size: 13px; color: var(--text); line-height: 1.6;">
+        <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
+        
+        <div id="companionPairingBoxAuth" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
+          <div id="companionPinLabelAuth" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Enter PIN from Companion</div>
+          <input type="text" id="companionPinInputAuth" placeholder="000000" maxlength="6" style="width: 160px; font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace; background: transparent; border: none; text-align: center; outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px;">
         </div>
         <script>
-          function startCompanionPairing() {
-            const input = document.getElementById('companionPinInput');
+          function startCompanionPairingAuth() {
+            const input = document.getElementById('companionPinInputAuth');
             if(input) {
               input.value = '';
               setTimeout(() => input.focus(), 100);
             }
           }
-          
-          document.addEventListener('DOMContentLoaded', () => {
-             const btn = document.getElementById('pairNewDeviceBtn');
-             if(btn) {
-               btn.addEventListener('click', startCompanionPairing);
-             }
-          });
         </script>
 
         <ol style="margin-top: 10px; margin-left: 20px;">
@@ -101,14 +163,14 @@
 
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
           <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: var(--text);">Paired Devices</div>
-          <div id="pairedDevicesListModal" style="color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div id="pairedDevicesListModalAuth" style="color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
             <div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>
           </div>
         </div>
       </div>
       <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end; gap: 8px;">
         <div class="btn-row">
-          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Cancel</button>
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileAuthModal').classList.add('gone'); document.getElementById('mobileAuthModal').classList.remove('open');">Cancel</button>
           <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="alert('Pairing system not fully implemented yet.')">Pair Device</button>
         </div>
       </div>
@@ -564,7 +626,7 @@
       </button>
 
       <div style="display:flex; align-items:center; justify-content:space-between; margin-top: auto; padding: 0 16px; margin-bottom: 12px;">
-        <button onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open')" title="Mobile Link" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:8px; display:flex; align-items:center; justify-content:center; border-radius:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--surface-hover)'; this.style.color='var(--text)'" onmouseout="this.style.background='none'; this.style.color='var(--muted)'">
+        <button onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open'); startCompanionPairingGen();" title="Mobile Link" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:8px; display:flex; align-items:center; justify-content:center; border-radius:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--surface-hover)'; this.style.color='var(--text)'" onmouseout="this.style.background='none'; this.style.color='var(--muted)'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
             <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
             <line x1="10" y1="19" x2="14" y2="19"></line>
@@ -633,7 +695,7 @@
         <div style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
           
           <!-- Add Button -->
-          <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open'); startCompanionPairing();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">
+          <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
