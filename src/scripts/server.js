@@ -3190,7 +3190,6 @@ async function main() {
   server.listen(PORT, async () => {
     console.log("Listening on port " + PORT);
     try { require('fs').writeFileSync('/tmp/nearcade_port.txt', String(PORT), 'utf8'); } catch(e){}
-    if (!process.env.ELECTRON_MODE) openBrowser("http://localhost:" + PORT + "/host");
 
     const cfg = loadConfig();
 
