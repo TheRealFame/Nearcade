@@ -90,7 +90,7 @@ const { exec, spawn } = require("child_process");
 const open = (...args) => import('open').then(({ default: open }) => open(...args));
 const which = require("which");
 const tunnels = require('./core/network/tunnels.js');
-const killPort = require("kill-port");
+
 const captureManager = require('../sidecar/capture/CaptureManager.js');
 let activePort = 3000;
 let hostWS = null;
@@ -3404,11 +3404,7 @@ function cleanup(isElectron = false) {
 
   if (!isElectron) {
     setTimeout(() => {
-      killPort(activePort).catch(() => { }).finally(() => process.exit(0));
-    }, 800);
-  } else {
-    setTimeout(() => {
-      killPort(activePort).catch(() => { });
+      process.exit(0);
     }, 800);
   }
 }
