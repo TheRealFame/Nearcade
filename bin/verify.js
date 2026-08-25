@@ -11,7 +11,8 @@ const WebSocket = require('ws');
 console.log("\n Starting Nearcade Headless Verification Suite...\n");
 
 // Inject ELECTRON_MODE to prevent the browser from opening automatically
-const env = Object.assign({}, process.env, { ELECTRON_MODE: 'true', TUNNEL: 'skip' });
+// NEARCADE_TEST=1 prevents audio_worker from tearing down live PulseAudio modules on shutdown
+const env = Object.assign({}, process.env, { ELECTRON_MODE: 'true', TUNNEL: 'skip', NEARCADE_TEST: '1' });
 
 const serverProc = spawn('node', ['src/scripts/server.js'], { env, cwd: __dirname + '/..' });
 

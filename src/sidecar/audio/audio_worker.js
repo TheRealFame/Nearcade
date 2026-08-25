@@ -260,7 +260,15 @@ parentPort.on('message', async (msg) => {
   try {
     switch (msg.type) {
       case 'init': await initVirtualAudio(); break;
-      case 'destroy': await destroyVirtualAudio(); break;
+      case 'destroy':
+        // Guard: never tear down real PulseAudio modules during headless test runs
+        if (process.env.NEARCADE_TEST === '1') {
+          log('Test mode — skipping virtual audio teardown to protect live system.');
+          parentPort.postMessage({ type: 'destroyed' });
+          process.exit(0);
+          break;
+        }
+        await destroyVirtualAudio(); break;
       case 'route': routeGameAudio(msg.processName || null); break;
       case 'route-stop':
         stopRoutingDaemon();
