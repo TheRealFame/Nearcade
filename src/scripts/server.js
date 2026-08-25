@@ -1931,6 +1931,14 @@ async function main() {
 
     // ── HOST ─────────────────────────────────────────────────────────────────
     if (wsPath === "/ws/host") {
+      const hostAddr = req.socket.remoteAddress || '';
+      const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1';
+      const hostIsForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+      if (!hostIsLoopback || hostIsForwarded) {
+        ws.close(4403, "HOST_LOCAL_ONLY");
+        return;
+      }
+      
       console.log("[host] connected");
       hostWS = ws;
       
