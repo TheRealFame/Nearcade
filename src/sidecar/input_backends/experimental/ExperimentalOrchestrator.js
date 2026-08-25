@@ -102,8 +102,13 @@ function syncEnabled(expDevices) {
         expDevices.filter(d => d.enabled).map(d => d.val)
     );
 
-    // Kill processes for types that just became disabled
+    // The expDevices list only manages specific hardware emulators
+    const gatedTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'virtualmic', 'webhid'];
+
+    // Kill processes for gated types that just became disabled
     for (const [type] of _procs.entries()) {
+        if (!gatedTypes.includes(type)) continue;
+
         const wasEnabled = _lastEnabled.get(type) !== false; // treat unknown as enabled
         const isEnabled  = nowEnabled.has(type);
         if (wasEnabled && !isEnabled) {
