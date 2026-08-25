@@ -898,7 +898,7 @@ async function main() {
   // Also strictly enforces that the UI is only accessible from within the Electron App.
   const adminMiddleware = (req, res, next) => {
     const remoteAddr = req.socket.remoteAddress || '';
-    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1' || remoteAddr.startsWith('127.') || remoteAddr.startsWith('::ffff:127.');
     const isForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
     const userAgent = req.headers['user-agent'] || '';
     const isApp = userAgent.includes('Nearcade/');
@@ -950,7 +950,7 @@ async function main() {
 
   app.get("/api/info", (req, res) => {
     const remoteAddr = req.socket.remoteAddress || '';
-    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    const isLocal = remoteAddr.includes('127.') || remoteAddr === '::1';
     const infoCfg = loadConfig();
     res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
@@ -1936,10 +1936,11 @@ async function main() {
     // ── HOST ─────────────────────────────────────────────────────────────────
     if (wsPath === "/ws/host") {
       const hostAddr = req.socket.remoteAddress || '';
-      const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1';
+      const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1' || hostAddr.startsWith('127.') || hostAddr.startsWith('::ffff:127.');
       const hostIsForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
 
       if (!hostIsLoopback || hostIsForwarded) {
+        console.log(`[host] websocket connection rejected from ${hostAddr} (loopback: ${hostIsLoopback}, forwarded: ${hostIsForwarded})`);
         ws.close(4403, "HOST_LOCAL_ONLY");
         return;
       }
