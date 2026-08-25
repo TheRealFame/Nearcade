@@ -1203,7 +1203,7 @@
     .share-hint { font-size: 10px; color: var(--muted); text-align: center; }
 
     /* ─── PHASE 5: SHIFT+TAB FLOATING HUD ─────────────────────────────── */
-    #hudWidget {
+    .floating-hud {
       position: fixed;
       left: 60px;
       top: 80px;
@@ -1222,8 +1222,8 @@
       overflow: hidden;
       user-select: none;
     }
-    #hudWidget.hide { display: none; }
-    #hudWidget.dragging, #hudWidget.resizing { opacity: 0.9; }
+    .floating-hud.hide { display: none; }
+    .floating-hud.dragging, .floating-hud.resizing { opacity: 0.9; }
     .hud-w-titlebar {
       display: flex;
       align-items: center;
@@ -3863,6 +3863,8 @@
           </div>
 
 
+
+
           <div class="v-settings-row">
             <div class="v-settings-row-info">
               <div class="v-settings-row-title">Keyboard Binds</div>
@@ -3873,6 +3875,8 @@
             </div>
           </div>
         </div>
+
+
 
         <div class="v-settings-group">
           <div class="v-settings-label">Stream & Network</div>
@@ -3917,6 +3921,8 @@
               <button class="v-btn" style="font-size:11px;" onclick="document.getElementById('viewerSettingsModal').classList.remove('open'); document.getElementById('displayTweaksModal').style.display='flex';">Open Tuner</button>
             </div>
           </div>
+
+
 
 
           <div class="v-settings-row">
@@ -4074,7 +4080,7 @@
   </div>
 
   <!-- ════ PHASE 5: SHIFT+TAB FLOATING HUD (draggable + resizable) ════ -->
-  <div id="hudWidget" class="hide">
+  <div id="hudWidget" class="floating-hud hide">
     <div class="hud-w-titlebar" title="Drag to move">
       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span>HUD</span>
@@ -4089,12 +4095,86 @@
       <div class="hud-stat"><span>FPS</span><b id="hudFps">—</b></div>
       <div class="hud-stat"><span>Bitrate</span><b id="hudBitrate">—</b></div>
       <div class="hud-stat"><span>Decode Latency</span><b id="hudDecodeLat">—</b></div>
-      <div class="hud-row" style="margin-top:8px;gap:6px;flex-wrap:wrap;">
-      </div>
       <canvas id="hudGraph" width="200" height="50" style="width:100%; height:50px; margin-top:8px; border-radius:4px; background:rgba(0,0,0,0.15); border:1px solid var(--border);"></canvas>
     </div>
     <div class="hud-resize" title="Drag to resize"></div>
   </div>
+
+  <!-- 
+  ====================================================================================================
+  AGENT DOCUMENTATION: SHIFT+TAB OVERLAY SYSTEM (.floating-hud)
+  ====================================================================================================
+  When the user says "overlay code", "shift tab overlay", or "floating HUD", they are referring to 
+  the elements below with the class `floating-hud`. 
+  
+  DO NOT put all new features into `#hudWidget`! The user explicitly requires that new features 
+  (like Audio tuning, Input configuration, OBS integrations, etc.) get their OWN separate `<div class="floating-hud">` 
+  window, exactly like `#audioWidget`, `#inputWidget`, and `#obsWidget` below.
+  
+  Pressing Shift+Tab (which calls `toggleHud()`) opens ALL of these separate floating windows at once.
+  They are all independently draggable, resizable, and save their own layout state.
+  ====================================================================================================
+  -->
+
+  <div id="audioWidget" class="floating-hud hide" style="top: 80px; left: 340px; width: 220px; min-height: 80px;">
+    <div class="hud-w-titlebar" title="Drag to move">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+      <span>Audio Settings</span>
+    </div>
+    <div class="hud-body" style="display:flex; flex-direction:column;">
+      <div class="hud-stat" style="margin-top:4px;">
+        <div style="display:flex; flex-direction:column; width:100%;">
+          <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+            <span>Stream Volume</span><span id="streamVolVal">100</span>
+          </div>
+          <input type="range" id="streamVolSlider" min="0" max="100" value="100" oninput="setStreamVolume(this.value); document.getElementById('streamVolVal').textContent=this.value;" style="width: 100%; height: 10px;">
+        </div>
+      </div>
+      <div class="hud-stat" style="margin-top:4px;">
+        <div style="display:flex; flex-direction:column; width:100%;">
+          <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+            <span>Input Audio (Mic)</span><span id="micGainVal">100</span>
+          </div>
+          <input type="range" id="micGainSlider" min="0" max="200" value="100" oninput="setMicGain(this.value); document.getElementById('micGainVal').textContent=this.value;" style="width: 100%; height: 10px;">
+        </div>
+      </div>
+      <div class="hud-stat" style="margin-top:4px;">
+        <div style="display:flex; flex-direction:column; width:100%;">
+          <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+            <span>All Mic Audio</span><span id="othersVolVal">100</span>
+          </div>
+          <input type="range" id="othersVolSlider" min="0" max="100" value="100" oninput="setOthersVolume(this.value); document.getElementById('othersVolVal').textContent=this.value;" style="width: 100%; height: 10px;">
+        </div>
+      </div>
+      <div class="hud-stat" style="margin-top:4px;">
+        <div style="display:flex; flex-direction:column; width:100%;">
+          <div style="display:flex; justify-content:space-between; font-size:10px; margin-bottom:4px;">
+            <span>Self Monitor</span><span id="selfMonitorVal">0</span>
+          </div>
+          <input type="range" id="selfMonitorSlider" min="0" max="100" value="0" oninput="setSelfMonitor(this.value); document.getElementById('selfMonitorVal').textContent=this.value;" style="width: 100%; height: 10px;">
+        </div>
+      </div>
+      <div class="hud-stat" style="margin-top:8px; justify-content:center;">
+        <button class="hud-btn" id="vMicMuteToggle" onclick="toggleMicMute()" style="width:100%; flex:none;">Mute Mic</button>
+      </div>
+    </div>
+    <div class="hud-resize" title="Drag to resize"></div>
+  </div>
+
+  <div id="inputWidget" class="floating-hud hide" style="top: 180px; left: 340px; width: 220px; min-height: 80px;">
+    <div class="hud-w-titlebar" title="Drag to move">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2" ry="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><circle cx="16.5" cy="10.5" r=".5"/><circle cx="14.5" cy="13.5" r=".5"/></svg>
+      <span>Input Tuning</span>
+    </div>
+    <div class="hud-body" style="display:flex; flex-direction:column;">
+      <div style="font-size:10px; color:var(--muted); margin-bottom:8px; line-height:1.3;">Apply deadzones to all connected gamepads.</div>
+      <div class="hud-stat" style="margin-top:4px;"><span>Controller X Deadzone</span><input type="range" id="vDeadzoneSliderX" min="0" max="0.5" step="0.01" value="0.05" oninput="updateDeadzoneX(this.value)" style="width: 80px; height: 10px;"></div>
+      <div class="hud-stat" style="margin-top:4px;"><span>Controller Y Deadzone</span><input type="range" id="vDeadzoneSliderY" min="0" max="0.5" step="0.01" value="0.05" oninput="updateDeadzoneY(this.value)" style="width: 80px; height: 10px;"></div>
+    </div>
+    <div class="hud-resize" title="Drag to resize"></div>
+  </div>
+
+
 
 
   <!-- ════ SCRIPTS ════ -->
@@ -4408,6 +4488,65 @@
       const toggle = document.getElementById('vGpUiNavToggle');
       if (toggle) toggle.classList.toggle('on', window.gpUiNavEnabled);
     };
+
+    window._globalDeadzoneX = parseFloat(localStorage.getItem('ns_deadzone_x') || '0.05');
+    window.updateDeadzoneX = function(val) {
+      window._globalDeadzoneX = parseFloat(val);
+      localStorage.setItem('ns_deadzone_x', window._globalDeadzoneX);
+    };
+    window._globalDeadzoneY = parseFloat(localStorage.getItem('ns_deadzone_y') || '0.05');
+    window.updateDeadzoneY = function(val) {
+      window._globalDeadzoneY = parseFloat(val);
+      localStorage.setItem('ns_deadzone_y', window._globalDeadzoneY);
+    };
+    setTimeout(() => {
+      const sliderX = document.getElementById('vDeadzoneSliderX');
+      if (sliderX) { sliderX.value = window._globalDeadzoneX; updateDeadzoneX(window._globalDeadzoneX); }
+      const sliderY = document.getElementById('vDeadzoneSliderY');
+      if (sliderY) { sliderY.value = window._globalDeadzoneY; updateDeadzoneY(window._globalDeadzoneY); }
+    }, 100);
+
+    window.streamVolume = parseFloat(localStorage.getItem('ns_volume') || '1');
+    window.updateStreamVolume = function(val) {
+      window.streamVolume = parseFloat(val);
+      localStorage.setItem('ns_volume', window.streamVolume);
+      const span = document.getElementById('vVolumeVal');
+      if (span) span.textContent = Math.round(window.streamVolume * 100) + '%';
+      
+      const audioEl = document.getElementById('remote-audio');
+      if (audioEl) audioEl.volume = window.streamVolume;
+      if (typeof window._audioPrefs !== 'undefined') window._audioPrefs.streamVol = window.streamVolume;
+    };
+    setTimeout(() => {
+      const slider = document.getElementById('vVolumeSlider');
+      if (slider) { slider.value = window.streamVolume; updateStreamVolume(window.streamVolume); }
+    }, 100);
+
+    window.micMuted = localStorage.getItem('ns_mic_mute') === 'true';
+    window.toggleMicMute = function() {
+      window.micMuted = !window.micMuted;
+      localStorage.setItem('ns_mic_mute', window.micMuted);
+      const toggle = document.getElementById('vMicMuteToggle');
+      if (toggle) {
+        if (window.micMuted) {
+          toggle.textContent = 'Mic Muted';
+          toggle.style.color = '#ef4444';
+          toggle.style.borderColor = '#ef4444';
+        } else {
+          toggle.textContent = 'Mute Mic';
+          toggle.style.color = '';
+          toggle.style.borderColor = '';
+        }
+      }
+      // Toggle WebRTC audio tracks if available
+      if (window.localMediaStream) {
+        window.localMediaStream.getAudioTracks().forEach(t => t.enabled = !window.micMuted);
+      }
+    };
+    setTimeout(() => {
+      window.micMuted = !window.micMuted; window.toggleMicMute(); // trigger UI refresh safely
+    }, 100);
+
 
     window._nsBarAnimated = false;
     window.playNsBarAnimation = function() {
@@ -4743,7 +4882,7 @@
         if (window.resetKeybinds) window.resetKeybinds();
         win.postMessage({ type: 'SYNC_KEYBINDS', map: window.keyMap || {} }, '*');
       } else if (e.data?.type === 'UPDATE_KEYBIND') {
-        if (window.updateSingleKeybind) window.updateSingleKeybind(e.data.oldKey, e.data.newKey);
+        if (window.updateSingleKeybind) window.updateSingleKeybind(e.data.oldKey, e.data.newKey, e.data.action);
         win.postMessage({ type: 'SYNC_KEYBINDS', map: window.keyMap || {} }, '*');
       }
     });

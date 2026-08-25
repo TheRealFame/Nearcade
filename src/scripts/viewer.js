@@ -450,7 +450,7 @@ function _setupWebGL(gl) {
     return tex;
 }
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
-const CLIENT_VERSION = window.NEARCADE_VERSION || '1.0.0';
+const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '3.0.6';
 function semverGte(a, b) {
   const pa = String(a).split('.').map(Number);
   const pb = String(b).split('.').map(Number);
@@ -714,7 +714,14 @@ async function createPC() {
                 audioEl.autoplay = true;
                 document.body.appendChild(audioEl);
             }
-            audioEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+            const aStream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+            audioEl.srcObject = aStream;
+            
+            // CRITICAL FIX: Chrome aggressive garbage collection bug
+            // If the MediaStream is only referenced by srcObject, Chrome will GC it ~15-20 mins in and kill the audio.
+            window._activeAudioStreams = window._activeAudioStreams || [];
+            window._activeAudioStreams.push(aStream);
+
             audioEl.play().catch(e => console.warn('[WebRTC] Audio blocked:', e));
             audioEl.muted = (typeof audioMuted !== 'undefined' ? audioMuted : false);
             audioEl.volume = (typeof _audioPrefs !== 'undefined' && _audioPrefs.streamVol !== undefined) ? _audioPrefs.streamVol : 1.0;
@@ -1326,14 +1333,13 @@ function startFrameProcessor(track) {
 }
 
 // ── INPUT ─────────────────────────────────────────────────────────────────────
-const keyMap = {
+let keyMap = {
     'KeyW': 'KEY_W', 'KeyA': 'KEY_A', 'KeyS': 'KEY_S', 'KeyD': 'KEY_D',
     'ArrowUp': 'KEY_UP', 'ArrowDown': 'KEY_DOWN', 'ArrowLeft': 'KEY_LEFT', 'ArrowRight': 'KEY_RIGHT',
     'Space': 'KEY_SPACE', 'Enter': 'KEY_ENTER', 'Escape': 'KEY_ESC',
     'ShiftLeft': 'KEY_LEFTSHIFT', 'ControlLeft': 'KEY_LEFTCTRL', 'Tab': 'KEY_TAB',
     'KeyQ': 'KEY_Q', 'KeyE': 'KEY_E', 'KeyR': 'KEY_R', 'KeyF': 'KEY_F', 'KeyC': 'KEY_C',
     'KeyZ': 'KEY_Z', 'KeyX': 'KEY_X', 'KeyV': 'KEY_V', 'KeyB': 'KEY_B', 'Digit1': 'KEY_1', 'Digit2': 'KEY_2',
-    // ── NEW FULL ALPHABET & NUMBERS ──
     'KeyT': 'KEY_T', 'KeyY': 'KEY_Y', 'KeyU': 'KEY_U', 'KeyI': 'KEY_I', 'KeyO': 'KEY_O', 'KeyP': 'KEY_P',
     'KeyG': 'KEY_G', 'KeyH': 'KEY_H', 'KeyJ': 'KEY_J', 'KeyK': 'KEY_K', 'KeyL': 'KEY_L',
     'KeyM': 'KEY_M', 'KeyN': 'KEY_N',
@@ -1343,6 +1349,104 @@ const keyMap = {
     'BracketLeft': 'KEY_LEFTBRACE', 'BracketRight': 'KEY_RIGHTBRACE', 'Backslash': 'KEY_BACKSLASH',
     'Semicolon': 'KEY_SEMICOLON', 'Quote': 'KEY_APOSTROPHE', 'Comma': 'KEY_COMMA',
     'Period': 'KEY_DOT', 'Slash': 'KEY_SLASH', 'AltLeft': 'KEY_LEFTALT', 'Capslock': 'KEY_CAPSLOCK'
+};
+
+const defaultKeyMap = Object.assign({}, keyMap);
+
+try {
+    const saved = localStorage.getItem('ns_keybinds');
+    if (saved) Object.assign(keyMap, JSON.parse(saved));
+} catch (e) {}
+
+window.keyMap = keyMap;
+
+window.updateSingleKeybind = function(oldKey, newKey, action) {
+    if (oldKey) delete keyMap[oldKey];
+    if (newKey && action) keyMap[newKey] = action;
+    localStorage.setItem('ns_keybinds', JSON.stringify(keyMap));
+};
+
+window.resetKeybinds = function() {
+    localStorage.removeItem('ns_keybinds');
+    for (const k in keyMap) delete keyMap[k];
+    Object.assign(keyMap, defaultKeyMap);
+};
+
+window.setKeyPreset = function(preset) {
+    const ALL_ACTIONS = ["KEY_SPACE", "KEY_L", "KEY_J", "KEY_K", "KEY_U", "KEY_I", "KEY_O", "KEY_P", "KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_W", "KEY_S", "KEY_A", "KEY_D", "KEY_ENTER", "KEY_TAB", "KEY_ESC", "KEY_M", "KEY_N"];
+    for (const key in keyMap) {
+        if (ALL_ACTIONS.includes(keyMap[key])) {
+            delete keyMap[key];
+        }
+    }
+    
+    if (preset === 'fps') {
+        // Movement & D-Pad
+        keyMap['KeyW'] = 'KEY_W'; keyMap['KeyA'] = 'KEY_A'; keyMap['KeyS'] = 'KEY_S'; keyMap['KeyD'] = 'KEY_D';
+        keyMap['ArrowUp'] = 'KEY_UP'; keyMap['ArrowDown'] = 'KEY_DOWN'; keyMap['ArrowLeft'] = 'KEY_LEFT'; keyMap['ArrowRight'] = 'KEY_RIGHT';
+        // Face Buttons
+        keyMap['Space'] = 'KEY_SPACE';   // A (Jump)
+        keyMap['KeyC'] = 'KEY_L';        // B (Crouch)
+        keyMap['KeyR'] = 'KEY_J';        // X (Reload)
+        keyMap['KeyQ'] = 'KEY_K';        // Y (Swap)
+        // Bumpers & Triggers
+        keyMap['KeyG'] = 'KEY_U';        // L1 (Grenade)
+        keyMap['KeyF'] = 'KEY_I';        // R1 (Melee)
+        keyMap['ShiftRight'] = 'KEY_O';  // L2 (Aim - backup to mouse)
+        keyMap['Enter'] = 'KEY_P';       // R2 (Shoot - backup to mouse)
+        // Center
+        keyMap['Escape'] = 'KEY_ENTER';  // Start
+        keyMap['Tab'] = 'KEY_TAB';       // Select
+        keyMap['Backquote'] = 'KEY_ESC'; // Home
+        // Sticks
+        keyMap['ShiftLeft'] = 'KEY_M';   // L3 (Sprint)
+        keyMap['KeyV'] = 'KEY_N';        // R3 (Alt)
+    } else if (preset === 'platformer') {
+        // Movement (Arrow Keys) & D-Pad (IJKL)
+        keyMap['KeyI'] = 'KEY_W'; keyMap['KeyJ'] = 'KEY_A'; keyMap['KeyK'] = 'KEY_S'; keyMap['KeyL'] = 'KEY_D';
+        keyMap['ArrowUp'] = 'KEY_UP'; keyMap['ArrowDown'] = 'KEY_DOWN'; keyMap['ArrowLeft'] = 'KEY_LEFT'; keyMap['ArrowRight'] = 'KEY_RIGHT';
+        // Face Buttons (Z X C V)
+        keyMap['KeyZ'] = 'KEY_SPACE';    // A (Jump)
+        keyMap['KeyX'] = 'KEY_J';        // X (Attack)
+        keyMap['KeyC'] = 'KEY_L';        // B (Cancel)
+        keyMap['KeyV'] = 'KEY_K';        // Y (Special)
+        // Bumpers & Triggers (A S D F)
+        keyMap['KeyA'] = 'KEY_U';        // L1
+        keyMap['KeyS'] = 'KEY_I';        // R1
+        keyMap['KeyD'] = 'KEY_O';        // L2
+        keyMap['KeyF'] = 'KEY_P';        // R2
+        // Center
+        keyMap['Enter'] = 'KEY_ENTER';   // Start
+        keyMap['ShiftRight'] = 'KEY_TAB';// Select
+        keyMap['Escape'] = 'KEY_ESC';    // Home
+        // Sticks
+        keyMap['KeyQ'] = 'KEY_M';        // L3
+        keyMap['KeyW'] = 'KEY_N';        // R3
+    } else if (preset === 'fighting') {
+        // Arcade Stick Layout (Movement on WASD, Attacks on UIO JKL)
+        keyMap['ArrowUp'] = 'KEY_W'; keyMap['ArrowLeft'] = 'KEY_A'; keyMap['ArrowDown'] = 'KEY_S'; keyMap['ArrowRight'] = 'KEY_D';
+        keyMap['KeyW'] = 'KEY_UP'; keyMap['KeyS'] = 'KEY_DOWN'; keyMap['KeyA'] = 'KEY_LEFT'; keyMap['KeyD'] = 'KEY_RIGHT';
+        // Top Row (Punches)
+        keyMap['KeyU'] = 'KEY_J';        // X (LP)
+        keyMap['KeyI'] = 'KEY_K';        // Y (MP)
+        keyMap['KeyO'] = 'KEY_I';        // R1 (HP)
+        // Bottom Row (Kicks)
+        keyMap['KeyJ'] = 'KEY_SPACE';    // A (LK)
+        keyMap['KeyK'] = 'KEY_L';        // B (MK)
+        keyMap['KeyL'] = 'KEY_P';        // R2 (HK)
+        // Macros
+        keyMap['KeyY'] = 'KEY_U';        // L1
+        keyMap['KeyH'] = 'KEY_O';        // L2
+        // Center
+        keyMap['Enter'] = 'KEY_ENTER';   // Start
+        keyMap['Space'] = 'KEY_TAB';     // Select
+        keyMap['Escape'] = 'KEY_ESC';    // Home
+        // Sticks
+        keyMap['KeyN'] = 'KEY_M';        // L3
+        keyMap['KeyM'] = 'KEY_N';        // R3
+    }
+    
+    localStorage.setItem('ns_keybinds', JSON.stringify(keyMap));
 };
 const mouseMap = { 0: 'BTN_LEFT', 1: 'BTN_MIDDLE', 2: 'BTN_RIGHT' };
 
@@ -1794,16 +1898,17 @@ function applyCalibration(gp, state) {
     // multiplied by 32767 AGAIN, producing ~1 billion (right stick garbage/overflow).
     // Also apply the active deadzone so calibrated axes get the same filtering
     // as the polling loop already applies to the left stick.
-    const _dz = m.rdz !== undefined ? m.rdz : (window._globalDeadzone !== undefined ? window._globalDeadzone : 0.05);
+    const dzX = window._globalDeadzoneX ?? 0.05;
+    const dzY = window._globalDeadzoneY ?? 0.05;
     const _rsens = m.rsens !== undefined ? m.rsens : (window._globalSens !== undefined ? window._globalSens : 1.0);
-    const _applyDz = (v) => {
-        if (Math.abs(v) < _dz) return 0;
-        return Math.sign(v) * ((Math.abs(v) - _dz) / (1.0 - _dz));
+    const _applyDz = (v, dz) => {
+        if (Math.abs(v) < dz) return 0;
+        return Math.sign(v) * ((Math.abs(v) - dz) / (1.0 - dz));
     };
     const rx = readStick(m.rsx);
     const ry = readStick(m.rsy);
-    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx * _rsens)));
-    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry * _rsens)));
+    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx * _rsens)), dzX);
+    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry * _rsens)), dzY);
     function readTrigger(mp) {
         if (!mp) return 0;
         if (mp.type === 'btn') return Math.round((gp.buttons[mp.idx]?.value || 0) * 255);
@@ -1822,15 +1927,17 @@ function applyCalibration(gp, state) {
 // changed, mirroring the original inline logic.
 function applyGamepadDzSens(gp, cache, state, gpDeadzones, gpSens) {
     const idx = gp.index;
-    const ldz = gpDeadzones[idx] !== undefined ? gpDeadzones[idx] : window._globalDeadzone ?? 0.05;
-    const rdz = gpDeadzones[idx + 0.5] !== undefined ? gpDeadzones[idx + 0.5] : window._globalDeadzone ?? 0.05;
     const lsens = gpSens[idx] !== undefined ? gpSens[idx] : window._globalSens ?? 1.0;
     const rsens = gpSens[idx + 0.5] !== undefined ? gpSens[idx + 0.5] : window._globalSens ?? 1.0;
+    
+    const dzX = window._globalDeadzoneX ?? 0.05;
+    const dzY = window._globalDeadzoneY ?? 0.05;
+
     let changed = false;
     for (let i = 0; i < 4; i++) {
         let val = gp.axes[i] || 0;
         const isRightStick = i >= 2;
-        const dz = isRightStick ? rdz : ldz;
+        const dz = (i % 2 === 0) ? dzX : dzY;
         const sens = isRightStick ? rsens : lsens;
         if (Math.abs(val) < dz) val = 0;
         else val = Math.sign(val) * ((Math.abs(val) - dz) / (1 - dz));
@@ -3070,6 +3177,9 @@ async function connect() {
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
         }
+        
+
+
         if (msg.type === 'ctrl-settings') {
             hostMotionEnabled = msg.enableMotion;
             window.hostAllowVR = msg.expDevices && msg.expDevices.some(d => d.enabled && d.val === 'vr');
@@ -3261,9 +3371,9 @@ async function connect() {
         if (wrap) wrap.style.display = 'none';
     } else if (!useVps) {
         // If an explicit HTTP host is provided, query its API instead of the local one
-        let apiUrl = '/api/pin-required';
+        let apiUrl = '/api/pin-required' + window.location.search;
         if (hostParam && hostParam.includes('://')) {
-            apiUrl = hostParam.replace(/\/$/, '') + '/api/pin-required';
+            apiUrl = hostParam.replace(/\/$/, '') + '/api/pin-required' + window.location.search;
         }
         
         safeApiJson(apiUrl, { required: true }).then(d => {
@@ -3271,10 +3381,44 @@ async function connect() {
             if (!pinRequired) {
                 const wrap = document.getElementById('pinWrap');
                 if (wrap) wrap.style.display = 'none';
+            } else {
+                // Poll every 2s in case host disables PIN while viewer is on this screen
+                const pollInterval = setInterval(() => {
+                    if (document.getElementById('pinScreen').classList.contains('gone')) {
+                        clearInterval(pollInterval);
+                        return;
+                    }
+                    safeApiJson(apiUrl, { required: true }).then(pollData => {
+                        if (pollData.required === false) {
+                            clearInterval(pollInterval);
+                            pinRequired = false;
+                            const wrap = document.getElementById('pinWrap');
+                            if (wrap) wrap.style.display = 'none';
+                            // Clear input and auto-submit
+                            document.getElementById('pinInput').value = '';
+                            submitPin();
+                        }
+                    }).catch(() => {});
+                }, 2000);
             }
         });
     }
     // VPS pin state is handled by the early standby WebSocket at the top of this file.
+})();
+
+(function checkUrlPin() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlPin = urlParams.get('pin');
+    if (urlPin) {
+        const pinInput = document.getElementById('pinInput');
+        if (pinInput) pinInput.value = urlPin;
+        // Small delay to ensure any async pin requirement checks have settled
+        setTimeout(() => {
+            if (!document.getElementById('pinScreen').classList.contains('gone')) {
+                submitPin();
+            }
+        }, 500);
+    }
 })();
 
 function submitPin() {
@@ -4460,24 +4604,22 @@ let _hudDrag = null;
 let _hudResize = null;
 let _hudLastFrames = 0;
 
-function hudRect() {
-    const el = document.getElementById('hudWidget');
+function hudRect(el) {
     if (!el) return null;
     return { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight };
 }
 
-function saveHudState() {
+function saveHudState(el) {
     try {
-        const r = hudRect();
-        if (r) localStorage.setItem('ns_hud_state', JSON.stringify({ x: r.x, y: r.y, w: r.w, h: r.h }));
+        const r = hudRect(el);
+        if (r) localStorage.setItem('ns_hud_state_' + el.id, JSON.stringify({ x: r.x, y: r.y, w: r.w, h: r.h }));
     } catch (e) {}
 }
 
-function applyHudState() {
-    const el = document.getElementById('hudWidget');
+function applyHudState(el) {
     if (!el) return;
     try {
-        const s = JSON.parse(localStorage.getItem('ns_hud_state') || 'null');
+        const s = JSON.parse(localStorage.getItem('ns_hud_state_' + el.id) || 'null');
         if (s && typeof s.x === 'number') {
             el.style.left = s.x + 'px';
             el.style.top = s.y + 'px';
@@ -4513,55 +4655,65 @@ window.toggleHud = function() {
         const partyPanel = document.getElementById('partySettingsPanel');
         if (partyPanel && partyPanel.classList.contains('open') && window.closePartySettings) window.closePartySettings();
         
-        applyHudState();
+        const hasGamepads = navigator.getGamepads && Array.from(navigator.getGamepads()).some(p => p !== null);
+        document.querySelectorAll('.floating-hud').forEach(w => {
+            if (w.id === 'inputWidget' && !hasGamepads) return;
+            w.classList.remove('hide');
+            applyHudState(w);
+        });
     } else {
         if (tint) tint.style.opacity = '0';
+        document.querySelectorAll('.floating-hud').forEach(w => w.classList.add('hide'));
     }
 };
 
 function wireHudInteractions() {
-    const el = document.getElementById('hudWidget');
-    if (!el || el.dataset.hud) return;
-    el.dataset.hud = '1';
-    const titleBar = el.querySelector('.hud-w-titlebar');
-    const resizeHandle = el.querySelector('.hud-resize');
+    document.querySelectorAll('.floating-hud').forEach(el => {
+        if (el.dataset.hud) return;
+        el.dataset.hud = '1';
+        const titleBar = el.querySelector('.hud-w-titlebar');
+        const resizeHandle = el.querySelector('.hud-resize');
 
-    if (titleBar) titleBar.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('.hud-close')) return;
-        _hudDrag = { active: true, ox: e.clientX - el.offsetLeft, oy: e.clientY - el.offsetTop };
-        el.classList.add('dragging');
-        titleBar.setPointerCapture(e.pointerId);
-    });
-    if (titleBar) titleBar.addEventListener('pointermove', (e) => {
-        if (!_hudDrag.active) return;
-        const x = Math.min(window.innerWidth - el.offsetWidth, Math.max(0, e.clientX - _hudDrag.ox));
-        const y = Math.min(window.innerHeight - el.offsetHeight, Math.max(0, e.clientY - _hudDrag.oy));
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
-    });
-    if (titleBar) titleBar.addEventListener('pointerup', () => {
-        if (!_hudDrag.active) return;
-        _hudDrag.active = false;
-        el.classList.remove('dragging');
-        saveHudState();
-    });
+        if (titleBar) titleBar.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.hud-close')) return;
+            // Bring to front
+            document.querySelectorAll('.floating-hud').forEach(w => w.style.zIndex = '1400');
+            el.style.zIndex = '1401';
+            el._hudDrag = { active: true, ox: e.clientX - el.offsetLeft, oy: e.clientY - el.offsetTop };
+            el.classList.add('dragging');
+            titleBar.setPointerCapture(e.pointerId);
+        });
+        if (titleBar) titleBar.addEventListener('pointermove', (e) => {
+            if (!el._hudDrag?.active) return;
+            const x = Math.min(window.innerWidth - el.offsetWidth, Math.max(0, e.clientX - el._hudDrag.ox));
+            const y = Math.min(window.innerHeight - el.offsetHeight, Math.max(0, e.clientY - el._hudDrag.oy));
+            el.style.left = x + 'px';
+            el.style.top = y + 'px';
+        });
+        if (titleBar) titleBar.addEventListener('pointerup', () => {
+            if (!el._hudDrag?.active) return;
+            el._hudDrag.active = false;
+            el.classList.remove('dragging');
+            saveHudState(el);
+        });
 
-    if (resizeHandle) resizeHandle.addEventListener('pointerdown', (e) => {
-        _hudResize = { active: true, x: e.clientX, y: e.clientY, w: el.offsetWidth, h: el.offsetHeight };
-        el.classList.add('resizing');
-        resizeHandle.setPointerCapture(e.pointerId);
-        e.stopPropagation();
-    });
-    if (resizeHandle) resizeHandle.addEventListener('pointermove', (e) => {
-        if (!_hudResize.active) return;
-        el.style.width = Math.max(160, _hudResize.w + (e.clientX - _hudResize.x)) + 'px';
-        el.style.height = Math.max(120, _hudResize.h + (e.clientY - _hudResize.y)) + 'px';
-    });
-    if (resizeHandle) resizeHandle.addEventListener('pointerup', () => {
-        if (!_hudResize.active) return;
-        _hudResize.active = false;
-        el.classList.remove('resizing');
-        saveHudState();
+        if (resizeHandle) resizeHandle.addEventListener('pointerdown', (e) => {
+            el._hudResize = { active: true, x: e.clientX, y: e.clientY, w: el.offsetWidth, h: el.offsetHeight };
+            el.classList.add('resizing');
+            resizeHandle.setPointerCapture(e.pointerId);
+            e.stopPropagation();
+        });
+        if (resizeHandle) resizeHandle.addEventListener('pointermove', (e) => {
+            if (!el._hudResize?.active) return;
+            el.style.width = Math.max(160, el._hudResize.w + (e.clientX - el._hudResize.x)) + 'px';
+            el.style.height = Math.max(120, el._hudResize.h + (e.clientY - el._hudResize.y)) + 'px';
+        });
+        if (resizeHandle) resizeHandle.addEventListener('pointerup', () => {
+            if (!el._hudResize?.active) return;
+            el._hudResize.active = false;
+            el.classList.remove('resizing');
+            saveHudState(el);
+        });
     });
 
     document.addEventListener('keydown', (e) => {

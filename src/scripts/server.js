@@ -585,12 +585,13 @@ function shouldRequirePin(ip, hasTunnelHeader = false) {
   if (process.argv.includes('--arcade-worker')) return false;
 
   if (!ip) return true;
-  if (ip.startsWith('192.168.') || ip.startsWith('::ffff:192.168.')) return false;
+  // Localhost (host's own machine) bypasses PIN only if not tunneled
   if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') {
     if (hasTunnelHeader || process.env.USING_TUNNEL === 'true') return true;
     return false;
   }
-  if (ip.startsWith('100.')) return false;
+  
+  // All other clients (including LAN) must provide a PIN
   return true;
 }
 function findFreePort(start) {
@@ -822,7 +823,7 @@ async function main() {
     return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
   }
   const VIEWER_SAFE_EXACT = ['/', '/favicon.ico', '/index.html', '/gamepad-popup.html', '/keyboard-popup.html', '/display-color-tweaks.html'];
-  const VIEWER_SAFE_PREFIX = ['/assets/', '/js/', '/css/', '/api/info', '/api/pin', '/api/pin-required', '/api/turn', '/api/fe-log', '/api/ping', '/api/p2p-invite', '/ws'];
+  const VIEWER_SAFE_PREFIX = ['/assets/', '/js/', '/css/', '/api/info', '/api/pin', '/api/pin-required', '/api/turn', '/api/community-turn-servers', '/api/fe-log', '/api/ping', '/api/p2p-invite', '/ws'];
   app.use((req, res, next) => {
     if (isLocal(req)) return next();
     const p = req.path;
@@ -871,13 +872,17 @@ async function main() {
     const sess = arcadeSessions.size > 0 ? [...arcadeSessions.values()][0] : null;
 
     // Grab the host name from the URL query, fallback to "A player"
-    const hostName = req.query.host || "A player";
+    // Grab the host name from the URL query, fallback to "A player"
+    let hostName = req.query.hostName || req.query.name || req.query.host || "A player";
+    if (hostName.startsWith('p2p://')) hostName = "A player";
+
+    const activeGame = sess ? sess.game : hostStreamTitle;
+    const gameText = activeGame ? activeGame : 'remote play';
+    const displayHost = hostName === "A player" ? "this" : `${hostName}'s`;
 
     // Inject the host name dynamically into the Discord tags
-    const ogTitle = sess ? sess.game : (hostStreamTitle ? hostStreamTitle : `${hostName} is looking to play!`);
-    const ogDesc = sess ? `Join the live ${sess.game} session on Nearcade.` : 
-                   (hostStreamTitle ? `Connect instantly to play ${hostStreamTitle} via Nearcade.` : 
-                   (hostName === "A player" ? `Connect instantly to this remote play session via Nearcade.` : `Connect instantly to ${hostName}'s remote play session via Nearcade.`));
+    const ogTitle = activeGame ? activeGame : `${hostName} is looking to play!`;
+    const ogDesc = `Connect instantly to ${displayHost} ${gameText} session via Nearcade.`;
     const cfgOg = loadConfig();
     const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : (cfgOg.arcadeUrl || 'https://nearcade.cutefame.net') + '/assets/NearcadeLogo.png';
 
@@ -2502,26 +2507,31 @@ async function main() {
       }
 
       if (pinEnabled && requirePin) {
-        const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
-        if (Date.now() < attempt.lockedUntil) {
-          try { ws.send(JSON.stringify({ type: "pin-rejected", reason: "rate-limited" })); } catch { }
-          ws.close(4001, "PIN_RATE_LIMITED");
-          console.log(`[viewer] rejected — an anonymous user is rate-limited`);
-          return;
-        }
-        if (pin !== PIN) {
-          attempt.count++;
-          if (attempt.count >= 6) {
-            attempt.lockedUntil = Date.now() + 2 * 60 * 1000;
-            console.log(`[viewer] anonymous user locked out for 2 minutes (PIN brute-force)`);
+        const url = new URL("http://localhost" + req.url);
+        if (global.obsDirectEnabled && url.searchParams.get('obs') === 'true') {
+          console.log(`[viewer] bypassing PIN check due to OBS Direct Mode`);
+        } else {
+          const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
+          if (Date.now() < attempt.lockedUntil) {
+            try { ws.send(JSON.stringify({ type: "pin-rejected", reason: "rate-limited" })); } catch { }
+            ws.close(4001, "PIN_RATE_LIMITED");
+            console.log(`[viewer] rejected — an anonymous user is rate-limited`);
+            return;
           }
-          pinAttempts.set(anonHash, attempt);
-          try { ws.send(JSON.stringify({ type: "pin-rejected" })); } catch { }
-          ws.close(4002, "PIN_REJECTED");
-          console.log("[viewer] rejected — wrong PIN");
-          return;
+          if (pin !== PIN) {
+            attempt.count++;
+            if (attempt.count >= 6) {
+              attempt.lockedUntil = Date.now() + 2 * 60 * 1000;
+              console.log(`[viewer] anonymous user locked out for 2 minutes (PIN brute-force)`);
+            }
+            pinAttempts.set(anonHash, attempt);
+            try { ws.send(JSON.stringify({ type: "pin-rejected" })); } catch { }
+            ws.close(4002, "PIN_REJECTED");
+            console.log("[viewer] rejected — wrong PIN");
+            return;
+          }
+          pinAttempts.delete(anonHash);
         }
-        pinAttempts.delete(anonHash);
       } else {
         console.log(`[viewer] anonymous user (requirePin=${requirePin}) bypassing PIN check`);
       }

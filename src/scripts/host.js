@@ -919,7 +919,7 @@ async function renderUrls(d) {
         const pSelect = document.getElementById('pipelineSelect');
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
         const baseSep = d.tunnelUrl.includes('?') ? '&' : '?';
-        finalTunnelUrl = `${d.tunnelUrl}${baseSep}host=${encodedName}${pipeArg}`;
+        finalTunnelUrl = `${d.tunnelUrl}${baseSep}name=${encodedName}${pipeArg}`;
         window._globalTunnelUrl = finalTunnelUrl;
     } else if (window._vpsConfig && window._vpsConfig.vpsEnabled) {
         finalTunnelUrl = window._globalTunnelUrl; // Preserve URL set by VPS WebSocket
@@ -947,11 +947,11 @@ async function renderUrls(d) {
     }
 
     if (!window._isP2P && !isPlaygroundHost) {
-        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&name=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
     }
 
     if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost)
-        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
+        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&name=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
 
     // 3. NOW clear the HTML and append (prevents the async duplication bug)
     const el = document.getElementById('urlList');
@@ -977,7 +977,7 @@ async function renderUrls(d) {
 
     // Always show LAN IP as a secondary row — useful even in VPS mode for local testing
     if (d.lanIP && !isPlaygroundHost) {
-        const lanUrl = `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}`;
+        const lanUrl = `http://${d.lanIP}:${d.port}/?v3&name=${encodedName}`;
         const existing = [...(el?.querySelectorAll('.url-row') || [])].find(e => e.textContent.includes(d.lanIP));
         if (!existing && el) {
             const lanDiv = document.createElement('div');
@@ -5471,16 +5471,27 @@ function _refreshViewerPanel() {
         const card = document.createElement('div');
         card.className = 'viewer-panel-card' + (revoked ? ' revoked' : '');
         card.dataset.viewerId = v.id;
+        
+        let slotDisplay = '?';
+        if (v.slot !== undefined && v.slot !== null && v.slot !== -1 && v.slot !== '-1') {
+            slotDisplay = parseInt(v.slot) + 1;
+        } else if (v.slot === -1 || v.slot === '-1') {
+            slotDisplay = 'AUTO';
+        }
+
         card.innerHTML = `
-            <div class="vpc-name">${v.name || v.id}</div>
-            <div class="vpc-profile">${v.inputMode || 'gamepad'} · slot ${v.slot !== undefined ? v.slot : '?'}</div>
+            <div class="vpc-name" style="font-weight:bold;text-transform:capitalize;">${v.name || v.id}</div>
+            <div class="vpc-profile" style="font-weight:bold;text-transform:uppercase;">${v.inputMode || 'GAMEPAD'} - SLOT ${slotDisplay}</div>
             <div class="vpc-row">
-                <span style="font-size:9px;color:${revoked ? 'var(--danger)' : 'var(--green)'};">${revoked ? 'INPUT REVOKED' : 'Input Active'}</span>
+                <span style="font-size:9px;color:${revoked ? 'var(--danger)' : 'var(--green)'};font-weight:bold;">${revoked ? 'INPUT REVOKED' : 'INPUT ACTIVE'}</span>
                 <button class="vpc-revoke-btn${revoked ? ' revoked' : ''}" onclick="toggleViewerInputPerm('${v.id}', this)">${revoked ? 'Restore' : 'Revoke'}</button>
             </div>`;
         list.appendChild(card);
     });
 }
+
+
+
 
 function toggleViewerInputPerm(viewerId, btn) {
     const revoked = !_viewerInputRevoked.has(viewerId);

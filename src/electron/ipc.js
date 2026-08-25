@@ -79,12 +79,20 @@ function registerIpcHandlers(ctx) {
       let url = data?.url || data || '';
       if (typeof url !== 'string') url = '';
 
-      let viewerUrl = `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent(url)}`;
-      if (data?.pin) {
-        viewerUrl += `&pin=${encodeURIComponent(data.pin)}`;
-      }
-      if (data?.meta?.game && data.meta.game !== 'Direct Connect' && data.meta.game !== 'P2P Session') {
-        viewerUrl += `&arcade=1`;
+      const isUrl = url.startsWith('http://') || url.startsWith('https://');
+      let viewerUrl = '';
+
+      if (isUrl) {
+          viewerUrl = url + (url.includes('?') ? '&' : '?') + 'client=1&compat=1';
+          if (data?.pin) viewerUrl += `&pin=${encodeURIComponent(data.pin)}`;
+          if (data?.meta?.game && data.meta.game !== 'Direct Connect' && data.meta.game !== 'P2P Session') {
+              viewerUrl += `&arcade=1`;
+          }
+      } else {
+          let encodedHost = encodeURIComponent(url);
+          if (!url.startsWith('p2p://')) encodedHost = encodeURIComponent('p2p://' + url);
+          viewerUrl = `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodedHost}`;
+          if (data?.pin) viewerUrl += `&pin=${encodeURIComponent(data.pin)}`;
       }
       ctx.win.loadURL(viewerUrl);
     }
@@ -204,6 +212,36 @@ function registerIpcHandlers(ctx) {
     ctx.settings = Object.assign(ctx.settings, patch);
     saveSettings(patch);
     return ctx.settings;
+  });
+
+  ipcMain.handle('save-env', (_, key, val) => {
+    if (typeof key !== 'string') return false;
+    process.env[key] = val || '';
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const ROOT_DIR = path.join(__dirname, '..', '..');
+      const CONFIG_DIR = getSafeDataDir();
+      let envFile = path.join(ROOT_DIR, '.env');
+      if (!fs.existsSync(envFile)) envFile = path.join(CONFIG_DIR, '.env');
+      if (fs.existsSync(envFile)) {
+        let content = fs.readFileSync(envFile, 'utf8');
+        const lines = content.split('\n');
+        let found = false;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].startsWith(key + '=')) {
+            lines[i] = `${key}=${val || ''}`;
+            found = true;
+            break;
+          }
+        }
+        if (!found) lines.push(`${key}=${val || ''}`);
+        fs.writeFileSync(envFile, lines.join('\n'));
+      }
+    } catch (e) {
+      console.warn('Failed to save env', e);
+    }
+    return true;
   });
 
   ipcMain.handle('get-config-path', () => CONFIG_FILE);
@@ -769,9 +807,12 @@ function registerIpcHandlers(ctx) {
               console.log('[Discord RPC] Received ACTIVITY_JOIN:', JSON.stringify(args));
               if (args && args.secret && ctx.win && !ctx.win.isDestroyed()) {
                 const isUrl = args.secret.startsWith('http://') || args.secret.startsWith('https://');
-                const viewerUrl = isUrl
-                  ? `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent(args.secret)}`
-                  : `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + args.secret)}`;
+                let viewerUrl = '';
+                if (isUrl) {
+                  viewerUrl = args.secret + (args.secret.includes('?') ? '&' : '?') + 'client=1&compat=1';
+                } else {
+                  viewerUrl = `http://localhost:${ctx.serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + args.secret)}`;
+                }
                 console.log('[Discord RPC] Navigating to session via ACTIVITY_JOIN:', viewerUrl);
                 ctx.win.loadURL(viewerUrl);
               }

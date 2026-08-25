@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // between localStorage-only state and the persistent config file.
   hydrateSettings:                (patch) => ipcRenderer.invoke('hydrate-settings', patch),
   getConfigPath:                  () => ipcRenderer.invoke('get-config-path'),
+  saveEnv:                        (key, val) => ipcRenderer.invoke('save-env', key, val),
   // VPS SFU config — dedicated handlers so the master key is handled explicitly
   getVpsConfig:   ()    => ipcRenderer.invoke('get-vps-config'),
   saveVpsConfig:  (cfg) => ipcRenderer.invoke('save-vps-config', cfg),

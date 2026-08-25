@@ -286,7 +286,7 @@
 </div>
 
 <div class="modal-bg gone" id="tunnelModal">
-  <div class="modal" style="position:relative;">
+  <div class="modal" style="position:relative; transform: scale(0.93);">
     <div class="modal-loading gone" id="tunnelLoading">
       <div class="spinner" id="tunnelSpinner"></div>
       <div class="loading-text" id="tunnelLoadText">Starting tunnel...</div>
@@ -453,17 +453,23 @@
         </label>
       </div>
     </div>
-    <div class="modal-footer">
-      <div class="btn-row">
-        <button class="btn-confirm" onclick="confirmTunnel()">Connect</button>
-        <button class="btn-confirm"
-          style="background:var(--accent-dim);color:var(--accent2);border:1px solid var(--accent);"
-          onclick="startP2POnly()">P2P Only</button>
-        <button class="btn-skip" onclick="closeTunnelModal()">Skip for now</button>
+    <div class="modal-footer" style="flex-direction:column; gap:12px;">
+      <div class="ctrl-modal-row" onclick="document.getElementById('rememberCheck').click()" style="margin:0; width:100%; cursor:pointer; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px;">
+        <div class="ctrl-toggle-track" id="rememberTrack">
+          <div class="ctrl-toggle-thumb"></div>
+        </div>
+        <div class="ctrl-row-text">
+          <div class="ctrl-row-label">Remember this choice</div>
+          <div class="ctrl-row-desc">Always use this tunnel and never ask again on startup</div>
+        </div>
+        <input type="checkbox" id="rememberCheck" style="display:none;" onchange="document.getElementById('rememberTrack').classList.toggle('on', this.checked)">
       </div>
-      <div class="remember-row" style="margin:0;padding-top:4px;border:none;">
-        <input type="checkbox" id="rememberCheck">
-        <label for="rememberCheck">Remember this choice &amp; don't ask again on startup</label>
+      <div class="btn-row" style="width:100%;">
+        <button class="btn-confirm" style="flex:2;" onclick="confirmTunnel()">Start Tunnel & Connect</button>
+        <button class="btn-confirm"
+          style="flex:1; background:var(--accent-dim);color:var(--accent2);border:1px solid var(--accent);"
+          onclick="startP2POnly()">P2P Only</button>
+        <button class="btn-skip" style="flex:1;" onclick="closeTunnelModal()">Skip for now</button>
       </div>
     </div>
   </div>
@@ -1136,6 +1142,8 @@
           </div>
           <div id="roster" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;min-height:48px;"></div>
           <div class="empty-note" id="rosterEmpty" style="margin-top:0;">Waiting for viewers...</div>
+
+
         </div>
       </div>
 
