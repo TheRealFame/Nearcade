@@ -112,15 +112,15 @@ jobs:
             
             wget -qO zrok_amd64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_windows_amd64.tar.gz"
             if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_windows_amd64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
-            tar xzf zrok_amd64.tar.gz zrok.exe || true
-            mv zrok.exe bin/bin/zrok2.exe || true
+            tar xzf zrok_amd64.tar.gz zrok2.exe || true
+            mv zrok2.exe bin/bin/zrok2.exe || true
             rm -f zrok_amd64.tar.gz
             
             wget -qO zrok_arm64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_windows_arm64.tar.gz" || true
             if [ -f zrok_arm64.tar.gz ]; then
               if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_windows_arm64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
-              tar xzf zrok_arm64.tar.gz zrok.exe || true
-              mv zrok.exe bin/bin/zrok2-arm64.exe || true
+              tar xzf zrok_arm64.tar.gz zrok2.exe || true
+              mv zrok2.exe bin/bin/zrok2-arm64.exe || true
               rm -f zrok_arm64.tar.gz
             fi
             rm -f checksums.txt
@@ -135,15 +135,15 @@ jobs:
             
             wget -qO zrok_amd64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_linux_amd64.tar.gz" || true
             if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_linux_amd64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
-            tar xzf zrok_amd64.tar.gz -C bin/bin zrok || true
-            mv bin/bin/zrok bin/bin/zrok2 || true
+            tar xzf zrok_amd64.tar.gz zrok2 || true
+            mv zrok2 bin/bin/zrok2 || true
             rm -f zrok_amd64.tar.gz
             
             wget -qO zrok_arm64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_linux_arm64.tar.gz" || true
             if [ -f zrok_arm64.tar.gz ]; then
               if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_linux_arm64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
-              tar xzf zrok_arm64.tar.gz -C bin/bin zrok || true
-              mv bin/bin/zrok bin/bin/zrok2-arm64 || true
+              tar xzf zrok_arm64.tar.gz zrok2 || true
+              mv zrok2 bin/bin/zrok2-arm64 || true
               rm -f zrok_arm64.tar.gz
             fi
             chmod +x bin/bin/zrok2* || true
