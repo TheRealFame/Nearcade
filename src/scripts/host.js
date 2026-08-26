@@ -3719,9 +3719,13 @@ let _lastKeyframeTime = 0;
 function broadcastToViewers(data) {
     if (typeof peerConnections === 'undefined') return;
 
-    // Detect if this packet is a keyframe (first byte === 1)
-    if (typeof data !== 'string' && data.byteLength > 0 && data[0] === 1) {
-        _lastKeyframeTime = Date.now();
+    let isKeyframe = false;
+    if (typeof data !== 'string' && data.byteLength > 0) {
+        const view = new Uint8Array(data);
+        if (view[0] === 1) {
+            isKeyframe = true;
+            _lastKeyframeTime = Date.now();
+        }
     }
 
     // Smart Latency Threshold: 
@@ -3734,27 +3738,27 @@ function broadcastToViewers(data) {
 
     // If VPS mode is active and authenticated, send to VPS instead of individual DataChannels
     if (_vpsWs && _vpsAuthOk && _vpsWs.readyState === 1) {
-        if (typeof data !== 'string' && _vpsWs.bufferedAmount > vpsThreshold) {
+        if (typeof data !== 'string' && !isKeyframe && _vpsWs.bufferedAmount > vpsThreshold) {
             if (data.byteLength > 10) _wcForceKeyframe = true;
             return;
         }
         try { _vpsWs.send(data); } catch (e) {
             console.warn('[VPS] Send failed, falling back to P2P:', e.message);
-            _broadcastP2P(data, p2pThreshold);
+            _broadcastP2P(data, p2pThreshold, isKeyframe);
         }
         return;
     }
 
     // Tunnel fallback: Send WebCodecs stream over standard signaling WS to the local Node.js server
     if (ws && ws.readyState === 1) {
-        if (typeof data !== 'string' && ws.bufferedAmount > vpsThreshold) {
+        if (typeof data !== 'string' && !isKeyframe && ws.bufferedAmount > vpsThreshold) {
             if (data.byteLength > 10) _wcForceKeyframe = true;
         } else {
             try { ws.send(data); } catch (_) { }
         }
     }
 
-    _broadcastP2P(data, p2pThreshold);
+    _broadcastP2P(data, p2pThreshold, isKeyframe);
 
     if (window._hostDelayEnabled) {
         if (typeof _hostDelayFrames !== 'undefined') {
@@ -3766,17 +3770,22 @@ function broadcastToViewers(data) {
     }
 }
 
-function _broadcastP2P(data, threshold) {
+function _broadcastP2P(data, threshold, isKeyframeAlreadyChecked) {
     // If not called from broadcastToViewers, fallback to standard calculation
     if (!threshold) {
         const timeSinceKf = Date.now() - _lastKeyframeTime;
         threshold = timeSinceKf < 1000 ? 3000000 : 1000000;
     }
+    
+    let isKeyframe = isKeyframeAlreadyChecked || false;
+    if (typeof isKeyframeAlreadyChecked === 'undefined' && typeof data !== 'string' && data.byteLength > 0) {
+        isKeyframe = new Uint8Array(data)[0] === 1;
+    }
 
     Object.values(peerConnections).forEach(pc => {
         const channel = pc.wcChannel;
         if (channel && channel.readyState === 'open') {
-            if (typeof data !== 'string' && channel.bufferedAmount > threshold) {
+            if (typeof data !== 'string' && !isKeyframe && channel.bufferedAmount > threshold) {
                 if (data.byteLength > 10) _wcForceKeyframe = true;
                 return;
             }

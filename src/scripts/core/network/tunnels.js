@@ -121,12 +121,17 @@ const FALLBACK_PATHS = {
 };
 
 async function findBinaryPath(name) {
-  return which(name).then(p => p).catch(() => {
+  return which(name).then(p => p).catch(async () => {
     const fallbacks = FALLBACK_PATHS[name] || [];
     for (const p of fallbacks) {
       if (fs.existsSync(p)) {
-        console.log(`  [tunnel] Found ${name} at fallback path: ${p}`);
-        return p;
+        if (process.platform !== 'win32') ensureExecutable(p);
+        try {
+          const mode = process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK;
+          await fs.promises.access(p, mode);
+          console.log(`  [tunnel] Found ${name} at fallback path: ${p}`);
+          return p;
+        } catch (_) {}
       }
     }
     return null;

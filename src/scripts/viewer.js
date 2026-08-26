@@ -3225,7 +3225,7 @@ async function connect() {
                     let html = '<option value="gamepad">Standard Gamepad</option>';
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
-                    if (enabledExp.includes('webhid')) html += '<option value="webhid">Raw WebHID eSports (1000Hz)</option>';
+                    html += '<option value="webhid">Raw WebHID eSports (1000Hz)</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
 
@@ -3239,7 +3239,7 @@ async function connect() {
                     }
                 }
                 
-                if (enabledExp.includes('webhid') && !window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid') {
+                if (!window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid') {
                     window._webhidPrompted = true;
                     if (!document.getElementById('webhidAutoPrompt')) {
                         const p = document.createElement('div');
