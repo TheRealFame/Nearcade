@@ -59,8 +59,6 @@ function readEnv(key) {
 
 const FALLBACK_PATHS = {
   cloudflared: [
-    path.join(__dirname, '..', '..', '..', '..', 'bin', 'cloudflared.exe'),
-    path.join(__dirname, '..', '..', '..', '..', 'bin', 'cloudflared'),
     path.join(os.homedir(), 'cloudflared.exe'),
     path.join(os.homedir(), 'bin', 'cloudflared.exe'),
     'C:\\Program Files\\cloudflared\\cloudflared.exe',
@@ -70,8 +68,6 @@ const FALLBACK_PATHS = {
     '/usr/bin/cloudflared'
   ],
   zrok: [
-    path.join(__dirname, '..', '..', '..', '..', 'bin', 'zrok.exe'),
-    path.join(__dirname, '..', '..', '..', '..', 'bin', 'zrok'),
     path.join(os.homedir(), 'zrok', 'zrok.exe'),
     path.join(os.homedir(), 'bin', 'zrok.exe'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok.exe'),
@@ -83,8 +79,6 @@ const FALLBACK_PATHS = {
     path.join(os.homedir(), 'bin', 'zrok2')
   ],
   zrok2: [
-    path.join(__dirname, '..', '..', '..', '..', 'bin', 'zrok2.exe'),
-    path.join(__dirname, '..', '..', '..', '..', 'bin', 'zrok2'),
     path.join(os.homedir(), 'zrok', 'zrok2.exe'),
     path.join(os.homedir(), 'bin', 'zrok2.exe'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok2.exe'),

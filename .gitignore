@@ -7,7 +7,6 @@ node_modules/
 .vscode
 *.bak
 .flatpak-builder
-.zrok_last_share
 
 # wrangler files
 .wrangler
@@ -53,11 +52,3 @@ nearcade_layer.log
 dist-android/
 server/target/
 __pycache__/
-
-# Bundled Tunnels
-bin/cloudflared
-bin/cloudflared.exe
-bin/zrok2
-bin/zrok2.exe
-bin/zrok
-bin/zrok.exe
