@@ -742,7 +742,7 @@
         desc: 'Open-source, self-hostable tunnel.',
         svg: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
         url: 'https://github.com/openziti/zrok/releases/latest',
-        dlUrl: null,
+        dlUrl: { linux: 'true', win: 'true', mac: 'true' },
         manual: false
       },
       {
@@ -865,14 +865,29 @@
 
       // Auto-download for supported tunnels
       if (window.electronAPI && t.dlUrl) {
-        const binName = t.dlUrl[plat];
+        let binName = t.dlUrl[plat];
         if (binName) {
-          const urls = {
-            cloudflared: `https://github.com/cloudflare/cloudflared/releases/latest/download/${binName}`,
-            zrok: `https://github.com/openziti/zrok/releases/latest/download/${binName}`,
-            playit: `https://github.com/playit-cloud/playit-agent/releases/latest/download/${binName}`,
-          };
-          const dlUrl = urls[t.id];
+          let dlUrl = null;
+
+          if (t.id === 'zrok') {
+            if (statusEl) { statusEl.textContent = 'Fetching latest version...'; }
+            try {
+              const r = await fetch('https://api.github.com/repos/openziti/zrok/releases/latest');
+              const j = await r.json();
+              const suffix = plat === 'win32' ? 'windows_amd64.tar.gz' : (plat === 'darwin' ? 'darwin_amd64.tar.gz' : 'linux_amd64.tar.gz');
+              const asset = j.assets.find(a => a.name.includes(suffix));
+              if (asset) dlUrl = asset.browser_download_url;
+            } catch (e) {
+              console.error('Zrok fetch err:', e);
+            }
+          } else {
+            const urls = {
+              cloudflared: `https://github.com/cloudflare/cloudflared/releases/latest/download/${binName}`,
+              playit: `https://github.com/playit-cloud/playit-agent/releases/latest/download/${binName}`,
+            };
+            dlUrl = urls[t.id];
+          }
+
           if (dlUrl) {
             if (statusEl) { statusEl.textContent = 'Downloading...'; }
             const result = await window.electronAPI.downloadTunnel(t.id, dlUrl);

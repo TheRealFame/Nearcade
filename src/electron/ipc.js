@@ -560,31 +560,15 @@ function registerIpcHandlers(ctx) {
     }
   });
 
-  ipcMain.handle('check-tunnel-installed', (_event, name) => {
-    const destDir = path.join(CONFIG_DIR, 'bin');
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const altNames = { zrok: ['zrok', 'zrok2'] };
-    const names = altNames[name] || [name];
-    let inConfig = false;
-    for (const n of names) {
-      if (fs.existsSync(path.join(destDir, n + ext))) { inConfig = true; break; }
-    }
-    let onPath = false;
+  ipcMain.handle('check-tunnel-installed', async (_event, name) => {
     try {
-      const cmd = process.platform === 'win32' ? 'where' : 'which';
-      execSync(`${cmd} ${names.join(' ')}`, { stdio: 'ignore' });
-      onPath = true;
-    } catch (_) {
-      for (const n of names) {
-        try {
-          const c = process.platform === 'win32' ? 'where' : 'which';
-          execSync(`${c} ${n}`, { stdio: 'ignore' });
-          onPath = true;
-          break;
-        } catch (_) { }
-      }
+      const { findBinaryPath } = require('../scripts/core/network/tunnels.js');
+      const p = await findBinaryPath(name);
+      return { installed: !!p, inConfig: !!p, onPath: !!p };
+    } catch (e) {
+      console.warn(`[ipc] Error checking tunnel ${name}:`, e.message);
+      return { installed: false, inConfig: false, onPath: false };
     }
-    return { installed: inConfig || onPath, inConfig, onPath };
   });
 
   ipcMain.on('install-update', () => {

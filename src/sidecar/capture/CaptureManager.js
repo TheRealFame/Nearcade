@@ -139,7 +139,8 @@ class CaptureManager {
 
         // We reuse the FFmpeg state variables since it's an FFmpeg process
         this._ffmpegProc = spawn('ffmpeg', args, {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true
         });
 
         // Capture logs reliably for the Windows testers
