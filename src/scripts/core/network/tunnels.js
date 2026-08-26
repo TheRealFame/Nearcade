@@ -57,8 +57,13 @@ function readEnv(key) {
   return null;
 }
 
+const isArm = os.arch() === 'arm64';
+const appBinDir = path.join(__dirname, '..', '..', '..', '..', 'bin', 'bin');
+
 const FALLBACK_PATHS = {
   cloudflared: [
+    isArm ? path.join(appBinDir, 'cloudflared-arm64.exe') : path.join(appBinDir, 'cloudflared.exe'),
+    isArm ? path.join(appBinDir, 'cloudflared-arm64') : path.join(appBinDir, 'cloudflared'),
     path.join(os.homedir(), 'cloudflared.exe'),
     path.join(os.homedir(), 'bin', 'cloudflared.exe'),
     'C:\\Program Files\\cloudflared\\cloudflared.exe',
@@ -68,6 +73,8 @@ const FALLBACK_PATHS = {
     '/usr/bin/cloudflared'
   ],
   zrok: [
+    isArm ? path.join(appBinDir, 'zrok2-arm64.exe') : path.join(appBinDir, 'zrok2.exe'),
+    isArm ? path.join(appBinDir, 'zrok2-arm64') : path.join(appBinDir, 'zrok2'),
     path.join(os.homedir(), 'zrok', 'zrok.exe'),
     path.join(os.homedir(), 'bin', 'zrok.exe'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok.exe'),
@@ -79,6 +86,8 @@ const FALLBACK_PATHS = {
     path.join(os.homedir(), 'bin', 'zrok2')
   ],
   zrok2: [
+    isArm ? path.join(appBinDir, 'zrok2-arm64.exe') : path.join(appBinDir, 'zrok2.exe'),
+    isArm ? path.join(appBinDir, 'zrok2-arm64') : path.join(appBinDir, 'zrok2'),
     path.join(os.homedir(), 'zrok', 'zrok2.exe'),
     path.join(os.homedir(), 'bin', 'zrok2.exe'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok2.exe'),
