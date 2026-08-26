@@ -297,8 +297,8 @@ function registerIpcHandlers(ctx) {
         event.reply('setup-failed', 'Setup script not found: ' + scriptPath);
         return;
       }
-      const psCommand = `Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File ""${scriptPath}""' -Verb RunAs -Wait`;
-      exec(`powershell -NoProfile -Command "${psCommand}"`, (error) => {
+      const psCommand = `Start-Process powershell -WindowStyle Hidden -ArgumentList '-ExecutionPolicy Bypass -File ""${scriptPath}""' -Verb RunAs -Wait`;
+      exec(`powershell -WindowStyle Hidden -NoProfile -Command "${psCommand}"`, { windowsHide: true }, (error) => {
         if (error) {
           console.error('[Setup] Windows setup failed:', error.message);
           event.reply('setup-failed', error.message);
@@ -520,7 +520,20 @@ function registerIpcHandlers(ctx) {
       const res = await fetch(url);
       if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
       const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(destPath, buf);
+
+      if (url.endsWith('.tar.gz') || url.endsWith('.zip')) {
+        const tempArchive = path.join(os.tmpdir(), `nearcade_${name}_dl${url.endsWith('.zip') ? '.zip' : '.tar.gz'}`);
+        fs.writeFileSync(tempArchive, buf);
+        try {
+          execSync(`tar -xf "${tempArchive}" -C "${destDir}"`);
+          fs.unlinkSync(tempArchive);
+        } catch (tarErr) {
+          return { success: false, error: 'Extraction failed: ' + tarErr.message };
+        }
+      } else {
+        fs.writeFileSync(destPath, buf);
+      }
+
       try { fs.chmodSync(destPath, 0o755); } catch (_) { }
       return { success: true, path: destPath };
     } catch (e) {

@@ -23,6 +23,8 @@ function send(msg) {
         'eyetracking': 'backend_eyetracking.py',
         'lightgun': 'backend_lightguns.py',
         'adaptive': 'backend_adaptive.py',
+        'android': 'backend_android.py',
+        'webhid': 'backend_webhid.py',
         'virtualmic': 'backend_virtualmic.py',
         'host_delay': isWin ? 'backend_hostdelay_win.py' : 'backend_hostdelay.py'
     };
@@ -33,7 +35,7 @@ function send(msg) {
     }
 
     // Explicitly block hardware emulation processes if the host has not enabled them
-    const gatedTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'virtualmic'];
+    const gatedTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'virtualmic', 'webhid'];
     if (gatedTypes.includes(msg.type)) {
         let isEnabled = false;
         if (global.expDevices && Array.isArray(global.expDevices)) {

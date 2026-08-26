@@ -6421,7 +6421,7 @@ function saveExpDevices() {
 
         const label = el.querySelector('.exp-status-label');
         if (label) {
-            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'virtualmic';
+            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'virtualmic' || val === 'webhid';
             if (!isImplemented) {
                 label.innerHTML = '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
             } else if (enabled) {
@@ -6577,6 +6577,10 @@ function loadExpDevices() {
         if (typeof appConfig !== 'undefined' && appConfig.expDevices) devices = appConfig.expDevices;
         else devices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
     } catch (e) { }
+
+    if (!devices.some(d => d && d.val === 'webhid')) {
+        devices.push({ val: 'webhid', text: 'Raw WebHID eSports (1000Hz)', enabled: true });
+    }
 
     if (devices.length > 0) {
         const list = document.getElementById('expDeviceList');

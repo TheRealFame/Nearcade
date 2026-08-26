@@ -68,15 +68,5 @@ if (Test-Path $reqFile) {
         Write-Host "[WARN] PyAudio failed to install. The OS-level audio fallback will not work." -ForegroundColor Red
     }
 
-# 4. Tunnels
-$choice = Read-Host 'Tunnel? 1:Cloudflare 2:Zrok 3:Playit 4:Skip'
-if ($choice -eq '1') { Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile "$HOME\cloudflared.exe" }
-if ($choice -eq '2') {
-    Invoke-WebRequest -Uri 'https://github.com/openziti/zrok/releases/latest/download/zrok_0.6.41_windows_amd64.zip' -OutFile 'z.zip'
-    Expand-Archive -Path 'z.zip' -DestinationPath "$HOME\zrok" -Force
-    Remove-Item 'z.zip'
-}
-if ($choice -eq '3') { Invoke-WebRequest -Uri 'https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x86_64.exe' -OutFile "$HOME\playit.exe" }
-
 Write-Host 'Done! You can close this window now.' -ForegroundColor Cyan
 pause

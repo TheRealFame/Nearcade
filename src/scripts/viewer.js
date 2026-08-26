@@ -2037,7 +2037,6 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
 // the ctrl-settings broadcast below will either keep or reset the mode.
 const _experimentalModes = ['guitar', 'hotas', 'tablet', 'eyetracking', 'lightgun', 'balanceboard', 'adaptive'];
 window.currentInputMode = localStorage.getItem('ns_input_mode') || 'gamepad';
-if (window.currentInputMode === 'webhid') window.currentInputMode = 'gamepad'; // Auto-migrate legacy clients
 // Provisionally clear non-gamepad experimental modes to avoid sending the wrong
 // type before the server confirms the module is still enabled.
 if (_experimentalModes.includes(window.currentInputMode)) {
@@ -2053,7 +2052,9 @@ window.updateInputMode = function(val) {
     localStorage.setItem('ns_input_mode', val);
     console.log('[InputMode] Switched to:', val);
     
-
+    if (val === 'webhid') {
+        requestHID();
+    }
     
     if (val === 'eyetracking') {
         startEyeTracking();
@@ -2187,7 +2188,7 @@ function pollGamepad() {
         return; 
     }
 
-
+    if (window.currentInputMode === 'webhid' && hidDevice) return; // Managed exclusively by handleHIDReport
 
     const vIndex = 0; // Force ALL inputs from this viewer to slot 0
 
@@ -3224,6 +3225,7 @@ async function connect() {
                     let html = '<option value="gamepad">Standard Gamepad</option>';
                     if (enabledExp.includes('guitar')) html += '<option value="guitar">Guitar Hero Controller</option>';
                     if (enabledExp.includes('hotas')) html += '<option value="hotas">Flight Stick / HOTAS / Wheel</option>';
+                    if (enabledExp.includes('webhid')) html += '<option value="webhid">Raw WebHID eSports (1000Hz)</option>';
                     if (enabledExp.includes('eye')) html += '<option value="eyetracking">Webcam Eye / Head Tracking</option>';
                     if (enabledExp.includes('tablet')) html += '<option value="tablet">Drawing Tablet (Stylus)</option>';
 
@@ -3234,6 +3236,33 @@ async function connect() {
                     } else {
                         select.value = 'gamepad';
                         // Mode was already corrected above; just sync the dropdown
+                    }
+                }
+                
+                if (enabledExp.includes('webhid') && !window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid') {
+                    window._webhidPrompted = true;
+                    if (!document.getElementById('webhidAutoPrompt')) {
+                        const p = document.createElement('div');
+                        p.id = 'webhidAutoPrompt';
+                        p.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--surface2); border:1px solid var(--accent); padding:16px; border-radius:8px; z-index:99999; box-shadow:0 4px 12px rgba(0,0,0,0.5); width:300px; color:#fff; font-family:var(--sans);';
+                        p.innerHTML = `
+                            <div style="font-weight:bold; margin-bottom:8px;">Use WebHID?</div>
+                            <div style="font-size:12px; color:var(--muted2); margin-bottom:12px;">The host has enabled Raw WebHID eSports mode for controllers (1000Hz).</div>
+                            <div style="display:flex; gap:8px;">
+                                <button id="btnWebhidYes" style="flex:1; background:var(--accent); color:#fff; border:none; padding:8px; border-radius:4px; cursor:pointer;">Enable WebHID</button>
+                                <button id="btnWebhidNo" style="flex:1; background:transparent; border:1px solid var(--border); color:#fff; padding:8px; border-radius:4px; cursor:pointer;">Standard API</button>
+                            </div>
+                        `;
+                        document.body.appendChild(p);
+                        document.getElementById('btnWebhidYes').onclick = () => {
+                            if (window.updateInputMode) window.updateInputMode('webhid');
+                            const sel = document.getElementById('vInputApiSelect') || document.getElementById('vInputSelect');
+                            if (sel) sel.value = 'webhid';
+                            p.remove();
+                        };
+                        document.getElementById('btnWebhidNo').onclick = () => {
+                            p.remove();
+                        };
                     }
                 }
             }
@@ -3389,7 +3418,11 @@ async function connect() {
         pinRequired = false;
         const wrap = document.getElementById('pinWrap');
         if (wrap) wrap.style.display = 'none';
-    } else if (!useVps) {
+    } else if (useVps) {
+        // We cannot securely probe the host beforehand through the VPS router.
+        // Make the PIN field optional client-side and let the host backend reject it if necessary.
+        pinRequired = false;
+    } else {
         // If an explicit HTTP host is provided, query its API instead of the local one
         let apiUrl = '/api/pin-required' + window.location.search;
         if (hostParam && hostParam.includes('://')) {
