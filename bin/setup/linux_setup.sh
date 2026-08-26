@@ -171,6 +171,37 @@ if [ ! -f /etc/modules-load.d/uinput.conf ]; then
 fi
 ok "udev rules written to $RULE_FILE and reloaded"
 
+# ── Cloudflared & Zrok2 (Bundled Network Tunnels) ────────────────────────────
+echo ""
+echo "${BOLD}Downloading local Cloudflared and Zrok2 binaries...${RESET}"
+BIN_DIR="$SCRIPT_DIR/.."
+mkdir -p "$BIN_DIR"
+
+if [ ! -f "$BIN_DIR/cloudflared" ]; then
+    if curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" -o "$BIN_DIR/cloudflared"; then
+        chmod +x "$BIN_DIR/cloudflared"
+        ok "Cloudflared downloaded"
+    else
+        warn "Failed to download Cloudflared"
+    fi
+else
+    ok "Cloudflared already exists"
+fi
+
+if [ ! -f "$BIN_DIR/zrok2" ]; then
+    VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['tag_name'].lstrip('v'))" 2>/dev/null || echo "0.4.38")
+    if curl -sL "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_linux_amd64.tar.gz" | tar xz -C "$BIN_DIR" zrok 2>/dev/null; then
+        mv "$BIN_DIR/zrok" "$BIN_DIR/zrok2"
+        chmod +x "$BIN_DIR/zrok2"
+        ok "Zrok2 downloaded"
+    else
+        warn "Failed to download Zrok2"
+    fi
+else
+    ok "Zrok2 already exists"
+fi
+
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "${GREEN}${BOLD}Setup complete.${RESET} Virtual controllers will now bypass Steam Input interference."

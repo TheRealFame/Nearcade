@@ -67,6 +67,44 @@ if (Test-Path $reqFile) {
     } catch {
         Write-Host "[WARN] PyAudio failed to install. The OS-level audio fallback will not work." -ForegroundColor Red
     }
+}
+
+# 4. Zrok2 (Bundled Network Tunnel)
+$zrokFile = Join-Path $ScriptPath 'zrok2.exe'
+if (!(Test-Path $zrokFile)) {
+    Write-Host 'Zrok2 not found locally. Downloading...' -ForegroundColor Yellow
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/openziti/zrok/releases/latest"
+        $version = $release.tag_name.TrimStart('v')
+        $zrokUrl = "https://github.com/openziti/zrok/releases/download/v$version/zrok_${version}_windows_amd64.zip"
+        $zrokZip = "$env:TEMP\zrok.zip"
+        Invoke-WebRequest -Uri $zrokUrl -OutFile $zrokZip
+        Expand-Archive -Path $zrokZip -DestinationPath "$env:TEMP\zrok_ext" -Force
+        Move-Item -Path "$env:TEMP\zrok_ext\zrok.exe" -Destination $zrokFile -Force
+        Remove-Item $zrokZip -ErrorAction SilentlyContinue
+        Remove-Item "$env:TEMP\zrok_ext" -Recurse -ErrorAction SilentlyContinue
+        Write-Host '[✓] Zrok2 downloaded' -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] Failed to download Zrok2: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host '[✓] Zrok2 found' -ForegroundColor Green
+}
+
+# 5. Cloudflared (Bundled Network Tunnel)
+$cfFile = Join-Path $ScriptPath 'cloudflared.exe'
+if (!(Test-Path $cfFile)) {
+    Write-Host 'Cloudflared not found locally. Downloading...' -ForegroundColor Yellow
+    try {
+        $cfUrl = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        Invoke-WebRequest -Uri $cfUrl -OutFile $cfFile
+        Write-Host '[✓] Cloudflared downloaded' -ForegroundColor Green
+    } catch {
+        Write-Host "[WARN] Failed to download Cloudflared: $_" -ForegroundColor Red
+    }
+} else {
+    Write-Host '[✓] Cloudflared found' -ForegroundColor Green
+}
 
 Write-Host 'Done! You can close this window now.' -ForegroundColor Cyan
 pause
