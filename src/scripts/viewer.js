@@ -159,6 +159,7 @@ _communityTurnFetchPromise = _loadCommunityTurnLadder();
 // ── EARLY PIN / CONNECT STATE (must be declared before async standby handler) ──
 let pinRequired = true;
 let _autoJoinedVps = false;
+let viewerReconnectAttempts = 0;
 
 // ── EARLY STANDBY CONNECTION ────────────────────────────────────────────────
 // Always attempt to connect to the VPS standby lane. If we are on a standard
@@ -685,12 +686,27 @@ async function createPC() {
                     if (window._trackViewerFrame) window._trackViewerFrame();
                 };
 
+                // Clean up any previously running render loops to prevent CPU/memory leaks (force kill bug in Firefox)
+                if (videoEl._currentRenderLoop) {
+                    videoEl._currentRenderLoop.active = false;
+                }
+                const loopCtx = { active: true };
+                videoEl._currentRenderLoop = loopCtx;
+
                 if ('requestVideoFrameCallback' in videoEl) {
-                    function vfc() { vfcLoop(); videoEl.requestVideoFrameCallback(vfc); }
+                    function vfc() { 
+                        if (!loopCtx.active) return;
+                        vfcLoop(); 
+                        videoEl.requestVideoFrameCallback(vfc); 
+                    }
                     videoEl.requestVideoFrameCallback(vfc);
                 } else {
                     // Firefox Fallback
-                    function rafLoop() { vfcLoop(); requestAnimationFrame(rafLoop); }
+                    function rafLoop() { 
+                        if (!loopCtx.active) return;
+                        vfcLoop(); 
+                        requestAnimationFrame(rafLoop); 
+                    }
                     requestAnimationFrame(rafLoop);
                 }
                 videoEl.onplaying = () => {
@@ -2666,6 +2682,7 @@ async function connect() {
         knownNativePads.forEach(pInfo => ws.send(JSON.stringify(Object.assign({ type: 'gpid' }, pInfo))));
     }
     ws.onopen = () => {
+        viewerReconnectAttempts = 0;
         // Reset the controller ID guard so gpid is always announced after (re)connect.
         // If the poll loop ran before ws was ready (mobile first-touch timing), the
         // host never received the gpid and never registered the controller slot.
@@ -2991,17 +3008,16 @@ async function connect() {
             return;
         }
         if (msg.type === 'your-id') {
+            vpsConnected = true;
             document.getElementById('pinScreen').classList.add('gone');
             if (typeof window.showVoiceOverlay === 'function') window.showVoiceOverlay();
             myId = msg.viewerId;
             sessionStorage.setItem('ns_viewer_id', myId);
             const nameEl = document.querySelector('#talkingMe .talking-name');
             if (nameEl) nameEl.textContent = myName + ' (You)';
-
-            // Re-send the name handshake now that we're authenticated. The
-            // server drops the onopen 'join' while the auth handshake is still
-            // pending, and expects it again after your-id (see server.js).
-            if (typeof sendJoinToWS === 'function') sendJoinToWS();
+            // Re-sending join here as a fallback in case the onopen message was lost
+            // or skipped before authentication. The server deduplicates via _joinHandled.
+            sendJoinToWS();
 
             // If the input WS already connected (early start above),
             // send identify now that we know our ID.
@@ -3349,7 +3365,11 @@ async function connect() {
                     console.warn(`[WebSocket] Falling back to ${wsHost}`);
                 }
             }
-            setTimeout(connect, 2000);
+            
+            const delay = Math.min(2000 * Math.pow(1.5, viewerReconnectAttempts), 15000);
+            viewerReconnectAttempts++;
+            console.log(`[viewer] Reconnecting in ${Math.round(delay)}ms (Attempt ${viewerReconnectAttempts})`);
+            setTimeout(connect, delay);
         };
     })(ws);
 }
