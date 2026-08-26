@@ -103,33 +103,51 @@ jobs:
           mkdir -p bin/bin
           if [ "$RUNNER_OS" == "Windows" ]; then
             echo "Downloading Windows tunnels..."
-            curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o bin/bin/cloudflared.exe
-            curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe" -o bin/bin/cloudflared-x86.exe || true
-            curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe" -o bin/bin/cloudflared-arm64.exe || true
+            wget -qO bin/bin/cloudflared.exe "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            wget -qO bin/bin/cloudflared-x86.exe "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe" || true
+            wget -qO bin/bin/cloudflared-arm64.exe "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe" || true
             
             ZROK_VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/v//' || echo "0.4.38")
-            curl -sL "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_windows_amd64.zip" -o zrok.zip
-            unzip -q zrok.zip -d zrok_ext || true
-            mv zrok_ext/zrok.exe bin/bin/zrok2.exe || true
-            rm -rf zrok.zip zrok_ext
+            wget -qO checksums.txt "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/checksums.sha256.txt" || true
             
-            curl -sL "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_windows_arm64.zip" -o zrok_arm.zip || true
-            unzip -q zrok_arm.zip -d zrok_ext_arm || true
-            mv zrok_ext_arm/zrok.exe bin/bin/zrok2-arm64.exe || true
-            rm -rf zrok_arm.zip zrok_ext_arm
+            wget -qO zrok_amd64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_windows_amd64.tar.gz"
+            if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_windows_amd64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
+            tar xzf zrok_amd64.tar.gz zrok.exe || true
+            mv zrok.exe bin/bin/zrok2.exe || true
+            rm -f zrok_amd64.tar.gz
+            
+            wget -qO zrok_arm64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_windows_arm64.tar.gz" || true
+            if [ -f zrok_arm64.tar.gz ]; then
+              if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_windows_arm64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
+              tar xzf zrok_arm64.tar.gz zrok.exe || true
+              mv zrok.exe bin/bin/zrok2-arm64.exe || true
+              rm -f zrok_arm64.tar.gz
+            fi
+            rm -f checksums.txt
           elif [ "$RUNNER_OS" == "Linux" ]; then
             echo "Downloading Linux tunnels..."
-            curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" -o bin/bin/cloudflared
-            curl -sL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" -o bin/bin/cloudflared-arm64 || true
+            wget -qO bin/bin/cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+            wget -qO bin/bin/cloudflared-arm64 "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" || true
             chmod +x bin/bin/cloudflared* || true
             
             ZROK_VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/v//' || echo "0.4.38")
-            curl -sL "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_linux_amd64.tar.gz" | tar xz -C bin/bin zrok || true
-            mv bin/bin/zrok bin/bin/zrok2 || true
+            wget -qO checksums.txt "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/checksums.sha256.txt" || true
             
-            curl -sL "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_linux_arm64.tar.gz" | tar xz -C bin/bin zrok || true
-            mv bin/bin/zrok bin/bin/zrok2-arm64 || true
+            wget -qO zrok_amd64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_linux_amd64.tar.gz" || true
+            if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_linux_amd64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
+            tar xzf zrok_amd64.tar.gz -C bin/bin zrok || true
+            mv bin/bin/zrok bin/bin/zrok2 || true
+            rm -f zrok_amd64.tar.gz
+            
+            wget -qO zrok_arm64.tar.gz "https://github.com/openziti/zrok/releases/download/v${ZROK_VER}/zrok_${ZROK_VER}_linux_arm64.tar.gz" || true
+            if [ -f zrok_arm64.tar.gz ]; then
+              if [ -f checksums.txt ]; then grep "zrok_${ZROK_VER}_linux_arm64.tar.gz" checksums.txt | sha256sum -c - || echo "Checksum failed, continuing anyway"; fi
+              tar xzf zrok_arm64.tar.gz -C bin/bin zrok || true
+              mv bin/bin/zrok bin/bin/zrok2-arm64 || true
+              rm -f zrok_arm64.tar.gz
+            fi
             chmod +x bin/bin/zrok2* || true
+            rm -f checksums.txt
           fi
 
       - name: Build Electron App
