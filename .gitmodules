@@ -5,5 +5,5 @@
 	path = tools/nearcade-vr/src
 	url = https://github.com/WiVRn/WiVRn.git
 [submodule "packages/open-remote-play"]
-	path = tools/npm-packages/open-remote-play
+	path = tools/open-remote-play
 	url = https://github.com/TheRealFame/OpenRemotePlay.git

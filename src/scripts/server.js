@@ -137,6 +137,7 @@ let uinputProc = null;
 let audioProc = null;
 const viewers = new Map();
 const viewerNames = new Map();
+const viewerTokens = new Map();
 const viewerColors = new Map();
 const viewerAvatars = new Map();
 const viewerPlatforms = new Map();
@@ -669,7 +670,7 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_VERSION = 2;
+const CONFIG_VERSION = 3;
 const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
 const FRIENDS_FILE = path.join(dataDir, 'friends.json');
 const DEFAULT_ARCADE_URL = 'https://nearcade.cutefame.net';
@@ -688,6 +689,12 @@ function migrateConfig(cfg) {
   if (v < 2) {
     if (!cfg.arcadeUrl) cfg.arcadeUrl = DEFAULT_ARCADE_URL;
     v = 2;
+  }
+  // v2 → v3: seed useNativeTheme and useSystemAccent
+  if (v < 3) {
+    if (cfg.useNativeTheme === undefined) cfg.useNativeTheme = true;
+    if (cfg.useSystemAccent === undefined) cfg.useSystemAccent = true;
+    v = 3;
   }
   cfg.configVersion = CONFIG_VERSION;
   return cfg;
@@ -2691,7 +2698,9 @@ async function main() {
               }
 
               // Now send your-id so the viewer knows its assigned ID.
-              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: defaultName }));
+              const vToken = require('crypto').randomBytes(16).toString('hex');
+              viewerTokens.set(id, vToken);
+              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: defaultName, inputToken: vToken }));
               ws.send(JSON.stringify({ type: "input-state", gp: true, kb: startKb, mode: startKb ? 'hybrid' : 'gamepad' }));
 
               // Replay messages buffered during the auth handshake (the onopen
@@ -2857,7 +2866,7 @@ async function main() {
                 hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: tempId }));
                 hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) }));
               }
-              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: viewerNames.get(id) }));
+              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: viewerNames.get(id), inputToken: viewerTokens.get(id) }));
               broadcastRoster();
             }
             return;
@@ -3095,6 +3104,14 @@ async function main() {
 
       // ── AUDIO ─────────────────────────────────────────────────────────────────
     } else if (wsPath === "/ws/audio-host") {
+      const hostAddr = req.socket.remoteAddress || '';
+      const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1' || hostAddr.startsWith('127.') || hostAddr.startsWith('::ffff:127.');
+      const hostIsForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+      if (!hostIsLoopback || hostIsForwarded) {
+        console.log(`[audio-host] websocket connection rejected from ${hostAddr}`);
+        ws.close(4403, "HOST_LOCAL_ONLY");
+        return;
+      }
       ws.on("message", raw => { audioViewers.forEach(v => { if (v.readyState === 1) v.send(raw); }); });
 
     } else if (wsPath === "/ws/audio") {
@@ -3103,6 +3120,13 @@ async function main() {
 
       // ── DEDICATED INPUT CHANNEL ───────────────────────────────────────────────
     } else if (wsPath === "/ws/input") {
+      const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+      const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];
+      const requirePin = shouldRequirePin(clientIp, hasTunnelHeader);
+      if (requirePin && pinEnabled && pin !== PIN) {
+        ws.close(4001, "INVALID_PIN");
+        return;
+      }
       let myId = null;
       // Track input sequence per viewer for ack-based loss detection
       let _inputSeq = 0;
@@ -3125,7 +3149,14 @@ async function main() {
         const _handleJson = () => {
           try {
             const msg = JSON.parse(raw);
-            if (msg.type === "identify") { myId = msg.viewerId; console.log("[input] identified as", myId); return; }
+            if (msg.type === "identify") {
+              if (viewerTokens.get(msg.viewerId) !== msg.token) {
+                console.warn(`[input] token mismatch for ${msg.viewerId}`);
+                ws.close(4003, "INVALID_TOKEN");
+                return;
+              }
+              myId = msg.viewerId; console.log("[input] identified as", myId); return;
+            }
             if (msg.type === "gpid") {
               if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: myId, id: msg.id }));
               return;

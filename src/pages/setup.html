@@ -9,6 +9,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/scrollbars.css">
   <style>
+    :root {
+      --bg: #1c1c1e;
+      --surface: #2c2c2e;
+      --card: rgba(44, 44, 46, 0.92);
+      --accent: #06b6d4;
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --border: rgba(255, 255, 255, 0.07);
+    }
     *,
     *::before,
     *::after {
@@ -21,8 +30,8 @@
     body {
       width: 100%;
       height: 100%;
-      background: #080808;
-      color: #e8e8e8;
+      background: var(--bg);
+      color: var(--text);
       font-family: 'Inter', sans-serif;
       display: flex;
       align-items: center;
@@ -30,8 +39,8 @@
     }
 
     .wizard {
-      background: #121416;
-      border: 1px solid #1e2024;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 16px;
       width: 780px;
       max-width: 92vw;
@@ -55,12 +64,12 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #333;
+      background: var(--border);
       transition: background 0.3s;
     }
 
     .dot.active {
-      background: #c084fc;
+      background: var(--accent);
     }
 
     .dot.done {
@@ -70,7 +79,7 @@
     .dot-line {
       width: 48px;
       height: 1px;
-      background: #333;
+      background: var(--border);
     }
 
     .dot-line.done {
@@ -98,7 +107,7 @@
     .step-icon svg {
       width: 100%;
       height: 100%;
-      stroke: #c084fc;
+      stroke: var(--accent);
       stroke-width: 1.8;
       fill: none;
     }
@@ -106,13 +115,13 @@
     .step h2 {
       font-size: 20px;
       font-weight: 700;
-      color: #f0f3f5;
+      color: var(--text);
       margin-bottom: 6px;
     }
 
     .step p {
       font-size: 13px;
-      color: #888;
+      color: var(--muted);
       line-height: 1.7;
       margin-bottom: 20px;
     }
@@ -132,17 +141,12 @@
     .os-card {
       flex: 1;
       min-width: 140px;
-      background: #1a1c20;
-      border: 1px solid #2a2c30;
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 16px;
       text-align: center;
       cursor: default;
-      transition: border-color 0.2s;
-    }
-
-    .os-card:hover {
-      border-color: #c084fc;
     }
 
     .os-card img,
@@ -150,18 +154,18 @@
       width: 32px;
       height: 32px;
       margin-bottom: 8px;
-      stroke: #c084fc;
+      stroke: var(--text);
     }
 
     .os-card h4 {
       font-size: 13px;
-      color: #e8e8e8;
+      color: var(--text);
       margin-bottom: 4px;
     }
 
     .os-card p {
       font-size: 11px;
-      color: #666;
+      color: var(--muted);
       margin: 0;
     }
 
@@ -173,8 +177,8 @@
     }
 
     .tunnel-card {
-      background: #1a1c20;
-      border: 1px solid #2a2c30;
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 14px;
       display: flex;
@@ -187,8 +191,8 @@
     }
 
     .tunnel-card:hover {
-      border-color: #c084fc;
-      background: #1e2024;
+      border-color: var(--accent);
+      background: var(--hover, rgba(255,255,255,0.05));
     }
 
     .tunnel-card.installed {
@@ -199,7 +203,7 @@
       width: 28px;
       height: 28px;
       flex-shrink: 0;
-      stroke: #c084fc;
+      stroke: var(--accent);
       fill: none;
     }
 
@@ -209,12 +213,12 @@
 
     .tunnel-card .info h4 {
       font-size: 13px;
-      color: #e8e8e8;
+      color: var(--text);
     }
 
     .tunnel-card .info p {
       font-size: 11px;
-      color: #666;
+      color: var(--muted);
       margin: 0;
     }
 
@@ -271,8 +275,8 @@
     }
 
     .module-card {
-      background: #1a1c20;
-      border: 1px solid #2a2c30;
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 14px;
       display: flex;
@@ -294,12 +298,12 @@
 
     .module-card .info h4 {
       font-size: 13px;
-      color: #e8e8e8;
+      color: var(--text);
     }
 
     .module-card .info p {
       font-size: 11px;
-      color: #666;
+      color: var(--muted);
       margin: 0;
     }
 
@@ -309,7 +313,7 @@
       justify-content: space-between;
       align-items: center;
       padding: 16px 40px 24px;
-      border-top: 1px solid #1e2024;
+      border-top: 1px solid var(--border);
     }
 
     .wizard-footer .left {
@@ -329,12 +333,13 @@
     }
 
     .btn-primary {
-      background: #c084fc;
+      background: var(--accent);
       color: #000;
     }
 
     .btn-primary:hover {
-      background: #d495ff;
+      background: var(--accent);
+      filter: brightness(1.1);
       transform: scale(1.02);
     }
 
@@ -346,24 +351,24 @@
     }
 
     .btn-secondary {
-      background: #222;
-      color: #aaa;
-      border: 1px solid #333;
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
     }
 
     .btn-secondary:hover {
-      background: #333;
-      color: #fff;
-      border-color: #555;
+      background: var(--surface);
+      color: var(--text);
+      border-color: var(--accent);
     }
 
     .btn-ghost {
       background: transparent;
-      color: #666;
+      color: var(--muted);
     }
 
     .btn-ghost:hover {
-      color: #aaa;
+      color: var(--text);
     }
 
     #setupStatus {
@@ -630,9 +635,20 @@
     const totalSteps = 4;
 
     window.addEventListener('DOMContentLoaded', () => {
-      if (navigator.platform.toLowerCase().includes('win')) {
+      const isWin = navigator.platform.toLowerCase().includes('win');
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const isLinux = !isWin && !isMac;
+      if (isWin) {
         const btn = document.getElementById('vbCableSetupBtn');
         if (btn) btn.style.display = 'block';
+      }
+      const activeCard = isWin ? document.getElementById('osWindows') : (isMac ? document.getElementById('osMac') : document.getElementById('osLinux'));
+      if (activeCard) {
+        activeCard.style.borderColor = '#4ade80';
+        const p = document.createElement('div');
+        p.textContent = '(Your OS)';
+        p.style.cssText = 'color:#4ade80; font-size:10px; font-weight:700; margin-top:8px;';
+        activeCard.appendChild(p);
       }
     });
 
@@ -793,7 +809,7 @@
         const info = tunnelInfo[t.id] || {};
         const card = document.createElement('div');
         card.className = 'tunnel-card' + (installed ? ' installed' : '');
-        const badgeLabel = installed ? (info.onPath ? 'On PATH' : 'Installed') : '';
+        const badgeLabel = installed && info.onPath ? 'On PATH' : '';
         const statusLabel = installed ? 'Ready' : (t.manual ? 'Manual' : 'Not installed');
         card.innerHTML = `
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${t.svg}</svg>
@@ -801,7 +817,7 @@
             <h4>${t.label}</h4>
             <p>${t.desc}</p>
           </div>
-          ${installed ? `<span class="badge-installed">${badgeLabel}</span>` : ''}
+          ${badgeLabel ? `<span class="badge-installed">${badgeLabel}</span>` : ''}
           <span class="status ${installed ? 'bundled' : t.manual ? 'manual' : 'missing'}">${statusLabel}</span>
         `;
         if (!t.manual) {
@@ -857,10 +873,13 @@
         cmdEl.style.display = 'block';
       }
 
-      if (window.electronAPI && t.url) {
-        window.electronAPI.openExternal(t.url);
-      } else if (t.url) {
-        window.open(t.url, '_blank');
+      const willAutoDownload = window.electronAPI && t.dlUrl && t.dlUrl[plat];
+      if (!willAutoDownload) {
+        if (window.electronAPI && t.url) {
+          window.electronAPI.openExternal(t.url);
+        } else if (t.url) {
+          window.open(t.url, '_blank');
+        }
       }
 
       // Auto-download for supported tunnels

@@ -79,6 +79,7 @@ const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 const host = location.host;
 let wsHost = location.host;  // reassigned to 127.0.0.1 on first WebSocket failure
 let ws, pc, myId = sessionStorage.getItem('ns_viewer_id') || 'ns_' + Math.random().toString(36).slice(2, 10);
+let myInputToken = null;
 if (!sessionStorage.getItem('ns_viewer_id')) sessionStorage.setItem('ns_viewer_id', myId);
 let _reconnectTimer = null;
 let viewerRegion = '';
@@ -1563,8 +1564,37 @@ document.addEventListener('click', e => {
     }
 });
 document.addEventListener('click', e => { if (e.target === frameCanvas || e.target === video || (typeof wcCanvas !== 'undefined' && e.target === wcCanvas)) requestPointerLock(); });
-document.addEventListener('keydown', e => { if (!document.pointerLockElement) return; if (keyMap[e.code]) { e.preventDefault(); sendKbm({ event: 'keydown', key: keyMap[e.code] }); } });
-document.addEventListener('keyup', e => { if (!document.pointerLockElement) return; if (keyMap[e.code]) { e.preventDefault(); sendKbm({ event: 'keyup', key: keyMap[e.code] }); } });
+const tvRemoteKeys = { up: false, down: false, left: false, right: false };
+let tvRemoteVx = 0, tvRemoteVy = 0;
+
+document.addEventListener('keydown', e => { 
+    if (window.currentInputMode === 'tvremote') {
+        let handled = true;
+        if (e.key === 'ArrowUp') tvRemoteKeys.up = true;
+        else if (e.key === 'ArrowDown') tvRemoteKeys.down = true;
+        else if (e.key === 'ArrowLeft') tvRemoteKeys.left = true;
+        else if (e.key === 'ArrowRight') tvRemoteKeys.right = true;
+        else if (e.key === 'Enter') { if (!e.repeat) sendKbm({ event: 'keydown', key: 'BTN_LEFT' }); }
+        else handled = false;
+        if (handled) { e.preventDefault(); return; }
+    }
+    if (!document.pointerLockElement) return; 
+    if (keyMap[e.code]) { e.preventDefault(); sendKbm({ event: 'keydown', key: keyMap[e.code] }); } 
+});
+document.addEventListener('keyup', e => { 
+    if (window.currentInputMode === 'tvremote') {
+        let handled = true;
+        if (e.key === 'ArrowUp') tvRemoteKeys.up = false;
+        else if (e.key === 'ArrowDown') tvRemoteKeys.down = false;
+        else if (e.key === 'ArrowLeft') tvRemoteKeys.left = false;
+        else if (e.key === 'ArrowRight') tvRemoteKeys.right = false;
+        else if (e.key === 'Enter') sendKbm({ event: 'keyup', key: 'BTN_LEFT' });
+        else handled = false;
+        if (handled) { e.preventDefault(); return; }
+    }
+    if (!document.pointerLockElement) return; 
+    if (keyMap[e.code]) { e.preventDefault(); sendKbm({ event: 'keyup', key: keyMap[e.code] }); } 
+});
 document.addEventListener('mousemove', e => { if (!document.pointerLockElement) return; sendKbm({ event: 'mousemove', dx: e.movementX, dy: e.movementY }); });
 document.addEventListener('mousedown', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keydown', key: mouseMap[e.button] }); });
 document.addEventListener('mouseup', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keyup', key: mouseMap[e.button] }); });
@@ -1768,6 +1798,13 @@ if (jBaseRight) {
 // Removed redundant dpad-btn listener block since it's handled by data-btn above
 
 // ── HID GYRO ──────────────────────────────────────────────────────────────────
+// SECURITY RESTRICTION: Completely remove write access from the WebHID API in this window context
+// This guarantees that a malicious host script cannot send payloads or rumble spam to the device.
+if (typeof HIDDevice !== 'undefined') {
+    if (HIDDevice.prototype.sendReport) delete HIDDevice.prototype.sendReport;
+    if (HIDDevice.prototype.sendFeatureReport) delete HIDDevice.prototype.sendFeatureReport;
+}
+
 let hidDevice = null, hostMotionEnabled = false, hidGyroX = 0, hidGyroY = 0;
 async function requestHID() {
     if (!('hid' in navigator)) { 
@@ -1777,6 +1814,7 @@ async function requestHID() {
         if (sel) sel.value = 'gamepad';
         return; 
     }
+    
     try {
         const devices = await navigator.hid.requestDevice({ filters: [{ vendorId: 0x054c }, { vendorId: 0x057e }] });
         if (devices.length > 0) {
@@ -2472,12 +2510,13 @@ function connectInputWS() {
     // The main WebSocket handles inputs as well.
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    inputWs = new WebSocket(proto + '://' + location.host + '/ws/input');
+    const pinParam = enteredPin ? `?pin=${encodeURIComponent(enteredPin)}` : '';
+    inputWs = new WebSocket(proto + '://' + location.host + '/ws/input' + pinParam);
 
     inputWs.onopen = () => {
         console.log('[Input] Dedicated 250Hz Fast Lane connected.');
         // The server needs us to identify ourselves on this separate pipe!
-        if (myId) inputWs.send(JSON.stringify({ type: 'identify', viewerId: myId }));
+        if (myId) inputWs.send(JSON.stringify({ type: 'identify', viewerId: myId, token: myInputToken }));
     };
 
     inputWs.onclose = () => {
@@ -3013,6 +3052,7 @@ async function connect() {
             document.getElementById('pinScreen').classList.add('gone');
             if (typeof window.showVoiceOverlay === 'function') window.showVoiceOverlay();
             myId = msg.viewerId;
+            if (msg.inputToken) myInputToken = msg.inputToken;
             sessionStorage.setItem('ns_viewer_id', myId);
             const nameEl = document.querySelector('#talkingMe .talking-name');
             if (nameEl) nameEl.textContent = myName + ' (You)';
@@ -3244,10 +3284,10 @@ async function connect() {
                     if (!document.getElementById('webhidAutoPrompt')) {
                         const p = document.createElement('div');
                         p.id = 'webhidAutoPrompt';
-                        p.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--surface2); border:1px solid var(--accent); padding:16px; border-radius:8px; z-index:99999; box-shadow:0 4px 12px rgba(0,0,0,0.5); width:300px; color:#fff; font-family:var(--sans);';
+                        p.style.cssText = 'position:fixed; bottom:20px; right:20px; background:var(--card); backdrop-filter:blur(16px); border:1px solid var(--border2); padding:16px; border-radius:12px; z-index:99999; box-shadow:0 10px 30px rgba(0,0,0,0.5); width:300px; color:var(--text); font-family:var(--sans);';
                         p.innerHTML = `
                             <div style="font-weight:bold; margin-bottom:8px;">Use WebHID?</div>
-                            <div style="font-size:12px; color:var(--muted2); margin-bottom:12px;">The host has enabled Raw WebHID eSports mode for controllers (1000Hz).</div>
+                            <div style="font-size:12px; color:var(--muted2); margin-bottom:12px;">The host has enabled Raw WebHID eSports mode for controllers (1000Hz).<br><br><span style="color:#4ade80;">✔ Read-only mode enforced.</span> The host cannot write to or alter your device.</div>
                             <div style="display:flex; gap:8px;">
                                 <button id="btnWebhidYes" style="flex:1; background:var(--accent); color:#fff; border:none; padding:8px; border-radius:4px; cursor:pointer;">Enable WebHID</button>
                                 <button id="btnWebhidNo" style="flex:1; background:transparent; border:1px solid var(--border); color:#fff; padding:8px; border-radius:4px; cursor:pointer;">Standard API</button>

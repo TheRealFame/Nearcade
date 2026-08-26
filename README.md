@@ -70,8 +70,10 @@ We keep all technical setup instructions, dependency lists, and API guides in a 
 The platform includes an optional public lobby system. Hosts can list their sessions on the Arcade grid to let global players discover and join local co-op games. You can view the public lobby at https://nearcade.cutefame.net and join active sessions directly from your browser.
 
 ## Browser Userscript (Identity Persistence)
-Your display name and chat color only save per-site by default. Install this userscript with [Tampermonkey](https://www.tampermonkey.net/) or any fork and your identity follows you across all Nearcade sessions — Cloudflare tunnels, zrok, localhost, anywhere.
+Your display name and chat color only save per-site by default. The identity persistence userscript has been migrated to the [OpenRemotePlay](https://github.com/TheRealFame/OpenRemotePlay) repository to act as a universal identity manager for any platform using the OpenRemotePlay protocol.
 
-[Install Nearcade Identity Persist](https://github.com/TheRealFame/Nearcade/raw/main/src/scripts/nearcade-identity-persist.user.js)
+Install this universal userscript with [Tampermonkey](https://www.tampermonkey.net/) or any fork and your identity will seamlessly follow you across all Nearcade sessions — Cloudflare tunnels, zrok, localhost, anywhere.
+
+[Install OpenRemotePlay Identity Persist](https://github.com/TheRealFame/OpenRemotePlay/raw/master/openremoteplay-identity-persist.user.js)
 
 This project uses artificial intelligence large language models for code generation and structure planning.
