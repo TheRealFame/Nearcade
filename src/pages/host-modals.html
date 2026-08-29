@@ -168,12 +168,12 @@
         style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:8px;padding:8px;height:300px;overflow-y:auto;font-family:var(--mono);user-select:text;-webkit-user-select:text;">
       </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
-        <button
+        <button class="btn-skip"
           onclick="navigator.clipboard.writeText(document.getElementById('log').innerText); this.textContent=(typeof I18N!=='undefined'&&I18N.t)?I18N.t('Copied!'):'Copied!'; setTimeout(()=>this.textContent=(typeof I18N!=='undefined'&&I18N.t)?I18N.t('Copy Log'):'Copy Log', 2000);"
-          style="background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 10px; border-radius:6px; font-size:10px; cursor:pointer;">Copy
+          style="padding:4px 10px; font-size:10px;">Copy
           Log</button>
-        <button onclick="if(window.electronAPI) window.electronAPI.openLog()"
-          style="background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 10px; border-radius:6px; font-size:10px; cursor:pointer;">Open
+        <button class="btn-skip" onclick="if(window.electronAPI) window.electronAPI.openLog()"
+          style="padding:4px 10px; font-size:10px;">Open
           Log File</button>
       </div>
     </div>

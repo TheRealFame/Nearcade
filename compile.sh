@@ -1,13 +1,13 @@
 #!/bin/bash
 # compile.sh - Local build orchestrator for Nearcade
-# Usage: ./compile.sh [-linux] [-mac] [-windows] [-portable] [-setup] [-nuitka-only]
+# Usage: ./compile.sh [-linux] [-mac] [-windows] [-portable] [-setup] [-cargo-only]
 
 OS_LINUX=0
 OS_MAC=0
 OS_WIN=0
 TARGET_PORTABLE=0
 TARGET_SETUP=0
-NUITKA_ONLY=0
+CARGO_ONLY=0
 
 for arg in "$@"; do
   case $arg in
@@ -16,7 +16,7 @@ for arg in "$@"; do
     -windows) OS_WIN=1 ;;
     -portable) TARGET_PORTABLE=1 ;;
     -setup) TARGET_SETUP=1 ;;
-    -nuitka-only) NUITKA_ONLY=1 ;;
+    -cargo-only) CARGO_ONLY=1 ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -30,32 +30,39 @@ BIN_DIR="src/sidecar/input_backends/bin"
 mkdir -p "$BIN_DIR"
 
 compile_linux() {
-    echo "[ Nuitka ] Compiling native Linux sidecar..."
-    cd src/sidecar/input_backends
-    python3 -m nuitka --onefile --output-dir=bin linux_uinput.py
-    cd ../../../
+    echo "[ Cargo ] Compiling native Linux sidecars..."
+    cd src/sidecar/input_backends/rust_uinput
+    cargo build --release
+    cp target/release/linux_uinput ../bin/linux_uinput
+    cd ../rust_read_gamepads
+    cargo build --release
+    cp target/release/read_gamepads ../bin/read_gamepads
+    cd ../../../../
 }
 
 compile_mac() {
-    echo "[ Nuitka ] Compiling native Mac sidecar..."
-    cd src/sidecar/input_backends
-    python3 -m nuitka --onefile --output-dir=bin mac_gamepad_bridge.py
-    cd ../../../
+    echo "[ Cargo ] Compiling native Mac sidecars..."
+    cd src/sidecar/input_backends/rust_mac_bridge
+    cargo build --release
+    cp target/release/mac_gamepad_bridge ../bin/mac_gamepad_bridge
+    cd ../rust_read_gamepads
+    cargo build --release
+    cp target/release/read_gamepads ../bin/read_gamepads
+    cd ../../../../
 }
 
 compile_windows() {
-    echo "[ PyInstaller ] Compiling Windows sidecars via Wine..."
-    # Ensure wine and python are available
-    if ! command -v wine &> /dev/null; then
-        echo "Error: 'wine' is not installed, cannot compile Windows sidecars locally."
-        exit 1
-    fi
-    cd src/sidecar/input_backends
-    # Assuming Wine has Python 3.11 installed inside it with pyinstaller
-    VGP=$(wine python -c "import vgamepad, os; print(os.path.dirname(vgamepad.__file__))" | tr -d '\r')
-    wine pyinstaller -y --onefile --add-data "$VGP/win/vigem/client;vgamepad/win/vigem/client" --distpath bin --name windows_hidmaestro windows_hidmaestro.py
-    wine pyinstaller -y --onefile --add-data "$VGP/win/vigem/client;vgamepad/win/vigem/client" --distpath bin --name windows_vigem windows_vigem.py
-    cd ../../../
+    echo "[ Cargo ] Compiling Windows sidecars..."
+    cd src/sidecar/input_backends/rust_hidmaestro
+    cargo build --release --target x86_64-pc-windows-gnu || cargo build --release
+    cp target/x86_64-pc-windows-gnu/release/windows_hidmaestro.exe ../bin/windows_hidmaestro.exe 2>/dev/null || cp target/release/windows_hidmaestro.exe ../bin/windows_hidmaestro.exe 2>/dev/null || true
+    cd ../rust_vigem
+    cargo build --release --target x86_64-pc-windows-gnu || cargo build --release
+    cp target/x86_64-pc-windows-gnu/release/windows_vigem.exe ../bin/windows_vigem.exe 2>/dev/null || cp target/release/windows_vigem.exe ../bin/windows_vigem.exe 2>/dev/null || true
+    cd ../rust_read_gamepads
+    cargo build --release --target x86_64-pc-windows-gnu || cargo build --release
+    cp target/x86_64-pc-windows-gnu/release/read_gamepads.exe ../bin/read_gamepads.exe 2>/dev/null || cp target/release/read_gamepads.exe ../bin/read_gamepads.exe 2>/dev/null || true
+    cd ../../../../
 }
 
 if [ $OS_LINUX -eq 1 ]; then
@@ -68,8 +75,8 @@ if [ $OS_WIN -eq 1 ]; then
     compile_windows
 fi
 
-if [ $NUITKA_ONLY -eq 1 ]; then
-    echo "Nuitka compilation finished. Skipping electron-builder."
+if [ $CARGO_ONLY -eq 1 ]; then
+    echo "Cargo compilation finished. Skipping electron-builder."
     exit 0
 fi
 

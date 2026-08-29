@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
   openLog:     ()                 => ipcRenderer.send('open-log'),
   openInstallDir: ()              => ipcRenderer.send('open-dir'),
+  checkElevation: ()              => ipcRenderer.invoke('check-elevation'),
+  elevateApp:     ()              => ipcRenderer.invoke('elevate-app'),
   readDoc:     (filename)         => ipcRenderer.invoke('read-doc', filename),
   getSettings:                    () => ipcRenderer.invoke('get-settings'),
   saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),

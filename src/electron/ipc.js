@@ -297,8 +297,8 @@ function registerIpcHandlers(ctx) {
         event.reply('setup-failed', 'Setup script not found: ' + scriptPath);
         return;
       }
-      const psCommand = `Start-Process powershell -WindowStyle Hidden -ArgumentList '-ExecutionPolicy Bypass -File ""${scriptPath}""' -Verb RunAs -Wait`;
-      exec(`powershell -WindowStyle Hidden -NoProfile -Command "${psCommand}"`, { windowsHide: true }, (error) => {
+      const psCommand = `Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File ""${scriptPath}""' -Verb RunAs -Wait`;
+      exec(`powershell -NoProfile -Command "${psCommand}"`, (error) => {
         if (error) {
           console.error('[Setup] Windows setup failed:', error.message);
           event.reply('setup-failed', error.message);
@@ -407,8 +407,18 @@ function registerIpcHandlers(ctx) {
       const { getThemeColors } = require('@nearcade/native-palette');
       const theme = getThemeColors();
 
-      // Force Electron to synchronize the titlebar and dialog colors with the OS
-      nativeTheme.themeSource = 'system';
+      // Force Electron to synchronize the titlebar and dialog colors with the OS as dark
+      nativeTheme.themeSource = 'dark';
+      
+      if (theme && theme.bg) {
+          const hex = theme.bg.toLowerCase();
+          // If the background is too light (white/light grey), reject it.
+          // Nearcade UI contrast breaks entirely on light mode.
+          if (hex.startsWith('#f') || hex.startsWith('#e') || hex.startsWith('#d') || hex.startsWith('#c')) {
+              console.log('[ipc] OS theme is Light Mode. Forcing Dark Mode fallback.');
+              return null;
+          }
+      }
 
       return theme;
     } catch (e) {
@@ -564,7 +574,8 @@ function registerIpcHandlers(ctx) {
     try {
       const { findBinaryPath } = require('../scripts/core/network/tunnels.js');
       const p = await findBinaryPath(name);
-      return { installed: !!p, inConfig: !!p, onPath: !!p };
+      const onPath = p ? !p.includes('Nearcade') : false;
+      return { installed: !!p, inConfig: !!p, onPath };
     } catch (e) {
       console.warn(`[ipc] Error checking tunnel ${name}:`, e.message);
       return { installed: false, inConfig: false, onPath: false };
@@ -639,6 +650,44 @@ function registerIpcHandlers(ctx) {
         console.error("Failed to update tray icon", e);
       }
     }
+  });
+
+  ipcMain.handle('check-elevation', async () => {
+    if (process.platform !== 'win32') return true;
+    try {
+      execSync('net session', { stdio: 'ignore', windowsHide: true });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  ipcMain.handle('elevate-app', async () => {
+    return new Promise((resolve) => {
+      if (process.platform !== 'win32') return resolve(false);
+      const exePath = app.getPath('exe');
+      const { exec } = require('child_process');
+      let argsStr = '';
+      if (!app.isPackaged) {
+        argsStr = `-ArgumentList '""${app.getAppPath()}""'`;
+      }
+      
+      // Release the lock before spawning so the new elevated instance doesn't fail
+      app.releaseSingleInstanceLock();
+      
+      const command = `powershell -NoProfile -Command "Start-Process -FilePath '${exePath}' ${argsStr} -Verb RunAs"`;
+      exec(command, (err) => {
+        if (!err) {
+          app.isQuiting = true;
+          app.quit();
+          resolve(true);
+        } else {
+          // If UAC was cancelled or failed, re-acquire the lock
+          app.requestSingleInstanceLock();
+          resolve(false);
+        }
+      });
+    });
   });
 
   let rpc = null;

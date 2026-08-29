@@ -24,6 +24,7 @@
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      user-select: none;
     }
 
     html,
@@ -36,6 +37,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
     }
 
     .wizard {
@@ -43,8 +45,10 @@
       border: 1px solid var(--border);
       border-radius: 16px;
       width: 780px;
-      max-width: 92vw;
-      max-height: 90vh;
+      max-width: 96vw;
+      height: 90vh;
+      max-height: 700px;
+      min-height: 480px;
       box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
       display: flex;
       flex-direction: column;
@@ -91,6 +95,7 @@
       display: none;
       padding: 32px 40px 28px;
       flex: 1;
+      min-height: 0;
       flex-direction: column;
     }
 
@@ -141,8 +146,8 @@
     .os-card {
       flex: 1;
       min-width: 140px;
-      background: var(--card);
-      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 10px;
       padding: 16px;
       text-align: center;
@@ -650,6 +655,7 @@
         p.style.cssText = 'color:#4ade80; font-size:10px; font-weight:700; margin-top:8px;';
         activeCard.appendChild(p);
       }
+      refreshTunnelStatus(); // Ensure tunnel status is loaded initially
     });
 
     function updateUI() {
@@ -750,7 +756,7 @@
         desc: 'Fast, widely supported. Uses Cloudflare\'s network.',
         svg: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
         url: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/',
-        dlUrl: { linux: 'cloudflared-linux-amd64', win: 'cloudflared-windows-amd64.exe', mac: 'cloudflared-darwin-amd64' },
+        dlUrl: { linux: 'cloudflared-linux-amd64', win32: 'cloudflared-windows-amd64.exe', darwin: 'cloudflared-darwin-amd64' },
         manual: false
       },
       {
@@ -758,7 +764,7 @@
         desc: 'Open-source, self-hostable tunnel.',
         svg: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
         url: 'https://github.com/openziti/zrok/releases/latest',
-        dlUrl: { linux: 'true', win: 'true', mac: 'true' },
+        dlUrl: { linux: 'true', win32: 'true', darwin: 'true' },
         manual: false
       },
       {
@@ -766,8 +772,8 @@
         desc: 'Gaming-focused tunnel with dashboard.',
         svg: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
         url: 'https://playit.gg/download',
-        dlUrl: { linux: 'playit-cli-linux-amd64', win: 'playit-windows-x86_64-signed.exe', mac: null },
-        manual: false
+        dlUrl: null,
+        manual: true
       },
       {
         id: 'vps', label: 'VPS / Port Forward',
@@ -809,8 +815,8 @@
         const info = tunnelInfo[t.id] || {};
         const card = document.createElement('div');
         card.className = 'tunnel-card' + (installed ? ' installed' : '');
-        const badgeLabel = installed && info.onPath ? 'On PATH' : '';
-        const statusLabel = installed ? 'Ready' : (t.manual ? 'Manual' : 'Not installed');
+        const badgeLabel = installed ? (info.onPath ? 'On PATH' : 'Installed') : '';
+        const statusLabel = installed ? 'Ready' : 'Not installed';
         card.innerHTML = `
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${t.svg}</svg>
           <div class="info">
@@ -839,13 +845,13 @@
         darwin: 'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64" -o ~/.config/Nearcade/bin/cloudflared && chmod +x ~/.config/Nearcade/bin/cloudflared',
       },
       zrok: {
-        linux: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_linux_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
-        win32: null,
-        darwin: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\"tag_name\"].lstrip(\"v\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_darwin_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
+        linux: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\\"tag_name\\"].lstrip(\\"v\\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_linux_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
+        win32: 'powershell -NoProfile -Command "$Ver = (Invoke-RestMethod https://api.github.com/repos/openziti/zrok/releases/latest).tag_name.TrimStart(\'v\'); $Url = \\"https://github.com/openziti/zrok/releases/download/v$Ver/zrok_${Ver}_windows_amd64.zip\\"; $Zip = \\"$env:TEMP\\zrok.zip\\"; Invoke-WebRequest -Uri $Url -OutFile $Zip; Expand-Archive $Zip -DestinationPath \\"$env:TEMP\\zrok_ext\\" -Force; if (!(Test-Path \\"$env:USERPROFILE\\.config\\Nearcade\\bin\\")) { New-Item -Path \\"$env:USERPROFILE\\.config\\Nearcade\\bin\\" -ItemType Directory -Force | Out-Null }; Move-Item \\"$env:TEMP\\zrok_ext\\zrok.exe\\" \\"$env:USERPROFILE\\.config\\Nearcade\\bin\\zrok.exe\\" -Force; Remove-Item $Zip, \\"$env:TEMP\\zrok_ext\\" -Recurse -Force"',
+        darwin: 'mkdir -p ~/.config/Nearcade/bin && VER=$(curl -sL https://api.github.com/repos/openziti/zrok/releases/latest | python3 -c "import json,sys;d=json.load(sys.stdin);print(d[\\"tag_name\\"].lstrip(\\"v\\"))") && curl -L "https://github.com/openziti/zrok/releases/download/v${VER}/zrok_${VER}_darwin_amd64.tar.gz" | tar xz -C ~/.config/Nearcade/bin/ && chmod +x ~/.config/Nearcade/bin/zrok2',
       },
       playit: {
-        linux: 'mkdir -p ~/.config/Nearcade/bin && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-cli-linux-amd64" -o ~/.config/Nearcade/bin/playit && chmod +x ~/.config/Nearcade/bin/playit',
-        win32: 'if not exist "%USERPROFILE%\\.config\\Nearcade\\bin" mkdir "%USERPROFILE%\\.config\\Nearcade\\bin" && curl -L --progress-bar "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-windows-x86_64-signed.exe" -o "%USERPROFILE%\\.config\\Nearcade\\bin\\playit.exe"',
+        linux: null,
+        win32: null,
         darwin: null,
       },
     };

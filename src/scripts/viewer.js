@@ -1175,12 +1175,12 @@ let storedDz = localStorage.getItem('ns_deadzone');
 // at rest. Existing users who have already saved a lower value are unaffected.
 if (!storedDz) { localStorage.setItem('ns_deadzone', '0.05'); storedDz = '0.05'; }
 window._globalDeadzone = parseFloat(storedDz);
-window.electronAPI?.saveGlobalSetting('ns_deadzone', storedDz);
+window.electronAPI?.saveGlobalSetting?.('ns_deadzone', storedDz);
 
 let storedSens = localStorage.getItem('ns_analog_sens');
 if (!storedSens) { localStorage.setItem('ns_analog_sens', '1.00'); storedSens = '1.00'; }
 window._globalSens = parseFloat(storedSens);
-window.electronAPI?.saveGlobalSetting('ns_analog_sens', storedSens);
+window.electronAPI?.saveGlobalSetting?.('ns_analog_sens', storedSens);
 
 
 
@@ -2020,7 +2020,7 @@ function applyGamepadDzSens(gp, cache, state, gpDeadzones, gpSens) {
 // ── NEARCADE PROBE SIM CORE: END ────────────────────────────────────────────
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
-let gpPolling = false, lastGpSend = {}, lastGpStr = {};
+var gpPolling = false, lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
 window.nsRedundancyEnabled = localStorage.getItem('ns_redundancy') !== 'false';
 window.tournamentMode = false;
@@ -2074,7 +2074,7 @@ if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
 // disabled the module since the last visit. Treat them as pending confirmation;
 // the ctrl-settings broadcast below will either keep or reset the mode.
 const _experimentalModes = ['guitar', 'hotas', 'tablet', 'eyetracking', 'lightgun', 'balanceboard', 'adaptive'];
-window.currentInputMode = localStorage.getItem('ns_input_mode') || 'gamepad';
+window.currentInputMode = localStorage.getItem('ns_input_mode') || localStorage.getItem('orp_input_mode') || 'gamepad';
 // Provisionally clear non-gamepad experimental modes to avoid sending the wrong
 // type before the server confirms the module is still enabled.
 if (_experimentalModes.includes(window.currentInputMode)) {
@@ -2499,7 +2499,7 @@ function _freezeFrameForSwap() {
 }
 
 // ── DEDICATED INPUT FAST LANE ─────────────────────────────────────────────────
-let inputWs = null;
+var inputWs = null;
 
 function connectInputWS() {
     if (inputWs && inputWs.readyState <= 1) return;
@@ -3279,7 +3279,8 @@ async function connect() {
                     }
                 }
                 
-                if (!window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid') {
+                const isKbm = window.currentInputMode === 'kbm' || window.currentInputMode === 'kbm_emulated';
+                if (!window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid' && !isKbm) {
                     window._webhidPrompted = true;
                     if (!document.getElementById('webhidAutoPrompt')) {
                         const p = document.createElement('div');

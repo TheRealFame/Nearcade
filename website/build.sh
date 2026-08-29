@@ -20,6 +20,9 @@ cp website/arcade.js website/arcade/arcade.js
 cp src/pages/gamepad-popup.html website/pages/gamepad-popup.html
 cp src/pages/gamepad-popup.html website/arcade/pages/gamepad-popup.html
 
+cp website/manifest.json website/arcade/manifest.json || true
+cp website/sw.js website/arcade/sw.js || true
+
 cp src/scripts/i18n.js website/js/i18n.js
 
 cp src/pages/keyboard-popup.html website/pages/keyboard-popup.html

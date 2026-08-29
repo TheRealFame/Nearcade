@@ -3,6 +3,8 @@ const http = require("http");
 const https = require("https");
 const WebSocket = require("ws");
 const crypto = require('crypto');
+const { z } = require('zod');
+const rateLimitMiddleware = require('express-rate-limit');
 require('dotenv').config();
 const si = require('systeminformation');
 
@@ -861,6 +863,11 @@ async function main() {
     const arcadeUrl = cfg.arcadeUrl || 'https://nearcade.cutefame.net';
     res.send(`window.NEARCADE_VERSION = "${APP_VERSION}";\nwindow.NEARCADE_COMMIT = "${COMMIT_HASH}";\nwindow.NEARCADE_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.NEARCADE_VERSION + (window.NEARCADE_COMMIT ? " ("+window.NEARCADE_COMMIT+")" : ""));`);
   });
+  
+  // Fix 404 error from legacy paths loading native-theme.js
+  app.get('/js/native-theme.js', (req, res) => {
+    res.redirect('/js/extended/ui/native-theme.js');
+  });
 
   app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
   app.use("/assets", express.static(path.join(__dirname, "..", "..", "assets")));
@@ -1185,22 +1192,31 @@ async function main() {
   // come along for the dashboard. The friend also sends their CURRENT session
   // link so the host can join them. The ping is one-way — the pinger (viewer)
   // NEVER receives invites or popups here; joining happens host-side.
-  app.post("/api/ping", express.json(), (req, res) => {
-    const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
-    if (!rateLimit('ping:' + clientIp, 5, 60000)) {
-      return res.status(429).json({ ok: false, error: 'rate limited' });
+  const pingLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 5,
+    message: { ok: false, error: 'rate limited' }
+  });
+
+  const pingSchema = z.object({
+    uuid: z.string().uuid(),
+    name: z.string().max(32).optional().default(''),
+    avatar: z.coerce.number().optional().default(0),
+    url: z.string().url().max(500).optional().default(''),
+    ts: z.number().optional(),
+    sig: z.string().optional()
+  });
+
+  app.post("/api/ping", pingLimiter, express.json(), (req, res) => {
+    const parsed = pingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'invalid payload schema' });
     }
-    const uuid = String((req.body && req.body.uuid) || '').trim().toLowerCase();
-    if (!uuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) {
-      return res.status(400).json({ ok: false, error: 'invalid friend id' });
-    }
+    const { uuid, name, avatar, url, ts, sig } = parsed.data;
     const { enabled, friends } = getFriendsConfig();
     if (!enabled) return res.status(403).json({ ok: false, error: 'pings disabled' });
     const friendIdx = friends.findIndex(f => f.uuid === uuid);
     if (friendIdx === -1) return res.status(403).json({ ok: false, error: 'not on friend list' });
-    const name = String((req.body && req.body.name) || '').trim().slice(0, 32);
-    const avatar = parseInt(req.body && req.body.avatar, 10) || 0;
-    const url = String((req.body && req.body.url) || '').trim().slice(0, 500);
     // Signature check: only the real friend holding the pairing secret can
     // ping as this UUID. The url is part of the signed payload, so a spoofed
     // ping cannot swap in an attacker's session link.
@@ -1208,8 +1224,7 @@ async function main() {
     if (!friend.secret) {
       return res.status(403).json({ ok: false, error: 'pairing required', needsPairing: true });
     }
-    const ts = req.body && req.body.ts;
-    const sig = req.body && req.body.sig;
+
     if (!_verifyFriendSig('ping:' + uuid, friend.secret, [uuid, ts, url], ts, sig)) {
       return res.status(403).json({ ok: false, error: 'bad signature' });
     }
@@ -1236,19 +1251,25 @@ async function main() {
   // friend-gated: the inviter's UUID must be on OUR friend list, otherwise
   // strangers could spam invites. The invite is held in memory and surfaced
   // to the dashboard via GET /api/friends → invites[].
-  app.post("/api/p2p-invite", express.json(), (req, res) => {
-    const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
-    if (!rateLimit('p2p-invite:' + clientIp, 10, 60000)) {
-      return res.status(429).json({ ok: false, error: 'rate limited' });
+  const inviteLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { ok: false, error: 'rate limited' }
+  });
+
+  const inviteSchema = z.object({
+    fromUuid: z.string().uuid(),
+    roomCode: z.string().regex(/^[0-9a-z]{6}-[0-9a-z]{6}$/),
+    ts: z.number().optional(),
+    sig: z.string().optional()
+  });
+
+  app.post("/api/p2p-invite", inviteLimiter, express.json(), (req, res) => {
+    const parsed = inviteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'invalid payload schema' });
     }
-    const fromUuid = String((req.body && req.body.fromUuid) || '').trim().toLowerCase();
-    if (!fromUuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(fromUuid)) {
-      return res.status(400).json({ ok: false, error: 'invalid friend id' });
-    }
-    const roomCode = String((req.body && req.body.roomCode) || '').trim();
-    if (!/^[0-9a-z]{6}-[0-9a-z]{6}$/.test(roomCode)) {
-      return res.status(400).json({ ok: false, error: 'invalid room code' });
-    }
+    const { fromUuid, roomCode, ts, sig } = parsed.data;
     const { enabled, friends } = getFriendsConfig();
     if (!enabled) return res.status(403).json({ ok: false, error: 'invites disabled' });
     if (!friends.some(f => f.uuid === fromUuid)) {
@@ -1261,8 +1282,6 @@ async function main() {
     if (!pairKey) {
       return res.status(403).json({ ok: false, error: 'not paired', needsPairing: true });
     }
-    const ts = req.body && req.body.ts;
-    const sig = req.body && req.body.sig;
     if (!_verifyFriendSig('invite:' + fromUuid, pairKey, [fromUuid, ts, roomCode], ts, sig)) {
       return res.status(403).json({ ok: false, error: 'bad signature' });
     }
@@ -2503,6 +2522,9 @@ async function main() {
           broadcastToArcade({ type: 'arcade-session-stopped', id });
         }
         broadcast(JSON.stringify({ type: "host-disconnected" }));
+        // Clear experimental devices and terminate sidecars to prevent ghosting before next session's ctrl-settings arrive
+        global.expDevices = [];
+        experimentalDriver.destroy();
         // Stop routing daemon — no session active, audio should return to normal
         if (_audioWorker) _audioWorker.postMessage({ type: 'route-stop' });
       });

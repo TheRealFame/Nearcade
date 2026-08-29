@@ -911,7 +911,7 @@ async function renderUrls(d) {
         if (cfg && cfg.tunnelProvider === 'portforward') isPortForward = true;
     } catch (e) { }
 
-    const encodedName = encodeURIComponent(hostName);
+
 
     // 2. Append it to the tunnel URL
     let finalTunnelUrl = null;
@@ -919,7 +919,7 @@ async function renderUrls(d) {
         const pSelect = document.getElementById('pipelineSelect');
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
         const baseSep = d.tunnelUrl.includes('?') ? '&' : '?';
-        finalTunnelUrl = `${d.tunnelUrl}${baseSep}name=${encodedName}${pipeArg}`;
+        finalTunnelUrl = `${d.tunnelUrl}${baseSep}${pipeArg.replace(/^&/, '')}`;
         window._globalTunnelUrl = finalTunnelUrl;
     } else if (window._vpsConfig && window._vpsConfig.vpsEnabled) {
         finalTunnelUrl = window._globalTunnelUrl; // Preserve URL set by VPS WebSocket
@@ -947,11 +947,11 @@ async function renderUrls(d) {
     }
 
     if (!window._isP2P && !isPlaygroundHost) {
-        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&name=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
     }
 
     if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost)
-        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&name=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
+        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
 
     // 3. NOW clear the HTML and append (prevents the async duplication bug)
     const el = document.getElementById('urlList');
@@ -977,7 +977,7 @@ async function renderUrls(d) {
 
     // Always show LAN IP as a secondary row — useful even in VPS mode for local testing
     if (d.lanIP && !isPlaygroundHost) {
-        const lanUrl = `http://${d.lanIP}:${d.port}/?v3&name=${encodedName}`;
+        const lanUrl = `http://${d.lanIP}:${d.port}/?v3`;
         const existing = [...(el?.querySelectorAll('.url-row') || [])].find(e => e.textContent.includes(d.lanIP));
         if (!existing && el) {
             const lanDiv = document.createElement('div');

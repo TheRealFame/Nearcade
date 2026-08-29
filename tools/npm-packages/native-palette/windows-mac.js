@@ -20,16 +20,18 @@ function getWindowsMacTheme() {
 
     if (process.platform === 'win32') {
       try {
-        colors.bg = '#' + systemPreferences.getColor('window').slice(0, 6);
-        colors.surface = '#' + systemPreferences.getColor('button-face').slice(0, 6);
-        colors.text = '#' + systemPreferences.getColor('window-text').slice(0, 6);
-        colors.border = '#' + systemPreferences.getColor('active-border').slice(0, 6);
+        colors.bg = systemPreferences.getColor('window').substring(0, 7);
+        colors.surface = systemPreferences.getColor('3d-face').substring(0, 7);
+        colors.text = systemPreferences.getColor('window-text').substring(0, 7);
+        colors.border = systemPreferences.getColor('active-border').substring(0, 7);
+        colors.accent = '#' + systemPreferences.getAccentColor().substring(0, 6);
       } catch (e) {}
     } else if (process.platform === 'darwin') {
       try {
-        colors.bg = '#' + systemPreferences.getColor('window-background').slice(0, 6);
-        colors.surface = '#' + systemPreferences.getColor('control-background').slice(0, 6);
-        colors.text = '#' + systemPreferences.getColor('control-text').slice(0, 6);
+        colors.bg = systemPreferences.getColor('window-background').substring(0, 7);
+        colors.surface = systemPreferences.getColor('control-background').substring(0, 7);
+        colors.text = systemPreferences.getColor('control-text').substring(0, 7);
+        colors.accent = '#' + systemPreferences.getAccentColor().substring(0, 6);
       } catch (e) {}
     }
 

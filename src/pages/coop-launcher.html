@@ -270,7 +270,7 @@
 
       let availablePaths = [];
       try {
-        const activePath = path.join(__dirname, '../../config/active_controllers.json');
+        const activePath = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
         if (fs.existsSync(activePath)) {
             const active = JSON.parse(fs.readFileSync(activePath, 'utf8'));
             for (const vid in active) {

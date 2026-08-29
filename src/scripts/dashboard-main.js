@@ -1,3 +1,51 @@
+// ── In-app confirm modal (replaces all native confirm() calls) ────────────────
+// Returns a Promise<boolean> so callers can await it just like confirm().
+function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') {
+  return new Promise((resolve) => {
+    const existing = document.getElementById('_appConfirmOverlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = '_appConfirmOverlay';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99999',
+      'background:rgba(0,0,0,0.65)', 'backdrop-filter:blur(4px)',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'font-family:inherit'
+    ].join(';');
+
+    // Sanitise message for display (convert \n to <br>)
+    const safeMsg = String(message)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+
+    overlay.innerHTML = `
+      <div style="background:var(--surface,#1e1b2e);border:1px solid var(--border,rgba(255,255,255,0.08));
+                  border-radius:14px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,0.7);">
+        <h3 style="margin:0 0 12px;font-size:16px;font-weight:700;color:var(--text,#f4f4f5);">${title}</h3>
+        <p style="margin:0 0 24px;font-size:13px;color:var(--muted,#a1a1aa);line-height:1.7;">${safeMsg}</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="_appConfirmCancel" style="padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;
+                  cursor:pointer;border:1px solid var(--border,rgba(255,255,255,0.08));
+                  background:var(--card,rgba(44,44,46,0.92));color:var(--text,#f4f4f5);font-family:inherit;">
+            ${cancelLabel}
+          </button>
+          <button id="_appConfirmOk" style="padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;
+                  cursor:pointer;border:none;background:var(--accent,#c084fc);color:#000;font-family:inherit;">
+            ${okLabel}
+          </button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    const finish = (result) => { overlay.remove(); resolve(result); };
+    document.getElementById('_appConfirmOk').addEventListener('click', () => finish(true));
+    document.getElementById('_appConfirmCancel').addEventListener('click', () => finish(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(false); });
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const vEl = document.getElementById('version-text');
   const cEl = document.getElementById('commit-hash');
@@ -343,8 +391,22 @@ async function applyNativeTheme() {
 
       localStorage.setItem('ns_native_theme_payload', JSON.stringify(theme));
       syncToNode();
-
       if (indicator) indicator.style.display = 'inline-block';
+    } else {
+      localStorage.removeItem('ns_native_theme_payload');
+      root.style.removeProperty('--bg');
+      root.style.removeProperty('--sidebar');
+      root.style.removeProperty('--surface');
+      root.style.removeProperty('--surface-rgb');
+      root.style.removeProperty('--surface-hover');
+      root.style.removeProperty('--card');
+      root.style.removeProperty('--card2');
+      root.style.removeProperty('--text');
+      root.style.removeProperty('--muted');
+      root.style.removeProperty('--muted2');
+      root.style.removeProperty('--border');
+      root.style.removeProperty('--bg-rgb');
+      if (indicator) indicator.style.display = 'none';
     }
   } catch (e) {
     console.error('Failed to get native theme:', e);
@@ -1206,10 +1268,13 @@ document.addEventListener('DOMContentLoaded', () => {
     || appConfig.bootToHost
     || localStorage.getItem('ns_auto_host') === 'true';
 
-  if (autoStartEnabled) {
+  const pendingJump = localStorage.getItem('ns_pending_host_jump') === 'true';
+
+  if (autoStartEnabled || pendingJump) {
+    if (pendingJump) localStorage.removeItem('ns_pending_host_jump');
     document.getElementById('settingTrackAutoHost')?.classList.add('on');
-    if (!noAutoHost) {
-      setTimeout(launchHostSession, 500);
+    if (!noAutoHost || pendingJump) {
+      setTimeout(() => launchHostSession({ isAuto: !pendingJump }), 500);
     }
   }
 
@@ -1514,7 +1579,8 @@ async function fetchCommunityTurnServers() {
   }
 }
 
-function launchHostSession() {
+async function launchHostSession(opts = {}) {
+  // Elevation check removed per user request: ViGEm/Rust do not strictly need elevation to run.
   // Force direct storage read to prevent race condition with appConfig caching
   let uiVer = localStorage.getItem('ns_ui_version') || 'default';
   // Migrate old setting format if present

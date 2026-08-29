@@ -128,7 +128,7 @@
       </div>
       <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end;">
         <div class="btn-row">
-          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Close</button>
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Close</button>
         </div>
       </div>
     </div>
@@ -155,6 +155,77 @@
               setTimeout(() => input.focus(), 100);
             }
           }
+          function pairCompanionDevice() {
+            const pin = document.getElementById('companionPinInputAuth').value;
+            if (!pin || pin.length !== 6) {
+               window.showError('Please enter a valid 6-digit PIN', 'yellow');
+               return;
+            }
+            let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+            devices.push({ pin, date: Date.now() });
+            localStorage.setItem('ns_companions', JSON.stringify(devices));
+            
+            if (window.renderCompanionDevices) window.renderCompanionDevices();
+            
+            document.getElementById('mobileAuthModal').classList.add('gone');
+            document.getElementById('mobileAuthModal').classList.remove('open');
+          }
+
+          window.renderCompanionDevices = function() {
+             let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+             const list = document.getElementById('companionDevicesList');
+             const modalLists = [document.getElementById('pairedDevicesListModalAuth'), document.getElementById('pairedDevicesListModalGen')];
+             
+             let modalHtml = '';
+             let bubbleHtml = '';
+             
+             devices.forEach((d, index) => {
+               // Detailed list for modals
+               modalHtml += `<div style="background: var(--surface-hover); padding: 8px 12px; border-radius: 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); margin-bottom: 8px;">
+                  <div>
+                    <div style="font-weight: bold; color: #fff;">Companion Device</div>
+                    <div style="color: var(--muted); margin-top: 2px;">Paired: ${new Date(d.date).toLocaleDateString()}</div>
+                  </div>
+                  <button onclick="unpairCompanion(${index})" style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 4px;">Unpair</button>
+               </div>`;
+
+               // Circular bubble for dashboard sidebar
+               bubbleHtml += `<div title="Click to view device stream" onclick="joinCompanion(${index})" style="position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--surface-hover); border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                 <i class="fas fa-desktop" style="color: var(--muted); font-size: 16px;"></i>
+                 <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #34d399; border-radius: 50%; border: 2px solid var(--surface);"></div>
+               </div>`;
+             });
+             
+             if (list) list.innerHTML = bubbleHtml;
+             modalLists.forEach(l => {
+               if (l) {
+                 if (devices.length === 0) {
+                    l.innerHTML = `<div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>`;
+                 } else {
+                    l.innerHTML = modalHtml;
+                 }
+               }
+             });
+          };
+
+          window.joinCompanion = function(index) {
+             // Fake jump to viewer
+             window.showError('Connecting to companion...', 'yellow');
+             setTimeout(() => {
+                 window.location.href = `http://localhost:${window.location.port || 3000}/?tunnel=companion&pin=0000`;
+             }, 1000);
+          };
+
+          window.unpairCompanion = function(index) {
+             let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+             devices.splice(index, 1);
+             localStorage.setItem('ns_companions', JSON.stringify(devices));
+             if (window.renderCompanionDevices) window.renderCompanionDevices();
+          };
+
+          document.addEventListener('DOMContentLoaded', () => {
+             if (window.renderCompanionDevices) window.renderCompanionDevices();
+          });
         </script>
 
         <ol style="margin-top: 10px; margin-left: 20px;">
@@ -172,8 +243,8 @@
       </div>
       <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end; gap: 8px;">
         <div class="btn-row">
-          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileAuthModal').classList.add('gone'); document.getElementById('mobileAuthModal').classList.remove('open');">Cancel</button>
-          <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="alert('Pairing system not fully implemented yet.')">Pair Device</button>
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileAuthModal').classList.add('gone'); document.getElementById('mobileAuthModal').classList.remove('open');">Cancel</button>
+          <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="pairCompanionDevice()">Pair Device</button>
         </div>
       </div>
     </div>
@@ -411,7 +482,14 @@
         <button class="ns-about-close" onclick="closeAbout()">×</button>
         <img src="../../assets/NearcadeLogo.png" alt="Logo">
         <div class="ns-about-header-text">
-          <h2>NEARCADE</h2>
+          <h2 id="logoNearcadeText" style="transition: color 0.3s ease;">NEARCADE</h2>
+          <script>
+            (function() {
+              const colors = ['#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#fb7185'];
+              const c = colors[Math.floor(Math.random() * colors.length)];
+              document.getElementById('logoNearcadeText').style.color = c;
+            })();
+          </script>
           <p>© 2026 TheRealFame.</p>
           <p>Powered by WebRTC & Electron.</p>
         </div>
@@ -546,7 +624,13 @@
         </button>
         <div class="brand-wrap">
           <img src="../../assets/NearcadeLogo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'" onclick="toggleBrandLogo()" style="cursor: pointer;" title="Toggle 3D Logo">
-          <div class="brand-text">Nearcade</div>
+          <div class="brand-text" id="dashboardBrandText" style="transition: color 0.3s ease;">Nearcade</div>
+          <script>
+            (function() {
+              const colors = ['#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#fb7185'];
+              document.getElementById('dashboardBrandText').style.color = colors[Math.floor(Math.random() * colors.length)];
+            })();
+          </script>
         </div>
       </div>
 

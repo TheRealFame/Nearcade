@@ -1,10 +1,8 @@
-# Nearcade Arcade Homepage Redesign
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="manifest" href="/manifest.json">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <meta property="og:type" content="website">
@@ -681,5 +679,16 @@
     Nearcade Arcade • Powered by Nearcade
   </footer>
 
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+          console.log('[PWA] Service worker registered successfully', reg.scope);
+        }).catch(err => {
+          console.error('[PWA] Service worker registration failed: ', err);
+        });
+      });
+    }
+  </script>
 </body>
 </html>

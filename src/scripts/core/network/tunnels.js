@@ -59,11 +59,17 @@ function readEnv(key) {
 
 const isArm = os.arch() === 'arm64';
 const appBinDir = path.join(__dirname, '..', '..', '..', '..', 'bin', 'bin');
+const appDataBinDir = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Nearcade', 'bin');
 
 const FALLBACK_PATHS = {
   cloudflared: [
     isArm ? path.join(appBinDir, 'cloudflared-arm64.exe') : path.join(appBinDir, 'cloudflared.exe'),
     isArm ? path.join(appBinDir, 'cloudflared-arm64') : path.join(appBinDir, 'cloudflared'),
+    path.join(appDataBinDir, 'cloudflared.exe'),
+    path.join(appDataBinDir, 'cloudflared-windows-amd64.exe'),
+    path.join(appDataBinDir, 'cloudflared'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'cloudflared.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'cloudflared'),
     path.join(os.homedir(), 'cloudflared.exe'),
     path.join(os.homedir(), 'bin', 'cloudflared.exe'),
     'C:\\Program Files\\cloudflared\\cloudflared.exe',
@@ -75,6 +81,12 @@ const FALLBACK_PATHS = {
   zrok: [
     isArm ? path.join(appBinDir, 'zrok2-arm64.exe') : path.join(appBinDir, 'zrok2.exe'),
     isArm ? path.join(appBinDir, 'zrok2-arm64') : path.join(appBinDir, 'zrok2'),
+    path.join(appDataBinDir, 'zrok2.exe'),
+    path.join(appDataBinDir, 'zrok.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok2.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok2'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok'),
     path.join(os.homedir(), 'zrok', 'zrok.exe'),
     path.join(os.homedir(), 'bin', 'zrok.exe'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok.exe'),
@@ -88,6 +100,12 @@ const FALLBACK_PATHS = {
   zrok2: [
     isArm ? path.join(appBinDir, 'zrok2-arm64.exe') : path.join(appBinDir, 'zrok2.exe'),
     isArm ? path.join(appBinDir, 'zrok2-arm64') : path.join(appBinDir, 'zrok2'),
+    path.join(appDataBinDir, 'zrok2.exe'),
+    path.join(appDataBinDir, 'zrok.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok2.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok2'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok'),
     path.join(os.homedir(), 'zrok', 'zrok2.exe'),
     path.join(os.homedir(), 'bin', 'zrok2.exe'),
     path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'zrok', 'zrok2.exe'),
@@ -97,6 +115,10 @@ const FALLBACK_PATHS = {
     path.join(os.homedir(), 'bin', 'zrok2')
   ],
   playit: [
+    path.join(appDataBinDir, 'playit.exe'),
+    path.join(appDataBinDir, 'playit'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'playit.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'playit'),
     path.join(os.homedir(), 'playit.exe'),
     path.join(os.homedir(), 'bin', 'playit.exe'),
     path.join(os.homedir(), 'playit'),
@@ -125,8 +147,10 @@ async function findBinaryPath(name) {
     const fallbacks = FALLBACK_PATHS[name] || [];
     for (const p of fallbacks) {
       if (fs.existsSync(p)) {
-        if (process.platform !== 'win32') ensureExecutable(p);
         try {
+          const stat = fs.statSync(p);
+          if (!stat.isFile()) continue;
+          if (process.platform !== 'win32') ensureExecutable(p);
           const mode = process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK;
           await fs.promises.access(p, mode);
           console.log(`  [tunnel] Found ${name} at fallback path: ${p}`);

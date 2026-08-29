@@ -17,6 +17,7 @@
   <script>if (new URLSearchParams(location.search).get('electron') === '1') document.documentElement.classList.add('ns-embed');</script>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   <meta charset="UTF-8">
+  <link rel="manifest" href="./manifest.json">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Browse Arcade — Nearcade</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -653,6 +654,13 @@
           <input type="color" id="profileColor" style="width:100%; height:40px; background:var(--bg); border:1px solid var(--border); border-radius:8px; cursor:pointer;" onchange="saveProfile()">
         </div>
         <div>
+          <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Input Mode</label>
+          <select id="profileInputMode" style="width:100%; height:40px; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:0 12px; border-radius:8px; font-family:inherit; font-size:15px; outline:none; cursor:pointer;" onchange="saveProfile()">
+            <option value="gamepad">Standard Gamepad</option>
+            <option value="kbm_emulated">Emulated KBM</option>
+          </select>
+        </div>
+        <div>
           <label style="display:block; font-size:12px; color:var(--text-sec); margin-bottom:8px; font-weight:700; text-transform:uppercase;">Viewer ID</label>
           <div style="display:flex; align-items:center; gap:8px;">
             <span id="profileViewerId" style="font-family:monospace; font-size:13px; color:var(--accent); word-break:break-all;">—</span>
@@ -750,6 +758,7 @@
     preview.style.display = '';
     preview.src = '/assets/avatars/avatar-' + avatarId + '.svg';
     document.getElementById('profileColor').value = localStorage.getItem('ns_chat_color') || '#ffffff';
+    document.getElementById('profileInputMode').value = localStorage.getItem('ns_input_mode') || 'gamepad';
     document.getElementById('profileViewerId').textContent = getViewerId();
     document.getElementById('profileModal').classList.add('open');
   }
@@ -762,6 +771,7 @@
     localStorage.setItem('ns_name', document.getElementById('profileName').value);
     localStorage.setItem('ns_avatar', document.getElementById('profileAvatar').value);
     localStorage.setItem('ns_chat_color', document.getElementById('profileColor').value);
+    localStorage.setItem('ns_input_mode', document.getElementById('profileInputMode').value);
   }
 
   function randomizeProfileAvatar() {
@@ -838,6 +848,17 @@
             btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>`;
         }
       }
+    }
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+          console.log('[PWA] Service worker registered successfully', reg.scope);
+        }).catch(err => {
+          console.error('[PWA] Service worker registration failed: ', err);
+        });
+      });
     }
   </script>
 </body>
