@@ -1,0 +1,57 @@
+name: Build Rust Input Sidecars
+
+on:
+  push:
+    paths:
+      - 'src/sidecar/input_backends/rust_**/**'
+  pull_request:
+    paths:
+      - 'src/sidecar/input_backends/rust_**/**'
+  workflow_dispatch:
+
+jobs:
+  build-rust-sidecars:
+    name: Build Rust Sidecars on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: windows_vigem.exe
+            project_dir: src/sidecar/input_backends/rust_vigem
+          # Future projects can be uncommented below:
+          # - os: ubuntu-latest
+          #   artifact_name: linux_uinput.bin
+          #   project_dir: src/sidecar/input_backends/rust_uinput
+          # - os: macos-latest
+          #   artifact_name: mac_gamepad_bridge.bin
+          #   project_dir: src/sidecar/input_backends/rust_mac_bridge
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ matrix.project_dir }}/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', matrix.project_dir)) }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Sidecar
+        working-directory: ${{ matrix.project_dir }}
+        run: cargo build --release
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.project_dir }}/target/release/${{ matrix.artifact_name == 'windows_vigem.exe' && 'rust_vigem.exe' || 'unsupported' }}

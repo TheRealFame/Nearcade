@@ -34,3 +34,7 @@ lto         = true
 codegen-units = 1
 panic       = "abort"
 strip       = true
+
+[[bin]]
+name = "nearcade_vps"
+path = "src/nearcade_vps.rs"

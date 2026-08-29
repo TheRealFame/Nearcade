@@ -52,20 +52,30 @@ function send(msg) {
     let proc = _procs.get(msg.type);
 
     if (!proc) {
+        const basename = scriptName.replace('.py', '');
+        const binExt = isWin ? '.exe' : '.bin';
+        const binaryPathRaw = path.join(__dirname, '..', 'bin', basename + binExt);
+        const binaryPath = binaryPathRaw.replace('app.asar', 'app.asar.unpacked');
+
         const pythonScriptRaw = path.join(__dirname, scriptName);
         const pythonScript = pythonScriptRaw.replace('app.asar', 'app.asar.unpacked');
         
-        if (!fs.existsSync(pythonScript)) {
-            console.error(`[ExperimentalOrchestrator] FATAL: Python backend not found at ${pythonScript}`);
-            return;
-        }
-
-        const pythonCmd = isWin ? 'python' : 'python3';
-        const args = ['-u', pythonScript];
+        let args = [];
         if (scriptName === 'backend_eyetracking.py') args.push('--joystick');
-        
-        proc = spawn(pythonCmd, args, { stdio: ['pipe', 'inherit', 'inherit'] });
-        console.log(`[ExperimentalOrchestrator] sidecar started for type: ${msg.type}`);
+
+        if (fs.existsSync(binaryPath)) {
+            console.log(`[ExperimentalOrchestrator] Native binary detected! Spawning: ${binaryPath}`);
+            proc = spawn(binaryPath, args, { stdio: ['pipe', 'inherit', 'inherit'] });
+        } else {
+            if (!fs.existsSync(pythonScript)) {
+                console.error(`[ExperimentalOrchestrator] FATAL: Python backend not found at ${pythonScript}`);
+                return;
+            }
+
+            const pythonCmd = isWin ? 'python' : 'python3';
+            proc = spawn(pythonCmd, ['-u', pythonScript, ...args], { stdio: ['pipe', 'inherit', 'inherit'] });
+            console.log(`[ExperimentalOrchestrator] sidecar started for type: ${msg.type} via Python`);
+        }
         
         proc.on('close', () => { _procs.delete(msg.type); });
         proc.on('error', () => { _procs.delete(msg.type); });

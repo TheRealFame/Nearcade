@@ -1,0 +1,11 @@
+/home/fame/Documents/Nearcade/src/sidecar/input_backends/rust_vigem/target/debug/deps/vigem_client-744879b2d1c67b56.d: /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/lib.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/bus.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/event.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/error.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/client.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/x360.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/ds4.rs
+
+/home/fame/Documents/Nearcade/src/sidecar/input_backends/rust_vigem/target/debug/deps/libvigem_client-744879b2d1c67b56.rmeta: /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/lib.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/bus.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/event.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/error.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/client.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/x360.rs /home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/ds4.rs
+
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/lib.rs:
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/bus.rs:
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/event.rs:
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/error.rs:
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/client.rs:
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/x360.rs:
+/home/fame/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/vigem-client-0.1.4/src/ds4.rs:

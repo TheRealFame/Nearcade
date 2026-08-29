@@ -331,15 +331,25 @@ function init(screenWidth, screenHeight) {
         let pythonCmd = isWin ? 'python' : 'python3';
         let extraArgs = [];
         if (isWin) {
-            const { execSync } = require('child_process');
-            const candidates = [ {c: 'py', a: ['-3']}, {c: 'python', a: []}, {c: 'python3', a: []} ];
-            for (const cand of candidates) {
-                try {
-                    execSync(`${cand.c} ${cand.a.join(' ')} --version`, { stdio: 'ignore', windowsHide: true });
-                    pythonCmd = cand.c;
-                    extraArgs = cand.a;
-                    break;
-                } catch (e) { }
+            const bundledPython = path.join(__dirname, '..', '..', '..', 'bin', 'python', 'python.exe').replace('app.asar', 'app.asar.unpacked');
+            if (fs.existsSync(bundledPython)) {
+                pythonCmd = bundledPython;
+            } else {
+                const { execSync } = require('child_process');
+                const candidates = [ {c: 'py', a: ['-3']}, {c: 'python', a: []}, {c: 'python3', a: []} ];
+                let found = false;
+                for (const cand of candidates) {
+                    try {
+                        execSync(`"${cand.c}" ${cand.a.join(' ')} -c "import sys; sys.exit(0)"`, { stdio: 'ignore', windowsHide: true });
+                        pythonCmd = cand.c;
+                        extraArgs = cand.a;
+                        found = true;
+                        break;
+                    } catch (e) { }
+                }
+                if (!found && !fs.existsSync(bundledPython)) {
+                    console.error("[InputOrchestrator] CRITICAL: Valid Python installation not found.");
+                }
             }
         }
         const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
@@ -526,7 +536,7 @@ function _freeSlot(viewerId) {
         _bridge.submitInputPacket(_frBuf);
         
         // Update active controllers JSON
-        const pth = path.join(__dirname, '..', '..', '..', 'config', 'active_controllers.json');
+        const pth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
         try {
             if (fs.existsSync(pth)) {
                 let active = JSON.parse(fs.readFileSync(pth, 'utf8'));
@@ -556,7 +566,7 @@ function _freeSlot(viewerId) {
 
 // ── Clear active controllers on startup ───────────────────────────────────────
 try {
-    const activePth = path.join(__dirname, '..', '..', '..', 'config', 'active_controllers.json');
+    const activePth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
     fs.writeFileSync(activePth, JSON.stringify({}));
 } catch (e) {
     console.error("Failed to clear active_controllers.json on startup", e);
@@ -586,7 +596,7 @@ function _handleGamepad(msg) {
         console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex} at ${eventPath}`);
         
         // Update active controllers JSON
-        const pth = path.join(__dirname, '..', '..', '..', 'config', 'active_controllers.json');
+        const pth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
         try {
             let active = {};
             if (fs.existsSync(pth)) active = JSON.parse(fs.readFileSync(pth, 'utf8'));

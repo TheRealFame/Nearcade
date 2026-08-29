@@ -67,7 +67,7 @@ jobs:
             echo "@echo off" > dummy_bin/msiexec.bat
             echo "echo Skipping interactive ViGEmBus MSI installation during CI..." >> dummy_bin/msiexec.bat
             export PATH="$PWD/dummy_bin:$PATH"
-            pip install pyinstaller pyautogui vgamepad
+            pip install nuitka pyautogui vgamepad
           elif [ "$RUNNER_OS" == "Linux" ]; then
             pip install nuitka pyautogui vgamepad
           else
@@ -89,12 +89,20 @@ jobs:
           cd src/sidecar/input_backends
           if [ "$RUNNER_OS" == "macOS" ]; then
             python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin mac_gamepad_bridge.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin mac_stub.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin read_gamepads.py
           elif [ "$RUNNER_OS" == "Linux" ]; then
             python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin linux_uinput.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin read_gamepads.py
           else
-            VGP=$(python -c "import importlib.util, os; print(os.path.dirname(importlib.util.find_spec('vgamepad').origin))")
-            pyinstaller -y --onefile --add-data "$VGP/win/vigem/client;vgamepad/win/vigem/client" --distpath bin --name windows_hidmaestro windows_hidmaestro.py
-            pyinstaller -y --onefile --add-data "$VGP/win/vigem/client;vgamepad/win/vigem/client" --distpath bin --name windows_vigem windows_vigem.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin windows_hidmaestro.py
+            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin read_gamepads.py
+            # Build Rust ViGEm sidecar
+            echo "Building native Rust windows_vigem..."
+            cd rust_vigem
+            cargo build --release
+            cd ..
+            mv rust_vigem/target/release/rust_vigem.exe bin/windows_vigem.exe
           fi
 
       - name: Download Network Tunnels (Zrok & Cloudflared)
@@ -171,14 +179,6 @@ jobs:
             else
               echo "::warning::HmBridge.exe not found at $HM_SRC — gamepad disabled"
             fi
-            
-            for file in dist/*.exe; do
-              if [[ "$file" == *"Setup"* ]]; then
-                mv "$file" "dist/Nearcade-Setup-${{ github.ref_name }}.exe"
-              else
-                mv "$file" "dist/Nearcade-Portable.exe"
-              fi
-            done
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

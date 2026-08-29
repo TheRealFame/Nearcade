@@ -121,6 +121,8 @@ export default {
           session.codecType = sanitizeString(session.codecType, 30);
           session.category = sanitizeString(session.category, 50);
           session.version = sanitizeString(session.version, 20);
+          if (session.themePayload) session.themePayload = sanitizeString(session.themePayload, 500);
+          if (session.accentColor) session.accentColor = sanitizeString(session.accentColor, 20);
           if (session.thumbnail && !isUrl(session.thumbnail)) session.thumbnail = undefined;
 
           // Whitelist tunnel domains to prevent webhook spam from arbitrary URLs

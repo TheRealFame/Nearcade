@@ -2655,16 +2655,13 @@ async function startCapture() {
                 }
                 window.electronAPI.setSelectedSource(selectedSourceId);
 
-                // MUST use getUserMedia here because getDisplayMedia strictly forbids `chromeMediaSourceId` constraints
-                const vidStream = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
+                // The selected source ID was sent to the main process, which intercepts getDisplayMedia via setDisplayMediaRequestHandler.
+                // We use getDisplayMedia here because it avoids "Could not start video source" errors on Windows windows,
+                // and correctly returns system loopback audio on Windows.
+                const vidStream = await navigator.mediaDevices.getDisplayMedia({
+                    audio: isWindows && audioSettings.forceAudioEnabled,
                     video: {
-                        mandatory: {
-                            chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: selectedSourceId,
-                            minFrameRate: Math.max(fpsVal, 30),
-                            maxFrameRate: fpsVal
-                        }
+                        frameRate: { min: Math.max(fpsVal, 30), max: fpsVal, ideal: fpsVal }
                     }
                 });
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
@@ -5725,7 +5722,9 @@ function _doArcadeRegister() {
                 category: arcadeConfig.category,
                 players: knownViewers.size + 1,
                 maxPlayers: parseInt(arcadeConfig.maxPlayers) || 4,
-                region: `${knownViewers.size + 1}/${parseInt(arcadeConfig.maxPlayers) || 4} Players`
+                region: `${knownViewers.size + 1}/${parseInt(arcadeConfig.maxPlayers) || 4} Players`,
+                themePayload: localStorage.getItem('ns_native_theme_payload') || null,
+                accentColor: localStorage.getItem('ns_chat_color') || null
             };
         };
 
