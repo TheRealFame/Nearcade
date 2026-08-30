@@ -2535,14 +2535,25 @@ async function startCapture() {
             }
         } catch (e) { }
 
+        // If user wants to capture a specific window, DXGI cannot do it. Bypass DXGI and use standard capture.
+        if (backendSidecarActive && backendMethod === 'windows_dxgi' && selectedSourceId && selectedSourceId.startsWith('window:')) {
+            log('Window capture requested but DXGI only supports desktop. Bypassing DXGI for standard capture...', 'warn');
+            backendSidecarActive = false;
+        }
+
         if (backendSidecarActive) {
             log(`Routing capture through native sidecar pipeline (${backendMethod})...`, 'warn');
             try {
-                const sidecarTrack = await startSidecarCapture(backendMethod);
+                const sidecarTrack = await withTimeout(
+                    startSidecarCapture(backendMethod, selectedSourceId, selectedSourceName),
+                    8000,
+                    'Sidecar timed out waiting for video frames'
+                );
                 screenStream = new MediaStream([sidecarTrack]);
             } catch (e) {
                 console.error('Sidecar pipeline failed:', e);
-                log('Sidecar failed. Falling back to native UI picker.', 'err');
+                log('Sidecar failed (' + e.message + '). Falling back to standard capture...', 'err');
+                try { await fetch('/api/capture/stop', { method: 'POST' }); } catch (_) {}
             }
         }
 
@@ -2699,11 +2710,33 @@ async function startCapture() {
                     log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
                 }
                 selectedSourceId = null;
-                screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                } catch (e2) {
+                    if (isWindows) {
+                        log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
+                        screenStream = await navigator.mediaDevices.getUserMedia({
+                            video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                            audio: false
+                        });
+                    } else {
+                        throw e2;
+                    }
+                }
             }
         } else if (!screenStream && !window._portalAttemptFailed) {
             // Ultimate fallback — native picker
-            screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+            } catch (e) {
+                if (isWindows) {
+                    log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
+                    screenStream = await navigator.mediaDevices.getUserMedia({
+                        video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                        audio: false
+                    });
+                }
+            }
         } else if (!screenStream) {
             sysChat('Auto-capture cancelled — no second picker will be shown. Click Start to capture manually.');
         }
@@ -2763,7 +2796,7 @@ async function startCapture() {
             try {
                 try {
                     const unlockStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    unlockStream.getTracks().forEach(t => t.stop());
+                    _forceKillStream(unlockStream);
                 } catch (e) { log(I18N.t('Audio permission missing, loopback labels hidden'), 'warn'); }
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
@@ -3388,14 +3421,17 @@ async function startWebCodecsPipeline(videoTrack, dataChannel) {
     console.log("WebCodecs Pipeline is now pushing raw frames.");
 }
 
-async function startSidecarCapture(methodName) {
+async function startSidecarCapture(methodName, sourceId, sourceName) {
     return new Promise(async (resolve, reject) => {
         try {
             // 1. Tell the backend to spin up the hardware encoder
             const capRes = await fetch('/api/capture/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ method: methodName || 'ffmpeg' })
+                body: JSON.stringify({ 
+                    method: methodName || 'ffmpeg',
+                    options: { sourceId, sourceName } 
+                })
             });
             const capData = await capRes.json();
             if (!capData.ok || (!capData.port && !capData.streamPort)) {
@@ -4867,7 +4903,7 @@ window.startNdi = async function () {
 window.stopNdi = function () {
     ndiActive = false;
     if (ndiOnlyStream) {
-        ndiOnlyStream.getTracks().forEach(t => t.stop());
+        _forceKillStream(ndiOnlyStream);
         ndiOnlyStream = null;
     }
     if (!ndiVideoEl) return;
@@ -5883,7 +5919,7 @@ function saveAudioDevice(type, deviceId) {
 async function enumerateAudioDevices() {
     try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        tempStream.getTracks().forEach(t => t.stop());
+        _forceKillStream(tempStream);
     } catch (e) { }
 
     try {

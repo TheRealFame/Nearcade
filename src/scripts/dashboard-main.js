@@ -46,6 +46,67 @@ function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') 
   });
 }
 
+// ── GLOBAL STYLE REFRESH ──────────────────────────────────────────────────
+// Instantly applies persisted CSS variables from localStorage before the DOM
+// or Electron APIs are fully ready to prevent style-flashing during navigation.
+(function applyPersistedStyles() {
+  try {
+    const root = document.documentElement;
+    // 1. Accent Color
+    const accent = localStorage.getItem('ns_chat_color');
+    const useSystemAccent = localStorage.getItem('ns_use_system_accent') === 'true';
+    if (accent && useSystemAccent && accent !== '#8b5cf6') {
+      const r = parseInt(accent.slice(1, 3), 16);
+      const g = parseInt(accent.slice(3, 5), 16);
+      const b = parseInt(accent.slice(5, 7), 16);
+      root.style.setProperty('--accent', accent);
+      root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+      root.style.setProperty('--accent2', accent);
+      root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+      root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+    }
+
+    // 2. Native Theme (Backgrounds, Surfaces, Text)
+    const useNative = localStorage.getItem('ns_use_native_theme') === 'true';
+    if (useNative) {
+      const themeStr = localStorage.getItem('ns_native_theme_payload');
+      if (themeStr) {
+        const theme = JSON.parse(themeStr);
+        root.style.setProperty('--bg', theme.bg);
+        root.style.setProperty('--sidebar', theme.sidebar);
+        root.style.setProperty('--surface', theme.surface);
+        root.style.setProperty('--surface-hover', theme.surfaceHover);
+        root.style.setProperty('--text', theme.text);
+        root.style.setProperty('--muted', theme.muted);
+        root.style.setProperty('--muted2', theme.muted2);
+        root.style.setProperty('--border', theme.border);
+
+        const hexToRgb = (hex) => {
+          if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
+          return {
+            r: parseInt(hex.slice(1, 3), 16),
+            g: parseInt(hex.slice(3, 5), 16),
+            b: parseInt(hex.slice(5, 7), 16)
+          };
+        };
+
+        const surf = hexToRgb(theme.surface);
+        if (surf) {
+          root.style.setProperty('--surface-rgb', `${surf.r}, ${surf.g}, ${surf.b}`);
+          root.style.setProperty('--card', `rgba(${surf.r},${surf.g},${surf.b},0.92)`);
+          root.style.setProperty('--card2', `rgba(${surf.r},${surf.g},${surf.b},0.95)`);
+        }
+        const bgRgb = hexToRgb(theme.bg);
+        if (bgRgb) {
+          root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to apply persisted styles:', e);
+  }
+})();
+
 document.addEventListener('DOMContentLoaded', async () => {
   const vEl = document.getElementById('version-text');
   const cEl = document.getElementById('commit-hash');
@@ -1580,7 +1641,15 @@ async function fetchCommunityTurnServers() {
 }
 
 async function launchHostSession(opts = {}) {
-  // Elevation check removed per user request: ViGEm/Rust do not strictly need elevation to run.
+  if (window.electronAPI && window.electronAPI.checkElevation && navigator.userAgent.includes('Windows')) {
+    const isElevated = await window.electronAPI.checkElevation();
+    if (!isElevated) {
+      if (confirm('Nearcade requires Administrator privileges on Windows for virtual gamepads and input sidecars to work correctly.\\n\\nRelaunch as Administrator?')) {
+        const success = await window.electronAPI.elevateApp();
+        if (success) return; // App will close and relaunch
+      }
+    }
+  }
   // Force direct storage read to prevent race condition with appConfig caching
   let uiVer = localStorage.getItem('ns_ui_version') || 'default';
   // Migrate old setting format if present

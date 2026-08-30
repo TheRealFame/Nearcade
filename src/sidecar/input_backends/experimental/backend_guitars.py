@@ -46,6 +46,8 @@
 
 import sys
 import json
+import signal
+import time
 
 # Fret button → Xbox-like button code mapping index (matches uinput Xbox layout)
 # Order: Green, Red, Yellow, Blue, Orange
@@ -94,6 +96,12 @@ def start_guitars_backend():
             ]
 
             guitars = {}
+
+            def sigterm_handler(_signo, _stack_frame):
+                print("[backend_guitars] Caught SIGTERM, shutting down...", flush=True)
+                sys.exit(0)
+            
+            signal.signal(signal.SIGTERM, sigterm_handler)
 
             try:
                 for line in sys.stdin:

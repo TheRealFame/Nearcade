@@ -162,11 +162,11 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
-            npx electron-builder --mac --universal --publish never
+            npx electron-builder --mac --universal --publish always
           elif [ "$RUNNER_OS" == "Linux" ]; then
-            npx electron-builder --linux --publish never
+            npx electron-builder --linux --publish always
           else
-            npx electron-builder --win --publish never
+            npx electron-builder --win --publish always
           fi
           
           if [ "$RUNNER_OS" == "Windows" ]; then
@@ -182,28 +182,6 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Force Upload Desktop Binaries
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            for old in dist/*.AppImage; do
-              if [ -f "$old" ] && [ "$old" != "dist/Nearcade-Linux.AppImage" ]; then
-                mv -f "$old" dist/Nearcade-Linux.AppImage
-              fi
-            done
-          fi
-          
-          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pacman dist/*.zip dist/*.yml dist/*.blockmap; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file..."
-              gh release upload ${{ github.ref_name }} "$file" --clobber || true
-            fi
-          done
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
 
 
   # ── 3. ANDROID APK BUILD ──

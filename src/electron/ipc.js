@@ -410,14 +410,13 @@ function registerIpcHandlers(ctx) {
       // Force Electron to synchronize the titlebar and dialog colors with the OS as dark
       nativeTheme.themeSource = 'dark';
       
+      if (!nativeTheme.shouldUseDarkColors) {
+          console.log('[ipc] OS theme is Light Mode. Forcing Dark Mode fallback.');
+          return null;
+      }
+
       if (theme && theme.bg) {
-          const hex = theme.bg.toLowerCase();
-          // If the background is too light (white/light grey), reject it.
-          // Nearcade UI contrast breaks entirely on light mode.
-          if (hex.startsWith('#f') || hex.startsWith('#e') || hex.startsWith('#d') || hex.startsWith('#c')) {
-              console.log('[ipc] OS theme is Light Mode. Forcing Dark Mode fallback.');
-              return null;
-          }
+          // Allow all backgrounds including light mode.
       }
 
       return theme;

@@ -110,12 +110,17 @@ class CaptureManager {
 
     // ── Windows DXGI (Zero-Copy) Implementation ─────────────────────────────
 
-    async _startWindowsDXGI({ width = 1920, height = 1080, fps = 60, bitrate = 15000000 } = {}) {
+    async _startWindowsDXGI({ width = 1920, height = 1080, fps = 60, bitrate = 15000000, sourceId = null, sourceName = null } = {}) {
         if (os.platform() !== 'win32') {
             throw new Error('Windows DXGI capture only supports Windows.');
         }
 
         console.log(`[CaptureManager] Starting DXGI zero-copy capture...`);
+        if (sourceId && sourceId.startsWith('window:')) {
+            console.warn(`[CaptureManager] WARNING: App window capture requested ("${sourceName || sourceId}") but DXGI (ddagrab) currently only supports full desktop capture. This will capture the whole desktop instead, or fail.`);
+        } else if (sourceId) {
+            console.log(`[CaptureManager] Capture target: ${sourceName || sourceId}`);
+        }
 
         // Use FFmpeg's ddagrab (Desktop Duplication API) for zero-copy VRAM capture
         const args = [
@@ -138,6 +143,7 @@ class CaptureManager {
         ];
 
         // We reuse the FFmpeg state variables since it's an FFmpeg process
+        console.log(`[CaptureManager] DXGI Command: ffmpeg ${args.join(' ')}`);
         this._ffmpegProc = spawn('ffmpeg', args, {
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true

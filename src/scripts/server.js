@@ -1267,12 +1267,17 @@ async function main() {
   app.post("/api/p2p-invite", inviteLimiter, express.json(), (req, res) => {
     const parsed = inviteSchema.safeParse(req.body);
     if (!parsed.success) {
+      console.warn('[P2P] Rejected invite: invalid payload schema');
       return res.status(400).json({ ok: false, error: 'invalid payload schema' });
     }
     const { fromUuid, roomCode, ts, sig } = parsed.data;
     const { enabled, friends } = getFriendsConfig();
-    if (!enabled) return res.status(403).json({ ok: false, error: 'invites disabled' });
+    if (!enabled) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: invites disabled`);
+      return res.status(403).json({ ok: false, error: 'invites disabled' });
+    }
     if (!friends.some(f => f.uuid === fromUuid)) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: not on friend list`);
       return res.status(403).json({ ok: false, error: 'not on friend list' });
     }
     // Signature check: verify the inviter holds the pairing secret we stored
@@ -1280,12 +1285,17 @@ async function main() {
     const cfg = getFriendsConfig();
     const pairKey = (cfg.pairKeys || {})[fromUuid];
     if (!pairKey) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: not paired (needs pairing)`);
       return res.status(403).json({ ok: false, error: 'not paired', needsPairing: true });
     }
     if (!_verifyFriendSig('invite:' + fromUuid, pairKey, [fromUuid, ts, roomCode], ts, sig)) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: bad signature`);
       return res.status(403).json({ ok: false, error: 'bad signature' });
     }
     const fromName = String((req.body && req.body.fromName) || '').trim().slice(0, 32);
+    
+    console.log(`[P2P] Successfully queued P2P invite from ${fromName} (${fromUuid}) for room ${roomCode}`);
+    
     pendingP2PInvites.set(fromUuid, { fromUuid, fromName, roomCode, at: Date.now() });
     if (pendingP2PInvites.size > MAX_PENDING_INVITES) {
       const oldest = [...pendingP2PInvites.entries()].sort((a, b) => a[1].at - b[1].at)[0];

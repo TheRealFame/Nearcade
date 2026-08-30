@@ -2,6 +2,7 @@ import sys
 import json
 import os
 import atexit
+import signal
 
 try:
     import uinput
@@ -129,14 +130,25 @@ def process_message(msg):
 
 def run():
     print(json.dumps({"type": "ready", "message": "Experimental Switch Pro backend loaded"}), flush=True)
-    for line in sys.stdin:
-        line = line.strip()
-        if not line: continue
-        try:
-            msg = json.loads(line)
-            process_message(msg)
-        except Exception as e:
-            pass
+    
+    def sigterm_handler(_signo, _stack_frame):
+        print(f"[switchpro] Caught SIGTERM, shutting down...", flush=True)
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, sigterm_handler)
+
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line: continue
+            try:
+                msg = json.loads(line)
+                process_message(msg)
+            except Exception as e:
+                pass
+    finally:
+        _cleanup()
+        print("[switchpro] Closed virtual Switch Pro backend.", flush=True)
 
 if __name__ == '__main__':
     run()

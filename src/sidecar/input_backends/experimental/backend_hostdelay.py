@@ -1,4 +1,4 @@
-import sys, json, time, threading, queue
+import sys, json, time, threading, queue, signal
 
 try:
     import evdev
@@ -87,16 +87,25 @@ def ungrab_all():
     physical_pads.clear()
     virtual_pads.clear()
 
-for line in sys.stdin:
-    try:
-        msg = json.loads(line)
-        if "enabled" in msg:
-            if msg["enabled"] and not enabled:
-                enabled = True
-                scan_and_grab()
-            elif not msg["enabled"] and enabled:
-                ungrab_all()
-        if "delayMs" in msg:
-            delay_ms = float(msg["delayMs"])
-    except Exception:
-        pass
+def sigterm_handler(_signo, _stack_frame):
+    ungrab_all()
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, sigterm_handler)
+
+try:
+    for line in sys.stdin:
+        try:
+            msg = json.loads(line)
+            if "enabled" in msg:
+                if msg["enabled"] and not enabled:
+                    enabled = True
+                    scan_and_grab()
+                elif not msg["enabled"] and enabled:
+                    ungrab_all()
+            if "delayMs" in msg:
+                delay_ms = float(msg["delayMs"])
+        except Exception:
+            pass
+finally:
+    ungrab_all()

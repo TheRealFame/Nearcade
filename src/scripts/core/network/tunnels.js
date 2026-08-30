@@ -191,7 +191,7 @@ function startTunnelCloudflared(port) {
       const cfToken = readEnv('CF_TOKEN');
       if (cfToken) {
         console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Token)...");
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--url", "http://localhost:" + port], { stdio: ["ignore", "pipe", "pipe"] });
+        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--url", "http://localhost:" + port], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
         console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
         return resolve({ url, proc });
@@ -200,7 +200,7 @@ function startTunnelCloudflared(port) {
       const cfName = readEnv('CF_TUNNEL_NAME');
       if (cfName) {
         console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Locally Managed)...");
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", cfName], { stdio: ["ignore", "pipe", "pipe"] });
+        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", cfName], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
         console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
         return resolve({ url, proc });
@@ -210,7 +210,7 @@ function startTunnelCloudflared(port) {
       console.log("  \x1b[31m!\x1b[0m WARNING: Free Cloudflare tunnels (trycloudflare.com) are currently heavily restricted.");
       console.log("  \x1b[31m!\x1b[0m If this happens, please use Zrok instead.");
 
-      const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:" + port], { stdio: ["ignore", "pipe", "pipe"] });
+      const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:" + port], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
@@ -256,7 +256,7 @@ function startTunnelVps(port, vpsHost) {
           "-o", "ServerAliveInterval=15",
           "-o", "ServerAliveCountMax=3",
           "-R", `0.0.0.0:${port}:127.0.0.1:${port}`, vpsHost
-        ], { stdio: ["ignore", "pipe", "pipe"] });
+        ], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 
         const customEnvUrl = readEnv('CUSTOM_URL');
         let url = (customEnvUrl && customEnvUrl.trim() !== '')
@@ -287,7 +287,7 @@ function startTunnelPlayit(port) {
       ensureExecutable(playitPath);
 
       console.log("  \x1b[33m~\x1b[0m Starting playit tunnel...");
-      const proc = spawn(playitPath, [], { stdio: ["ignore", "pipe", "pipe"] });
+      const proc = spawn(playitPath, [], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const str = data.toString();
@@ -316,7 +316,7 @@ function startTunnelLocalhostRun(port) {
         "-o", "ServerAliveInterval=30",
         "-R", "80:localhost:" + port,
         "nokey@localhost.run"
-      ], { stdio: ["ignore", "pipe", "pipe"] });
+      ], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-z0-9\-]+\.(?:lhr\.life|localhost\.run)/);
@@ -341,7 +341,7 @@ function startTunnelServeo(port) {
         "-o", "ServerAliveInterval=30",
         "-R", "80:localhost:" + port,
         "serveo.net"
-      ], { stdio: ["ignore", "pipe", "pipe"] });
+      ], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-z0-9\-]+\.(serveo\.net|serveousercontent\.com)/);
@@ -414,7 +414,7 @@ function startTunnelZrok(port, retries = 3, token = '') {
 
     console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})... (Retries left: ${retries})`);
     const args = ["share", "public", "http://localhost:" + port, "--backend-mode", "proxy", "--headless"];
-    const proc = spawn(zrokPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(zrokPath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let done = false;
     const check = data => {
       const out = data.toString();
@@ -466,7 +466,7 @@ function startTunnelBore(port) {
       ensureExecutable(borePath);
 
       console.log("  \x1b[33m~\x1b[0m Starting bore tunnel...");
-      const proc = spawn(borePath, ['local', String(port), '--to', 'bore.pub'], { stdio: ["ignore", "pipe", "pipe"] });
+      const proc = spawn(borePath, ['local', String(port), '--to', 'bore.pub'], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const str = data.toString();
@@ -492,7 +492,7 @@ function startTunnelNgrok(port) {
       }
 
       console.log("  \x1b[33m~\x1b[0m Starting ngrok tunnel...");
-      const proc = spawn(ngrokPath, ['http', String(port), '--log', 'stdout'], { stdio: ["ignore", "pipe", "pipe"] });
+      const proc = spawn(ngrokPath, ['http', String(port), '--log', 'stdout'], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const str = data.toString();
@@ -520,7 +520,7 @@ function startTunnelFrp(port) {
       console.log("  \x1b[33m~\x1b[0m Starting frp tunnel...");
       const args = ['-c', '-', '-n', 'nearcade'];
       const config = `[common]\nserver_addr = ${frpsAddr}\nserver_port = ${frpsPort}\n${token ? `token = ${token}\n` : ''}[nearcade]\ntype = http\nlocal_ip = 127.0.0.1\nlocal_port = ${port}\n`;
-      const proc = spawn(frpcPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+      const proc = spawn(frpcPath, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       proc.stdin.write(config); proc.stdin.end();
 
       let done = false;
@@ -549,7 +549,7 @@ function startTunnelTailscaleFunnel(port) {
       console.log("  \x1b[33m~\x1b[0m Starting Tailscale Funnel...");
 
       // First check if tailscale is logged in and up
-      const statusCheck = spawn(tailscalePath, ['status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const statusCheck = spawn(tailscalePath, ['status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       let statusData = '';
       statusCheck.stdout.on('data', d => statusData += d);
       statusCheck.on('close', () => {
@@ -568,7 +568,7 @@ function startTunnelTailscaleFunnel(port) {
         }
 
         // Run funnel with --bg=false so the process stays in foreground
-        const proc = spawn(tailscalePath, ['funnel', '--bg=false', String(port)], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = spawn(tailscalePath, ['funnel', '--bg=false', String(port)], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         let done = false;
         let output = '';
 
@@ -621,7 +621,7 @@ function startTunnelTailscaleFunnel(port) {
         // Also try to get URL from serve status as fallback
         setTimeout(() => {
           if (!done) {
-            const serveCheck = spawn(tailscalePath, ['serve', 'status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'] });
+            const serveCheck = spawn(tailscalePath, ['serve', 'status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
             let serveData = '';
             serveCheck.stdout.on('data', d => serveData += d);
             serveCheck.on('close', () => {
@@ -666,7 +666,7 @@ function startTunnelTailscaleServe(port) {
     findBinaryPath('tailscale').then(tpath => {
       if (!tpath) { resolve({ error: 'NOT_FOUND', provider: 'tailscale-serve' }); return; }
       console.log("  \x1b[33m~\x1b[0m Checking Tailscale status...");
-      const check = spawn(tpath, ['status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const check = spawn(tpath, ['status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       let out = '';
       check.stdout.on('data', d => out += d);
       check.stderr.on('data', d => out += d);
@@ -732,7 +732,7 @@ function startTunnelZeroTier(port) {
       if (!networkId) { console.log("  \x1b[31m✗\x1b[0m ZEROTIER_NETWORK_ID not configured"); resolve({ error: 'NO_CONFIG', provider: 'zerotier' }); return; }
 
       console.log("  \x1b[33m~\x1b[0m Joining ZeroTier network...");
-      const join = spawn(ztPath, ['join', networkId], { stdio: ["ignore", "pipe", "pipe"] });
+      const join = spawn(ztPath, ['join', networkId], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       join.on('close', () => {
         const ztIp = getZeroTierIP(networkId);
         if (ztIp) {
@@ -780,7 +780,7 @@ function startTunnelWireguardDirect(port) {
 
       const configPath = process.env.WIREGUARD_CONFIG || readEnv('WIREGUARD_CONFIG') || '/etc/wireguard/wg0.conf';
       console.log("  \x1b[33m~\x1b[0m Starting WireGuard interface...");
-      const proc = spawn(wgPath, ['up', configPath.replace('.conf', '')], { stdio: ["ignore", "pipe", "pipe"] });
+      const proc = spawn(wgPath, ['up', configPath.replace('.conf', '')], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       proc.on('close', code => {
         if (code === 0) {
           const vpsIp = process.env.WIREGUARD_VPS_IP || readEnv('WIREGUARD_VPS_IP');
@@ -856,10 +856,10 @@ async function startTunnelAuto(port) {
     if (fn) { const r = await fn(port); if (r && r.url) return r; }
   }
 
-  const cf = await startTunnelCloudflared(port);
-  if (cf && cf.url) { saveLastProvider('cloudflared'); return cf; }
   const z = await startTunnelZrok(port);
   if (z && z.url) { saveLastProvider('zrok'); return z; }
+  const cf = await startTunnelCloudflared(port);
+  if (cf && cf.url) { saveLastProvider('cloudflared'); return cf; }
   const pl = await startTunnelPlayit(port);
   if (pl && pl.url) { saveLastProvider('playit'); return pl; }
   const lr = await startTunnelLocalhostRun(port);

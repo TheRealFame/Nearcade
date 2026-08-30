@@ -151,7 +151,8 @@
         "pacman"
       ],
       "icon": "assets/NearcadeLogo.png",
-      "category": "Game"
+      "category": "Game",
+      "artifactName": "Nearcade-Linux.${ext}"
     }
   }
 }

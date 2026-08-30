@@ -39,6 +39,7 @@
 
 import sys
 import json
+import signal
 
 AXIS_MID = 16383
 AXIS_MAX = 32767
@@ -88,31 +89,44 @@ def start_balanceboard_backend():
             ui = UInput(cap, name="Nearcade Virtual Balance Board", version=0x3)
             print("[backend_balanceboard] Virtual balance board created at /dev/uinput.", flush=True)
 
-            for line in sys.stdin:
+            def sigterm_handler(_signo, _stack_frame):
+                print("[backend_balanceboard] Caught SIGTERM, shutting down...", flush=True)
+                sys.exit(0)
+            
+            signal.signal(signal.SIGTERM, sigterm_handler)
+
+            try:
+                for line in sys.stdin:
+                    try:
+                        data = json.loads(line)
+
+                        # Prefer pre-computed CoG; fall back to raw sensor passthrough
+                        if "cogX" in data or "cogY" in data:
+                            cog_x = float(data.get("cogX", 0.0))
+                            cog_y = float(data.get("cogY", 0.0))
+                        else:
+                            cog_x, cog_y = _cog_from_sensors(data)
+
+                        ui.write(e.EV_ABS, e.ABS_X, _norm_to_axis(cog_x))
+                        ui.write(e.EV_ABS, e.ABS_Y, _norm_to_axis(cog_y))
+
+                        # Total weight → Z axis (presence / weight magnitude)
+                        if "total" in data:
+                            total_mapped = int(float(data["total"]) * 255)
+                            ui.write(e.EV_ABS, e.ABS_Z, max(0, min(255, total_mapped)))
+                            # BTN_A signals "board is being stood on"
+                            ui.write(e.EV_KEY, e.BTN_A, 1 if float(data["total"]) > 0.05 else 0)
+
+                        ui.syn()
+
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        continue
+            finally:
                 try:
-                    data = json.loads(line)
-
-                    # Prefer pre-computed CoG; fall back to raw sensor passthrough
-                    if "cogX" in data or "cogY" in data:
-                        cog_x = float(data.get("cogX", 0.0))
-                        cog_y = float(data.get("cogY", 0.0))
-                    else:
-                        cog_x, cog_y = _cog_from_sensors(data)
-
-                    ui.write(e.EV_ABS, e.ABS_X, _norm_to_axis(cog_x))
-                    ui.write(e.EV_ABS, e.ABS_Y, _norm_to_axis(cog_y))
-
-                    # Total weight → Z axis (presence / weight magnitude)
-                    if "total" in data:
-                        total_mapped = int(float(data["total"]) * 255)
-                        ui.write(e.EV_ABS, e.ABS_Z, max(0, min(255, total_mapped)))
-                        # BTN_A signals "board is being stood on"
-                        ui.write(e.EV_KEY, e.BTN_A, 1 if float(data["total"]) > 0.05 else 0)
-
-                    ui.syn()
-
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    continue
+                    ui.close()
+                except:
+                    pass
+                print("[backend_balanceboard] Closed virtual balance board.", flush=True)
 
         except ImportError:
             print("[backend_balanceboard] Error: 'evdev' module not installed.", file=sys.stderr)

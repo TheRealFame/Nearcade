@@ -18,6 +18,9 @@ const BW_PROFILES = {
     lowest: { label: '480p (Data Saver)', maxBitrate: 800_000, maxHeight: 480, scaleDown: 3 },
 };
 
+var inputWs = null;
+var gpPolling = false;
+
 let _bwProfile = localStorage.getItem('ns_bw_profile') || 'auto';
 
 function setBandwidthProfile(key) {
@@ -261,7 +264,7 @@ let sysAudioCtx = null;
 let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
 let useVps = false;
-let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || '';
+let myName = localStorage.getItem('ns_name') || urlParamsGlobal.get('name') || '';
 document.getElementById("nameInput").value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
 if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 // ── PRE-JOIN HOST INFO ──
@@ -2020,7 +2023,7 @@ function applyGamepadDzSens(gp, cache, state, gpDeadzones, gpSens) {
 // ── NEARCADE PROBE SIM CORE: END ────────────────────────────────────────────
 
 // ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
-var gpPolling = false, lastGpSend = {}, lastGpStr = {};
+lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
 window.nsRedundancyEnabled = localStorage.getItem('ns_redundancy') !== 'false';
 window.tournamentMode = false;
@@ -2498,8 +2501,6 @@ function _freezeFrameForSwap() {
     }
 }
 
-// ── DEDICATED INPUT FAST LANE ─────────────────────────────────────────────────
-var inputWs = null;
 
 function connectInputWS() {
     if (inputWs && inputWs.readyState <= 1) return;

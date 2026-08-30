@@ -1,0 +1,5 @@
+# Nearcade Windows Python requirements
+# PyAudio is intentionally excluded — it requires a C compiler on Windows and
+# is not needed. Virtual audio on Windows uses VB-Cable instead.
+pyautogui
+vgamepad

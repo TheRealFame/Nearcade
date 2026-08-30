@@ -274,12 +274,33 @@ let tournamentMode = false;
 let lastPacketTime = new Map();
 let lastPacketSequence = new Map();
 let lastGamepadVars = new Map();
+let activeInputStreams = new Set();
 
 function init(screenWidth, screenHeight) {
     _loadProfiles();
     _loadKbmCSV();
 
-    // On Windows and macOS the uinputBridge C++ addon is Linux-only.
+    // 0. Try Native Rust NAPI-RS Orchestrator (Cross-Platform)
+    try {
+        const napiPathRaw = path.join(__dirname, 'rust_orchestrator', 'rust_orchestrator.node');
+        const napiPath = napiPathRaw.replace('app.asar', 'app.asar.unpacked');
+        if (require('fs').existsSync(napiPath)) {
+            const rustMod = require(napiPath);
+            _bridge = {
+                initializeDevice: () => rustMod.init(),
+                destroyDevice: () => rustMod.destroy(),
+                submitInputPacket: (buf) => rustMod.submitInputPacket(buf),
+                getGamepadEventPath: () => 'NAPI-RS Virtual Gamepad'
+            };
+            _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
+            console.log(`[input] Native Rust NAPI orchestrator loaded: ${napiPath}`);
+            return true;
+        }
+    } catch (e) {
+        console.warn(`[input] Rust NAPI orchestrator failed to load (${e.message}). Falling back to legacy sidecars.`);
+    }
+
+    // 1. On Windows and macOS the uinputBridge C++ addon is Linux-only.
     // Skip it entirely and go straight to the Python sidecar.
     if (!isWin && !isMac) {
         // 1. Try Native C++ Fast Lane (Linux only)
@@ -307,23 +328,53 @@ function init(screenWidth, screenHeight) {
         _udpSocket.close();
     });
 
-    // 2. Python/Native Sidecar — platform-aware script selection
+    // 2. Rust/Python Native Sidecar — platform-aware script selection
     let scriptBase;
-    if (isWin) scriptBase = _hidmaestroEnabled ? 'windows_hidmaestro' : 'windows_vigem';
-    else if (isMac) scriptBase = 'mac_gamepad_bridge';
-    else scriptBase = 'linux_uinput';
+    let pythonScriptBase;
+    let isRustCore = true; // All core platforms have been migrated to Rust
+    
+    if (isWin) {
+        scriptBase = _hidmaestroEnabled ? 'rust_hidmaestro' : 'rust_vigem';
+        pythonScriptBase = _hidmaestroEnabled ? 'hidmaestro' : 'windows_vigem';
+    }
+    else if (isMac) {
+        scriptBase = 'rust_mac_bridge';
+        pythonScriptBase = 'mac_pynput';
+    }
+    else {
+        scriptBase = 'rust_uinput';
+        pythonScriptBase = 'linux_uinput';
+    }
 
     const binExt = isWin ? '.exe' : (isMac ? '.bin' : '.bin');
-    const binaryPathRaw = path.join(__dirname, 'bin', scriptBase + binExt);
-    const binaryPath = binaryPathRaw.replace('app.asar', 'app.asar.unpacked');
+    
+    // Check multiple potential locations for the Rust/Native binaries
+    const binPaths = [
+        // 1. Packaged location (e.g. Nuitka output or release build)
+        path.join(__dirname, 'bin', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
+        // 2. Local Rust dev environment target directory
+        path.join(__dirname, scriptBase, 'target', 'release', scriptBase + binExt),
+        // 3. Fallback name check (e.g. windows_vigem.exe)
+        path.join(__dirname, 'bin', pythonScriptBase + binExt)
+    ].filter(Boolean);
 
-    const pythonScriptRaw = path.join(__dirname, scriptBase + '.py');
+    let foundBinary = null;
+    for (const bp of binPaths) {
+        if (fs.existsSync(bp)) {
+            foundBinary = bp;
+            break;
+        }
+    }
+
+    const pythonScriptRaw = path.join(__dirname, pythonScriptBase + '.py');
     const pythonScript = pythonScriptRaw.replace('app.asar', 'app.asar.unpacked');
 
-    if (fs.existsSync(binaryPath)) {
-        console.log(`[input] Native binary detected! Spawning: ${binaryPath}`);
-        _pythonProc = spawn(binaryPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    if (foundBinary) {
+        console.log(`[input] Native binary detected! Spawning: ${foundBinary}`);
+        _pythonProc = spawn(foundBinary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
     } else {
+        console.warn(`[input] Native sidecar binary not found. Falling back to Python backend: ${pythonScriptBase}.py`);
+        
         if (!fs.existsSync(pythonScript)) {
             console.error(`[input] FATAL: Sidecar not found at ${pythonScript}`);
             return false;
@@ -354,7 +405,7 @@ function init(screenWidth, screenHeight) {
         }
         const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
         if (isWin) spawnOpts.windowsHide = true;
-        _pythonProc = spawn(pythonCmd, [...extraArgs, pythonScript], spawnOpts);
+        _pythonProc = spawn(pythonCmd, [...extraArgs, '-u', pythonScript], spawnOpts);
     }
 
     _pythonProc.stderr.on('data', (chunk) => {
@@ -562,6 +613,8 @@ function _freeSlot(viewerId) {
             if (key.startsWith(padPrefix)) map.delete(key);
         }
     });
+    activeInputStreams.delete(viewerId);
+    activeInputStreams.delete(padPrefix + '0');
 }
 
 // ── Clear active controllers on startup ───────────────────────────────────────
@@ -1027,6 +1080,12 @@ function send(msg) {
         if (!validated) return; // drop
     } else if (msg.type === 'vr') {
         validated = msg;
+    }
+
+    const vid = msg.pad_id || msg.viewerId || msg.viewer_id;
+    if (vid && !activeInputStreams.has(vid)) {
+        activeInputStreams.add(vid);
+        console.log(`[Input] Active input stream established from viewer ${String(vid).substring(0, 8)}`);
     }
 
     // Handle window-focus / game detection BEFORE routing to any backend

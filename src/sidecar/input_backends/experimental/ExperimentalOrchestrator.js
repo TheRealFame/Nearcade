@@ -65,7 +65,7 @@ function send(msg) {
 
         if (fs.existsSync(binaryPath)) {
             console.log(`[ExperimentalOrchestrator] Native binary detected! Spawning: ${binaryPath}`);
-            proc = spawn(binaryPath, args, { stdio: ['pipe', 'inherit', 'inherit'] });
+            proc = spawn(binaryPath, args, { stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true });
         } else {
             if (!fs.existsSync(pythonScript)) {
                 console.error(`[ExperimentalOrchestrator] FATAL: Python backend not found at ${pythonScript}`);
@@ -73,7 +73,7 @@ function send(msg) {
             }
 
             const pythonCmd = isWin ? 'python' : 'python3';
-            proc = spawn(pythonCmd, ['-u', pythonScript, ...args], { stdio: ['pipe', 'inherit', 'inherit'] });
+            proc = spawn(pythonCmd, ['-u', pythonScript, ...args], { stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true });
             console.log(`[ExperimentalOrchestrator] sidecar started for type: ${msg.type} via Python`);
         }
         

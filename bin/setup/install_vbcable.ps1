@@ -24,6 +24,8 @@ try {
     Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipFile -UseBasicParsing
 } catch {
     Write-Host "FAILED to download VB-Cable. Please download and install it manually from https://vb-audio.com/Cable/" -ForegroundColor Red
+    Write-Host ""
+    Read-Host "Press Enter to exit"
     exit
 }
 
