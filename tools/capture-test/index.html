@@ -26,26 +26,39 @@
       try {
         log('Fetching sources...');
         const sources = await ipcRenderer.invoke('get-sources');
-        const target = sources.find(s => s.id.startsWith('window:'));
         
-        if (!target) {
-          log('ERROR: No window sources found! Open a window on the VM.');
-          return;
-        }
-
-        log('Targeting Window: ' + target.name + ' (' + target.id + ')');
+        const pickerDiv = document.createElement('div');
+        pickerDiv.id = 'picker';
+        pickerDiv.style.margin = '10px 0';
+        pickerDiv.style.padding = '10px';
+        pickerDiv.style.background = '#333';
+        pickerDiv.innerHTML = '<h3>Select a Window/Screen:</h3>';
         
-        ipcRenderer.send('set-source', target.id);
-        
-        log('Requesting getDisplayMedia...');
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: 60 } }
+        sources.forEach(s => {
+          const btn = document.createElement('button');
+          btn.textContent = s.name;
+          btn.style.margin = '5px';
+          btn.style.padding = '8px';
+          btn.onclick = async () => {
+            document.body.removeChild(pickerDiv);
+            log('Targeting: ' + s.name + ' (' + s.id + ')');
+            ipcRenderer.send('set-source', s.id);
+            
+            try {
+              log('Requesting getDisplayMedia...');
+              const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { frameRate: { ideal: 60 } }
+              });
+              document.getElementById('vid').srcObject = stream;
+              log('SUCCESS! Capture stream started.');
+            } catch (err) {
+              log('FAILED: ' + err.message);
+            }
+          };
+          pickerDiv.appendChild(btn);
         });
-
-        document.getElementById('vid').srcObject = stream;
-        log('SUCCESS! Capture stream started.');
-        log('Check the video element - is it capturing the window, or did it capture the whole screen?');
-
+        
+        document.body.insertBefore(pickerDiv, document.getElementById('log'));
       } catch (err) {
         log('FAILED: ' + err.message);
       }
