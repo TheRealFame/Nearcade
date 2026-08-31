@@ -1,14 +1,14 @@
 :root {
-    accent-color: #8b5cf6;
+    accent-color: #c084fc;
     --bg:         #0d0f18;
     --surface:    #0f111a;
     --card:       rgba(15, 17, 26, 0.92);
     --card2:      rgba(20, 22, 33, 0.95);
     --hover:      rgba(255,255,255,0.05);
-    --accent:     #8b5cf6;
+    --accent:     #c084fc;
     --accent2:    #a78bfa;
-    --accent-dim: rgba(139,92,246,0.14);
-    --accent-glow:rgba(139,92,246,0.35);
+    --accent-dim: rgba(var(--accent-rgb, 139, 92, 246),0.14);
+    --accent-glow:rgba(var(--accent-rgb, 139, 92, 246),0.35);
     --text:       #eef0ff;
     --muted:      #7c85a2;
     --muted2:     #4a5070;
@@ -42,9 +42,14 @@ html, body {
     -webkit-user-select: none;
 }
 
+button, input, select, textarea {
+    font-family: inherit;
+    color: inherit;
+}
+
 body {
     background-image:
-    radial-gradient(ellipse 60% 40% at 10% 0%, rgba(139,92,246,0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 10% 0%, rgba(var(--accent-rgb, 139, 92, 246),0.12) 0%, transparent 55%),
     radial-gradient(ellipse 40% 60% at 90% 100%, rgba(99,62,200,0.08) 0%, transparent 50%);
 }
 
@@ -86,7 +91,7 @@ body {
     width: 48px; height: 48px;
     border-radius: 14px;
     background: var(--accent-dim);
-    border: 1px solid rgba(139,92,246,0.3);
+    border: 1px solid rgba(var(--accent-rgb, 139, 92, 246),0.3);
     display: flex; align-items: center; justify-content: center;
     margin-bottom: 6px;
     flex-shrink: 0;
@@ -108,16 +113,22 @@ body {
 
 .rail-btn svg { width: 18px; height: 18px; pointer-events: none; }
 
-.rail-btn:hover:not(:disabled) {
+.rail-btn:hover:not(:disabled):not(.active):not(.primary) {
     background: var(--hover);
     color: var(--text);
     border-color: var(--border2);
 }
 
+.rail-btn.active:hover:not(:disabled), .rail-btn.primary:hover:not(:disabled) {
+    background: var(--accent-glow);
+    color: #fff;
+    border-color: var(--accent);
+}
+
 .rail-btn.active, .rail-btn.primary {
     background: var(--accent-dim);
     color: var(--accent2);
-    border-color: rgba(139,92,246,0.3);
+    border-color: rgba(var(--accent-rgb, 139, 92, 246),0.3);
 }
 
 .rail-btn.danger-btn {
@@ -174,7 +185,7 @@ body {
     width: 38px; height: 38px;
     border-radius: 11px;
     background: var(--accent-dim);
-    border: 1px solid rgba(139,92,246,0.3);
+    border: 1px solid rgba(var(--accent-rgb, 139, 92, 246),0.3);
     display: flex; align-items: center; justify-content: center;
 }
 
@@ -224,7 +235,7 @@ body {
 }
 
 .status-pill.purple-pill {
-    border-color: rgba(139,92,246,0.3);
+    border-color: rgba(var(--accent-rgb, 139, 92, 246),0.3);
     background: var(--accent-dim);
     color: var(--accent2);
 }
@@ -562,7 +573,7 @@ background: var(--bg);
 }
 
 .url-entry:hover {
-    background: rgba(139,92,246,0.15);
+    background: rgba(var(--accent-rgb, 139, 92, 246),0.15);
     color: #fff !important;
     opacity: 1;
 }
@@ -599,7 +610,7 @@ background: var(--bg);
     font-family: var(--mono);
     transition: all 0.15s;
 }
-.pin-toggle-btn.on { border-color: rgba(139,92,246,0.5); color: var(--accent2); }
+.pin-toggle-btn.on { border-color: rgba(var(--accent-rgb, 139, 92, 246),0.5); color: var(--accent2); }
 
 .pin-regen {
     background: none;
@@ -674,7 +685,7 @@ user-select: text;
 
 #chatLog::-webkit-scrollbar { width: 3px; }
 #chatLog::-webkit-scrollbar-track { background: transparent; }
-#chatLog::-webkit-scrollbar-thumb { background: var(--accent-glow, rgba(139,92,246,0.35)); border-radius: 3px; }
+#chatLog::-webkit-scrollbar-thumb { background: var(--accent-glow, rgba(var(--accent-rgb, 139, 92, 246),0.35)); border-radius: 3px; }
 
 .cmsg {
     font-size: 12px;
@@ -728,12 +739,12 @@ user-select: text;
 }
 
 .chat-input-row input:focus {
-    border-color: rgba(139,92,246,0.4);
+    border-color: rgba(var(--accent-rgb, 139, 92, 246),0.4);
 }
 
 .chat-send-btn {
     background: var(--accent-dim);
-    border: 1px solid rgba(139,92,246,0.3);
+    border: 1px solid rgba(var(--accent-rgb, 139, 92, 246),0.3);
     border-radius: 10px;
     color: var(--accent2);
     padding: 0 14px;
@@ -767,7 +778,7 @@ user-select: text;
     appearance: none;
 }
 
-.form-select:hover { border-color: rgba(139,92,246,0.4); }
+.form-select:hover { border-color: rgba(var(--accent-rgb, 139, 92, 246),0.4); }
 .form-select:focus { border-color: var(--accent); }
 .form-select option, select option { background: #0f111a; color: var(--text); }
 
@@ -891,7 +902,7 @@ user-select: text;
 .pill-hard   { background: #3a1a1a; color: #f87171; font-size:8px; padding:1px 6px; border-radius:6px; font-weight:600; }
 .pill-warn   { background: #5a4300; color: var(--warn); font-size:8px; padding:1px 6px; border-radius:6px; font-weight:600; }
 .pill-lat    { background: rgba(255,255,255,0.06); color: var(--muted); font-size:8px; padding:1px 6px; border-radius:6px; border:1px solid var(--border); }
-.pill-star   { background: var(--accent-dim); color: var(--accent2); font-size:8px; padding:1px 6px; border-radius:6px; border:1px solid rgba(139,92,246,0.4); font-weight:600; }
+.pill-star   { background: var(--accent-dim); color: var(--accent2); font-size:8px; padding:1px 6px; border-radius:6px; border:1px solid rgba(var(--accent-rgb, 139, 92, 246),0.4); font-weight:600; }
 
 .prov-install {
     margin-top: 4px;
@@ -1231,7 +1242,7 @@ color: var(--muted) !important;
     margin-left: -6px;
     border-radius: 4px;
 }
-.url-row:hover { background: rgba(139,92,246,0.15); color: #fff !important; }
+.url-row:hover { background: rgba(var(--accent-rgb, 139, 92, 246),0.15); color: #fff !important; }
 .url-label { font-size: 9px; color: var(--muted2); margin-bottom: 4px; }
 
 /* ── HYBRID INPUT active state ───────────────────────────────────────────── */
@@ -1265,8 +1276,8 @@ color: var(--muted) !important;
     position:   fixed;
     bottom:     80px; left: 50%;
     transform:  translateX(-50%) translateY(20px);
-    background: rgba(139,92,246,0.18);
-    border:     1px solid rgba(139,92,246,0.4);
+    background: rgba(var(--accent-rgb, 139, 92, 246),0.18);
+    border:     1px solid rgba(var(--accent-rgb, 139, 92, 246),0.4);
     border-radius: 12px;
     padding:    10px 18px;
     font-size:  12px;

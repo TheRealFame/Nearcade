@@ -1922,7 +1922,7 @@ async function main() {
     const roster = [];
     const hCfgAtConnect = loadConfig();
     const hostAvatar = hCfgAtConnect.hostAvatar || '';
-    const hostColor = hCfgAtConnect.hostColor || '#8b5cf6';
+    const hostColor = hCfgAtConnect.hostColor || '#c084fc';
     roster.push({ id: 'host_0', name: _hostDisplayName, avatar: hostAvatar, color: hostColor, isHost: true, gp: false, kb: false, slot: 0, locked: true, inputMode: 'host' });
     let autoSlot = 1;
     viewers.forEach((vws, id) => {
@@ -3248,7 +3248,7 @@ async function main() {
   }, 30000);
   wss.on('close', () => clearInterval(interval));
 
-  server.listen(PORT, async () => {
+  const onListening = async () => {
     console.log("Listening on port " + PORT);
     try { require('fs').writeFileSync('/tmp/nearcade_port.txt', String(PORT), 'utf8'); } catch(e){}
 
@@ -3371,7 +3371,20 @@ async function main() {
       syncBans();
       setInterval(syncBans, 300000); // every 5 minutes
     }
+  }; // End of onListening function
+
+  // Update error handler to pass onListening
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`Port ${PORT} is in use, trying ${PORT + 1}...`);
+      PORT++;
+      server.listen(PORT, onListening);
+    } else {
+      console.error('[server] Listener error:', err);
+    }
   });
+
+  server.listen(PORT, onListening);
 }
 
 main();

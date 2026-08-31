@@ -386,6 +386,12 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-accent-color', () => {
     try {
+      const { getThemeColors } = require('@nearcade/native-palette');
+      const theme = getThemeColors();
+      if (theme && theme.accent) return theme.accent;
+    } catch (_) { }
+
+    try {
       const accent = require('@nearcade/accent-color');
       const c = accent.get();
       if (c && c.hex) return c.hex;
@@ -399,7 +405,7 @@ function registerIpcHandlers(ctx) {
         }
       }
     } catch (_) { }
-    return '#8b5cf6';
+    return '#c084fc';
   });
 
   ipcMain.handle('get-native-theme', () => {
@@ -410,13 +416,9 @@ function registerIpcHandlers(ctx) {
       // Force Electron to synchronize the titlebar and dialog colors with the OS as dark
       nativeTheme.themeSource = 'dark';
       
-      if (!nativeTheme.shouldUseDarkColors) {
-          console.log('[ipc] OS theme is Light Mode. Forcing Dark Mode fallback.');
-          return null;
-      }
-
-      if (theme && theme.bg) {
-          // Allow all backgrounds including light mode.
+      if (theme) {
+          // Removed the forced luma > 180 fallback based on user feedback.
+          // If the OS theme is bright despite shouldUseDarkColors, let it be.
       }
 
       return theme;
@@ -1054,8 +1056,16 @@ function registerIpcHandlers(ctx) {
         console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name}`);
         // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio on Windows.
         // Do not pass audio on other platforms; PipeWire handles it separately.
-        if (process.platform === 'win32') callback({ video: chosenSource, audio: 'loopback' });
-        else callback({ video: chosenSource });
+        if (process.platform === 'win32') {
+          if (chosenSource.id.startsWith('window:')) {
+            // Requesting loopback audio on a window source crashes getDisplayMedia on Windows VMs.
+            callback({ video: chosenSource });
+          } else {
+            callback({ video: chosenSource, audio: 'loopback' });
+          }
+        } else {
+          callback({ video: chosenSource });
+        }
       }).catch(err => {
         console.error('[electron] Capturer error:', err);
         selectedSourceId = null; // discard stale selection on error

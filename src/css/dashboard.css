@@ -158,8 +158,9 @@
     .nav-btn svg { width: 22px; height: 22px; flex-shrink: 0; }
     .nav-btn .btn-text { transition: opacity 0.2s; }
     #sidebar.collapsed .nav-btn .btn-text { opacity: 0; }
-    .nav-btn:hover { color: var(--text); background: var(--surface); }
+    .nav-btn:hover:not(.active) { color: var(--text); background: var(--surface); }
     .nav-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(var(--accent-rgb), 0.3); }
+    .nav-btn.active:hover { background: rgba(var(--accent-rgb), 0.25); border-color: var(--accent); color: var(--text); }
 
     .spacer { flex: 1; }
 

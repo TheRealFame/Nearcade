@@ -8,20 +8,19 @@
       if (themeStr) {
         const theme = JSON.parse(themeStr);
         const r = document.documentElement;
-        r.style.setProperty('--bg', theme.bg);
-        r.style.setProperty('--sidebar', theme.sidebar);
-        r.style.setProperty('--surface', theme.surface);
-        r.style.setProperty('--surface-hover', theme.surfaceHover);
-        r.style.setProperty('--text', theme.text);
-        r.style.setProperty('--muted', theme.muted);
-        r.style.setProperty('--muted2', theme.muted2);
-        r.style.setProperty('--border', theme.border);
-        r.style.setProperty('--accent', theme.accent);
-        if (theme.accent) {
-          const acc = hexToRgb(theme.accent);
-          if (acc) r.style.setProperty('--accent-rgb', `${acc.r}, ${acc.g}, ${acc.b}`);
-        }
         
+        // Host UI is always dark glassmorphism. Never override its base colors.
+        const isHost = location.pathname.includes('/host');
+        if (!isHost) {
+          r.style.setProperty('--bg', theme.bg);
+          r.style.setProperty('--sidebar', theme.sidebar);
+          r.style.setProperty('--surface', theme.surface);
+          r.style.setProperty('--surface-hover', theme.surfaceHover);
+          r.style.setProperty('--text', theme.text);
+          r.style.setProperty('--muted', theme.muted);
+          r.style.setProperty('--muted2', theme.muted2);
+          r.style.setProperty('--border', theme.border);
+        }
         // Helper to convert hex to rgb
         const hexToRgb = (hex) => {
           if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
@@ -32,6 +31,12 @@
           };
         };
 
+        r.style.setProperty('--accent', theme.accent);
+        if (theme.accent) {
+          const acc = hexToRgb(theme.accent);
+          if (acc) r.style.setProperty('--accent-rgb', `${acc.r}, ${acc.g}, ${acc.b}`);
+        }
+
         // Compute dims for accent
         const acc = hexToRgb(theme.accent);
         if (acc) {
@@ -41,14 +46,14 @@
 
         // Compute rgba for surfaces (needed for glassmorphism / host.css)
         const surf = hexToRgb(theme.surface);
-        if (surf) {
+        if (surf && !isHost) {
           r.style.setProperty('--surface-rgb', `${surf.r}, ${surf.g}, ${surf.b}`);
           r.style.setProperty('--card', `rgba(${surf.r},${surf.g},${surf.b},0.92)`);
           r.style.setProperty('--card2', `rgba(${surf.r},${surf.g},${surf.b},0.95)`);
         }
         
         const bgRgb = hexToRgb(theme.bg);
-        if (bgRgb) {
+        if (bgRgb && !isHost) {
           r.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
         }
       }

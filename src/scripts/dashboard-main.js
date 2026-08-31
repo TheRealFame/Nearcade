@@ -55,7 +55,7 @@ function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') 
     // 1. Accent Color
     const accent = localStorage.getItem('ns_chat_color');
     const useSystemAccent = localStorage.getItem('ns_use_system_accent') === 'true';
-    if (accent && useSystemAccent && accent !== '#8b5cf6') {
+    if (accent && useSystemAccent && accent !== '#c084fc') {
       const r = parseInt(accent.slice(1, 3), 16);
       const g = parseInt(accent.slice(3, 5), 16);
       const b = parseInt(accent.slice(5, 7), 16);
@@ -336,17 +336,33 @@ const DEFAULT_ACCENT_DIM = 'rgba(192,132,252,0.15)';
 const DEFAULT_ACCENT_GLOW = 'rgba(192,132,252,0.35)';
 
 async function applySystemAccent() {
+  const indicator = document.getElementById('sysAccentIndicator');
+  if (appConfig.useNativeTheme) {
+    if (indicator) indicator.style.display = 'none';
+    return;
+  }
+
   const useAccent = appConfig.useSystemAccent !== undefined ? appConfig.useSystemAccent : (localStorage.getItem('ns_use_system_accent') === 'true');
   localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
-  const indicator = document.getElementById('sysAccentIndicator');
   const root = document.documentElement;
 
   const applyDefault = () => {
-    root.style.removeProperty('--accent');
-    root.style.removeProperty('--accent-rgb');
-    root.style.removeProperty('--accent2');
-    root.style.removeProperty('--accent-dim');
-    root.style.removeProperty('--accent-glow');
+    // If native theme is active, let it govern the accent color instead of falling back to purple
+    if (appConfig.useNativeTheme) {
+      const stored = localStorage.getItem('ns_native_theme_payload');
+      if (stored) {
+        try {
+          const t = JSON.parse(stored);
+          if (t.accent) return; // Native theme has an accent, do not overwrite it
+        } catch (_) {}
+      }
+    }
+
+    root.style.setProperty('--accent', DEFAULT_ACCENT);
+    root.style.setProperty('--accent-rgb', '192, 132, 252');
+    root.style.setProperty('--accent2', DEFAULT_ACCENT2);
+    root.style.setProperty('--accent-dim', DEFAULT_ACCENT_DIM);
+    root.style.setProperty('--accent-glow', DEFAULT_ACCENT_GLOW);
     if (indicator) indicator.style.display = 'none';
 
     if (appConfig.hostColor !== '#c084fc') {
@@ -362,7 +378,7 @@ async function applySystemAccent() {
   }
   try {
     const accent = await window.electronAPI.getAccentColor();
-    if (!accent || accent === '#8b5cf6') {
+    if (!accent) {
       applyDefault();
       return;
     }
@@ -405,14 +421,8 @@ async function applyNativeTheme() {
     root.style.removeProperty('--muted2');
     root.style.removeProperty('--border');
     root.style.removeProperty('--bg-rgb');
-    if (appConfig.useSystemAccent) {
-      applySystemAccent();
-    } else {
-      root.style.removeProperty('--accent');
-    root.style.removeProperty('--accent-rgb');
-      root.style.removeProperty('--accent-dim');
-      root.style.removeProperty('--accent-glow');
-    }
+    // Always sync the accent color state whether we apply a native theme or not
+    applySystemAccent();
     if (indicator) indicator.style.display = 'none';
     return;
   }
@@ -448,6 +458,22 @@ async function applyNativeTheme() {
       const bgRgb = hexToRgb(theme.bg);
       if (bgRgb) {
         root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
+      }
+
+      if (theme.accent) {
+        root.style.setProperty('--accent', theme.accent);
+        root.style.setProperty('--accent2', theme.accent);
+        const r = parseInt(theme.accent.slice(1, 3), 16);
+        const g = parseInt(theme.accent.slice(3, 5), 16);
+        const b = parseInt(theme.accent.slice(5, 7), 16);
+        root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+        root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+        root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+        
+        if (appConfig.hostColor !== theme.accent) {
+          appConfig.hostColor = theme.accent;
+          localStorage.setItem('ns_chat_color', theme.accent);
+        }
       }
 
       localStorage.setItem('ns_native_theme_payload', JSON.stringify(theme));
@@ -1640,14 +1666,32 @@ async function fetchCommunityTurnServers() {
   }
 }
 
+let _ignoredAdminPrompt = false;
 async function launchHostSession(opts = {}) {
-  if (window.electronAPI && window.electronAPI.checkElevation && navigator.userAgent.includes('Windows')) {
+  // Ask for elevation once per app session (reloads dashboard)
+  if (!appConfig.hidmaestro && window.electronAPI && window.electronAPI.checkElevation && navigator.userAgent.includes('Windows')) {
     const isElevated = await window.electronAPI.checkElevation();
     if (!isElevated) {
-      if (confirm('Nearcade requires Administrator privileges on Windows for virtual gamepads and input sidecars to work correctly.\\n\\nRelaunch as Administrator?')) {
+      const wantsElevate = await showAppConfirm(
+        'Elevation Required',
+        `Nearcade requires Administrator privileges on Windows for Keyboard/Mouse emulation (UIPI) and ViGEmBus virtual gamepad drivers.\n\nPlease click OK to elevate Nearcade's permissions.`,
+        'OK',
+        'Cancel'
+      );
+      if (wantsElevate) {
+        localStorage.setItem('ns_pending_host_jump', 'true');
         const success = await window.electronAPI.elevateApp();
-        if (success) return; // App will close and relaunch
+        if (success) {
+          // The app will now relaunch. We wait for it to exit.
+          await new Promise(r => setTimeout(r, 2000));
+          return;
+        } else {
+          // Clean up if it failed (e.g. UAC cancelled)
+          localStorage.removeItem('ns_pending_host_jump');
+        }
       }
+      // If cancelled or failed, close the prompt and stop the host launch
+      return;
     }
   }
   // Force direct storage read to prevent race condition with appConfig caching

@@ -11,7 +11,7 @@ function getFallbackTheme() {
     isDark = nativeTheme.shouldUseDarkColors;
   } catch (e) {}
 
-  let accent = '#8b5cf6';
+  let accent = '#c084fc';
   try {
     const c = accentColor.get();
     if (c && c.hex) accent = c.hex;
@@ -66,10 +66,10 @@ function getThemeColors() {
       if (c && c.hex) {
         theme.accent = c.hex;
       } else {
-        theme.accent = '#8b5cf6';
+        theme.accent = '#c084fc';
       }
     } catch (e) {
-      theme.accent = '#8b5cf6';
+      theme.accent = '#c084fc';
     }
   }
 

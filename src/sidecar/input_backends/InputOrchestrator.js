@@ -353,9 +353,9 @@ function init(screenWidth, screenHeight) {
         // 1. Packaged location (e.g. Nuitka output or release build)
         path.join(__dirname, 'bin', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
         // 2. Local Rust dev environment target directory
-        path.join(__dirname, scriptBase, 'target', 'release', scriptBase + binExt),
+        path.join(__dirname, scriptBase, 'target', 'release', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
         // 3. Fallback name check (e.g. windows_vigem.exe)
-        path.join(__dirname, 'bin', pythonScriptBase + binExt)
+        path.join(__dirname, 'bin', pythonScriptBase + binExt).replace('app.asar', 'app.asar.unpacked')
     ].filter(Boolean);
 
     let foundBinary = null;

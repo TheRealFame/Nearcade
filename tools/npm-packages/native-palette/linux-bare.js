@@ -30,7 +30,7 @@ function parseXresources() {
       colors.surface = colors.bg;
       colors.surfaceHover = colors.bg;
       colors.border = colors.muted || '#444444';
-      if (!colors.accent) colors.accent = '#8b5cf6'; // Generic fallback
+      if (!colors.accent) colors.accent = '#c084fc'; // Generic fallback
       return colors;
     }
     return null;
@@ -47,7 +47,7 @@ function getBareTheme() {
       if (scheme.includes('1')) { // 1 = Dark
         return {
           bg: '#1e1e1e', sidebar: '#1a1a1a', surface: '#252526', surfaceHover: '#333333',
-          text: '#ffffff', muted: '#888888', border: '#333333', accent: '#8b5cf6'
+          text: '#ffffff', muted: '#888888', border: '#333333', accent: '#c084fc'
         };
       }
     } catch(e) {}

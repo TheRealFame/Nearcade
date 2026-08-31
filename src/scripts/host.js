@@ -2308,7 +2308,7 @@ async function hotSwapCapture() {
         let videoConstraints = { frameRate: { ideal: fpsVal } };
 
         if (window._lastSourceId && window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
-            window.electronAPI.setSelectedSource(window._lastSourceId);
+            await window.electronAPI.setSelectedSource(window._lastSourceId);
         }
 
         // 2. Grab the new video track (with timeout protection)
@@ -2430,7 +2430,7 @@ async function startCapture() {
             ctx.fillRect(0, 0, 1280, 720);
 
             const grad = ctx.createLinearGradient(0, 0, 1280, 0);
-            grad.addColorStop(0, '#8b5cf6');
+            grad.addColorStop(0, '#c084fc');
             grad.addColorStop(1, '#ec4899');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, 1280, 8);
@@ -2664,7 +2664,7 @@ async function startCapture() {
                         ? `window:${selectedSourceId}:0`
                         : `screen:${selectedSourceId}:0`;
                 }
-                window.electronAPI.setSelectedSource(selectedSourceId);
+                await window.electronAPI.setSelectedSource(selectedSourceId);
 
                 // The selected source ID was sent to the main process, which intercepts getDisplayMedia via setDisplayMediaRequestHandler.
                 // We use getDisplayMedia here because it avoids "Could not start video source" errors on Windows windows,
@@ -6120,7 +6120,7 @@ async function startMultiInstanceCapture() {
 
         for (let i = 0; i < matchedSources.length; i++) {
             const src = matchedSources[i];
-            window.electronAPI.setSelectedSource(src.id);
+            await window.electronAPI.setSelectedSource(src.id);
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: src.id, maxFrameRate: 30 } }

@@ -170,10 +170,10 @@
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="btn-skip"
           onclick="navigator.clipboard.writeText(document.getElementById('log').innerText); this.textContent=(typeof I18N!=='undefined'&&I18N.t)?I18N.t('Copied!'):'Copied!'; setTimeout(()=>this.textContent=(typeof I18N!=='undefined'&&I18N.t)?I18N.t('Copy Log'):'Copy Log', 2000);"
-          style="padding:4px 10px; font-size:10px;">Copy
+          style="padding:6px 12px; font-size:11px; border:1px solid var(--border2); border-radius:8px; cursor:pointer;">Copy
           Log</button>
         <button class="btn-skip" onclick="if(window.electronAPI) window.electronAPI.openLog()"
-          style="padding:4px 10px; font-size:10px;">Open
+          style="padding:6px 12px; font-size:11px; border:1px solid var(--border2); border-radius:8px; cursor:pointer;">Open
           Log File</button>
       </div>
     </div>

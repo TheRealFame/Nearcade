@@ -379,7 +379,7 @@ async function createWindow() {
     minHeight: 500,
     title: 'Nearcade',
     icon: path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'),
-    backgroundColor: '#111111',
+    backgroundColor: require('electron').nativeTheme.shouldUseDarkColors ? '#111111' : '#e2e8f0',
     alwaysOnTop: settings.alwaysOnTop,
     show: isGamescopeEnv ? true : false,
     fullscreen: isGamescopeEnv ? true : false,
@@ -436,6 +436,11 @@ async function createWindow() {
       win.webContents.insertCSS(`
         body { animation: nsFadeIn 1.5s ease both; }
         @keyframes nsFadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `);
+    } else if (url.includes('/dashboard')) {
+      win.webContents.insertCSS(`
+        body { animation: nsDashFade 0.6s ease both; }
+        @keyframes nsDashFade { from { background: #e2e8f0; opacity: 0; } to { opacity: 1; } }
       `);
     }
   });
