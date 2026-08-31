@@ -41,14 +41,27 @@ app.whenReady().then(() => {
         const match = sources.find(s => s.id === selectedSourceId);
         if (match) {
           sendLog('Match found! Passing to callback: ' + match.name);
-          callback({ video: match });
+          if (process.platform === 'win32') {
+            if (match.id.startsWith('window:')) callback({ video: match });
+            else callback({ video: match, audio: 'loopback' });
+          } else {
+            callback({ video: match });
+          }
         } else {
           sendLog('Match NOT found. Falling back to screen.');
           const screen = sources.find(s => s.id.startsWith('screen:'));
-          callback({ video: screen });
+          if (process.platform === 'win32') {
+            callback({ video: screen, audio: 'loopback' });
+          } else {
+            callback({ video: screen });
+          }
         }
       } else {
-        callback({ video: sources[0] });
+        if (process.platform === 'win32') {
+          callback({ video: sources[0], audio: 'loopback' });
+        } else {
+          callback({ video: sources[0] });
+        }
       }
     });
   });
