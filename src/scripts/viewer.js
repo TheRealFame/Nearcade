@@ -170,6 +170,18 @@ let viewerReconnectAttempts = 0;
 // peer-to-peer local server, this route doesn't exist and will silently fail (404),
 // which is perfectly fine. If we are on the VPS, it connects and instantly checks state.
 const urlParamsGlobal = new URLSearchParams(window.location.search);
+let _orpParam = urlParamsGlobal.get('orp');
+if (_orpParam && _orpParam.startsWith('web+orp://')) {
+    // Intercept and rewrite ORP URI link (web+orp://host:port/pin)
+    const urlMatches = _orpParam.match(/^web\+orp:\/\/([^\/]+)(?:\/(.*))?$/);
+    if (urlMatches) {
+        urlParamsGlobal.delete('orp');
+        urlParamsGlobal.set('host', urlMatches[1]);
+        if (urlMatches[2]) urlParamsGlobal.set('pin', urlMatches[2]);
+        // Overwrite the browser's URL so all subsequent new URLSearchParams() calls pick up the new host/pin
+        window.history.replaceState(null, '', window.location.pathname + '?' + urlParamsGlobal.toString());
+    }
+}
 const isP2PGlobal = (urlParamsGlobal.get('host') || '').startsWith('p2p://');
 // Only connect to the VPS standby lane if this is not a P2P session. P2P sessions are
 // completely disjoint from the VPS and must not inherit its PIN or stream-state rules.

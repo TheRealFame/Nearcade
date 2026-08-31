@@ -2652,6 +2652,16 @@
           root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
         }
       } catch (_) { }
+
+      // Register OpenRemotePlay URI Protocol Handler
+      if ('registerProtocolHandler' in navigator) {
+        try {
+          const targetUrl = window.location.origin + window.location.pathname + '?orp=%s';
+          navigator.registerProtocolHandler('web+orp', targetUrl, 'OpenRemotePlay');
+        } catch (e) {
+          console.warn("Could not register web+orp protocol handler", e);
+        }
+      }
     })();
     // ── CLIENT-ONLY BUILD FLAG ────────────────────────────────────────────────────
     // Set window.IS_CLIENT_ONLY = true before this script, or add ?client=1 to URL,
