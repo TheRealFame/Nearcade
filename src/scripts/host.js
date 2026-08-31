@@ -1787,27 +1787,15 @@ async function sendOfferToViewer(viewerId) {
     // STUN from gating the entire connection for ~10s.
     const iceServers = [];
 
-    // Fallback static servers
-    iceServers.push({ urls: 'stun:stun.cloudflare.com:3478' });
+    // TIER 1 — reliable STUN.
+    iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
 
-    try {
-        // Dynamically fetch live, verified community STUN servers
-        const stunRes = await fetch('https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt');
-        if (stunRes.ok) {
-            const stunText = await stunRes.text();
-            const stunList = stunText.split('\n').filter(s => s.trim().length > 5);
-            // Pick 3 random decentralized STUN servers
-            for (let i = 0; i < 3; i++) {
-                if (stunList.length === 0) break;
-                const r = Math.floor(Math.random() * stunList.length);
-                iceServers.push({ urls: 'stun:' + stunList.splice(r, 1)[0] });
-            }
-        }
-    } catch(e) {
-        // Fallback to Google if fetch fails
-        iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
-        iceServers.push({ urls: 'stun:stun1.l.google.com:19302' });
-    }
+    // TIER 2 — fallback STUNs (Google alternates + Cloudflare).
+    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun2.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun3.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun4.l.google.com:19302' });
+    iceServers.push({ urls: 'stun:stun.cloudflare.com:3478' });
 
     // Reliable TURN: server-configured credentials.
     if (_turnCredentials) {
@@ -2679,28 +2667,14 @@ async function startCapture() {
                 window.electronAPI.setSelectedSource(selectedSourceId);
 
                 // The selected source ID was sent to the main process, which intercepts getDisplayMedia via setDisplayMediaRequestHandler.
-                // We use getDisplayMedia for screens to avoid "Could not start video source" errors and get loopback audio on Windows.
-                // However, for windows we MUST use getUserMedia to prevent WinrtScreenCapture from triggering the OS-native GUI picker.
-                let vidStream;
-                if (selectedSourceId.startsWith('window:')) {
-                    vidStream = await navigator.mediaDevices.getUserMedia({
-                        audio: false,
-                        video: {
-                            mandatory: {
-                                chromeMediaSource: 'desktop',
-                                chromeMediaSourceId: selectedSourceId,
-                                maxFrameRate: fpsVal
-                            }
-                        }
-                    });
-                } else {
-                    vidStream = await navigator.mediaDevices.getDisplayMedia({
-                        audio: isWindows && audioSettings.forceAudioEnabled,
-                        video: {
-                            frameRate: { max: fpsVal, ideal: fpsVal }
-                        }
-                    });
-                }
+                // We use getDisplayMedia here because it avoids "Could not start video source" errors on Windows windows,
+                // and correctly returns system loopback audio on Windows.
+                const vidStream = await navigator.mediaDevices.getDisplayMedia({
+                    audio: isWindows && audioSettings.forceAudioEnabled,
+                    video: {
+                        frameRate: { min: Math.max(fpsVal, 30), max: fpsVal, ideal: fpsVal }
+                    }
+                });
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
@@ -2867,7 +2841,7 @@ async function startCapture() {
             }
         }
 
-        const disableFallback = !isLinux;
+        const disableFallback = false;
 
         if (aTrack) {
             combined.addTrack(aTrack);
@@ -2882,7 +2856,7 @@ async function startCapture() {
                     log(I18N.t('Python OS-level audio fallback activated.'), 'ok');
                 }, 3000);
             } else {
-                log(I18N.t('Desktop audio unavailable for Window capture on Windows. Continuing with video only.'), 'warn');
+                log(I18N.t('Browser capture failed. (Python Fallback disabled)'), 'err');
             }
         }
 
@@ -2942,16 +2916,13 @@ async function startCapture() {
         if (cb) cb.textContent = document.getElementById('codecSelect').value;
 
         const prev = document.getElementById('preview');
-        // FIX: Always attach the stream to a DOM video sink, even if it's visually hidden.
-        // Chromium's Window Capture API stalls and produces 0 frames if there is no active 
-        // DOM sink consuming the stream, rendering WebCodecs/WebRTC completely black.
-        prev.srcObject = screenStream;
-
         if (appSettings.hidePreviewOnStart) {
             previewHidden = true;
             prev.style.display = 'none';
             const btn = document.getElementById('btnPreviewToggle');
             if (btn) { btn.innerHTML = SVG_EYE_CLOSED; btn.style.color = 'var(--warn)'; }
+        } else {
+            prev.srcObject = screenStream;
         }
 
         if (settings.width && settings.height) prev.style.aspectRatio = settings.width + '/' + settings.height;
@@ -3558,15 +3529,9 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     let encWidth = exactWidth, encHeight = exactHeight;
     if (resVal > 0 && resVal < exactHeight) {
         const scale = resVal / exactHeight;
-        encWidth = exactWidth * scale;
-        encHeight = exactHeight * scale;
+        encWidth = Math.round((exactWidth * scale) / 2) * 2;
+        encHeight = Math.round((exactHeight * scale) / 2) * 2;
     }
-    
-    // WebCodecs Hardware encoders on Windows strictly require even dimensions, 
-    // and some (AMF) prefer multiples of 16. We'll enforce multiples of 2 here, 
-    // and the dynamic resolution loop will enforce 16s.
-    encWidth = Math.max(16, Math.floor(encWidth / 2) * 2);
-    encHeight = Math.max(16, Math.floor(encHeight / 2) * 2);
 
     const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
@@ -3635,16 +3600,9 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         wcConfig.scalabilityMode = 'L1T2';
     }
 
-    try {
-        encoder.configure(wcConfig);
-        encoder._lastConfig = wcConfig;
-        console.log(`[WebCodecs] Encoder configured with codec: ${_wcCodecStr} (from UI: ${_wcCodecSel})`);
-    } catch (configureErr) {
-        log('WebCodecs encoder failed to initialize: ' + configureErr.message, 'err');
-        console.error('[WebCodecs] configure() failed:', configureErr);
-        // Do not return here, let processFrames start; it might reconfigure dynamically, 
-        // but it's better to just log the error so the user isn't blind.
-    }
+    encoder.configure(wcConfig);
+    encoder._lastConfig = wcConfig;
+    console.log(`[WebCodecs] Encoder configured with codec: ${_wcCodecStr} (from UI: ${_wcCodecSel})`);
 
     const processor = new MediaStreamTrackProcessor({ track: videoTrack });
     const reader = processor.readable.getReader();
@@ -5663,6 +5621,25 @@ function closeArcadeModal() {
 }
 
 async function startArcadeSession() {
+    if (typeof appConfig !== 'undefined' && appConfig.hidmaestro) {
+        log(I18N.t('Arcade mode is not compatible with the HIDMaestro backend. Disable HIDMaestro in Settings to host Arcade sessions.'), 'err');
+        const overlay = document.createElement('div');
+        overlay.id = 'arcadeHmConflict';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;';
+        overlay.innerHTML = `<div style="background:#121518;border:1px solid var(--warn);border-radius:12px;padding:32px;max-width:440px;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.8);font-family:sans-serif;">
+            <h2 style="color:var(--warn);margin:0 0 12px 0;font-size:15px;">HIDMaestro Conflicts With Arcade</h2>
+            <p style="color:#949ba4;font-size:13px;line-height:1.6;margin:0 0 6px 0;">
+                The HIDMaestro virtual controller backend is not compatible with Arcade mode.
+            </p>
+            <p style="color:#949ba4;font-size:13px;line-height:1.6;margin:0 0 20px 0;">
+                Disable it in <strong>Settings → HIDMaestro Virtual Controller</strong> to host Arcade sessions.
+            </p>
+            <button onclick="this.closest('[id=arcadeHmConflict]').remove()" style="padding:10px 28px;border-radius:6px;border:none;background:var(--accent);color:#000;font-weight:600;cursor:pointer;">OK</button>
+        </div>`;
+        document.body.appendChild(overlay);
+        closeArcadeModal();
+        return;
+    }
     const provider = document.querySelector('input[name="provider"]:checked');
     if (provider && provider.value === 'p2p') {
         log(I18N.t('Arcade mode is not supported over P2P tunnels.'), 'err');
