@@ -52,3 +52,12 @@ nearcade_layer.log
 dist-android/
 server/target/
 __pycache__/
+
+# Rust sidecar build artifacts
+src/sidecar/input_backends/rust_*/target/
+src/sidecar/audio/rust_*/target/
+
+# ORP package build artifacts
+tools/open-remote-play/node_modules/
+tools/open-remote-play/packages/*/node_modules/
+tools/open-remote-play/packages/*/target/

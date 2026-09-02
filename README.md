@@ -74,6 +74,13 @@ Your display name and chat color only save per-site by default. The identity per
 
 Install this universal userscript with [Tampermonkey](https://www.tampermonkey.net/) or any fork and your identity will seamlessly follow you across all Nearcade sessions — Cloudflare tunnels, zrok, localhost, anywhere.
 
-[Install OpenRemotePlay Identity Persist](https://github.com/TheRealFame/OpenRemotePlay/raw/master/openremoteplay-identity-persist.user.js)
+[Install OpenRemotePlay Identity Persist](https://github.com/TheRealFame/OpenRemotePlay/raw/main/openremoteplay-identity-persist.user.js)
+
+## Open Remote Play (ORP) Protocol
+Nearcade's peer-to-peer connection layer is the basis for [Open Remote Play](https://github.com/TheRealFame/OpenRemotePlay), an open, MIT-licensed protocol specification for remote-play interoperability across independently developed clients and hosts. The identity persistence userscript above already runs on the ORP protocol today.
+
+The wider v2 specification — serverless signaling, a defined sub-2-second connection budget, STUN-only NAT traversal with a forced hole-punch retry tier, and a trust model built around PIN possession rather than any static shared secret — is currently a draft, not yet adopted into Nearcade's own connection code. Nearcade's existing signaling (Trystero over BitTorrent trackers, see [Advanced Logic Documentation](src/docs/ADVANCED_LOGIC.md)) is one of the two signaling strategies the v2 spec formalizes; the Nostr-primary racing strategy and the rest of v2 have not yet been implemented in this repository. See the [ORP specification](https://github.com/TheRealFame/OpenRemotePlay/blob/main/spec/ORP_SPEC.md) for what's covered and what's still open.
+
+ORP is not tied to Nearcade's specific WebCodecs/WebRTC pipeline. Any project can use ORP's connection and signaling layer with its own media pipeline, and the [ORP repository](https://github.com/TheRealFame/OpenRemotePlay#using-orp-with-your-own-pipeline) documents how, including when a pull request against the protocol itself is the right path for a pipeline that needs something the current spec doesn't yet provide.
 
 This project uses artificial intelligence large language models for code generation and structure planning.

@@ -21,6 +21,7 @@ function _getInputDriver() {
 }
 
 let selectedSourceId = null;
+let selectedSourceName = null;
 
 // ── NDI egress (utility process) ──────────────────────────────────────────────
 let ndiProc = null;
@@ -281,9 +282,10 @@ function registerIpcHandlers(ctx) {
     } catch (_) { return []; }
   });
 
-  ipcMain.handle('set-selected-source', (event, id) => {
-    console.log('[electron] UI requested capture source ID:', id);
+  ipcMain.handle('set-selected-source', (event, id, name) => {
+    console.log('[electron] UI requested capture source ID:', id, name ? `(${name})` : '');
     selectedSourceId = id;
+    selectedSourceName = name || null;
   });
 
   ipcMain.on('run-setup', (event) => {
@@ -1037,19 +1039,29 @@ function registerIpcHandlers(ctx) {
           return;
         }
 
-        // Consume any pending source selection from the picker UI
+        // Consume any pending source selection from the picker UI.
+        // NOTE: this enumeration is separate from the one that populated the
+        // picker grid (different thumbnailSize), and on Windows — especially
+        // with WinrtScreenCapture enabled — window source ids are not always
+        // stable across separate desktopCapturer.getSources() calls. Falling
+        // back to a name match keeps the pick working when the id shifts.
         let chosenSource = sources[0]; // default: first screen
         if (selectedSourceId) {
           const id = selectedSourceId;
+          const name = selectedSourceName;
           selectedSourceId = null;
-          const match = sources.find(s => s.id === id);
+          selectedSourceName = null;
+          let match = sources.find(s => s.id === id);
+          if (!match && name) {
+            match = sources.find(s => s.name === name && s.id.startsWith(id.startsWith('window:') ? 'window:' : 'screen:'));
+          }
           if (match) {
             chosenSource = match;
           } else {
-            // ID no longer in source list (window closed etc.) — fall back to screen
+            // Not found by id or name (window closed etc.) — fall back to screen
             const firstScreen = sources.find(s => s.id.startsWith('screen:'));
             if (firstScreen) chosenSource = firstScreen;
-            console.warn('[electron] Selected source ID not found, falling back to primary screen.');
+            console.warn('[electron] Selected source not found by id or name, falling back to primary screen.');
           }
         }
 

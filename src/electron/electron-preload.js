@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── CRITICAL FIX: Secure IPC routing for screen capture ──
   getWindowSources: () => ipcRenderer.invoke('get-window-sources'),
-  setSelectedSource: (id) => ipcRenderer.invoke('set-selected-source', id),
+  setSelectedSource: (id, name) => ipcRenderer.invoke('set-selected-source', id, name),
   checkGstreamerDeps: () => ipcRenderer.invoke('check-gstreamer-deps'),
   getCursorPos: () => ipcRenderer.invoke('get-cursor-pos'),
 

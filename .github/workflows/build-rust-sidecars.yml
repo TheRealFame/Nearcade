@@ -1,32 +1,56 @@
-name: Build Rust Input Sidecars
+name: Build Rust Sidecars
 
 on:
   push:
     paths:
       - 'src/sidecar/input_backends/rust_**/**'
+      - 'src/sidecar/audio/rust_**/**'
   pull_request:
     paths:
       - 'src/sidecar/input_backends/rust_**/**'
+      - 'src/sidecar/audio/rust_**/**'
   workflow_dispatch:
 
 jobs:
   build-rust-sidecars:
-    name: Build Rust Sidecars on ${{ matrix.os }}
+    name: "${{ matrix.artifact_name }} @ ${{ matrix.os }}"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # ── Windows sidecars ──────────────────────────────────────────────────
           - os: windows-latest
             artifact_name: windows_vigem.exe
             project_dir: src/sidecar/input_backends/rust_vigem
-          # Future projects can be uncommented below:
-          # - os: ubuntu-latest
-          #   artifact_name: linux_uinput.bin
-          #   project_dir: src/sidecar/input_backends/rust_uinput
-          # - os: macos-latest
-          #   artifact_name: mac_gamepad_bridge.bin
-          #   project_dir: src/sidecar/input_backends/rust_mac_bridge
+            binary_name: windows_vigem.exe
+
+          - os: windows-latest
+            artifact_name: windows_audio_loopback.exe
+            project_dir: src/sidecar/audio/rust_windows_audio
+            binary_name: windows_audio_loopback.exe
+
+          # ── Linux sidecars ────────────────────────────────────────────────────
+          - os: ubuntu-latest
+            artifact_name: linux_uinput.bin
+            project_dir: src/sidecar/input_backends/rust_uinput
+            binary_name: linux_uinput
+
+          - os: ubuntu-latest
+            artifact_name: read_gamepads_linux.bin
+            project_dir: src/sidecar/input_backends/rust_read_gamepads
+            binary_name: read_gamepads
+
+          # ── macOS sidecars ────────────────────────────────────────────────────
+          - os: macos-latest
+            artifact_name: mac_gamepad_bridge.bin
+            project_dir: src/sidecar/input_backends/rust_mac_bridge
+            binary_name: mac_gamepad_bridge
+
+          - os: macos-latest
+            artifact_name: read_gamepads_macos.bin
+            project_dir: src/sidecar/input_backends/rust_read_gamepads
+            binary_name: read_gamepads
 
     steps:
       - name: Checkout Code
@@ -42,9 +66,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ${{ matrix.project_dir }}/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles(format('{0}/Cargo.lock', matrix.project_dir)) }}
+          key: ${{ runner.os }}-cargo-${{ matrix.project_dir }}-${{ hashFiles(format('{0}/Cargo.lock', matrix.project_dir)) }}
           restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.project_dir }}-
             ${{ runner.os }}-cargo-
+
+      # Linux: install libudev-dev for evdev / gilrs
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libudev-dev libevdev-dev pkg-config
 
       - name: Build Sidecar
         working-directory: ${{ matrix.project_dir }}
@@ -54,4 +84,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.project_dir }}/target/release/${{ matrix.artifact_name == 'windows_vigem.exe' && 'rust_vigem.exe' || 'unsupported' }}
+          path: ${{ matrix.project_dir }}/target/release/${{ matrix.binary_name }}
+          if-no-files-found: error

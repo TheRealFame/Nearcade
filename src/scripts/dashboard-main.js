@@ -73,7 +73,7 @@ function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') 
       if (themeStr) {
         const theme = JSON.parse(themeStr);
         root.style.setProperty('--bg', theme.bg);
-        root.style.setProperty('--sidebar', theme.sidebar);
+        root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
         root.style.setProperty('--surface', theme.surface);
         root.style.setProperty('--surface-hover', theme.surfaceHover);
         root.style.setProperty('--text', theme.text);
@@ -121,11 +121,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => switchTab(tabParam), 100);
   }
 
-  // Random brand color: purple, orange, or white
+  // Random brand color: purple, orange, or white (or indigo in light mode)
+  const isLightMode = window.matchMedia('(prefers-color-scheme: light)').matches;
   const brandColors = [
     { color: '#c084fc', stroke: 'rgba(192,132,252,0.3)', shadow: 'rgba(192,132,252,' },
     { color: '#ff8a4c', stroke: 'rgba(255,138,76,0.3)', shadow: 'rgba(255,138,76,' },
-    { color: '#eef0ff', stroke: 'rgba(238,240,255,0.3)', shadow: 'rgba(238,240,255,' },
+    { color: isLightMode ? '#6366f1' : '#eef0ff', stroke: isLightMode ? 'rgba(99,102,241,0.3)' : 'rgba(238,240,255,0.3)', shadow: isLightMode ? 'rgba(99,102,241,' : 'rgba(238,240,255,' },
   ];
   const bc = brandColors[Math.floor(Math.random() * brandColors.length)];
   const bt = document.querySelector('.brand-text');
@@ -431,7 +432,7 @@ async function applyNativeTheme() {
     const theme = await window.electronAPI.getNativeTheme();
     if (theme) {
       root.style.setProperty('--bg', theme.bg);
-      root.style.setProperty('--sidebar', theme.sidebar);
+      root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
       root.style.setProperty('--surface', theme.surface);
       root.style.setProperty('--surface-hover', theme.surfaceHover);
       root.style.setProperty('--text', theme.text);
@@ -814,7 +815,7 @@ function tunnelCardClick(id) {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 50000);
-  fetch('/api/tunnels/start', {
+  fetch(`http://localhost:${_getServerPort()}/api/tunnels/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: id }),

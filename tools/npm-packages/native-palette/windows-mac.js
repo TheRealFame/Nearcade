@@ -21,6 +21,7 @@ function getWindowsMacTheme() {
     if (process.platform === 'win32') {
       try {
         colors.bg = systemPreferences.getColor('window').substring(0, 7);
+        colors.sidebar = colors.bg; // Default sidebar to window background to avoid black-out
         colors.surface = systemPreferences.getColor('3d-face').substring(0, 7);
         colors.text = systemPreferences.getColor('window-text').substring(0, 7);
         colors.border = systemPreferences.getColor('active-border').substring(0, 7);

@@ -430,10 +430,11 @@
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       // Brand shading — random accent
+      const isLightMode = window.matchMedia('(prefers-color-scheme: light)').matches;
       const brandShades = [
         { color: '#c084fc' },
         { color: '#ff8a4c' },
-        { color: '#eef0ff' },
+        { color: isLightMode ? '#6366f1' : '#eef0ff' },
       ];
       const shade = brandShades[Math.floor(Math.random() * brandShades.length)];
       const railLogo = document.querySelector('.rail-logo img');

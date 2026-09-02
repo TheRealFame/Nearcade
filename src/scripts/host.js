@@ -2307,13 +2307,50 @@ async function hotSwapCapture() {
         // Strip artificial height constraints so the browser doesn't crop the screen
         let videoConstraints = { frameRate: { ideal: fpsVal } };
 
-        if (window._lastSourceId && window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
-            await window.electronAPI.setSelectedSource(window._lastSourceId);
+        const isWindowsLoc = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+        let mediaPromise;
+
+        if (window._lastSourceId) {
+            // Validate the source ID before attempting capture to avoid failed capture loops
+            if (window.electronAPI && window.electronAPI.getWindowSources) {
+                const currentSources = await window.electronAPI.getWindowSources({ types: ['window', 'screen'] });
+                if (!currentSources.some(s => s.id === window._lastSourceId)) {
+                    log(I18N.t('Previous capture source is no longer available. Reverting to OS picker.'), 'warn');
+                    window._lastSourceId = null;
+                    window._lastSourceName = null;
+                }
+            }
+        }
+
+        if (window._lastSourceId) {
+            const isWindowCap = window._lastSourceId.startsWith('window:');
+            if (window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
+                await window.electronAPI.setSelectedSource(window._lastSourceId, window._lastSourceName);
+            }
+            if (isWindowsLoc) {
+                const videoConstraint = (isWindowCap) ? {} : { frameRate: { ideal: fpsVal } };
+                mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraint, audio: false });
+            } else {
+                // On Linux and macOS, setDisplayMediaRequestHandler does not suppress the native OS picker!
+                // We must use getUserMedia with chromeMediaSourceId to bypass it.
+                mediaPromise = navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: window._lastSourceId,
+                            maxFrameRate: fpsVal
+                        }
+                    }
+                });
+            }
+        } else {
+            mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
         }
 
         // 2. Grab the new video track (with timeout protection)
         let newScreenStream = await Promise.race([
-            navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false }),
+            mediaPromise,
             timeout
         ]);
 
@@ -2655,32 +2692,57 @@ async function startCapture() {
         // ── 4. ELECTRON / PRE-SELECTED SOURCE PATH (all platforms) ──
         if (!screenStream && selectedSourceId && window.electronAPI) {
             try {
-                window._lastSourceId = selectedSourceId;
-                window._lastSourceName = selectedSourceName;
-
                 if (!selectedSourceId.startsWith('window:') && !selectedSourceId.startsWith('screen:')) {
                     const isNumeric = /^\d+$/.test(selectedSourceId);
                     selectedSourceId = isNumeric
                         ? `window:${selectedSourceId}:0`
                         : `screen:${selectedSourceId}:0`;
                 }
-                await window.electronAPI.setSelectedSource(selectedSourceId);
 
-                // The selected source ID was sent to the main process, which intercepts getDisplayMedia via setDisplayMediaRequestHandler.
-                // We use getDisplayMedia here because it avoids "Could not start video source" errors on Windows windows,
-                // and correctly returns system loopback audio on Windows.
-                const vidStream = await navigator.mediaDevices.getDisplayMedia({
-                    audio: isWindows && audioSettings.forceAudioEnabled,
-                    video: {
-                        frameRate: { min: Math.max(fpsVal, 30), max: fpsVal, ideal: fpsVal }
-                    }
-                });
+                // VALIDATE SOURCE ID
+                const currentSources = await window.electronAPI.getWindowSources({ types: ['window', 'screen'] });
+                const isValid = currentSources.some(s => s.id === selectedSourceId);
+                
+                if (!isValid) {
+                    log(I18N.t('Selected window or screen is no longer available. Reverting to OS picker.'), 'warn');
+                    const err = new Error("StaleSourceError");
+                    err.name = "StaleSourceError";
+                    throw err;
+                }
+
+                window._lastSourceId = selectedSourceId;
+                window._lastSourceName = selectedSourceName;
+                const isWindowCap = selectedSourceId.startsWith('window:');
+                let vidStream;
+
+                {
+                    // Both windows and screens go through setDisplayMediaRequestHandler.
+                    // Direct getUserMedia + chromeMediaSourceId is incompatible with the
+                    // WinrtScreenCapture feature switch on Windows and reliably throws
+                    // "Could not start video source" for window sources — the OS picker
+                    // bug this used to work around no longer applies once selection is
+                    // routed through the main-process handler for both source types.
+                    await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                    // Windows' WinRT window-capture backend throws "Could not start
+                    // video source" (post-resolution, mid-stream) when ANY frameRate
+                    // constraint — even ideal-only — is applied to a window capture.
+                    // Screen captures tolerate it fine. Omit it entirely for windows.
+                    const videoConstraint = (isWindows && isWindowCap)
+                        ? {}
+                        : { frameRate: { ideal: fpsVal } };
+                    vidStream = await navigator.mediaDevices.getDisplayMedia({
+                        audio: isWindows && audioSettings.forceAudioEnabled && !isWindowCap,
+                        video: videoConstraint
+                    });
+                }
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                // Windows loopback audio comes directly from getDisplayMedia via ipc.js intercept.
-                // macOS does not support 'loopback', so we must still use the legacy capture method for audio only.
-                if (!isLinux && !isWindows && audioSettings.forceAudioEnabled) {
+                // Windows loopback audio comes directly from getDisplayMedia via ipc.js intercept (screens only).
+                // macOS does not support 'loopback'. Windows VMs crash when applying loopback to window captures.
+                // We disable legacy system audio capture on Windows completely for window captures to prevent crashes.
+                const needsLegacyAudio = (!isLinux && audioSettings.forceAudioEnabled) && !isWindows;
+                if (needsLegacyAudio) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
                             audio: { mandatory: { chromeMediaSource: 'desktop' } },
@@ -2706,6 +2768,8 @@ async function startCapture() {
             } catch (e) {
                 if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
                     sysChat('Source selection cancelled by user, falling back to native picker.');
+                } else if (e.name === 'StaleSourceError') {
+                    // Handled gracefully above, do not log a second scary warning
                 } else {
                     log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
                 }
@@ -6120,7 +6184,6 @@ async function startMultiInstanceCapture() {
 
         for (let i = 0; i < matchedSources.length; i++) {
             const src = matchedSources[i];
-            await window.electronAPI.setSelectedSource(src.id);
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: src.id, maxFrameRate: 30 } }

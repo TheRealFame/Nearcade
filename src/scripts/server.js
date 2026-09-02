@@ -754,7 +754,7 @@ async function main() {
     console.log("  GAMEPAD:  Requires ViGEmBus driver");
     console.log("            https://github.com/nefarius/ViGEmBus/releases");
     console.log("  INPUT:    KBM (keyboard/mouse) working");
-    console.log("  AUDIO:    No loopback capture available natively");
+    console.log("  AUDIO:    WASAPI loopback fallback (Rust sidecar)");
     console.log("  NOTES:    Process priority may be limited without admin");
     console.log("============================================================");
   } else if (process.platform === 'darwin') {
@@ -1737,6 +1737,10 @@ async function main() {
     try {
       const result = await tunnels.startTunnel(port, provider);
       if (result && result.url) {
+        tunnelUrl = result.url;
+        tunnels.saveLastProvider(provider);
+        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl });
+        if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
         res.json({ success: true, url: result.url });
       } else if (result && result.error) {
         res.json({ success: false, error: result.error, details: result.details || '' });
@@ -2042,11 +2046,42 @@ async function main() {
               audioProc.kill();
               audioProc = null;
             }
+
+            // Windows has no pactl/PipeWire — audio_driver.py cannot run there.
+            // Use the WASAPI loopback sidecar (Rust) instead. Falls back to
+            // the dev-build target/ path when running from source rather than
+            // a packaged release build.
+            if (process.platform === "win32") {
+              console.log("  [host] Engaging Windows WASAPI Loopback Audio Fallback...");
+              const base = __dirname.includes('app.asar')
+                ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'sidecar', 'audio', 'rust_windows_audio')
+                : path.join(__dirname, '..', 'sidecar', 'audio', 'rust_windows_audio');
+              const releaseBin = path.join(base, 'target', 'release', 'windows_audio_loopback.exe');
+              const audioBin = fs.existsSync(releaseBin)
+                ? releaseBin
+                : path.join(base, 'windows_audio_loopback.exe'); // packaged/CI artifact location
+
+              if (!fs.existsSync(audioBin)) {
+                console.error("  [host] windows_audio_loopback.exe not found at", audioBin);
+                return;
+              }
+
+              audioProc = spawn(audioBin, [], { stdio: ['ignore', 'pipe', 'inherit'] });
+              audioProc.on('error', (e) => console.error("  [host] Windows audio sidecar failed to start:", e.message));
+
+              audioProc.stdout.on('data', (chunk) => {
+                viewers.forEach(v => {
+                  if (v.readyState === WebSocket.OPEN) v.send(chunk);
+                });
+              });
+              return;
+            }
+
             console.log("  [host] Engaging Python OS-Level Audio Fallback...");
-            const audioScript = path.join(__dirname, "..", "sidecar", "audio_driver.py");
+            const audioScript = path.join(__dirname, "..", "sidecar", "audio", "audio_driver.py");
 
             // FIX: Added "-u" to bypass buffer lock, and "inherit" to expose Python crashes!
-            audioProc = spawn(process.platform === "win32" ? "python" : "python3", ["-u", audioScript], { stdio: ['ignore', 'pipe', 'inherit'] });
+            audioProc = spawn("python3", ["-u", audioScript], { stdio: ['ignore', 'pipe', 'inherit'] });
 
             audioProc.stdout.on('data', (chunk) => {
               viewers.forEach(v => {

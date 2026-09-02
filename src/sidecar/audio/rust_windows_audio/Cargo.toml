@@ -1,0 +1,15 @@
+[package]
+name = "rust_windows_audio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wasapi = "0.24.0"
+
+[[bin]]
+name = "windows_audio_loopback"
+path = "src/windows_audio_loopback.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
