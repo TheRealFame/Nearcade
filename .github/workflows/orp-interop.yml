@@ -121,6 +121,11 @@ jobs:
           fi
 
       # ── Stage 5: npm test (full Nearcade headless suite on Linux) ─────────────
+      - name: Install Root npm Dependencies
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: npm ci
+
       - name: Nearcade Headless Verification
         if: runner.os == 'Linux'
         working-directory: .
