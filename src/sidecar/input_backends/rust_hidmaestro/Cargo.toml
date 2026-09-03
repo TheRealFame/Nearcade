@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-enigo = "0.6.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+
+# ViGEm fallback — only needed on Windows. Compile-time gated with cfg(target_os = "windows").
+# vigem-client requires the ViGEmBus kernel driver to be installed at runtime.
+# HmBridge.exe is preferred; vigem-client fires only when HmBridge.exe is absent.
+[target.'cfg(target_os = "windows")'.dependencies]
+vigem-client = "0.1.4"
 
 [[bin]]
 name = "windows_hidmaestro"

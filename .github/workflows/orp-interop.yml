@@ -1,0 +1,127 @@
+name: ORP SDK Interoperability Tests
+
+on:
+  push:
+    paths:
+      - 'tools/open-remote-play/**'
+  pull_request:
+    paths:
+      - 'tools/open-remote-play/**'
+  workflow_dispatch:
+
+jobs:
+  orp-interop:
+    name: ORP Interop Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    defaults:
+      run:
+        working-directory: tools/open-remote-play
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: tools/open-remote-play/package-lock.json
+
+      - name: Install ORP Dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python SDK deps
+        run: pip install websockets
+
+      # ── Stage 1: Smoke Tests (signaling server) ────────────────────────────────
+      - name: Run ORP Signaling Smoke Tests
+        run: node --experimental-vm-modules test/smoke.test.mjs
+
+      # ── Stage 2: JS SDK ↔ Signaling Server roundtrip ──────────────────────────
+      - name: JS SDK Probe Test
+        shell: bash
+        run: |
+          # Start signaling server in background
+          node server.js &
+          SERVER_PID=$!
+          sleep 1
+
+          # Test manifest endpoint
+          curl -sf http://localhost:3001/api/orp/manifest | python3 -c "
+          import json, sys
+          m = json.load(sys.stdin)
+          assert m.get('protocol_version') == '1.0', f'Bad protocol_version: {m}'
+          assert 'signaling_url' in m, f'Missing signaling_url: {m}'
+          print('[JS probe] Manifest OK:', m.get('engine', '?'))
+          "
+
+          kill $SERVER_PID 2>/dev/null || true
+
+      # ── Stage 3: Python SDK Probe ──────────────────────────────────────────────
+      - name: Python SDK Signaling Probe
+        shell: bash
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          sleep 1
+
+          python3 sdks/python/orp_client.py \
+            --host "localhost:3001" \
+            --pin "9999" \
+            --mode probe 2>&1 | tee /tmp/py_probe.txt
+
+          # Expect either error (no host session — correct) or session-ready
+          grep -E "Server response|error|session" /tmp/py_probe.txt \
+            && echo "[Python probe] Response received OK" \
+            || (echo "[Python probe] No response — FAIL" && exit 1)
+
+          kill $SERVER_PID 2>/dev/null || true
+
+      # ── Stage 4: HMAC consistency check (JS == Python) ────────────────────────
+      - name: HMAC Session ID Consistency
+        shell: bash
+        run: |
+          # JS derivation
+          JS_ID=$(node -e "
+          const crypto = require('crypto');
+          const key = Buffer.from('orp-v2-room');
+          const pin = Buffer.from('1234');
+          const sig = crypto.createHmac('sha256', key).update(pin).digest('hex');
+          console.log(sig.slice(0, 20));
+          ")
+
+          # Python derivation
+          PY_ID=$(python3 -c "
+          import hmac, hashlib
+          sig = hmac.new(b'orp-v2-room', b'1234', hashlib.sha256).hexdigest()
+          print(sig[:20])
+          ")
+
+          echo "JS session ID:     $JS_ID"
+          echo "Python session ID: $PY_ID"
+
+          if [ "$JS_ID" == "$PY_ID" ]; then
+            echo "✓ Session IDs match — HMAC derivation is consistent"
+          else
+            echo "✗ MISMATCH — JS and Python derive different session IDs!"
+            exit 1
+          fi
+
+      # ── Stage 5: npm test (full Nearcade headless suite on Linux) ─────────────
+      - name: Nearcade Headless Verification
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: npm test

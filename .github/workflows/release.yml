@@ -52,58 +52,65 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: 'bin/requirements-linux.txt'
+      # ── Rust sidecar builds (replaces Nuitka for Linux & macOS) ──────────────
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Compilers & Dependencies
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            mkdir -p dummy_bin
-            echo "@echo off" > dummy_bin/msiexec.bat
-            echo "echo Skipping interactive ViGEmBus MSI installation during CI..." >> dummy_bin/msiexec.bat
-            export PATH="$PWD/dummy_bin:$PATH"
-            pip install nuitka pyautogui vgamepad
-          elif [ "$RUNNER_OS" == "Linux" ]; then
-            pip install nuitka pyautogui vgamepad
-          else
-            pip install nuitka pyautogui
-          fi
-
-      - name: Cache Nuitka Compiled Binaries
-        id: cache-nuitka
+      - name: Cache Cargo Registry
         uses: actions/cache@v4
         with:
-          path: src/sidecar/input_backends/bin/
-          key: nuitka-${{ runner.os }}-${{ hashFiles('src/sidecar/input_backends/*.py') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-release-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
 
-      - name: Compile Sidecars
-        if: steps.cache-nuitka.outputs.cache-hit != 'true'
+      - name: Install Linux sidecar system deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libudev-dev libevdev-dev pkg-config
+
+      - name: Build Rust Sidecars
         shell: bash
         run: |
           mkdir -p src/sidecar/input_backends/bin
-          cd src/sidecar/input_backends
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin mac_gamepad_bridge.py
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin mac_stub.py
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin read_gamepads.py
-          elif [ "$RUNNER_OS" == "Linux" ]; then
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin linux_uinput.py
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin read_gamepads.py
-          else
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin windows_hidmaestro.py
-            python -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin read_gamepads.py
-            # Build Rust ViGEm sidecar
-            echo "Building native Rust windows_vigem..."
-            cd rust_vigem
-            cargo build --release
-            cd ..
-            mv rust_vigem/target/release/rust_vigem.exe bin/windows_vigem.exe
+          BIN=src/sidecar/input_backends/bin
+
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            echo "=== Building linux_uinput ==="
+            cd src/sidecar/input_backends/rust_uinput && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_uinput/target/release/linux_uinput $BIN/linux_uinput.bin
+
+            echo "=== Building read_gamepads ==="
+            cd src/sidecar/input_backends/rust_read_gamepads && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_read_gamepads/target/release/read_gamepads $BIN/read_gamepads.bin
+
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            echo "=== Building mac_gamepad_bridge ==="
+            cd src/sidecar/input_backends/rust_mac_bridge && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_mac_bridge/target/release/mac_gamepad_bridge $BIN/mac_gamepad_bridge.bin
+
+            echo "=== Building read_gamepads ==="
+            cd src/sidecar/input_backends/rust_read_gamepads && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_read_gamepads/target/release/read_gamepads $BIN/read_gamepads_macos.bin
+
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            echo "=== Building windows_vigem ==="
+            cd src/sidecar/input_backends/rust_vigem && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_vigem/target/release/windows_vigem.exe $BIN/windows_vigem.exe
+
+            echo "=== Building windows_hidmaestro ==="
+            cd src/sidecar/input_backends/rust_hidmaestro && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_hidmaestro/target/release/windows_hidmaestro.exe $BIN/windows_hidmaestro.exe
+
+            echo "=== Building read_gamepads ==="
+            cd src/sidecar/input_backends/rust_read_gamepads && cargo build --release && cd ../../../..
+            cp src/sidecar/input_backends/rust_read_gamepads/target/release/read_gamepads.exe $BIN/read_gamepads.exe
           fi
+
+          echo "Sidecar binaries:"
+          ls -lh $BIN/
 
       - name: Download Network Tunnels (Zrok & Cloudflared)
         shell: bash
