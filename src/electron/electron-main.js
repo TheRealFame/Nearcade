@@ -233,7 +233,10 @@ function _electronSignalCleanup(signal) {
       } catch (_) { }
     }
   }
-  setTimeout(() => process.exit(0), 250);
+  setTimeout(() => {
+    try { process.stderr.destroy(); } catch(e){}
+    process.exit(0);
+  }, 250);
 }
 process.on('SIGINT', () => _electronSignalCleanup('SIGINT'));
 process.on('SIGTERM', () => _electronSignalCleanup('SIGTERM'));
@@ -266,6 +269,9 @@ if (process.platform === 'linux') {
 if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'));
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('log-level', '3'); // Suppress STUN timeouts & VSync C++ spam
+app.commandLine.appendSwitch('disable-logging');
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
@@ -286,14 +292,16 @@ if (isArcadeWorker && process.platform === 'linux') {
     
     // Force native Wayland instead of X11/XWayland to prevent Gamescope scaling/compositing issues
     app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
+    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
     
     // Gamescope often struggles with Chromium's sandbox, so these are kept disabled
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-gpu-sandbox');
   } else {
     app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
+    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
   }
   app.commandLine.appendSwitch('enable-zero-copy');
 
@@ -415,6 +423,8 @@ async function createWindow() {
   }
 
   win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    if (message && message.includes('Trystero: relay failure')) return; // Suppress harmless tracker downtime spam
+
     let prefix = '[FrontEnd]';
     if (level === 2) prefix = '[FrontEnd WARN]';
     if (level === 3) prefix = '[FrontEnd ERR]';
@@ -558,9 +568,6 @@ async function createWindow() {
       else win.webContents.openDevTools({ mode: 'detach' });
     }
   });
-
-  win.webContents.on('media-started-playing', () => { win.focus(); win.webContents.focus(); });
-
   win.webContents.on('render-process-gone', (_event, details) => {
     console.warn('[electron] Renderer process gone:', details.reason);
     if (details.reason !== 'clean-exit' && serverCore && serverCore.cleanup) {

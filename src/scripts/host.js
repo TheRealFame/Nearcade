@@ -1582,6 +1582,26 @@ function connectWS() {
             if (currentStream === 'gstreamer') {
                 // Native C++ daemon handles its own WebRTC signaling via backend
             } else if (currentStream) {
+                const isOrpConnection = window.P2PManager && window.P2PManager.isPeer(msg.viewerId);
+                if (isOrpConnection) {
+                    console.log(`[P2P] Skipping standard WebRTC offer for ${msg.viewerId} (Managed by ORP/Trystero)`);
+                    
+                    // Immediately inject config for late joiners
+                    if (typeof _wcPipelineActive !== 'undefined' && _wcPipelineActive && typeof _lastWcConfig !== 'undefined' && _lastWcConfig) {
+                        const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
+                        if (orpViewer && orpViewer.videoChannel) {
+                            if (orpViewer.videoChannel.readyState === 'open') {
+                                try { orpViewer.videoChannel.send(_lastWcConfig); } catch(e) {}
+                            } else {
+                                orpViewer.videoChannel.addEventListener('open', () => {
+                                    try { orpViewer.videoChannel.send(_lastWcConfig); } catch(e) {}
+                                });
+                            }
+                        }
+                    }
+                    
+                    return;
+                }
                 await sendOfferToViewer(msg.viewerId);
             } else {
                 ws.send(JSON.stringify({ type: 'host-not-streaming', viewerId: msg.viewerId }));
@@ -3119,6 +3139,13 @@ async function startCapture() {
 // and then null currentStream itself so the GC can release the OS handle.
 function _forceKillStream(stream) {
     if (!stream) return;
+    
+    // Explicitly sever UI references to force Chromium to release the XDG Wayland portal token
+    const prev = document.getElementById('preview');
+    if (prev && prev.srcObject === stream) prev.srcObject = null;
+    const localVideo = document.getElementById('localVideo');
+    if (localVideo && localVideo.srcObject === stream) localVideo.srcObject = null;
+    
     try {
         const tracks = stream.getTracks();
         for (let i = 0; i < tracks.length; i++) {
@@ -3574,6 +3601,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
 
     _lastWcConfig = null;
     _wcForceKeyframe = false;
+    window._wcHwFallbackDone = false;
 
     // Grab the exact hardware resolution from the native capture track
     const settings = videoTrack.getSettings();
@@ -3590,36 +3618,90 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         resVal = parseInt(cfg.quality_res) || 0;
     }
 
-    let encWidth = exactWidth, encHeight = exactHeight;
+    let encWidth = Math.round(exactWidth / 16) * 16;
+    let encHeight = Math.round(exactHeight / 16) * 16;
     if (resVal > 0 && resVal < exactHeight) {
         const scale = resVal / exactHeight;
-        encWidth = Math.round((exactWidth * scale) / 2) * 2;
-        encHeight = Math.round((exactHeight * scale) / 2) * 2;
+        encWidth = Math.round((exactWidth * scale) / 16) * 16;
+        encHeight = Math.round((exactHeight * scale) / 16) * 16;
+    }
+    
+    // Ensure we don't scale to 0
+    if (encWidth < 16) encWidth = 16;
+    if (encHeight < 16) encHeight = 16;
+
+    // Shared chunk path so a rebuilt (fallback) encoder feeds viewers identically.
+    const _wcOutput = (chunk, metadata) => {
+        if (metadata.decoderConfig) {
+            _lastWcConfig = JSON.stringify({
+                type: 'webcodecs-config',
+                codec: metadata.decoderConfig.codec,
+                codedWidth: metadata.decoderConfig.codedWidth || encWidth,
+                codedHeight: metadata.decoderConfig.codedHeight || encHeight,
+                description: metadata.decoderConfig.description
+                    ? Array.from(new Uint8Array(metadata.decoderConfig.description))
+                    : null
+            });
+            broadcastToViewers(_lastWcConfig);
+        }
+
+        const payload = new Uint8Array(1 + 8 + chunk.byteLength);
+        payload[0] = chunk.type === 'key' ? 1 : 0;
+        new DataView(payload.buffer).setFloat64(1, chunk.timestamp, true);
+        chunk.copyTo(payload.subarray(9));
+
+        broadcastToViewers(payload.buffer);
+    };
+    // Software encoder errors only log — there is nothing left to fall back to.
+    const _wcSwError = (e) => console.error('[WebCodecs] Encoder Error:', e);
+    // Hardware encoder death (e.g. broken VAAPI driver) rebuilds in software
+    // instead of silently black-screening the stream.
+    const _wcHwError = (e) => {
+        console.error('[WebCodecs] Encoder Error:', e);
+        if (!window._wcHwFallbackDone && _wcEncoder && encoder && encoder._lastConfig &&
+            encoder._lastConfig.hardwareAcceleration === 'prefer-hardware') {
+            window._wcHwFallbackDone = true;
+            _fallbackToSoftwareEncoder(String((e && e.message) || e));
+        }
+    };
+
+    // Rebuilds the live encoder in software VP8 after a hardware driver failure.
+    // The frame-reader loop keeps running against `encoder`, so swapping the
+    // reference is enough — no stream restart, viewers just get a fresh config.
+    async function _fallbackToSoftwareEncoder(reason) {
+        // User-initiated stop nulls _wcEncoder and cancels the reader — never resurrect.
+        if (!_wcEncoder || !window._webcodecsReader) return;
+        const prev = (encoder && encoder._lastConfig) || {};
+        try { _wcEncoder.close(); } catch (_) { }
+        const swConfig = {
+            codec: 'vp8',
+            width: prev.width || encWidth,
+            height: prev.height || encHeight,
+            bitrate: prev.bitrate || 4000000,
+            framerate: prev.framerate || 30,
+            hardwareAcceleration: 'prefer-software',
+            latencyMode: 'realtime'
+        };
+        let ok = { supported: false };
+        try { ok = await VideoEncoder.isConfigSupported(swConfig); } catch (_) { }
+        if (!ok.supported) return;
+        encoder = new VideoEncoder({ output: _wcOutput, error: _wcSwError });
+        _wcEncoder = encoder;
+        try {
+            encoder.configure(swConfig);
+        } catch (e) {
+            console.error('[WebCodecs] Software fallback configure failed:', e);
+            return;
+        }
+        encoder._lastConfig = swConfig;
+        _wcForceKeyframe = true;
+        console.warn(`[WebCodecs] Hardware encoder failed (${reason}). Fell back to software VP8 — stream continues.`);
+        if (typeof log === 'function') log('Hardware encoder failed, using software encoding instead.', 'warn');
     }
 
-    const encoder = new VideoEncoder({
-        output: (chunk, metadata) => {
-            if (metadata.decoderConfig) {
-                _lastWcConfig = JSON.stringify({
-                    type: 'webcodecs-config',
-                    codec: metadata.decoderConfig.codec,
-                    codedWidth: metadata.decoderConfig.codedWidth || encWidth,
-                    codedHeight: metadata.decoderConfig.codedHeight || encHeight,
-                    description: metadata.decoderConfig.description
-                        ? Array.from(new Uint8Array(metadata.decoderConfig.description))
-                        : null
-                });
-                broadcastToViewers(_lastWcConfig);
-            }
-
-            const payload = new Uint8Array(1 + 8 + chunk.byteLength);
-            payload[0] = chunk.type === 'key' ? 1 : 0;
-            new DataView(payload.buffer).setFloat64(1, chunk.timestamp, true);
-            chunk.copyTo(payload.subarray(9));
-
-            broadcastToViewers(payload.buffer);
-        },
-        error: (e) => console.error('[WebCodecs] Encoder Error:', e)
+    let encoder = new VideoEncoder({
+        output: _wcOutput,
+        error: _wcHwError
     });
     _wcEncoder = encoder;
 
@@ -3631,11 +3713,11 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     // Windows VideoDecoder completely crashes/blacks out if description is missing.
     // Force fallback to VP9 on Linux to bypass the H264 hardware encoder bug in WebCodecs.
     if (_wcCodecSel === 'H264' && navigator.userAgent.toLowerCase().includes('linux')) {
-        console.warn('[WebCodecs] Linux H264 hardware encoding is broken (missing AVCC). Forcing VP9 fallback.');
-        _wcCodecSel = 'VP9';
+        console.warn('[WebCodecs] Linux H264 hardware encoding lacks AVCC headers. Viewers on Windows may see a black screen.');
+        // Removed forced VP9 fallback to allow hardware acceleration
     }
 
-    const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.10.08', 'VP8': 'vp8', 'H264': 'avc1.42002A', 'H265': 'hvc1.1.6.L93.B0' };
+    const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.41.08', 'VP8': 'vp8', 'H264': 'avc1.4d002a', 'H265': 'hvc1.1.6.L93.B0' };
     const _wcCodecStr = _wcCodecMap[_wcCodecSel] || 'vp8';
 
     // Dynamically calculate bitrate based on resolution (8 Mbps for 1080p baseline)
@@ -3664,9 +3746,46 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         wcConfig.scalabilityMode = 'L1T2';
     }
 
+    let supported = await VideoEncoder.isConfigSupported(wcConfig);
+    if (!supported.supported) {
+        console.warn(`[WebCodecs] Primary config not supported by hardware. Stripping SVC (scalabilityMode)...`);
+        delete wcConfig.scalabilityMode;
+        supported = await VideoEncoder.isConfigSupported(wcConfig);
+        
+        if (!supported.supported && wcConfig.codec.startsWith('avc1')) {
+            console.warn(`[WebCodecs] H.264 profile unsupported! Attempting High Profile fallback...`);
+            wcConfig.codec = 'avc1.64002a';
+            supported = await VideoEncoder.isConfigSupported(wcConfig);
+            if (!supported.supported) {
+                console.warn(`[WebCodecs] High profile unsupported! Attempting Baseline Profile fallback...`);
+                wcConfig.codec = 'avc1.42002A';
+                supported = await VideoEncoder.isConfigSupported(wcConfig);
+            }
+        }
+        
+        if (!supported.supported) {
+            console.warn(`[WebCodecs] Config still unsupported! Forcing software encoding...`);
+            wcConfig.hardwareAcceleration = 'prefer-software';
+            if (typeof log === 'function') log('Hardware encoding rejected by OS. Using software.', 'warn');
+            supported = await VideoEncoder.isConfigSupported(wcConfig);
+            
+            if (!supported.supported) {
+                console.error(`[WebCodecs] FATAL: Codec completely unsupported by browser! Falling back to safe VP8 baseline.`);
+                wcConfig.codec = 'vp8';
+                wcConfig.hardwareAcceleration = 'prefer-software';
+                if (document.getElementById('codecSelect')) {
+                    document.getElementById('codecSelect').value = 'VP8';
+                }
+                if (typeof log === 'function') {
+                    log('Selected codec unsupported by OS. Forced software VP8.', 'error');
+                }
+            }
+        }
+    }
+
     encoder.configure(wcConfig);
     encoder._lastConfig = wcConfig;
-    console.log(`[WebCodecs] Encoder configured with codec: ${_wcCodecStr} (from UI: ${_wcCodecSel})`);
+    console.log(`[WebCodecs] Encoder configured with codec: ${wcConfig.codec} (from UI: ${_wcCodecSel}, accel: ${wcConfig.hardwareAcceleration}) — auto-fallback to software armed on driver failure.`);
 
     const processor = new MediaStreamTrackProcessor({ track: videoTrack });
     const reader = processor.readable.getReader();
@@ -3683,18 +3802,52 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                     continue;
                 }
 
+                // If MediaStreamTrackProcessor is buffering because the CPU is overwhelmed,
+                // the frames will be stale. We MUST instantly drop stale frames to stay in real-time.
+                if (!window._lastFrameReceiveTime) window._lastFrameReceiveTime = performance.now();
+                if (!window._lastFrameTimestamp) window._lastFrameTimestamp = frame.timestamp;
+                
+                const realTimeDelta = performance.now() - window._lastFrameReceiveTime;
+                const frameTimeDelta = (frame.timestamp - window._lastFrameTimestamp) / 1000;
+                
+                window._lastFrameReceiveTime = performance.now();
+                window._lastFrameTimestamp = frame.timestamp;
+
+                // Track accumulated lag. If we are more than 100ms behind, flush the queue!
+                if (!window._accumulatedLag) window._accumulatedLag = 0;
+                
+                // If frame.timestamp is missing or jumps wildly, reset lag
+                if (frameTimeDelta < 0 || frameTimeDelta > 1000) {
+                    window._accumulatedLag = 0;
+                } else {
+                    window._accumulatedLag += (realTimeDelta - frameTimeDelta);
+                }
+                
+                if (window._accumulatedLag > 150) {
+                    window._accumulatedLag -= 33; // Drain aggressively
+                    frame.close();
+                    continue;
+                }
+                if (window._accumulatedLag < 0) window._accumulatedLag = 0;
+
+
                 // FIX: Dynamic Resolution Handling + User Scaling
                 // If the source changes size (e.g. Smash emulator resized), we must re-scale it
                 // otherwise the encoder aborts or overrides the user's bandwidth preference.
                 const fW = Math.floor((frame.displayWidth || frame.codedWidth) / 16) * 16 || 16;
                 const fH = Math.floor((frame.displayHeight || frame.codedHeight) / 16) * 16 || 16;
 
-                let newEncW = fW, newEncH = fH;
+                let newEncW = Math.round(fW / 16) * 16;
+                let newEncH = Math.round(fH / 16) * 16;
                 if (resVal > 0 && resVal < fH) {
                     const scale = resVal / fH;
-                    newEncW = Math.round((fW * scale) / 2) * 2;
-                    newEncH = Math.round((fH * scale) / 2) * 2;
+                    newEncW = Math.round((fW * scale) / 16) * 16;
+                    newEncH = Math.round((fH * scale) / 16) * 16;
                 }
+                
+                // Ensure we don't scale to 0
+                if (newEncW < 16) newEncW = 16;
+                if (newEncH < 16) newEncH = 16;
 
                 if (newEncW > 0 && newEncH > 0 && (newEncW !== encoder._lastConfig.width || newEncH !== encoder._lastConfig.height)) {
                     console.log(`[WebCodecs] Resolution changed from ${encoder._lastConfig.width}x${encoder._lastConfig.height} to ${newEncW}x${newEncH} (Native: ${fW}x${fH})`);
@@ -3720,7 +3873,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
 
                 // Increased queue tolerance from 2 to 10 to prevent micro-stutters when
                 // the hardware encoder takes slightly longer than 16ms to process a complex frame.
-                if (encoder.encodeQueueSize > 10) {
+                const maxQueue = encoder._lastConfig && encoder._lastConfig.hardwareAcceleration === 'prefer-software' ? 2 : 10;
+                if (encoder.encodeQueueSize > maxQueue) {
                     frameToEncode.close();
                 } else {
                     const keyFrame = _wcForceKeyframe;
@@ -3822,6 +3976,17 @@ function broadcastToViewers(data) {
         if (view[0] === 1) {
             isKeyframe = true;
             _lastKeyframeTime = Date.now();
+            // Re-broadcast config on every keyframe to instantly heal late-joining ORP viewers
+            if (typeof _lastWcConfig !== 'undefined' && _lastWcConfig) {
+                if (window.P2PManager && window.P2PManager.hostSession) {
+                    window.P2PManager.hostSession.viewers.forEach(viewer => {
+                        const channel = viewer.videoChannel;
+                        if (channel && channel.readyState === 'open') {
+                            try { channel.send(_lastWcConfig); } catch(e) {}
+                        }
+                    });
+                }
+            }
         }
     }
 
@@ -3830,8 +3995,8 @@ function broadcastToViewers(data) {
     // from instantly spiking the buffer and triggering a drop-loop.
     // Allow up to 3MB for exactly 1000ms after a keyframe is generated.
     const timeSinceKf = Date.now() - _lastKeyframeTime;
-    const vpsThreshold = timeSinceKf < 1000 ? 3000000 : 1000000;
-    const p2pThreshold = timeSinceKf < 1000 ? 3000000 : 1000000;
+    const vpsThreshold = timeSinceKf < 1000 ? 2000000 : 1000000;
+    const p2pThreshold = timeSinceKf < 1000 ? 1000000 : 500000;
 
     // If VPS mode is active and authenticated, send to VPS instead of individual DataChannels
     if (_vpsWs && _vpsAuthOk && _vpsWs.readyState === 1) {
@@ -3889,6 +4054,21 @@ function _broadcastP2P(data, threshold, isKeyframeAlreadyChecked) {
             try { channel.send(data); } catch (_) { }
         }
     });
+
+    if (window.P2PManager && window.P2PManager.hostSession) {
+        window.P2PManager.hostSession.viewers.forEach(viewer => {
+            const channel = viewer.videoChannel;
+            if (channel && channel.readyState === 'open') {
+                if (typeof data !== 'string') {
+                    if (!isKeyframe && channel.bufferedAmount > threshold) {
+                        if (data.byteLength > 10) _wcForceKeyframe = true;
+                        return;
+                    }
+                }
+                try { channel.send(data); } catch (e) {}
+            }
+        });
+    }
 }
 
 // ── VPS SFU Connection ────────────────────────────────────────────────────────
