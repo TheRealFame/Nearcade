@@ -221,7 +221,7 @@ captureManager.setGstSignalingCallback((msg) => {
     const candidateObj = { candidate: msg.candidate, sdpMLineIndex: msg.sdpMLineIndex };
     _gstIceCandidates.push(candidateObj);
     broadcast(JSON.stringify({ type: 'ice-host', candidate: candidateObj }));
-  } else if (msg.type === 'thumbnail' || msg.type === 'info' || msg.type === 'error') {
+  } else if (msg.type === 'thumbnail' || msg.type === 'info' || msg.type === 'error' || msg.type === 'h264-chunk') {
     if (typeof hostWS !== 'undefined' && hostWS) {
         hostWS.send(JSON.stringify(msg));
     }

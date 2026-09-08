@@ -532,25 +532,27 @@ class CaptureManager {
     async _startGstWebRTC(options) {
         if (os.platform() !== 'linux') throw new Error('GStreamer WebRTC currently only supports Linux.');
 
+        // Prefer the native Rust backend when built; fall back to Python.
+        // Both speak the identical JSON-over-stdio protocol.
+        const rustBin = path.join(__dirname, 'gst-nearcade', 'target', 'release', 'gst-nearcade');
+        let useRust = false;
+        try { fs.accessSync(rustBin, fs.constants.X_OK); useRust = true; } catch (_) {}
         const pyScript = path.join(__dirname, 'gstreamer_webrtc.py');
-        if (!fs.existsSync(pyScript)) {
-            throw new Error(`[CaptureManager] gstreamer_webrtc.py not found at ${pyScript}`);
-        }
 
-        const args = ['-u', pyScript];
+        // Resolve the capture node once — shared by both backends.
+        let nodeStr = null;
         
         // Attempt headless PipeWire node discovery (Gamescope/SteamVR/WiVRn)
         if (options && options.sourceId) {
             console.log(`[CaptureManager] Using explicitly requested source node ID: ${options.sourceId}`);
-            args.push('--node', String(options.sourceId));
+            nodeStr = String(options.sourceId);
         } else {
             try {
                 const { findGamescopeNode } = require('./pipewire-capture.js');
                 const targetNode = findGamescopeNode();
                 if (targetNode) {
-                    const targetStr = targetNode.serial || targetNode.name || targetNode.id;
-                    console.log(`[CaptureManager] Auto-discovered PipeWire target node: ${targetNode.name} -> Passing ${targetStr}`);
-                    args.push('--node', targetStr);
+                    nodeStr = targetNode.serial || targetNode.name || targetNode.id;
+                    console.log(`[CaptureManager] Auto-discovered PipeWire target node: ${targetNode.name} -> Passing ${nodeStr}`);
                 } else {
                     console.warn('[CaptureManager] No headless PipeWire node found. GStreamer will fallback to default video source.');
                 }
@@ -559,8 +561,32 @@ class CaptureManager {
             }
         }
 
-        console.log('[CaptureManager] Spawning GStreamer WebRTC Python Daemon with args:', args);
-        this._gstProc = spawn('python3', args, {
+        let cmd, args;
+        if (useRust) {
+            cmd = rustBin;
+            args = ['--mode', 'webrtc'];
+            if (nodeStr) args.push('--node', nodeStr);
+            // Pass through capture geometry when provided (Rust defaults: 1920x1080@30).
+            const w = parseInt(options && (options.width || options.w), 10);
+            const h = parseInt(options && (options.height || options.h), 10);
+            const fps = parseInt(options && options.fps, 10);
+            const br = parseInt(options && (options.bitrate || options.bitRate), 10);
+            if (Number.isFinite(w) && w > 0) args.push('--width', String(w));
+            if (Number.isFinite(h) && h > 0) args.push('--height', String(h));
+            if (Number.isFinite(fps) && fps > 0) args.push('--fps', String(fps));
+            if (Number.isFinite(br) && br > 0) args.push('--bitrate', String(br));
+            if (options && options.encoder) args.push('--encoder', String(options.encoder));
+            console.log('[CaptureManager] Spawning GStreamer Rust backend:', cmd, args.join(' '));
+        } else {
+            if (!fs.existsSync(pyScript)) {
+                throw new Error(`[CaptureManager] gstreamer_webrtc.py not found at ${pyScript}`);
+            }
+            cmd = 'python3';
+            args = ['-u', pyScript];
+            if (nodeStr) args.push('--node', nodeStr);
+            console.log('[CaptureManager] Spawning GStreamer WebRTC Python Daemon with args:', args);
+        }
+        this._gstProc = spawn(cmd, args, {
             stdio: ['pipe', 'pipe', 'inherit']
         });
 

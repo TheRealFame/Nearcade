@@ -1540,6 +1540,10 @@ function connectWS() {
             }
             return;
         }
+        if (msg.type === 'h264-chunk') {
+            _ingestGstChunk(msg);
+            return;
+        }
         if (msg.type === 'info') {
             console.log(`[GST] ${msg.message}`);
             return;
@@ -3264,6 +3268,7 @@ function stopCapture() {
     if (_wcEncoder && _wcEncoder.state !== 'closed') { try { _wcEncoder.close(); } catch (_) { } }
     _wcEncoder = null;
     _wcForceKeyframe = false;
+    window._gstWcConfig = false;
     const wcCanvas = document.getElementById('webcodecs-preview-canvas');
     if (wcCanvas) wcCanvas.remove();
 
@@ -3966,6 +3971,91 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
 }
 
 let _lastKeyframeTime = 0;
+
+// ── GStreamer native chunk ingest ──
+// Feeds Rust-sidecar H264 Annex-B chunks into the exact same viewer transport
+// as the browser WebCodecs pipeline: one decoder-config JSON, then binary
+// frames (1-byte keyflag + 8-byte micros timestamp + payload).
+function _avccConfigFromAnnexB(data, w, h) {
+    const nalus = [];
+    let i = 0;
+    const hex = (b) => b.toString(16).padStart(2, '0');
+    while (i < data.length - 3) {
+        let sc = 0;
+        if (data[i] === 0 && data[i + 1] === 0) {
+            if (data[i + 2] === 1) sc = 3;
+            else if (data[i + 2] === 0 && data[i + 3] === 1) sc = 4;
+        }
+        if (!sc) { i++; continue; }
+        const start = i + sc;
+        let end = data.length;
+        for (let j = start; j < data.length - 3; j++) {
+            if (data[j] === 0 && data[j + 1] === 0 &&
+                (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+                end = j;
+                break;
+            }
+        }
+        if (end > start) nalus.push(data.subarray(start, end));
+        i = end;
+    }
+    let sps = null, pps = null;
+    for (const n of nalus) {
+        if (!n.length) continue;
+        const t = n[0] & 31;
+        if (t === 7 && !sps) sps = n;
+        else if (t === 8 && !pps) pps = n;
+        if (sps && pps) break;
+    }
+    if (!sps || !pps || sps.length < 4) return null;
+    const codec = 'avc1.' + hex(sps[1]) + hex(sps[2]) + hex(sps[3]);
+    const desc = new Uint8Array(11 + sps.length + pps.length);
+    let o = 0;
+    desc[o++] = 1; desc[o++] = sps[1]; desc[o++] = sps[2]; desc[o++] = sps[3];
+    desc[o++] = 0xFF;
+    desc[o++] = 0xE1;
+    desc[o++] = (sps.length >> 8) & 255; desc[o++] = sps.length & 255;
+    desc.set(sps, o); o += sps.length;
+    desc[o++] = 1;
+    desc[o++] = (pps.length >> 8) & 255; desc[o++] = pps.length & 255;
+    desc.set(pps, o);
+    return { codec, width: w || 1280, height: h || 720, desc };
+}
+
+function _ingestGstChunk(msg) {
+    try {
+        const b64 = msg.data;
+        if (!b64 || typeof b64 !== 'string') return;
+        const bin = atob(b64);
+        if (!bin.length) return;
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const isKey = !!msg.keyframe;
+        // First keyframe (or codec change): extract SPS/PPS -> AVCC config.
+        if (isKey && !window._gstWcConfig) {
+            const cfg = _avccConfigFromAnnexB(bytes, msg.width | 0, msg.height | 0);
+            if (cfg) {
+                _lastWcConfig = JSON.stringify({
+                    type: 'webcodecs-config',
+                    codec: cfg.codec,
+                    codedWidth: cfg.width,
+                    codedHeight: cfg.height,
+                    description: Array.from(cfg.desc)
+                });
+                window._gstWcConfig = true;
+                broadcastToViewers(_lastWcConfig);
+            }
+        }
+        if (!window._gstWcConfig) return; // viewers can't decode yet
+        const payload = new Uint8Array(1 + 8 + bytes.length);
+        payload[0] = isKey ? 1 : 0;
+        new DataView(payload.buffer).setFloat64(1, performance.now() * 1000, true);
+        payload.set(bytes, 9);
+        broadcastToViewers(payload.buffer);
+    } catch (e) {
+        console.warn('[GStreamer] chunk ingest failed:', e);
+    }
+}
 
 function broadcastToViewers(data) {
     if (typeof peerConnections === 'undefined') return;

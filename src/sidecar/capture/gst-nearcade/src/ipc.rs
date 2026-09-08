@@ -50,9 +50,10 @@ pub fn ice(mlineindex: u32, candidate: &str) {
     emit(json!({"type": "ice", "sdpMLineIndex": mlineindex, "candidate": candidate}));
 }
 
-/// H264 Annex-B chunk for the WebCodecs transport path.
-pub fn h264_chunk(keyframe: bool, annexb: &[u8]) {
+/// H264 Annex-B chunk for the WebCodecs transport path. Width/height ride
+/// along so the host can build the decoder config without parsing SPS.
+pub fn h264_chunk(keyframe: bool, width: u32, height: u32, annexb: &[u8]) {
     emit(
-        json!({"type": "h264-chunk", "keyframe": keyframe, "data": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, annexb)}),
+        json!({"type": "h264-chunk", "keyframe": keyframe, "width": width, "height": height, "data": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, annexb)}),
     );
 }

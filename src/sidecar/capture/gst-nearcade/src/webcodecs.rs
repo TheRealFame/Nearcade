@@ -77,7 +77,7 @@ pub fn run(cfg: Config) {
     // Single tee: encoded chunks to appsink + optional preview branch.
     // (A second tee leg keeps preview independent of encode backpressure.)
     let desc = format!(
-        "{source} ! video/x-raw,width={w},height={h},framerate={f}/1 ! videoconvert ! tee name=t ! queue ! videoconvert ! {enc} ! appsink name=chunks emit-signals=true max-buffers=8 drop=true sync=false t. ! queue ! videoconvert ! tee name=t2 {preview}",
+        "{source} ! video/x-raw,width={w},height={h},framerate={f}/1 ! videoconvert ! video/x-raw,format=I420 ! tee name=t ! queue ! videoconvert ! video/x-raw,format=I420 ! {enc} ! appsink name=chunks emit-signals=true max-buffers=8 drop=true sync=false t. ! queue ! videoconvert ! tee name=t2 {preview}",
         w = cfg.width,
         h = cfg.height,
         f = cfg.fps
@@ -98,16 +98,17 @@ pub fn run(cfg: Config) {
         .downcast::<gst_app::AppSink>()
         .expect("chunks is not an appsink");
     chunks.set_property("emit-signals", true);
+    let (cw, ch) = (cfg.width, cfg.height);
     chunks.set_callbacks(
         gst_app::AppSinkCallbacks::builder()
-            .new_sample(|sink| {
+            .new_sample(move |sink| {
                 let sample = sink
                     .pull_sample()
                     .map_err(|_| gst::FlowError::Error)?;
                 let buf = sample.buffer().ok_or(gst::FlowError::Error)?;
                 let map = buf.map_readable().map_err(|_| gst::FlowError::Error)?;
                 let bytes = map.as_slice();
-                crate::ipc::h264_chunk(is_keyframe(bytes), bytes);
+                crate::ipc::h264_chunk(is_keyframe(bytes), cw, ch, bytes);
                 Ok(gst::FlowSuccess::Ok)
             })
             .build(),

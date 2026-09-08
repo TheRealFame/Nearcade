@@ -68,7 +68,7 @@ pub fn run(cfg: Config) {
     };
     let desc = format!(
         "webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN} \
-         {source} ! video/x-raw ! videoconvert ! tee name=t \
+         {source} ! video/x-raw ! videoconvert ! video/x-raw,format=I420 ! tee name=t \
          t. ! queue max-size-time=500000000 leaky=downstream \
          ! videoconvert ! {enc} \
          ! rtph264pay config-interval=-1 aggregate-mode=zero-latency \
