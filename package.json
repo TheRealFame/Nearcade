@@ -13,6 +13,7 @@
     "probe:dist": "cd tools/gamepad-probe && npm install && npm run dist",
     "electron": "electron .",
     "dev": "electron . --dev",
+    "build:orp": "cd tools/open-remote-play/packages/orp-client && npm run build && cp dist/orp-client.bundle.js ../../../../src/scripts/core/network/",
     "build:android": "node bin/build-android.js",
     "deploy": "wrangler deploy",
     "preview": "wrangler dev",
@@ -32,6 +33,7 @@
     "@fails-components/webtransport": "^1.6.3",
     "@nearcade/launcher-detect": "^0.1.4",
     "@nearcade/native-palette": "^1.0.0",
+    "@trystero-p2p/mqtt": "^0.25.4",
     "@trystero-p2p/torrent": "^0.25.2",
     "discord-rpc": "^4.0.1",
     "dotenv": "^17.4.2",
@@ -46,7 +48,7 @@
     "open": "^10.1.0",
     "pusher-js": "^8.5.0",
     "systeminformation": "^5.31.7",
-    "trystero": "^0.25.2",
+    "trystero": "^0.25.4",
     "which": "^4.0.0",
     "ws": "^8.0.0",
     "zod": "^4.5.1"
@@ -98,7 +100,8 @@
       "!**/build/Release/*.a",
       "!**/build/*.mk",
       "!**/build/Makefile",
-      "!**/build/*.gypi"
+      "!**/build/*.gypi",
+      "!src/sidecar/capture/gst-nearcade/target"
     ],
     "asarUnpack": [
       "src/sidecar/**/*",

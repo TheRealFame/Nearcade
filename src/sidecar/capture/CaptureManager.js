@@ -534,7 +534,9 @@ class CaptureManager {
 
         // Prefer the native Rust backend when built; fall back to Python.
         // Both speak the identical JSON-over-stdio protocol.
-        const rustBin = path.join(__dirname, 'gst-nearcade', 'target', 'release', 'gst-nearcade');
+        let sidecarBase = __dirname;
+        if (sidecarBase.includes('app.asar')) sidecarBase = sidecarBase.replace('app.asar', 'app.asar.unpacked');
+        const rustBin = path.join(sidecarBase, 'gst-nearcade', 'target', 'release', 'gst-nearcade');
         let useRust = false;
         try { fs.accessSync(rustBin, fs.constants.X_OK); useRust = true; } catch (_) {}
         const pyScript = path.join(__dirname, 'gstreamer_webrtc.py');

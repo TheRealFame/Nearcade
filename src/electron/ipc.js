@@ -261,6 +261,14 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('check-gstreamer-deps', () => {
     if (process.platform !== 'linux') return false;
+    // Native Rust backend counts too — no Python needed for it.
+    try {
+      let rustBase = path.join(__dirname, '..', 'sidecar', 'capture');
+      if (rustBase.includes('app.asar')) rustBase = rustBase.replace('app.asar', 'app.asar.unpacked');
+      const rustBin = path.join(rustBase, 'gst-nearcade', 'target', 'release', 'gst-nearcade');
+      require('fs').accessSync(rustBin, require('fs').constants.X_OK);
+      return true;
+    } catch (_) {}
     try {
       const { execSync } = require('child_process');
       // Python will exit 0 if the module is found and imports successfully.
