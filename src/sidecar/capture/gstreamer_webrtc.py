@@ -12,6 +12,7 @@ import threading
 import argparse
 import random
 import base64
+import time
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
 
@@ -204,9 +205,9 @@ class GstWebRTCBackend:
               
             t. ! queue max-size-buffers=1 leaky=downstream
               ! videoconvert
-              ! videoscale ! video/x-raw,width=960,height=540
-              ! videorate ! video/x-raw,framerate=30/1
-              ! jpegenc quality=65
+              ! videoscale ! video/x-raw,width=480,height=270
+              ! videorate ! video/x-raw,framerate=2/1
+              ! jpegenc quality=50
               ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false
               
             pulsesrc
@@ -252,6 +253,16 @@ class GstWebRTCBackend:
             
     def on_new_thumbnail(self, sink):
         try:
+            # Belt-and-suspenders throttle: videorate caps the branch at 2fps,
+            # but appsink can still burst after stalls. Never emit more often
+            # than one preview every 400ms — the host preview is static UI,
+            # not video, and each frame costs a base64 IPC + WS + DOM decode.
+            now = time.monotonic()
+            last = getattr(self, '_last_thumb_ts', 0.0)
+            if now - last < 0.4:
+                # Drain the sample so the appsink queue doesn't back up.
+                sink.emit("pull-sample")
+                return Gst.FlowReturn.OK
             sample = sink.emit("pull-sample")
             if not sample:
                 return Gst.FlowReturn.OK
@@ -262,6 +273,7 @@ class GstWebRTCBackend:
                 b64 = base64.b64encode(mapinfo.data).decode('utf-8')
                 emit_ipc({"type": "thumbnail", "data": b64})
                 buf.unmap(mapinfo)
+                self._last_thumb_ts = now
                 
                 if not hasattr(self, 'frame_count'):
                     self.frame_count = 0
