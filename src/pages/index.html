@@ -4050,37 +4050,24 @@
               btn.textContent = 'Generating...';
               btn.disabled = true;
               try {
-                const { InputDiag } = await import('/src/scripts/input-diag.js');
-                const diag = new InputDiag({ viewerId: window.myId || 'viewer', maxEvents: 5000 });
-                // Replay existing events from the global diag if it was running
-                if (window._inputDiag && window._inputDiag.events) {
-                  for (const e of window._inputDiag.events) diag.events.push(e);
-                  diag.start();
-                  diag.stop();
-                } else {
-                  diag.start();
-                  diag.logEvent('info', { note: 'No active capture — enable Input Diagnostics first' });
-                  diag.stop();
+                const diag = window.getInputDiag?.();
+                if (!diag || !diag.events?.length) {
+                  btn.textContent = 'No data — enable diagnostics first';
+                  setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
+                  return;
                 }
                 const blob = diag.exportText(500);
                 const text = await blob.text();
-                // Write to temp via electronAPI
                 const result = await window.electronAPI.saveTempLog?.(text, `viewer-input-diag-${Date.now()}.txt`);
                 if (result?.path) {
                   btn.textContent = 'Saved to ' + result.path.replace(/^.*[\\/]/, '');
-                  // Auto-copy path to clipboard
-                  navigator.clipboard.writeText(result.path).then(() => {
-                    console.log('[InputDiag] Log path copied to clipboard:', result.path);
-                  });
-                  // Show toast
-                  if (window.showToast) window.showToast('Log saved to temp: ' + result.path, 'ok');
+                  navigator.clipboard.writeText(result.path);
+                  if (window.showToast) window.showToast('Log saved to temp', 'ok');
                 } else {
-                  btn.textContent = 'Error — check console';
-                  console.error('[InputDiag] Failed to save temp log:', result);
+                  btn.textContent = 'Error';
                 }
               } catch (e) {
                 btn.textContent = 'Error';
-                console.error('[InputDiag] Generate failed:', e);
               } finally {
                 setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
               }

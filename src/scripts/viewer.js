@@ -11,19 +11,17 @@ async function _maybeStartInputDiag() {
 }
 
 async function _startInputDiag() {
-    if (_inputDiag) return; // already running
+    if (_inputDiag) return;
     try {
         const { getGlobalDiag } = await import('./input-diag.js');
         _inputDiag = getGlobalDiag({ viewerId: myId || 'viewer', maxEvents: 5000 });
         _inputDiag.start();
-        console.log('[InputDiag] Started', _inputDiag.status());
-    } catch (e) { console.warn('[InputDiag] Failed to load:', e); }
+    } catch (e) { }
 }
 
 function _stopInputDiag() {
     if (_inputDiag) {
         _inputDiag.stop();
-        console.log('[InputDiag] Stopped');
         _inputDiag = null;
     }
 }
@@ -34,6 +32,9 @@ window.setInputDiagEnabled = async function(enabled) {
     if (enabled) await _startInputDiag();
     else _stopInputDiag();
 };
+
+// Silent getter for the Generate Log button
+window.getInputDiag = function() { return _inputDiag; };
 
 // ── BANDWIDTH / QUALITY PROFILES ─────────────────────────────────────────────
 // Auto: unconstrained (let WebRTC CC do its job — best for most users)
