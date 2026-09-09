@@ -6135,10 +6135,16 @@ function togglePreview() {
     const prev = document.getElementById('preview');
     const btn = document.getElementById('btnPreviewToggle');
     const overlay = document.getElementById('prevOverlay');
+    const isGst = currentStream === 'gstreamer';
+    const mjpegImg = isGst ? document.getElementById('ns-gstreamer-mjpeg') : null;
 
     if (previewHidden) {
-        prev.srcObject = null;
-        prev.style.display = 'none';
+        if (isGst && mjpegImg) {
+            mjpegImg.style.display = 'none';
+        } else {
+            prev.srcObject = null;
+            prev.style.display = 'none';
+        }
         // Only say "stream still active" if there actually IS a stream
         if (overlay) {
             overlay.classList.remove('hidden');
@@ -6150,10 +6156,15 @@ function togglePreview() {
         if (btn) { btn.innerHTML = SVG_EYE_CLOSED; btn.style.color = 'var(--warn)'; }
         log(I18N.t('Preview hidden — stream unaffected'), 'ok');
     } else {
-        prev.style.display = 'block';
-        if (currentStream) {
-            prev.srcObject = currentStream;
+        if (isGst && mjpegImg) {
+            mjpegImg.style.display = 'block';
             if (overlay) overlay.classList.add('hidden');
+        } else {
+            prev.style.display = 'block';
+            if (currentStream && currentStream !== 'gstreamer') {
+                prev.srcObject = currentStream;
+                if (overlay) overlay.classList.add('hidden');
+            }
         }
         if (btn) { btn.innerHTML = SVG_EYE_OPEN; btn.style.color = ''; }
         log(I18N.t('Preview restored'), 'ok');
