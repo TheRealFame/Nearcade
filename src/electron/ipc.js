@@ -192,6 +192,21 @@ function registerIpcHandlers(ctx) {
     };
   });
 
+  ipcMain.handle('save-temp-log', async (_, text, filename) => {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    try {
+      const tempDir = os.tmpdir();
+      const fullPath = path.join(tempDir, filename);
+      fs.writeFileSync(fullPath, text, 'utf8');
+      return { path: fullPath, size: Buffer.byteLength(text, 'utf8') };
+    } catch (e) {
+      console.error('[ipc] save-temp-log failed:', e.message);
+      return { error: e.message };
+    }
+  });
+
   ipcMain.handle('get-controllers', () => loadControllers());
 
   ipcMain.handle('save-settings', (_, s) => {

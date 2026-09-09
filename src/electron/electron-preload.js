@@ -93,6 +93,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   forwardInput: (msg) => ipcRenderer.send('forward-input', msg),
   forwardInputBinary: (viewerId, buf) => ipcRenderer.send('forward-input-binary', viewerId, buf),
 
+  // Diagnostics: save log to OS temp directory
+  saveTempLog: (text, filename) => ipcRenderer.invoke('save-temp-log', text, filename),
+
   // ── NDI egress (broadcast window for OBS via LAN) ──
   ndiStart: (cfg) => ipcRenderer.send('ndi:start', cfg),
   ndiFrame: (meta, buf) => ipcRenderer.send('ndi:frame', meta, buf),

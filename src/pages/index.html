@@ -3944,6 +3944,30 @@
             </div>
           </div>
 
+          <div class="v-settings-group">
+            <div class="v-settings-label">Debug & Diagnostics</div>
+
+            <div class="v-settings-row">
+              <div class="v-settings-row-info">
+                <div class="v-settings-row-title">Input Diagnostic Log</div>
+                <div class="v-settings-row-desc">Generate a provenance log (temp file) showing all gamepad/keyboard events, paths, and press/release balance. Enable with ?diag=1 first.</div>
+              </div>
+              <div class="v-settings-control">
+                <button class="v-btn" style="font-size:11px;" onclick="generateInputDiagLog()">Generate Log (in %TEMP%)</button>
+              </div>
+            </div>
+
+            <div class="v-settings-row">
+              <div class="v-settings-row-info">
+                <div class="v-settings-row-title">Enable Input Diagnostics</div>
+                <div class="v-settings-row-desc">Start capturing input events for the log. Persists across sessions.</div>
+              </div>
+              <div class="v-settings-control">
+                <div class="v-toggle" id="vDiagToggle" onclick="toggleInputDiag()"></div>
+              </div>
+            </div>
+          </div>
+
           <script>
             window.nsTheme = localStorage.getItem('ns_theme') || 'dark';
             const THEME_ORDER = ['dark', 'vista', 'glass'];
@@ -4012,6 +4036,68 @@
                 if (gp) gp.style.display = 'none';
               }
             }
+
+            // Input Diagnostics UI
+            function toggleInputDiag() {
+              const toggle = document.getElementById('vDiagToggle');
+              const enabled = !toggle.classList.contains('on');
+              toggle.classList.toggle('on', enabled);
+              localStorage.setItem('ns_input_diag', enabled ? '1' : '0');
+              if (enabled) {
+                console.log('[InputDiag] Enabled — capture started. Use "Generate Log" to write to temp.');
+              } else {
+                console.log('[InputDiag] Disabled.');
+              }
+            }
+
+            async function generateInputDiagLog() {
+              const btn = event.target;
+              const originalText = btn.textContent;
+              btn.textContent = 'Generating...';
+              btn.disabled = true;
+              try {
+                const { InputDiag } = await import('/src/scripts/input-diag.js');
+                const diag = new InputDiag({ viewerId: window.myId || 'viewer', maxEvents: 5000 });
+                // Replay existing events from the global diag if it was running
+                if (window._inputDiag && window._inputDiag.events) {
+                  for (const e of window._inputDiag.events) diag.events.push(e);
+                  diag.start();
+                  diag.stop();
+                } else {
+                  diag.start();
+                  diag.logEvent('info', { note: 'No active capture — enable Input Diagnostics first' });
+                  diag.stop();
+                }
+                const blob = diag.exportText(500);
+                const text = await blob.text();
+                // Write to temp via electronAPI
+                const result = await window.electronAPI.saveTempLog?.(text, `viewer-input-diag-${Date.now()}.txt`);
+                if (result?.path) {
+                  btn.textContent = 'Saved to ' + result.path.replace(/^.*[\\/]/, '');
+                  // Auto-copy path to clipboard
+                  navigator.clipboard.writeText(result.path).then(() => {
+                    console.log('[InputDiag] Log path copied to clipboard:', result.path);
+                  });
+                  // Show toast
+                  if (window.showToast) window.showToast('Log saved to temp: ' + result.path, 'ok');
+                } else {
+                  btn.textContent = 'Error — check console';
+                  console.error('[InputDiag] Failed to save temp log:', result);
+                }
+              } catch (e) {
+                btn.textContent = 'Error';
+                console.error('[InputDiag] Generate failed:', e);
+              } finally {
+                setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 3000);
+              }
+            }
+
+            // Init diag toggle state on DOM load
+            document.addEventListener('DOMContentLoaded', () => {
+              const diagEnabled = localStorage.getItem('ns_input_diag') === '1';
+              const toggle = document.getElementById('vDiagToggle');
+              if (toggle) toggle.classList.toggle('on', diagEnabled);
+            });
           </script>
 
           <div class="v-settings-row" style="cursor:pointer;"
