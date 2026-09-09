@@ -1,49 +1,188 @@
 #!/usr/bin/env python3
-"""
-GStreamer WebRTC Capture Daemon for Nearcade
-=============================================
-Receives screen capture via PipeWire portal, encodes via x264enc (stable software),
-streams via webrtcbin. Emits thumbnails for host preview.
-"""
-import os
+# ==============================================================================
+# gstreamer_webrtc.py — Native GStreamer WebRTC Backend
+# ==============================================================================
+# Handles WebRTC signaling (SDP Offers/Answers + ICE) and capture via
+# PipeWire. Falls back to XDG Desktop Portal if no headless node is found.
+# ==============================================================================
+
 import sys
 import json
+import threading
+import argparse
+import random
 import base64
 import time
-import signal
+import dbus
+from dbus.mainloop.glib import DBusGMainLoop
 
 import gi
-gi.require_version('Gst', '1.0')
-gi.require_version('GstWebRTC', '1.0')
-gi.require_version('GstSdp', '1.0')
-gi.require_version('GLib', '2.0')
-from gi.repository import Gst, GstWebRTC, GstSdp, GLib
 
-# ── Config ──────────────────────────────────────────────────────────────────────
+PRINT_LOCK = threading.Lock()
+def emit_ipc(msg_dict):
+    with PRINT_LOCK:
+        print(json.dumps(msg_dict), flush=True)
+gi.require_version('Gst', '1.0')
+try:
+    gi.require_version('GstWebRTC', '1.0')
+except ValueError:
+    print(json.dumps({"type": "error", "message": "GstWebRTC not installed. Run: sudo apt install gir1.2-gst-plugins-bad-1.0"}))
+    sys.exit(1)
+
+from gi.repository import Gst, GstWebRTC, GLib
+import signal
+import dbus
+
+PORTAL_SESSION_HANDLE = None
+
+def cleanup_and_exit(signum, frame):
+    global PORTAL_SESSION_HANDLE
+    if PORTAL_SESSION_HANDLE:
+        try:
+            bus = dbus.SessionBus()
+            session = bus.get_object("org.freedesktop.portal.Desktop", PORTAL_SESSION_HANDLE)
+            session.Close()
+        except Exception:
+            pass
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, cleanup_and_exit)
+signal.signal(signal.SIGINT, cleanup_and_exit)
+
+# ─── STUN Servers (same pool as host.js) ──────────────────────────────────────
 STUN_SERVER = "stun://stun.l.google.com:19302"
 
-# ── IPC Helpers ─────────────────────────────────────────────────────────────────
-def emit_ipc(obj):
-    """Emit JSON line to stdout for Electron CaptureManager."""
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
 
-class GstWebRTCapture:
-    def __init__(self, source_id=None, source_name=None):
-        self.source_id = source_id
-        self.source_name = source_name
-        self.pipe = None
-        self.webrtc = None
-        self._last_thumb_ts = 0.0
-        self.frame_count = 0
+class GstWebRTCBackend:
 
-    def build_pipeline(self):
-        # Determine capture element
-        if self.source_id:
-            capture_element = f"pipewiresrc path={self.source_id} do-timestamp=true"
+    # ── XDG Desktop Portal Screencast ─────────────────────────────────────────
+    def request_portal_screencast(self):
+        bus = dbus.SessionBus()
+        sender = bus.get_unique_name()[1:].replace('.', '_')
+
+        token_create = "nearcade_create_" + str(random.randint(100000, 999999))
+        req_path_create = f"/org/freedesktop/portal/desktop/request/{sender}/{token_create}"
+
+        token_select = "nearcade_select_" + str(random.randint(100000, 999999))
+        req_path_select = f"/org/freedesktop/portal/desktop/request/{sender}/{token_select}"
+
+        token_start = "nearcade_start_" + str(random.randint(100000, 999999))
+        req_path_start = f"/org/freedesktop/portal/desktop/request/{sender}/{token_start}"
+
+        portal = bus.get_object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+        screencast = dbus.Interface(portal, "org.freedesktop.portal.ScreenCast")
+
+        portal_loop = GLib.MainLoop()
+        fd_out = None
+        node_id_out = None
+        session_handle = None
+
+        def on_start_response(response, results):
+            nonlocal fd_out, node_id_out
+            bus.remove_signal_receiver(on_start_response, signal_name="Response", path=req_path_start)
+            if response != 0:
+                emit_ipc({"type": "error", "message": f"Start failed: {response}"})
+                portal_loop.quit()
+                return
+            streams = results.get('streams', [])
+            if streams:
+                node_id_out = int(streams[0][0])
+                try:
+                    unix_fd = screencast.OpenPipeWireRemote(
+                        dbus.ObjectPath(session_handle),
+                        dbus.Dictionary(signature='sv')
+                    )
+                    fd_out = unix_fd.take()
+                except Exception as e:
+                    emit_ipc({"type": "error", "message": f"OpenPipeWireRemote failed: {e}"})
+            portal_loop.quit()
+
+        def on_select_sources_response(response, results):
+            bus.remove_signal_receiver(on_select_sources_response, signal_name="Response", path=req_path_select)
+            if response != 0:
+                emit_ipc({"type": "error", "message": f"SelectSources failed: {response}"})
+                portal_loop.quit()
+                return
+            bus.add_signal_receiver(
+                on_start_response, signal_name="Response",
+                bus_name="org.freedesktop.portal.Desktop", path=req_path_start
+            )
+            screencast.Start(
+                dbus.ObjectPath(session_handle), "",
+                dbus.Dictionary({"handle_token": token_start}, signature='sv')
+            )
+
+        def on_create_session_response(response, results):
+            nonlocal session_handle
+            global PORTAL_SESSION_HANDLE
+            bus.remove_signal_receiver(on_create_session_response, signal_name="Response", path=req_path_create)
+            if response != 0:
+                emit_ipc({"type": "error", "message": f"CreateSession failed: {response}"})
+                portal_loop.quit()
+                return
+            session_str = results.get('session_handle')
+            if not session_str:
+                portal_loop.quit()
+                return
+            session_handle = str(session_str)
+            PORTAL_SESSION_HANDLE = session_handle
+            bus.add_signal_receiver(
+                on_select_sources_response, signal_name="Response",
+                bus_name="org.freedesktop.portal.Desktop", path=req_path_select
+            )
+            screencast.SelectSources(
+                dbus.ObjectPath(session_handle),
+                dbus.Dictionary({
+                    "types": dbus.UInt32(3),   # 1=monitor 2=window 3=both
+                    "multiple": False,
+                    "handle_token": token_select
+                }, signature='sv')
+            )
+
+        bus.add_signal_receiver(
+            on_create_session_response, signal_name="Response",
+            bus_name="org.freedesktop.portal.Desktop", path=req_path_create
+        )
+        screencast.CreateSession(
+            dbus.Dictionary({"session_handle_token": token_create, "handle_token": token_create}, signature='sv')
+        )
+
+        # User has up to 60 s to make a selection
+        GLib.timeout_add_seconds(60, portal_loop.quit)
+        portal_loop.run()
+        return fd_out, node_id_out
+
+    # ── Init ──────────────────────────────────────────────────────────────────
+    def __init__(self):
+        Gst.init(None)
+        self.loop = GLib.MainLoop()
+        self._answer_received = False
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--node', type=str, help='PipeWire serial to capture headlessly')
+        args, _ = parser.parse_known_args()
+
+        # ── Resolve capture source ─────────────────────────────────────────
+        if args.node:
+            capture_element = f"pipewiresrc target-object={args.node}"
+            emit_ipc({"type": "info", "message": f"Headless PipeWire capture: node {args.node}"})
         else:
-            capture_element = "pipewiresrc do-timestamp=true"
+            emit_ipc({"type": "info", "message": "Requesting Wayland XDG Portal capture..."})
+            fd, node_id = self.request_portal_screencast()
+            if fd is None:
+                emit_ipc({"type": "error", "message": "Portal denied or timed out."})
+                sys.exit(1)
+            capture_element = f"pipewiresrc fd={fd} path={node_id}"
+            emit_ipc({"type": "info", "message": f"Portal capture: fd={fd} node={node_id}"})
 
+        # ── Pipeline ───────────────────────────────────────────────────────
+        # Notes:
+        #  - capsfilter after pipewiresrc allows any raw format through
+        #  - videorate stabilises variable-FPS portal streams
+        #  - config-interval=-1 embeds SPS/PPS in every keyframe packet
+        #  - queue elements prevent blocking between encode and network stages
+        #  - stun-server property gives webrtcbin public IP awareness
+        # Auto-detect Hardware Encoding
         # Force Software Encoder (x264enc) for all Linux captures.
         # Hardware encoders like vaapih264enc frequently crash the GStreamer pipeline
         # during DMABuf memory uploads, which kills both WebRTC and the thumbnail feed.
@@ -111,13 +250,14 @@ class GstWebRTCapture:
         if ret == Gst.StateChangeReturn.FAILURE:
             emit_ipc({"type": "error", "message": "Pipeline failed to start (PLAYING state failed)."})
             sys.exit(1)
-
+            
     def on_new_thumbnail(self, sink):
         try:
             # Throttle: 15fps cap (~66ms). Drain bursts after stalls.
             now = time.monotonic()
             last = getattr(self, '_last_thumb_ts', 0.0)
             if now - last < 0.066:
+                # Drain the sample so the appsink queue doesn't back up.
                 sink.emit("pull-sample")
                 return Gst.FlowReturn.OK
             sample = sink.emit("pull-sample")
@@ -137,7 +277,7 @@ class GstWebRTCapture:
                 self.frame_count += 1
                 if self.frame_count % 50 == 0:
                     emit_ipc({"type": "info", "message": f"Thumbnail frame {self.frame_count}"})
-            
+                
         except Exception as e:
             emit_ipc({"type": "error", "message": f"Thumbnail error: {e}"})
         return Gst.FlowReturn.OK
@@ -145,8 +285,6 @@ class GstWebRTCapture:
     # ── GStreamer Bus Callbacks ────────────────────────────────────────────────
     def on_bus_error(self, bus, message):
         err, debug = message.parse_error()
-        pass
-
     def on_state_changed(self, bus, message):
         if message.src != self.pipe:
             return
@@ -163,56 +301,88 @@ class GstWebRTCapture:
         promise.wait()
         reply = promise.get_reply()
         offer = reply.get_value('offer')
-        element.set_local_description(offer)
+
+        set_promise = Gst.Promise.new()
+        element.emit('set-local-description', offer, set_promise)
+        set_promise.interrupt()
+
         sdp_text = offer.sdp.as_text()
-        emit_ipc({"type": "sdp", "data": sdp_text})
+        emit_ipc({'type': 'sdp', 'sdp': sdp_text})
+        emit_ipc({"type": "info", "message": "SDP offer sent to server"})
 
     def send_ice_candidate(self, element, mlineindex, candidate):
-        cand_text = candidate.to_string()
-        emit_ipc({"type": "ice", "mlineindex": mlineindex, "candidate": cand_text})
+        print(json.dumps({
+            'type': 'ice',
+            'sdpMLineIndex': mlineindex,
+            'candidate': candidate
+        }), flush=True)
 
-    def handle_answer(self, sdp_text):
-        sdp = GstSdp.SDPMessage.new()
-        GstSdp.sdp_message_parse_buffer(bytes(sdp_text, 'utf-8'), sdp)
-        answer = GstWebRTC.WebRTCSessionDescription.new(GstWebRTC.WebRTCSDPType.ANSWER, sdp)
-        promise = Gst.Promise.new()
-        self.webrtc.emit('set-remote-description', answer, promise)
-        promise.interrupt()
-
-    def handle_ice(self, mlineindex, candidate_text):
-        candidate = GstSdp.SDPMessage.new()
-        # Parse candidate
-        from gi.repository import GstSdp as GstSdpMod
-        cand = GstSdpMod.SDPCandidate()
-        cand.parse(candidate_text)
-        self.webrtc.emit('add-ice-candidate', mlineindex, cand)
-
-    def run(self):
-        loop = GLib.MainLoop()
+    # ── Handle Viewer Answer + ICE ─────────────────────────────────────────────
+    def handle_incoming_sdp(self, sdp_string):
         try:
-            loop.run()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            if self.pipe:
-                self.pipe.set_state(Gst.State.NULL)
+            res, sm = Gst.SDPMessage.new()
+            Gst.SDPMessage.parse_buffer(sdp_string.encode(), sm)
+            answer = GstWebRTC.WebRTCSessionDescription.new(GstWebRTC.WebRTCSDPType.ANSWER, sm)
+            promise = Gst.Promise.new()
+            self.webrtc.emit('set-remote-description', answer, promise)
+            promise.interrupt()
+            emit_ipc({"type": "info", "message": "Remote SDP answer applied"})
+            self._answer_received = True
+        except Exception as e:
+            emit_ipc({"type": "error", "message": f"Failed to apply SDP answer: {e}"})
+        return False  # Remove from GLib idle
 
-def main():
-    Gst.init(None)
-    Gst.debug_set_active(False)
-    Gst.debug_set_default_threshold(0)
+    def handle_incoming_ice(self, mlineindex, candidate_str):
+        try:
+            self.webrtc.emit('add-ice-candidate', mlineindex, candidate_str)
+        except Exception as e:
+            emit_ipc({"type": "error", "message": f"Failed to add ICE candidate: {e}"})
+        return False  # Remove from GLib idle
 
-    # Parse args from CaptureManager
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--source-id', default=None)
-    parser.add_argument('--source-name', default=None)
-    args = parser.parse_args()
+    # ── Stdin Reader (Signaling from Node.js → Python) ────────────────────────
+    def read_stdin(self):
+        for raw_line in sys.stdin:
+            raw_line = raw_line.strip()
+            if not raw_line:
+                continue
+            try:
+                msg = json.loads(raw_line)
+            except Exception:
+                continue
 
-    cap = GstWebRTCapture(source_id=args.source_id, source_name=args.source_name)
-    cap.build_pipeline()
-    emit_ipc({"type": "ready", "message": "GStreamer WebRTC pipeline running"})
-    cap.run()
+            msg_type = msg.get('type', '')
+
+            if msg_type == 'answer':
+                # Viewer's SDP answer — extract sdp string
+                sdp_val = msg.get('sdp', '')
+                sdp_str = sdp_val.get('sdp') if isinstance(sdp_val, dict) else str(sdp_val)
+                if sdp_str:
+                    GLib.idle_add(self.handle_incoming_sdp, sdp_str)
+
+            elif msg_type == 'ice-viewer':
+                # ──────────────────────────────────────────────────────────────
+                # CRITICAL: viewer.js sends { type: 'ice-viewer', candidate: RTCIceCandidate }
+                # RTCIceCandidate serialises as { candidate: "...", sdpMLineIndex: N, ... }
+                # We need the raw candidate SDP line string and the mline index.
+                # ──────────────────────────────────────────────────────────────
+                cand_obj = msg.get('candidate', {})
+                if isinstance(cand_obj, dict):
+                    candidate_str = cand_obj.get('candidate', '')
+                    mlineindex = int(cand_obj.get('sdpMLineIndex', 0))
+                else:
+                    candidate_str = str(cand_obj)
+                    mlineindex = int(msg.get('sdpMLineIndex', 0))
+
+                if candidate_str:
+                    GLib.idle_add(self.handle_incoming_ice, mlineindex, candidate_str)
+
+    def start(self):
+        threading.Thread(target=self.read_stdin, daemon=True).start()
+        self.loop.run()
+
 
 if __name__ == '__main__':
-    main()
+    # Must set DBus main loop before any dbus calls
+    DBusGMainLoop(set_as_default=True)
+    backend = GstWebRTCBackend()
+    backend.start()
