@@ -346,6 +346,14 @@ if (isArcadeWorker && process.platform === 'linux') {
   }
 }
 
+// Maintainer decision: always run unsandboxed for maximum distro/setup
+// compatibility (broken shm mounts, AppArmor userns restrictions, root,
+// container quirks). Known cost: any Chromium renderer RCE runs with full
+// user privileges instead of being sandbox-contained — accepted risk, since
+// this app routinely renders untrusted remote content (viewer sessions,
+// arcade directory). Revisit if sandbox support stabilizes across targets.
+app.commandLine.appendSwitch('no-sandbox');
+
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('disable-gpu-vsync');
 app.commandLine.appendSwitch('disable-frame-rate-limit');
