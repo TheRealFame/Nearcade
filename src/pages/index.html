@@ -3963,7 +3963,7 @@
                 <div class="v-settings-row-desc">Start capturing input events for the log. Persists across sessions.</div>
               </div>
               <div class="v-settings-control">
-                <div class="v-toggle" id="vDiagToggle" onclick="toggleInputDiag()"></div>
+                <div class="v-toggle" id="vDiagToggle" onclick="window.setInputDiagEnabled(!this.classList.contains('on'))"></div>
               </div>
             </div>
           </div>
@@ -4037,18 +4037,12 @@
               }
             }
 
-            // Input Diagnostics UI
-            function toggleInputDiag() {
+            // Input Diagnostics UI init
+            document.addEventListener('DOMContentLoaded', () => {
+              const diagEnabled = localStorage.getItem('ns_input_diag') === '1';
               const toggle = document.getElementById('vDiagToggle');
-              const enabled = !toggle.classList.contains('on');
-              toggle.classList.toggle('on', enabled);
-              localStorage.setItem('ns_input_diag', enabled ? '1' : '0');
-              if (enabled) {
-                console.log('[InputDiag] Enabled — capture started. Use "Generate Log" to write to temp.');
-              } else {
-                console.log('[InputDiag] Disabled.');
-              }
-            }
+              if (toggle) toggle.classList.toggle('on', diagEnabled);
+            });
 
             async function generateInputDiagLog() {
               const btn = event.target;

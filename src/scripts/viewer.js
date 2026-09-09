@@ -7,6 +7,11 @@ async function _maybeStartInputDiag() {
     const urlDiag = new URLSearchParams(window.location.search).get('diag') === '1';
     const lsDiag = localStorage.getItem('ns_input_diag') === '1';
     if (!urlDiag && !lsDiag) return;
+    await _startInputDiag();
+}
+
+async function _startInputDiag() {
+    if (_inputDiag) return; // already running
     try {
         const { getGlobalDiag } = await import('./input-diag.js');
         _inputDiag = getGlobalDiag({ viewerId: myId || 'viewer', maxEvents: 5000 });
@@ -14,6 +19,21 @@ async function _maybeStartInputDiag() {
         console.log('[InputDiag] Started', _inputDiag.status());
     } catch (e) { console.warn('[InputDiag] Failed to load:', e); }
 }
+
+function _stopInputDiag() {
+    if (_inputDiag) {
+        _inputDiag.stop();
+        console.log('[InputDiag] Stopped');
+        _inputDiag = null;
+    }
+}
+
+// Called from settings toggle (exposed on window)
+window.setInputDiagEnabled = async function(enabled) {
+    localStorage.setItem('ns_input_diag', enabled ? '1' : '0');
+    if (enabled) await _startInputDiag();
+    else _stopInputDiag();
+};
 
 // ── BANDWIDTH / QUALITY PROFILES ─────────────────────────────────────────────
 // Auto: unconstrained (let WebRTC CC do its job — best for most users)
