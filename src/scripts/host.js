@@ -2107,8 +2107,9 @@ async function showSourceSelectionModal() {
     const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
 
     // Only show modal if electronAPI is available AND we are not on Linux or macOS.
-    // (GStreamer uses its own native dbus portal picker on Linux, so we bypass Electron's picker for it too)
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || (isLinux || isMac)) {
+    // For GStreamer on Linux, we need getDisplayMedia() to trigger the portal first
+    // (handled in the GStreamer interceptor), so don't bypass here.
+    if (!window.electronAPI || !window.electronAPI.getWindowSources || (isLinux && !isGStreamer) || isMac) {
         if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
         else log(I18N.t('Source selection not available on this platform'), 'warn');
 
@@ -2526,11 +2527,39 @@ async function startCapture() {
         // ── 1. NATIVE GSTREAMER WEBRTC INTERCEPTOR ──
         if (document.getElementById('pipelineSelect')?.value === 'gstreamer_webrtc') {
             log('Starting Native C++ GStreamer WebRTC Daemon...', 'warn');
+            
+            // On Linux, we MUST getDisplayMedia first to trigger the portal
+            // and get a valid PipeWire node ID. The sourceId from the modal
+            // is just metadata; pipewiresrc needs an active portal session.
+            let gstSourceId = selectedSourceId;
+            if (navigator.userAgent.toLowerCase().includes('linux')) {
+                try {
+                    log('Requesting screen share via portal for GStreamer...', 'ok');
+                    const portalStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { cursor: 'never' },
+                        audio: false
+                    });
+                    const vTrack = portalStream.getVideoTracks()[0];
+                    if (vTrack) {
+                        const settings = vTrack.getSettings();
+                        // On PipeWire, deviceId is the PipeWire node ID
+                        if (settings.deviceId) {
+                            gstSourceId = settings.deviceId;
+                            log(`Portal session active — PipeWire node: ${gstSourceId}`, 'ok');
+                        }
+                        // Stop the portal stream — we just needed the node ID
+                        vTrack.stop();
+                    }
+                } catch (e) {
+                    log('Portal request failed: ' + e.message, 'err');
+                }
+            }
+            
             try {
                 const res = await fetch('/api/capture/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ method: 'gstreamer_webrtc', options: { sourceId: selectedSourceId, sourceName: selectedSourceName } })
+                    body: JSON.stringify({ method: 'gstreamer_webrtc', options: { sourceId: gstSourceId, sourceName: selectedSourceName } })
                 });
                 const data = await res.json();
                 if (data.ok) {
