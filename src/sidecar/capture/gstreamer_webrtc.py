@@ -284,6 +284,7 @@ def on_new_thumbnail(self, sink):
     # ── GStreamer Bus Callbacks ────────────────────────────────────────────────
     def on_bus_error(self, bus, message):
         err, debug = message.parse_error()
+
     def on_state_changed(self, bus, message):
         if message.src != self.pipe:
             return
