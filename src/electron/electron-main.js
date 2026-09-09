@@ -311,7 +311,11 @@ if (isArcadeWorker && process.platform === 'linux') {
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-gpu-sandbox');
   } else {
-    app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+    // Default to X11/XWayland: native Wayland ozone leaves the GPU process
+    // unusable on several Mesa/driver combos (blank dashboard, GPU FATAL
+    // "isn't usable", app self-kill), while XWayland initializes GL
+    // reliably. Override for testing with NEARCADE_OZONE=wayland|auto.
+    app.commandLine.appendSwitch('ozone-platform-hint', process.env.NEARCADE_OZONE || 'x11');
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
     app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
   }
