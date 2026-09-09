@@ -1,6 +1,20 @@
 // ── LATENCY TUNING CONSTANTS ─────────────────────────────────────────────────
 const CONGESTION_KEYFRAME_THRESHOLD_MS = 20; // was 40
 
+// Input Diagnostics (optional, enable via URL ?diag=1 or localStorage)
+let _inputDiag = null;
+async function _maybeStartInputDiag() {
+    const urlDiag = new URLSearchParams(window.location.search).get('diag') === '1';
+    const lsDiag = localStorage.getItem('ns_input_diag') === '1';
+    if (!urlDiag && !lsDiag) return;
+    try {
+        const { getGlobalDiag } = await import('./input-diag.js');
+        _inputDiag = getGlobalDiag({ viewerId: myId || 'viewer', maxEvents: 5000 });
+        _inputDiag.start();
+        console.log('[InputDiag] Started', _inputDiag.status());
+    } catch (e) { console.warn('[InputDiag] Failed to load:', e); }
+}
+
 // ── BANDWIDTH / QUALITY PROFILES ─────────────────────────────────────────────
 // Auto: unconstrained (let WebRTC CC do its job — best for most users)
 // Low:  cap at 720p / 1.5 Mbps  (mobile data, bad Wi-Fi)
@@ -17,6 +31,10 @@ const BW_PROFILES = {
     low: { label: 'Low', maxBitrate: 1_500_000, maxHeight: 720, scaleDown: 2 },
     lowest: { label: '480p (Data Saver)', maxBitrate: 800_000, maxHeight: 480, scaleDown: 3 },
 };
+function redactIp(str) {
+    if (!str) return str;
+    return str.replace(/(?:\d{1,3}\.){3}\d{1,3}|(?:[a-fA-F0-9]{1,4}:){7}[a-fA-F0-9]{1,4}/g, '[REDACTED_IP]');
+}
 
 var inputWs = null;
 var gpPolling = false;
@@ -335,6 +353,11 @@ let wcDecoder = null;
 let wcCanvas = document.getElementById('webcodecs-canvas') || null;
 let wcCtx = null;
 let wcGlTexture = null;
+let _wcWebGPUDevice = null;
+let _wcWebGPUContext = null;
+let _wcWebGPUPipeline = null;
+let _wcWebGPUSampler = null;
+let _webgpuSupported = false;
 
 // Upscale mode for the WebGL stream surface.
 //  0 standard · 1 crisp · 2 pixel-perfect (NEAREST) · 3 ultra
@@ -590,7 +613,6 @@ async function createPC() {
     }
 
     // Additional TURN fallbacks: live-pinged community registry entries that
-    // are reachable right now. Kept strictly after the verified entries.
     if (_communityTurnLadder && _communityTurnLadder.length) {
         for (const entry of _communityTurnLadder) {
             if (entry && entry.url) {
@@ -601,165 +623,166 @@ async function createPC() {
         }
     }
 
-    pc = new RTCPeerConnection({
-        iceServers: iceServers,
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require',
-        sdpSemantics: 'unified-plan'
-    });
+    if (window._isP2P && window.P2PManager && window.P2PManager.clientSession && window.P2PManager.clientSession.pc) {
+        console.log('[P2P] Taking over ORPClient WebRTC connection...');
+        pc = window.P2PManager.clientSession.pc;
+        
+        // ORPClient already connected and established ICE
+        _iceFailCount = 0;
+    } else {
+        pc = new RTCPeerConnection({
+            iceServers: iceServers,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+            sdpSemantics: 'unified-plan'
+        });
 
-    let _iceFailCount = 0;
-    pc.onconnectionstatechange = () => {
-        console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
-        if (pc.connectionState === 'failed') {
-            _iceFailCount++;
-            const delay = _iceFailCount === 1 ? 500 : _iceFailCount === 2 ? 1500 : 3000;
-            console.warn(`[WebRTC] Connection failed (attempt ${_iceFailCount}) — retrying in ${delay}ms...`);
-            setStatus('Connection failed. Retrying...');
-            clearTimeout(_reconnectTimer);
-            _reconnectTimer = setTimeout(() => {
-                if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
-                    ws.send(JSON.stringify({ type: 'request-offer' }));
-                }
-            }, delay);
-        }
-        if (pc.connectionState === 'connected') {
-            _iceFailCount = 0;
-        }
-        if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
-    };
-    pc.oniceconnectionstatechange = () => {
-        console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
-        if (pc.iceConnectionState === 'failed') {
-            console.warn('[WebRTC] ICE failed. Requesting fresh offer to recover...');
-            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
-        }
-    };
-    pc.onsignalingstatechange = () => console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
-    pc.onicecandidateerror = (e) => console.error('[WebRTC] ICE Error:', e);
-
-    pc.onicecandidate = (e) => {
-        if (e.candidate && e.candidate.candidate && ws && ws.readyState === 1) {
-            ws.send(JSON.stringify({ type: 'ice-viewer', candidate: e.candidate, viewerId: myId }));
-        }
-    };
-
-    pc.ontrack = (e) => {
-        console.log(`[WebRTC] Received Track: ${e.track.kind}`);
-        if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
-        if (e.track.kind === 'video') {
-            if (USE_WEBCODECS) {
-                // WebCodecs mode: DataChannel is the real renderer.
-                // Attach the track to a silent video element just to keep
-                // the WebRTC engine happy (RTCP feedback, etc.) — never shown.
-                const sink = document.getElementById('video');
-                if (sink) {
-                    sink.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
-                    sink.style.display = 'none';
-                }
-                // Show the WebCodecs canvas layer; decoder will be configured
-                // when the host sends the 'webcodecs-config' DataChannel message.
-                if (wcCanvas) {
-                    wcCanvas.style.display = 'block';
-                }
-                console.log('[WebCodecs] Video track suppressed — DataChannel renderer active');
-                return;
+        let _iceFailCount = 0;
+        pc.onconnectionstatechange = () => {
+            console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
+            if (pc.connectionState === 'failed') {
+                _iceFailCount++;
+                const delay = _iceFailCount === 1 ? 500 : _iceFailCount === 2 ? 1500 : 3000;
+                console.warn(`[WebRTC] Connection failed (attempt ${_iceFailCount}) — retrying in ${delay}ms...`);
+                setStatus('Connection failed. Retrying...');
+                clearTimeout(_reconnectTimer);
+                _reconnectTimer = setTimeout(() => {
+                    if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
+                        ws.send(JSON.stringify({ type: 'request-offer' }));
+                    }
+                }, delay);
             }
-            // Normal WebRTC mode: attach to the primary #video element.
-            const videoEl = document.getElementById('video');
-            if (videoEl) {
-                videoEl.muted = true; // Required by Chrome/Safari to allow dynamic autoplay
-                videoEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
-                videoEl.play().catch(err => console.warn('[WebRTC] video.play() exception:', err));
-                let vfcLoop = () => {
-                    let handledByUpscaler = false;
-                    if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
-                        // GPU path (WebGPU) — highest priority
-                        if (_gpuUpscalerInstance && window._gpuCanvas) {
-                            const gpuC = window._gpuCanvas;
-                            if (gpuC.width !== videoEl.videoWidth || gpuC.height !== videoEl.videoHeight) {
-                                _updateUpscaleCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
-                                gpuC.width  = upscalerCanvas ? upscalerCanvas.width  : videoEl.videoWidth;
-                                gpuC.height = upscalerCanvas ? upscalerCanvas.height : videoEl.videoHeight;
+            if (pc.connectionState === 'connected') {
+                _iceFailCount = 0;
+            }
+            if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
+        };
+        pc.oniceconnectionstatechange = () => {
+            console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
+            if (pc.iceConnectionState === 'failed') {
+                console.warn('[WebRTC] ICE failed. Requesting fresh offer to recover...');
+                if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
+            }
+        };
+        pc.onsignalingstatechange = () => console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
+        pc.onicecandidateerror = (e) => console.error('[WebRTC] ICE Error:', e);
+    }
+
+    if (!(window._isP2P && window.P2PManager && window.P2PManager.clientSession && window.P2PManager.clientSession.pc)) {
+        pc.onicecandidate = (e) => {
+            if (e.candidate && e.candidate.candidate) {
+                console.log(`[WebRTC] ICE Candidate (Viewer): ${redactIp(e.candidate.candidate)}`);
+                const msg = { type: 'ice-viewer', candidate: e.candidate, targetSessionId: window.hostSessionId };
+                if (window.P2PManager && window._isP2P) {
+                    window.P2PManager.sendToHost(msg);
+                } else if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(msg));
+                }
+            }
+        };
+
+        pc.ontrack = (e) => {
+            console.log(`[WebRTC] Received Track: ${e.track.kind}`);
+            if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
+            if (e.track.kind === 'video') {
+                if (USE_WEBCODECS) {
+                    const sink = document.getElementById('video');
+                    if (sink) {
+                        sink.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                        sink.style.display = 'none';
+                    }
+                    if (wcCanvas) wcCanvas.style.display = 'block';
+                    console.log('[WebCodecs] Video track suppressed — DataChannel renderer active');
+                    return;
+                }
+                const videoEl = document.getElementById('video');
+                if (videoEl) {
+                    videoEl.muted = true;
+                    videoEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                    videoEl.play().catch(err => console.warn('[WebRTC] video.play() exception:', err));
+                    
+                    let vfcLoop = () => {
+                        let handledByUpscaler = false;
+                        if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+                            if (_gpuUpscalerInstance && window._gpuCanvas) {
+                                const gpuC = window._gpuCanvas;
+                                if (gpuC.width !== videoEl.videoWidth || gpuC.height !== videoEl.videoHeight) {
+                                    _updateUpscaleCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
+                                    gpuC.width  = upscalerCanvas ? upscalerCanvas.width  : videoEl.videoWidth;
+                                    gpuC.height = upscalerCanvas ? upscalerCanvas.height : videoEl.videoHeight;
+                                }
+                                gpuC.style.display = 'block';
+                                videoEl.style.opacity = '0.01';
+                                _gpuUpscalerInstance.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
+                                handledByUpscaler = _gpuUpscalerInstance.uploadAndDraw(videoEl) !== false;
                             }
-                            gpuC.style.display = 'block';
-                            videoEl.style.opacity = '0.01';
-                            _gpuUpscalerInstance.setMode(_upscaleMode > 0 ? _upscaleMode : 1);
-                            handledByUpscaler = _gpuUpscalerInstance.uploadAndDraw(videoEl) !== false;
+                            if (!handledByUpscaler && typeof _upscaleMode !== 'undefined' && _upscaleMode > 0 && typeof _webglSupported !== 'undefined' && _webglSupported && window.upscalerInstance && typeof upscalerCanvas !== 'undefined' && upscalerCanvas) {
+                                if (typeof _updateUpscaleCanvasSize === 'function') _updateUpscaleCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
+                                upscalerCanvas.style.display = 'block';
+                                videoEl.style.opacity = '0.01';
+                                handledByUpscaler = window.upscalerInstance.uploadAndDraw(videoEl) !== false;
+                            }
                         }
-                        // WebGL fallback path
-                        if (!handledByUpscaler && typeof _upscaleMode !== 'undefined' && _upscaleMode > 0 && typeof _webglSupported !== 'undefined' && _webglSupported && window.upscalerInstance && typeof upscalerCanvas !== 'undefined' && upscalerCanvas) {
-                            if (typeof _updateUpscaleCanvasSize === 'function') _updateUpscaleCanvasSize(videoEl.videoWidth, videoEl.videoHeight);
-                            upscalerCanvas.style.display = 'block';
-                            videoEl.style.opacity = '0.01';
-                            handledByUpscaler = window.upscalerInstance.uploadAndDraw(videoEl) !== false;
+                        if (!handledByUpscaler) {
+                            if (typeof upscalerCanvas !== 'undefined' && upscalerCanvas) upscalerCanvas.style.display = 'none';
+                            videoEl.style.opacity = '1';
                         }
+                        if (window._trackViewerFrame) window._trackViewerFrame();
+                    };
+    
+                    if (videoEl._currentRenderLoop) {
+                        videoEl._currentRenderLoop.active = false;
                     }
-                    if (!handledByUpscaler) {
-                        if (typeof upscalerCanvas !== 'undefined' && upscalerCanvas) upscalerCanvas.style.display = 'none';
-                        videoEl.style.opacity = '1';
+                    const loopCtx = { active: true };
+                    videoEl._currentRenderLoop = loopCtx;
+    
+                    if ('requestVideoFrameCallback' in videoEl) {
+                        function vfc() { 
+                            if (!loopCtx.active) return;
+                            vfcLoop(); 
+                            videoEl.requestVideoFrameCallback(vfc); 
+                        }
+                        videoEl.requestVideoFrameCallback(vfc);
+                    } else {
+                        function rafLoop() { 
+                            if (!loopCtx.active) return;
+                            vfcLoop(); 
+                            requestAnimationFrame(rafLoop); 
+                        }
+                        requestAnimationFrame(rafLoop);
                     }
-                    if (window._trackViewerFrame) window._trackViewerFrame();
-                };
-
-                // Clean up any previously running render loops to prevent CPU/memory leaks (force kill bug in Firefox)
-                if (videoEl._currentRenderLoop) {
-                    videoEl._currentRenderLoop.active = false;
+                    videoEl.onplaying = () => {
+                        if (typeof showOverlay === 'function') showOverlay(false);
+                        setStatus('');
+                        const spinner = document.getElementById('spinner');
+                        if (spinner) spinner.style.display = 'none';
+                        if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
+                            _swapOverlayEl.style.display = 'none';
+                        }
+                        const overlay = document.getElementById('overlay');
+                        if (overlay) overlay.style.backgroundColor = '';
+                    };
+                    console.log('[WebRTC] Video stream attached to #video');
                 }
-                const loopCtx = { active: true };
-                videoEl._currentRenderLoop = loopCtx;
-
-                if ('requestVideoFrameCallback' in videoEl) {
-                    function vfc() { 
-                        if (!loopCtx.active) return;
-                        vfcLoop(); 
-                        videoEl.requestVideoFrameCallback(vfc); 
-                    }
-                    videoEl.requestVideoFrameCallback(vfc);
-                } else {
-                    // Firefox Fallback
-                    function rafLoop() { 
-                        if (!loopCtx.active) return;
-                        vfcLoop(); 
-                        requestAnimationFrame(rafLoop); 
-                    }
-                    requestAnimationFrame(rafLoop);
+            } else if (e.track.kind === 'audio') {
+                let audioEl = document.getElementById('remote-audio');
+                if (!audioEl) {
+                    audioEl = document.createElement('audio');
+                    audioEl.id = 'remote-audio';
+                    audioEl.autoplay = true;
+                    document.body.appendChild(audioEl);
                 }
-                videoEl.onplaying = () => {
-                    if (typeof showOverlay === 'function') showOverlay(false);
-                    setStatus('');
-                    const spinner = document.getElementById('spinner');
-                    if (spinner) spinner.style.display = 'none';
-                    if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
-                        _swapOverlayEl.style.display = 'none';
-                    }
-                    const overlay = document.getElementById('overlay');
-                    if (overlay) overlay.style.backgroundColor = '';
-                };
-                console.log('[WebRTC] Video stream attached to #video');
+                const aStream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                audioEl.srcObject = aStream;
+                window._activeAudioStreams = window._activeAudioStreams || [];
+                window._activeAudioStreams.push(aStream);
+                audioEl.play().catch(err => console.warn('[WebRTC] Audio blocked:', err));
+                audioEl.muted = (typeof audioMuted !== 'undefined' ? audioMuted : false);
+                audioEl.volume = (typeof _audioPrefs !== 'undefined' && _audioPrefs.streamVol !== undefined) ? _audioPrefs.streamVol : 1.0;
+                console.log('[WebRTC] Audio stream attached to dedicated #remote-audio element');
             }
-        } else if (e.track.kind === 'audio') {
-            let audioEl = document.getElementById('remote-audio');
-            if (!audioEl) {
-                audioEl = document.createElement('audio');
-                audioEl.id = 'remote-audio';
-                audioEl.autoplay = true;
-                document.body.appendChild(audioEl);
-            }
-            const aStream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
-            audioEl.srcObject = aStream;
-            
-            // CRITICAL FIX: Chrome aggressive garbage collection bug
-            // If the MediaStream is only referenced by srcObject, Chrome will GC it ~15-20 mins in and kill the audio.
-            window._activeAudioStreams = window._activeAudioStreams || [];
-            window._activeAudioStreams.push(aStream);
-
-            audioEl.play().catch(e => console.warn('[WebRTC] Audio blocked:', e));
-            audioEl.muted = (typeof audioMuted !== 'undefined' ? audioMuted : false);
-            audioEl.volume = (typeof _audioPrefs !== 'undefined' && _audioPrefs.streamVol !== undefined) ? _audioPrefs.streamVol : 1.0;
-            console.log('[WebRTC] Audio stream attached to dedicated #remote-audio element');
-        }
-    };
+        };
+    }
     // ── EXPERIMENTAL WEBCODECS DATA CHANNEL RECEIVER ──
     let waitingForKeyframe = true;
 
@@ -767,8 +790,8 @@ async function createPC() {
         const channel = event.channel;
 
         // --- WEBCODECS VIDEO PIPELINE ---
-        if (channel.label === 'webcodecs') {
-            console.log('[WebRTC] DataChannel opened for WebCodecs payload: webcodecs');
+        if (channel.label === 'webcodecs' || channel.label === 'video' || channel.label === 'orp-video') {
+            console.log(`[WebRTC] DataChannel opened for WebCodecs payload: ${channel.label}`);
 
             const askForSync = () => {
                 console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
@@ -1247,7 +1270,7 @@ function startVAD(stream) {
         }
         vadTick();
         console.log('[VAD] Started');
-    } catch (e) { // <--- ADDED THE MISSING } RIGHT HERE
+    } catch (e) { 
         console.error('[VAD] Error:', e);
     }
 }
@@ -1519,6 +1542,8 @@ function sendInputData(data) {
         str = JSON.stringify(data);
     }
     
+    if (_inputDiag) _inputDiag.logSend({ type: isBin ? 'binary' : 'json', bytes: isBin ? data.byteLength : str.length }, { path: useVps ? 'vps' : (inputWs && inputWs.readyState === 1 ? 'ws' : 'webrtc') });
+
     // 1. WebTransport Unreliable Datagrams (lowest latency)
     if (window.wtInputWriter) {
         try {
@@ -2353,7 +2378,9 @@ function pollGamepad() {
     const forceHb = now - (lastGpSend[vIndex] || 0) > 100;
     if (changed || forceHb) {
         lastGpSend[vIndex] = now;
-        
+
+        if (_inputDiag) _inputDiag.logGamepad(state, { path: useVps ? 'vps' : (inputWs && inputWs.readyState === 1 ? 'ws' : 'webrtc'), redundancy: window.nsRedundancyEnabled, mode: window.currentInputMode });
+
         let forceJson = window.nsRedundancyEnabled && !window.tournamentMode;
         if (forceJson || useVps || (inputWs && inputWs.readyState === 1 && !window._fastLaneChannel)) {
             sendInputData(_packGamepadJson(vIndex, state));
@@ -2624,8 +2651,42 @@ async function connect() {
                 clearTimeout(window._p2pProgression3);
                 clearTimeout(window._p2pProgression4);
                 clearTimeout(window._p2pProgression5);
-                if (typeof setStatus === 'function') setStatus('Host found, negotiating P2P connection...');
-                if (typeof ws.onopen === 'function') ws.onopen();
+                if (typeof setStatus === 'function') setStatus('Host found, connecting...');
+                
+                // For ORP v2, the WebRTC PC is already created and connected inside ORPClient.
+                // We just extract the PC and bind the video/audio streams.
+                if (window.P2PManager.clientSession && window.P2PManager.clientSession.pc) {
+                    pc = window.P2PManager.clientSession.pc;
+                    
+                    // Emulate the tracks being received so the viewer UI wires them up
+                    pc.getReceivers().forEach(receiver => {
+                        if (receiver.track) {
+                            pc.ontrack({ track: receiver.track, streams: [new MediaStream([receiver.track])], receiver });
+                        }
+                    });
+                    
+                    // Emulate the datachannel being received for existing channels
+                    if (window.P2PManager.clientSession.dc) {
+                        pc.ondatachannel({ channel: window.P2PManager.clientSession.dc });
+                    }
+                    
+                    // Listen for incoming channels from ORPClient
+                    window.P2PManager.clientSession.on('datachannel', (channel) => {
+                        console.log(`[P2P] Received remote channel from ORPClient: ${channel.label}`);
+                        // If it's the host's input channel, let's use it for sendToHost!
+                        if (channel.label === 'orp-input' || channel.label === 'input') {
+                            window.P2PManager.clientSession.dc = channel; // override the local one
+                        }
+                        if (typeof pc.ondatachannel === 'function') {
+                            pc.ondatachannel({ channel });
+                        }
+                    });
+                    
+                    // Fire ws.onopen to start the rest of the viewer pipeline
+                    if (typeof ws.onopen === 'function') ws.onopen();
+                } else {
+                    if (typeof ws.onopen === 'function') ws.onopen();
+                }
             });
         }
         stopReconnect = false;
@@ -2642,8 +2703,11 @@ async function connect() {
             wsUrl = `${proto}://${wsHost}/ws/viewer`;
         }
 
+        
         if (enteredPin) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `pin=${encodeURIComponent(enteredPin)}`;
         if (enteredPassword) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `password=${encodeURIComponent(enteredPassword)}`;
+        const compAuth = urlParamsGlobal.get('companionAuth');
+        if (compAuth) wsUrl += (wsUrl.includes('?') ? '&' : '?') + `companionAuth=${encodeURIComponent(compAuth)}`;
         const sig = new Signaling();
         let _sigOnOpen, _sigOnMessage, _sigOnClose, _sigOnError;
         ws = {
@@ -2741,6 +2805,7 @@ async function connect() {
         // host never received the gpid and never registered the controller slot.
         gpStateObj.lastActiveId = null;
         sendJoinToWS();
+        _maybeStartInputDiag();
     };
 
     ws.onmessage = async (e) => {
@@ -4329,7 +4394,13 @@ function _wcRenderLoop() {
         if (wcCanvas.width !== frame.codedWidth || wcCanvas.height !== frame.codedHeight) {
             wcCanvas.width = frame.codedWidth;
             wcCanvas.height = frame.codedHeight;
-            if (wcCtx && wcGlTexture) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
+            if (_wcWebGPUContext && _wcWebGPUDevice) {
+                _wcWebGPUContext.configure({ device: _wcWebGPUDevice, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: 'opaque' });
+            } else if (wcCtx && wcGlTexture) {
+                wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+                if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+                wcGlTexture = _setupWebGL(wcCtx);
+            }
         }
         
         let handledByUpscaler = false;
@@ -4359,7 +4430,28 @@ function _wcRenderLoop() {
         }
         
         if (!handledByUpscaler) {
-            if (wcCtx && wcGlTexture) {
+            if (_webgpuSupported && _wcWebGPUContext) {
+                const bg = _wcWebGPUDevice.createBindGroup({
+                    layout: _wcWebGPUPipeline.getBindGroupLayout(0),
+                    entries: [
+                        { binding: 0, resource: _wcWebGPUSampler },
+                        { binding: 1, resource: _wcWebGPUDevice.importExternalTexture({ source: frame }) }
+                    ]
+                });
+                const encoder = _wcWebGPUDevice.createCommandEncoder();
+                const pass = encoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: _wcWebGPUContext.getCurrentTexture().createView(),
+                        clearValue: {r:0, g:0, b:0, a:1},
+                        loadOp: 'clear', storeOp: 'store'
+                    }]
+                });
+                pass.setPipeline(_wcWebGPUPipeline);
+                pass.setBindGroup(0, bg);
+                pass.draw(4);
+                pass.end();
+                _wcWebGPUDevice.queue.submit([encoder.finish()]);
+            } else if (wcCtx && wcGlTexture) {
                 if (_applyUpscaleFilter && (_lastAppliedUpscale === null || document.body.classList.contains('pixel-mode') !== (_upscaleMode === 2))) {
                     _applyUpscaleFilter();
                 }
@@ -4376,7 +4468,7 @@ function _wcRenderLoop() {
     }
 }
 
-function initWebCodecsViewer(config) {
+async function initWebCodecsViewer(config) {
     if (typeof VideoDecoder === 'undefined') {
         console.warn('[WebCodecs] VideoDecoder API is not available (likely an insecure HTTP context). Falling back to standard WebRTC.');
         return;
@@ -4408,22 +4500,51 @@ function initWebCodecsViewer(config) {
     
     wcCanvas.style.display = 'block';
 
-    if (!wcCtx) {
-        if (CUSTOM_WEBCODECS) {
-            wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
-            if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
-        } else {
-            wcCtx = null;
+    if (!wcCtx && !_wcWebGPUContext) {
+        if (CUSTOM_WEBCODECS && navigator.gpu) {
+            try {
+                _wcWebGPUDevice = await navigator.gpu.requestAdapter({powerPreference:'high-performance'}).then(a=>a.requestDevice());
+                _wcWebGPUContext = wcCanvas.getContext('webgpu');
+                _wcWebGPUContext.configure({ device: _wcWebGPUDevice, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: 'opaque' });
+                const shader = `
+                    struct VertexOutput { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
+                    @vertex fn vert_main(@builtin(vertex_index) vi: u32) -> VertexOutput {
+                        var pos = array<vec2f, 4>(vec2f(-1.0,-1.0), vec2f(1.0,-1.0), vec2f(-1.0,1.0), vec2f(1.0,1.0));
+                        var uv = array<vec2f, 4>(vec2f(0.0,1.0), vec2f(1.0,1.0), vec2f(0.0,0.0), vec2f(1.0,0.0));
+                        return VertexOutput(vec4f(pos[vi], 0.0, 1.0), uv[vi]);
+                    }
+                    @group(0) @binding(0) var mySampler: sampler;
+                    @group(0) @binding(1) var myTexture: texture_external;
+                    @fragment fn frag_main(@location(0) uv: vec2f) -> @location(0) vec4f {
+                        return textureSampleBaseClampToEdge(myTexture, mySampler, uv);
+                    }
+                `;
+                const module = _wcWebGPUDevice.createShaderModule({code:shader});
+                _wcWebGPUPipeline = _wcWebGPUDevice.createRenderPipeline({
+                    layout: 'auto',
+                    vertex: { module, entryPoint: 'vert_main' },
+                    fragment: { module, entryPoint: 'frag_main', targets: [{format: navigator.gpu.getPreferredCanvasFormat()}] },
+                    primitive: { topology: 'triangle-strip' }
+                });
+                _wcWebGPUSampler = _wcWebGPUDevice.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+                _webgpuSupported = true;
+                console.log('[WebGPU] Zero-copy rendering pipeline initialized successfully.');
+            } catch(e) { console.warn('[WebGPU] Initialization failed, falling back to WebGL', e); _webgpuSupported = false; }
         }
 
-        if (wcCtx) {
-            _webglSupported = true;
-            wcGlTexture = _setupWebGL(wcCtx);
-            _lastAppliedUpscale = null;
-        } else {
-            _webglSupported = false;
-            wcCtx = wcCanvas.getContext('2d', { alpha: false });
-            wcGlTexture = null;
+        if (!_webgpuSupported) {
+            if (CUSTOM_WEBCODECS) {
+                wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+                if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+            }
+            if (wcCtx) {
+                _webglSupported = true;
+                wcGlTexture = _setupWebGL(wcCtx);
+            } else {
+                _webglSupported = false;
+                wcCtx = wcCanvas.getContext('2d', { alpha: false });
+            }
+            console.log('[WebGL] Fallback rendering pipeline initialized.');
         }
     }
 
@@ -5294,3 +5415,22 @@ window.setUserVolume = function (targetId, volume) {
         volume: volume
     }));
 };
+
+// Input Diagnostics export — Ctrl+Shift+D or console: InputDiag.export()
+window.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        if (_inputDiag) {
+            const blob = _inputDiag.exportText(500);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `viewer-input-diag-${Date.now()}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+            console.log('[InputDiag] Exported text log');
+        } else {
+            console.log('[InputDiag] Not active — enable with ?diag=1 or localStorage ns_input_diag=1');
+        }
+    }
+});
+window.InputDiag = { export: () => _inputDiag?.exportText(500) };

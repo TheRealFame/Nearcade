@@ -7,6 +7,19 @@ const dgram = require('dgram');
 // ── Visualizer event bus — host.js listens on inputDriver.events ──────────────
 const events = new EventEmitter();
 
+// Input Diagnostics (host-side)
+let _hostDiag = null;
+function _maybeStartHostDiag() {
+    // Enable via env var NEARCADE_HOST_DIAG=1
+    if (process.env.NEARCADE_HOST_DIAG !== '1') return;
+    try {
+        const InputDiag = require('./input-diag.js');
+        _hostDiag = new InputDiag({ role: 'host', maxEvents: 5000 });
+        _hostDiag.start();
+        console.log('[HostDiag] Started');
+    } catch (e) { console.warn('[HostDiag] Failed to load:', e.message); }
+}
+
 // ── Shared Buffers for Zero-Copy Native C++ Submission ──
 // Buffer layout MUST match uinputBridge.cpp exactly.
 // GAMEPAD packet (16 bytes):
@@ -279,6 +292,7 @@ let activeInputStreams = new Set();
 function init(screenWidth, screenHeight) {
     _loadProfiles();
     _loadKbmCSV();
+    _maybeStartHostDiag();
 
     // 0. Try Native Rust NAPI-RS Orchestrator (Cross-Platform)
     try {
@@ -680,6 +694,7 @@ function _handleGamepad(msg) {
     _gpBuf[15] = slotIndex;
 
     _bridge.submitInputPacket(_gpBuf);
+    if (_hostDiag) _hostDiag.logEmit(viewerId, slotIndex, cppBtns, [msg.lx||0, msg.ly||0, msg.rx||0, msg.ry||0], { backend: 'native' });
     events.emit('input-packet', {
         source: 'gamepad', viewerId, slotIndex,
         buttons: msg.buttons || 0,
@@ -935,6 +950,7 @@ function _sendKbmStateToBuffer(slotIndex, state) {
     } else if (_pythonUdpPort > 0 && _udpSocket) {
         _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
     }
+    if (_hostDiag) _hostDiag.logEmit(viewerSlots.get(padId) || '', slotIndex, cppBtns, [state.lx||0, state.ly||0, state.rx||0, state.ry||0], { backend: _bridge ? 'native' : 'python' });
     events.emit('input-packet', {
         source: 'kbm', slotIndex,
         buttons: state.buttons,
@@ -1082,6 +1098,10 @@ function send(msg) {
         validated = msg;
     }
 
+    if (_hostDiag && validated?.type === 'gamepad') {
+        _hostDiag.logRecv(validated, { viewerId: validated.viewerId, path: _bridge ? 'native' : (_pythonProc ? 'python' : 'unknown') });
+    }
+
     const vid = msg.pad_id || msg.viewerId || msg.viewer_id;
     if (vid && !activeInputStreams.has(vid)) {
         activeInputStreams.add(vid);
@@ -1208,6 +1228,7 @@ function _processBinaryFrame(viewerId, padId, slotIndex, buf, offset) {
     } else if (_pythonUdpPort > 0 && _udpSocket) {
         _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
     }
+    if (_hostDiag) _hostDiag.logEmit(viewerId, slotIndex, cppBtns, [buf.readInt16LE(offset+4), buf.readInt16LE(offset+6), buf.readInt16LE(offset+8), buf.readInt16LE(offset+10)], { backend: _bridge ? 'native' : 'python' });
 }
 
 function sendBinary(viewerId, buf) {
