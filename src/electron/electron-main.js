@@ -342,13 +342,11 @@ if (isArcadeWorker && process.platform === 'linux') {
   }
 }
 
-// Maintainer decision: always run unsandboxed for maximum distro/setup
-// compatibility (broken shm mounts, AppArmor userns restrictions, root,
-// container quirks). Known cost: any Chromium renderer RCE runs with full
-// user privileges instead of being sandbox-contained — accepted risk, since
-// this app routinely renders untrusted remote content (viewer sessions,
-// arcade directory). Revisit if sandbox support stabilizes across targets.
-app.commandLine.appendSwitch('no-sandbox');
+// NOTE: --no-sandbox must stay CONDITIONAL (autoNoSandbox above). Forcing it
+// unconditionally turns recoverable shm hiccups into FATAL renderer hangs on
+// healthy-namespace systems (proven: sandboxed 0 FATALs + painted dashboard
+// vs unsandboxed FATAL + hang on the same box). Only userns-restricted, root,
+// or Gamescope sessions get it, where boot is impossible otherwise.
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('disable-gpu-vsync');
