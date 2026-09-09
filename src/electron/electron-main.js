@@ -274,23 +274,15 @@ app.commandLine.appendSwitch('disable-logging');
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 // Chromium FATAL-crashes the renderer when /dev/shm is unusable (bad perms,
-// too small, broken mount) and the whole app tears itself down with no
-// explanation. Probe it for real (create+write+delete); on failure fall back
-// to /tmp-backed shared memory and tell the user the permanent fix.
+// tiny/prohibited mount, container quirks) and the whole app tears itself
+// down with no explanation — blank dashboard, instant exit. A startup probe is
+// NOT sufficient: Node can write /dev/shm fine while Chromium's own access()
+// still fails, so gate nothing and always use the /tmp-backed shared memory
+// path (Chromium's blessed container mode). Permanent machine-side fix for
+// users who want shm back: sudo chmod 1777 /dev/shm
 if (process.platform === 'linux') {
-    let shmOk = false;
-    try {
-        const probe = '/dev/shm/.nearcade-writetest-' + process.pid;
-        const fd = fs.openSync(probe, 'wx', 0o600);
-        fs.writeSync(fd, 'x');
-        fs.closeSync(fd);
-        fs.unlinkSync(probe);
-        shmOk = true;
-    } catch (_) { shmOk = false; }
-    if (!shmOk) {
-        console.warn('[electron] /dev/shm is not writable — enabling --disable-dev-shm-usage so the renderer survives. Permanent fix: sudo chmod 1777 /dev/shm');
-        app.commandLine.appendSwitch('disable-dev-shm-usage');
-    }
+    console.log('[electron] Using --disable-dev-shm-usage (shared memory via /tmp) so broken /dev/shm mounts cannot kill the renderer. Machine fix if wanted: sudo chmod 1777 /dev/shm');
+    app.commandLine.appendSwitch('disable-dev-shm-usage');
 }
 
 if (process.platform === 'win32') {
