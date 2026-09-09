@@ -50,11 +50,10 @@ fn source_element(cfg: &Config) -> String {
         crate::ipc::info(format!("Headless PipeWire capture: node {node}"));
         return base::source_for_node(node);
     }
-    // Portal path lives in the Python backend for now.
-    crate::ipc::error(
-        "Portal capture is not implemented in the Rust backend yet; pass --node or keep the Python backend for portal fallback.",
-    );
-    std::process::exit(1);
+    // Portal capture is not implemented in the Rust backend yet.
+    // Return a clear error so the CaptureManager can fall back to Python.
+    eprintln!("[WebRTC] No PipeWire node specified and portal fallback not implemented in Rust backend. Falling back to Python.");
+    std::process::exit(2);
 }
 
 pub fn run(cfg: Config) {

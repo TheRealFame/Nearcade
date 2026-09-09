@@ -108,7 +108,7 @@ class CaptureManager {
         };
     }
 
-    // ── Windows DXGI (Zero-Copy) Implementation ─────────────────────────────
+    // ------ Windows DXGI (Zero-Copy) Implementation ---------------------------------------------------------------------------------------
 
     async _startWindowsDXGI({ width = 1920, height = 1080, fps = 60, bitrate = 15000000, sourceId = null, sourceName = null } = {}) {
         if (os.platform() !== 'win32') {
@@ -204,7 +204,7 @@ class CaptureManager {
         this._ffmpegPort = null;
     }
 
-    // ── PipeWire Implementation (Gamescope/SteamVR) ───────────────────────────
+    // ------ PipeWire Implementation (Gamescope/SteamVR) ---------------------------------------------------------------------------------
 
     async _startPipeWire({ width = 1920, height = 1080, fps = 90, bitrate = 15000000, display = null } = {}) {
         if (os.platform() !== 'linux') {
@@ -330,7 +330,7 @@ class CaptureManager {
         this._pipewireNodeName = null;
     }
 
-    // ── FFmpeg Implementation (Isolated) ──
+    // ------ FFmpeg Implementation (Isolated) ------
 
     async _startFFmpeg({ width = 1920, height = 1080, fps = 60, bitrate = 8000000 }) {
         if (os.platform() !== 'linux') throw new Error('FFmpeg experimental capture only supports Linux.');
@@ -405,7 +405,7 @@ class CaptureManager {
         return '/dev/dri/renderD128';
     }
 
-    // ── WiVRn Implementation (OpenXR Streaming + PipeWire Capture) ──────────
+    // ------ WiVRn Implementation (OpenXR Streaming + PipeWire Capture) ------------------------------
 
     async _startWiVRn({ width = 1920, height = 1080, fps = 90, bitrate = 20000000 } = {}) {
         if (os.platform() !== 'linux') {
@@ -527,7 +527,7 @@ class CaptureManager {
         this._wivrnIntegration.stopServer();
     }
 
-    // ── GStreamer WebRTC Implementation ──────────────────────────────
+    // ------ GStreamer WebRTC Implementation ------------------------------------------------------------------------------------------
 
     async _startGstWebRTC(options) {
         if (os.platform() !== 'linux') throw new Error('GStreamer WebRTC currently only supports Linux.');
@@ -564,6 +564,12 @@ class CaptureManager {
         }
 
         let cmd, args;
+        // Rust backend has no portal fallback: without a headless node it
+        // would exit immediately, so prefer Python up front in that case.
+        if (useRust && !nodeStr) {
+            console.log('[CaptureManager] No headless PipeWire node — Rust backend lacks portal fallback; using Python.');
+            useRust = false;
+        }
         if (useRust) {
             cmd = rustBin;
             args = ['--mode', 'webrtc'];

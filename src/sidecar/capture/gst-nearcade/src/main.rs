@@ -136,7 +136,7 @@ fn main() {
             }
             None => {
                 ipc::error("No headless PipeWire node found (and portal is not implemented in this build). Pass --node or use --test-src for headless checks.");
-                std::process::exit(1);
+                std::process::exit(2);
             }
         }
     };
