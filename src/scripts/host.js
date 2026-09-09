@@ -6139,8 +6139,10 @@ function togglePreview() {
     const mjpegImg = isGst ? document.getElementById('ns-gstreamer-mjpeg') : null;
 
     if (previewHidden) {
-        if (isGst && mjpegImg) {
-            mjpegImg.style.display = 'none';
+        if (isGst) {
+            if (mjpegImg) mjpegImg.style.display = 'none';
+            // Also hide the underlying video element (empty but present)
+            if (prev) prev.style.display = 'none';
         } else {
             prev.srcObject = null;
             prev.style.display = 'none';
@@ -6156,8 +6158,9 @@ function togglePreview() {
         if (btn) { btn.innerHTML = SVG_EYE_CLOSED; btn.style.color = 'var(--warn)'; }
         log(I18N.t('Preview hidden — stream unaffected'), 'ok');
     } else {
-        if (isGst && mjpegImg) {
-            mjpegImg.style.display = 'block';
+        if (isGst) {
+            if (mjpegImg) mjpegImg.style.display = 'block';
+            if (prev) prev.style.display = 'none'; // Keep video hidden, only show MJPEG
             if (overlay) overlay.classList.add('hidden');
         } else {
             prev.style.display = 'block';

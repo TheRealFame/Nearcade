@@ -206,8 +206,8 @@ class GstWebRTCBackend:
             t. ! queue max-size-buffers=1 leaky=downstream
               ! videoconvert
               ! videoscale ! video/x-raw,width=480,height=270
-              ! videorate ! video/x-raw,framerate=2/1
-              ! jpegenc quality=50
+              ! videorate ! video/x-raw,framerate=15/1
+              ! jpegenc quality=70
               ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false
               
             pulsesrc
@@ -251,16 +251,12 @@ class GstWebRTCBackend:
             emit_ipc({"type": "error", "message": "Pipeline failed to start (PLAYING state failed)."})
             sys.exit(1)
             
-    def on_new_thumbnail(self, sink):
+def on_new_thumbnail(self, sink):
         try:
-            # Belt-and-suspenders throttle: videorate caps the branch at 2fps,
-            # but appsink can still burst after stalls. Never emit more often
-            # than one preview every 400ms — the host preview is static UI,
-            # not video, and each frame costs a base64 IPC + WS + DOM decode.
+            # Throttle: 15fps cap (~66ms). Drain bursts after stalls.
             now = time.monotonic()
             last = getattr(self, '_last_thumb_ts', 0.0)
-            if now - last < 0.4:
-                # Drain the sample so the appsink queue doesn't back up.
+            if now - last < 0.066:
                 sink.emit("pull-sample")
                 return Gst.FlowReturn.OK
             sample = sink.emit("pull-sample")
@@ -278,9 +274,9 @@ class GstWebRTCBackend:
                 if not hasattr(self, 'frame_count'):
                     self.frame_count = 0
                 self.frame_count += 1
-                if self.frame_count % 10 == 0:
+                if self.frame_count % 50 == 0:
                     emit_ipc({"type": "info", "message": f"Thumbnail frame {self.frame_count}"})
-                
+            
         except Exception as e:
             emit_ipc({"type": "error", "message": f"Thumbnail error: {e}"})
         return Gst.FlowReturn.OK

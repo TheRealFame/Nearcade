@@ -1,8 +1,7 @@
 //! Single-preview thumbnail branch shared by both modes.
 //!
-//! Mirrors the throttled Python feed: 480x270 @ 2fps, JPEG q50, plus a 400ms
-//! minimum-interval guard so post-stall bursts drain instead of flooding the
-//! stdout IPC -> WebSocket -> img.src path.
+//! 480x270 @ 15fps, JPEG q70, plus a 66ms minimum-interval guard so post-stall
+//! bursts drain instead of flooding the stdout IPC -> WebSocket -> img.src path.
 
 use gstreamer as gst;
 use gstreamer_app as gst_app;
@@ -15,8 +14,8 @@ pub fn branch_desc() -> &'static str {
     "queue max-size-buffers=1 leaky=downstream \
      ! videoconvert \
      ! videoscale ! video/x-raw,width=480,height=270 \
-     ! videorate ! video/x-raw,framerate=2/1 \
-     ! jpegenc quality=50 \
+     ! videorate ! video/x-raw,framerate=15/1 \
+     ! jpegenc quality=70 \
      ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false"
 }
 
@@ -42,7 +41,7 @@ pub fn attach(pipeline: &gst::Pipeline) -> bool {
                 let now = Instant::now();
                 {
                     let mut l = last.lock().unwrap();
-                    if now.duration_since(*l) < Duration::from_millis(400) {
+                    if now.duration_since(*l) < Duration::from_millis(66) {
                         return Ok(gst::FlowSuccess::Ok);
                     }
                     *l = now;
