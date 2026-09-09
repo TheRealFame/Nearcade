@@ -273,6 +273,26 @@ app.commandLine.appendSwitch('log-level', '3'); // Suppress STUN timeouts & VSyn
 app.commandLine.appendSwitch('disable-logging');
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
+// Chromium FATAL-crashes the renderer when /dev/shm is unusable (bad perms,
+// too small, broken mount) and the whole app tears itself down with no
+// explanation. Probe it for real (create+write+delete); on failure fall back
+// to /tmp-backed shared memory and tell the user the permanent fix.
+if (process.platform === 'linux') {
+    let shmOk = false;
+    try {
+        const probe = '/dev/shm/.nearcade-writetest-' + process.pid;
+        const fd = fs.openSync(probe, 'wx', 0o600);
+        fs.writeSync(fd, 'x');
+        fs.closeSync(fd);
+        fs.unlinkSync(probe);
+        shmOk = true;
+    } catch (_) { shmOk = false; }
+    if (!shmOk) {
+        console.warn('[electron] /dev/shm is not writable — enabling --disable-dev-shm-usage so the renderer survives. Permanent fix: sudo chmod 1777 /dev/shm');
+        app.commandLine.appendSwitch('disable-dev-shm-usage');
+    }
+}
+
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
 }
