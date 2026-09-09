@@ -156,6 +156,14 @@
       "icon": "assets/NearcadeLogo.png",
       "category": "Game",
       "artifactName": "Nearcade-Linux.${ext}"
+    },
+    "deb": {
+      "afterInstall": "build/deb-after-install.sh",
+      "afterRemove": "build/deb-after-remove.sh"
+    },
+    "rpm": {
+      "afterInstall": "build/deb-after-install.sh",
+      "afterRemove": "build/deb-after-remove.sh"
     }
   }
 }
