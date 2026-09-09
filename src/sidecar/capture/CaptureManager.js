@@ -566,8 +566,14 @@ class CaptureManager {
         let cmd, args;
         // Rust backend has no portal fallback: without a headless node it
         // would exit immediately, so prefer Python up front in that case.
-        if (useRust && !nodeStr) {
-            console.log('[CaptureManager] No headless PipeWire node — Rust backend lacks portal fallback; using Python.');
+        // Also: if nodeStr is a portal token (window:X:Y or screen:X:Y), it's not a
+        // raw PipeWire serial — Rust can't use it. Python handles the fd+node flow.
+        const isPortalToken = nodeStr && (nodeStr.startsWith('window:') || nodeStr.startsWith('screen:'));
+        if (useRust && (!nodeStr || isPortalToken)) {
+            const reason = !nodeStr
+                ? 'No headless PipeWire node'
+                : 'Portal token (window:/screen:) — Rust lacks fd-based portal support';
+            console.log('[CaptureManager] ' + reason + ' — using Python.');
             useRust = false;
         }
         if (useRust) {
