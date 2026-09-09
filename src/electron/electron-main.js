@@ -273,6 +273,15 @@ app.commandLine.appendSwitch('log-level', '3'); // Suppress STUN timeouts & VSyn
 app.commandLine.appendSwitch('disable-logging');
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
+// Never touch the desktop keyring: on mixed gnome-keyring/KWallet boxes
+// Chromium's backend autodetect lands on the wrong store and begs for
+// unlock on every launch and at shutdown (even when the app never uses
+// safeStorage — Chromium encrypts its own cookies). 'basic' keeps an
+// obfuscated local store instead. This app's own secrets already live in
+// its plaintext config file, so no real secret protection is lost.
+// Override with NEARCADE_PASSWORD_STORE=gnome-libsecret|kwallet* if wanted.
+app.commandLine.appendSwitch('password-store', process.env.NEARCADE_PASSWORD_STORE || 'basic');
+
 // Chromium FATAL-crashes the renderer when /dev/shm is unusable (bad perms,
 // tiny/prohibited mount, container quirks) and the whole app tears itself
 // down with no explanation — blank dashboard, instant exit. A startup probe is
