@@ -98,9 +98,12 @@ jobs:
             cp src/sidecar/input_backends/rust_read_gamepads/target/release/read_gamepads $BIN/read_gamepads_macos.bin
 
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            echo "=== Building windows_vigem ==="
-            cd src/sidecar/input_backends/rust_vigem && cargo build --release && cd ../../../..
-            cp src/sidecar/input_backends/rust_vigem/target/release/windows_vigem.exe $BIN/windows_vigem.exe
+            echo "=== Building windows_vigem (optional) ==="
+            if cd src/sidecar/input_backends/rust_vigem && cargo build --release && cd ../../../..; then
+              cp src/sidecar/input_backends/rust_vigem/target/release/windows_vigem.exe $BIN/windows_vigem.exe;
+            else
+              echo "Warning: windows_vigem build failed, skipping";
+            fi
 
             echo "=== Building windows_hidmaestro ==="
             cd src/sidecar/input_backends/rust_hidmaestro && cargo build --release && cd ../../../..
