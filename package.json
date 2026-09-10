@@ -57,7 +57,7 @@
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.4",
     "electron": "^34.0.0",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^25.1.8",
     "wrangler": "^4.90.0"
   },
   "build": {
