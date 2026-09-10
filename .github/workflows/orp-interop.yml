@@ -36,7 +36,7 @@ jobs:
           cache-dependency-path: tools/open-remote-play/package-lock.json
 
       - name: Install ORP Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -124,7 +124,7 @@ jobs:
       - name: Install Root npm Dependencies
         if: runner.os == 'Linux'
         working-directory: .
-        run: npm ci
+        run: npm install
 
       - name: Nearcade Headless Verification
         if: runner.os == 'Linux'
