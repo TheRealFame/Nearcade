@@ -101,9 +101,8 @@ jobs:
             echo "=== Building windows_vigem (optional) ==="
             (cd src/sidecar/input_backends/rust_vigem && cargo build --release) && cp src/sidecar/input_backends/rust_vigem/target/release/windows_vigem.exe $BIN/windows_vigem.exe || echo "Warning: windows_vigem build failed, skipping"
 
-            echo "=== Building windows_hidmaestro ==="
-            cd src/sidecar/input_backends/rust_hidmaestro && cargo build --release && cd ../../../..
-            cp src/sidecar/input_backends/rust_hidmaestro/target/release/windows_hidmaestro.exe $BIN/windows_hidmaestro.exe
+            echo "=== Building windows_hidmaestro (optional) ==="
+            (cd src/sidecar/input_backends/rust_hidmaestro && cargo build --release) && cp src/sidecar/input_backends/rust_hidmaestro/target/release/windows_hidmaestro.exe $BIN/windows_hidmaestro.exe || echo "Warning: windows_hidmaestro build failed, skipping"
 
             echo "=== Building read_gamepads ==="
             cd src/sidecar/input_backends/rust_read_gamepads && cargo build --release && cd ../../../..
