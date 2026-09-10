@@ -173,7 +173,7 @@ jobs:
           elif [ "$RUNNER_OS" == "Linux" ]; then
             npx electron-builder --linux --publish always
           else
-            npx electron-builder --win --publish always
+            npx electron-builder --win --publish always --verbose
           fi
           
           if [ "$RUNNER_OS" == "Windows" ]; then
