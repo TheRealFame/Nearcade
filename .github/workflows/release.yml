@@ -165,6 +165,13 @@ jobs:
             rm -f checksums.txt
           fi
 
+      - name: Set version from tag
+        run: |
+          TAG="${{ github.ref_name }}"  # e.g. v3.0.6
+          VERSION="${TAG#v}"  # strip leading v
+          echo "Setting version to $VERSION"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
       - name: Build Electron App
         shell: bash
         run: |
