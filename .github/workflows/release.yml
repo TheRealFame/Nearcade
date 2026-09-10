@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Save Commit Hash
         run: echo "${{ github.sha }}" > commit.txt
@@ -197,6 +199,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Save Commit Hash
         run: echo "${{ github.sha }}" > commit.txt
