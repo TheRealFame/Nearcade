@@ -166,6 +166,7 @@ jobs:
           fi
 
       - name: Set version from tag
+        shell: bash
         run: |
           TAG="${{ github.ref_name }}"  # e.g. v3.0.6
           VERSION="${TAG#v}"  # strip leading v
