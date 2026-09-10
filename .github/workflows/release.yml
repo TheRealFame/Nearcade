@@ -277,6 +277,43 @@ jobs:
           for i in $(seq 1 30); do
             ASSETS=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")' 2>/dev/null || echo "")
             MISSING=""
+            # Only require latest-*.yml files for platforms that generate them
+            for f in latest-linux.yml latest-mac.yml; do
+              case " $ASSETS " in *" $f "*) ;; *) MISSING="$MISSING $f";; esac
+            done
+            # Windows portable doesn't generate latest.yml
+            # .zsync only for AppImage (optional)
+            # .blockmap only for some targets (optional)
+            if [ -z "$MISSING" ]; then echo "all required updater assets present: $ASSETS"; break; fi
+            echo "waiting for required:$MISSING (attempt $i/30)"
+            sleep 20
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::release $TAG missing required updater artifacts:$MISSING"
+            exit 1
+          fi
+          # Normal releases must not be marked beta, and vice versa.
+          if echo "$TAG" | grep -qiE "beta|alpha|rc[0-9]"; then
+            gh release edit "$TAG" --prerelease --title "$TAG (beta)" || true
+            echo "tagged as pre-release (beta tag)"
+          else
+            gh release edit "$TAG" --prerelease=false --draft=false || true
+            echo "tagged as normal release"
+          fi
+  runs-on: ubuntu-latest
+    needs: [release-desktop, release-android]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Verify updater metadata + release marking
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "verifying release $TAG ..."
+          MISSING=""
+          for i in $(seq 1 30); do
+            ASSETS=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")' 2>/dev/null || echo "")
+            MISSING=""
             for f in latest-linux.yml latest-mac.yml latest.yml; do
               case " $ASSETS " in *" $f "*) ;; *) MISSING="$MISSING $f";; esac
             done
