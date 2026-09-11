@@ -14,8 +14,8 @@ pub fn branch_desc() -> &'static str {
     "queue max-size-buffers=1 leaky=downstream \
      ! videoconvert \
      ! videoscale ! video/x-raw,width=480,height=270 \
-     ! videorate ! video/x-raw,framerate=15/1 \
-     ! jpegenc quality=70 \
+     ! videorate ! video/x-raw,framerate=60/1 \
+     ! jpegenc quality=60 \
      ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false"
 }
 
@@ -41,7 +41,7 @@ pub fn attach(pipeline: &gst::Pipeline) -> bool {
                 let now = Instant::now();
                 {
                     let mut l = last.lock().unwrap();
-                    if now.duration_since(*l) < Duration::from_millis(66) {
+                    if now.duration_since(*l) < Duration::from_millis(16) {
                         return Ok(gst::FlowSuccess::Ok);
                     }
                     *l = now;

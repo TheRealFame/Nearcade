@@ -206,8 +206,8 @@ class GstWebRTCBackend:
             t. ! queue max-size-buffers=1 leaky=downstream
               ! videoconvert
               ! videoscale ! video/x-raw,width=480,height=270
-              ! videorate ! video/x-raw,framerate=15/1
-              ! jpegenc quality=70
+              ! videorate ! video/x-raw,framerate=60/1
+              ! jpegenc quality=60
               ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false
               
             pulsesrc
@@ -253,10 +253,10 @@ class GstWebRTCBackend:
             
     def on_new_thumbnail(self, sink):
         try:
-            # Throttle: 15fps cap (~66ms). Drain bursts after stalls.
+            # Throttle: 60fps cap (~16ms). Drain bursts after stalls.
             now = time.monotonic()
             last = getattr(self, '_last_thumb_ts', 0.0)
-            if now - last < 0.066:
+            if now - last < 0.016:
                 # Drain the sample so the appsink queue doesn't back up.
                 sink.emit("pull-sample")
                 return Gst.FlowReturn.OK
