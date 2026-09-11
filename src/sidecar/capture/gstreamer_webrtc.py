@@ -183,21 +183,55 @@ class GstWebRTCBackend:
         #  - queue elements prevent blocking between encode and network stages
         #  - stun-server property gives webrtcbin public IP awareness
         # Auto-detect Hardware Encoding
-        # Force Software Encoder (x264enc) for all Linux captures.
-        # Hardware encoders like vaapih264enc frequently crash the GStreamer pipeline
-        # during DMABuf memory uploads, which kills both WebRTC and the thumbnail feed.
+        # Try VAAPI first, then NVENC, then AMF, fall back to x264enc.
+        # Uses DMABuf zero-copy from pipewiresrc when available.
         hw_encoder = "x264enc tune=zerolatency speed-preset=ultrafast byte-stream=true"
-        emit_ipc({"type": "info", "message": "Using stable Software Encoder (x264enc)"})
+        encoder_name = "x264enc (software fallback)"
+        needs_capsfilter = False
+
+        # Check for VAAPI (Intel/AMD)
+        import subprocess
+        try:
+            subprocess.run(["vainfo"], capture_output=True, check=True, timeout=2)
+            hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+            encoder_name = "vaapih264enc (VAAPI)"
+            needs_capsfilter = True
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Check for NVENC (NVIDIA)
+        if encoder_name == "x264enc (software fallback)":
+            try:
+                subprocess.run(["nvidia-smi"], capture_output=True, check=True, timeout=2)
+                hw_encoder = "nvh264enc preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"
+                encoder_name = "nvh264enc (NVENC)"
+                needs_capsfilter = True
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        # Check for AMD AMF
+        if encoder_name == "x264enc (software fallback)":
+            try:
+                subprocess.run(["clinfo"], capture_output=True, check=True, timeout=2)
+                hw_encoder = "amfh264enc usage=transcoding bitrate=8000 gop-size=30 rate-control=cbr"
+                encoder_name = "amfh264enc (AMF)"
+                needs_capsfilter = True
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        emit_ipc({"type": "info", "message": f"Using encoder: {encoder_name}"})
+
+        capsfilter = "! video/x-raw,format=NV12" if needs_capsfilter else ""
 
         PIPELINE_DESC = f"""
             webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN_SERVER}
             
             {capture_element} do-timestamp=true
-              ! video/x-raw ! videoconvert
+              ! video/x-raw
               ! tee name=t
               
             t. ! queue max-size-time=500000000 leaky=downstream
-              ! videoconvert
+              {capsfilter}
               ! {hw_encoder}
               ! rtph264pay config-interval=-1 aggregate-mode=zero-latency
               ! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000
