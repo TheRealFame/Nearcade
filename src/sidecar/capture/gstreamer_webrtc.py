@@ -150,6 +150,9 @@ class GstWebRTCBackend:
         # User has up to 60 s to make a selection
         GLib.timeout_add_seconds(60, portal_loop.quit)
         portal_loop.run()
+        
+        # Keep session alive by not closing the session handle
+        # The fd should remain valid as long as the session is alive
         return fd_out, node_id_out
 
     # ── Init ──────────────────────────────────────────────────────────────────
@@ -194,29 +197,46 @@ class GstWebRTCBackend:
         encoder_name = "x264enc (software fallback)"
         needs_capsfilter = False
 
-        # Check for VAAPI (Intel/AMD) - check for H.264, H.265, VP9, AV1 support
+        # Check for VAAPI (Intel/AMD) - check for H.264, H.265, VP9, AV1 ENCODE support
         import subprocess
         try:
             result = subprocess.run(["vainfo"], capture_output=True, text=True, check=True, timeout=2)
             vaapi_output = result.stdout
-            # Check for VAAPI encoder support
-            if "VAEntrypointEncSlice" in vaapi_output:
-                if "VAProfileH265Main" in vaapi_output or "VAProfileH265Main10" in vaapi_output:
-                    hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                    encoder_name = "vaapih265enc (VAAPI)"
-                    needs_capsfilter = True
-                elif "VAProfileVP9Profile0" in vaapi_output:
-                    hw_encoder = "vaapivp9enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                    encoder_name = "vaapivp9enc (VAAPI)"
-                    needs_capsfilter = True
-                elif "VAProfileAV1Profile0" in vaapi_output:
-                    hw_encoder = "vaapiav1enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                    encoder_name = "vaapiav1enc (VAAPI)"
-                    needs_capsfilter = True
-                else:
-                    hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                    encoder_name = "vaapih264enc (VAAPI)"
-                    needs_capsfilter = True
+            
+            # Parse per-line to check for EncSlice on each profile
+            lines = vaapi_output.split('\n')
+            has_h264_enc = False
+            has_h265_enc = False
+            has_vp9_enc = False
+            has_av1_enc = False
+            
+            for line in lines:
+                if 'VAEntrypointEncSlice' in line:
+                    if 'H264' in line:
+                        has_h264_enc = True
+                    if 'HEVC' in line or 'H265' in line:
+                        has_h265_enc = True
+                    if 'VP9' in line:
+                        has_vp9_enc = True
+                    if 'AV1' in line:
+                        has_av1_enc = True
+            
+            if has_h265_enc:
+                hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                encoder_name = "vaapih265enc (VAAPI)"
+                needs_capsfilter = True
+            elif has_vp9_enc:
+                hw_encoder = "vaapivp9enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                encoder_name = "vaapivp9enc (VAAPI)"
+                needs_capsfilter = True
+            elif "VAProfileAV1Profile0" in vaapi_output and "VAEntrypointEncSlice" in vaapi_output:
+                hw_encoder = "vaapiav1enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                encoder_name = "vaapiav1enc (VAAPI)"
+                needs_capsfilter = True
+            elif "VAProfileH264Main" in vaapi_output and "VAEntrypointEncSlice" in vaapi_output:
+                hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                encoder_name = "vaapih264enc (VAAPI)"
+                needs_capsfilter = True
             emit_ipc({"type": "info", "message": f"VAAPI available: {encoder_name}"})
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -302,8 +322,10 @@ class GstWebRTCBackend:
             webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN_SERVER}
             
             {capture_element}
-              ! capsfilter caps=video/x-raw,format=NV12
               ! videoconvert
+              ! queue max-size-buffers=4
+              ! capsfilter caps=video/x-raw,format=NV12
+              ! queue max-size-buffers=4
               ! tee name=t
               
             t. ! queue max-size-time=500000000 leaky=downstream
@@ -329,7 +351,7 @@ class GstWebRTCBackend:
               ! queue max-size-time=500000000 leaky=downstream
               ! sendrecv.
         """
-
+        
         try:
             self.pipe = Gst.parse_launch(PIPELINE_DESC)
         except GLib.Error as e:
