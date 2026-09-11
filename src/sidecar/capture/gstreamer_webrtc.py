@@ -163,8 +163,13 @@ class GstWebRTCBackend:
         args, _ = parser.parse_known_args()
 
         # ── Resolve capture source ─────────────────────────────────────────
-        if args.node:
-            capture_element = f"pipewiresrc path={args.node}"
+        # Portal tokens (window:X:Y or screen:X:Y) are not headless node IDs.
+        # They indicate the user selected a window/screen via the portal.
+        # In this case, we must trigger the portal flow to get fd+node_id.
+        is_portal_token = args.node and (args.node.startswith('window:') or args.node.startswith('screen:'))
+        
+        if args.node and not is_portal_token:
+            capture_element = f"pipewiresrc path={args.node} do-timestamp=true"
             emit_ipc({"type": "info", "message": f"Headless PipeWire capture: node {args.node}"})
         else:
             emit_ipc({"type": "info", "message": "Requesting Wayland XDG Portal capture..."})
@@ -172,7 +177,7 @@ class GstWebRTCBackend:
             if fd is None:
                 emit_ipc({"type": "error", "message": "Portal denied or timed out."})
                 sys.exit(1)
-            capture_element = f"pipewiresrc fd={fd} path={node_id}"
+            capture_element = f"pipewiresrc fd={fd} path={node_id} do-timestamp=true"
             emit_ipc({"type": "info", "message": f"Portal capture: fd={fd} node={node_id}"})
 
         # ── Pipeline ───────────────────────────────────────────────────────
@@ -221,17 +226,18 @@ class GstWebRTCBackend:
 
         emit_ipc({"type": "info", "message": f"Using encoder: {encoder_name}"})
 
-        capsfilter = "! video/x-raw,format=NV12" if needs_capsfilter else ""
+        capsfilter = "capsfilter caps=video/x-raw,format=NV12" if needs_capsfilter else ""
 
         PIPELINE_DESC = f"""
             webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN_SERVER}
             
-            {capture_element} do-timestamp=true
-              ! video/x-raw
+            {capture_element}
+              ! capsfilter caps=video/x-raw,format=NV12
+              ! videoconvert
               ! tee name=t
               
             t. ! queue max-size-time=500000000 leaky=downstream
-              {capsfilter}
+              ! videoconvert
               ! {hw_encoder}
               ! rtph264pay config-interval=-1 aggregate-mode=zero-latency
               ! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000
