@@ -194,39 +194,103 @@ class GstWebRTCBackend:
         encoder_name = "x264enc (software fallback)"
         needs_capsfilter = False
 
-        # Check for VAAPI (Intel/AMD)
+        # Check for VAAPI (Intel/AMD) - check for H.264, H.265, VP9, AV1 support
         import subprocess
         try:
-            subprocess.run(["vainfo"], capture_output=True, check=True, timeout=2)
-            hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-            encoder_name = "vaapih264enc (VAAPI)"
-            needs_capsfilter = True
+            result = subprocess.run(["vainfo"], capture_output=True, text=True, check=True, timeout=2)
+            vaapi_output = result.stdout
+            # Check for VAAPI encoder support
+            if "VAEntrypointEncSlice" in vaapi_output:
+                if "VAProfileH265Main" in vaapi_output or "VAProfileH265Main10" in vaapi_output:
+                    hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                    encoder_name = "vaapih265enc (VAAPI)"
+                    needs_capsfilter = True
+                elif "VAProfileVP9Profile0" in vaapi_output:
+                    hw_encoder = "vaapivp9enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                    encoder_name = "vaapivp9enc (VAAPI)"
+                    needs_capsfilter = True
+                elif "VAProfileAV1Profile0" in vaapi_output:
+                    hw_encoder = "vaapiav1enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                    encoder_name = "vaapiav1enc (VAAPI)"
+                    needs_capsfilter = True
+                else:
+                    hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                    encoder_name = "vaapih264enc (VAAPI)"
+                    needs_capsfilter = True
+            emit_ipc({"type": "info", "message": f"VAAPI available: {encoder_name}"})
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-        # Check for NVENC (NVIDIA)
+        # Check for NVENC (NVIDIA) - check for H.264, H.265, VP9, AV1 support
         if encoder_name == "x264enc (software fallback)":
             try:
                 subprocess.run(["nvidia-smi"], capture_output=True, check=True, timeout=2)
-                hw_encoder = "nvh264enc preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"
-                encoder_name = "nvh264enc (NVENC)"
+                # Check for NVENC capabilities via gst-inspect
+                result = subprocess.run(["gst-inspect-1.0", "nvh265enc"], capture_output=True, text=True, timeout=2)
+                if result.returncode == 0:
+                    hw_encoder = "nvh265enc preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"
+                    encoder_name = "nvh265enc (NVENC)"
+                else:
+                    hw_encoder = "nvh264enc preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"
+                    encoder_name = "nvh264enc (NVENC)"
                 needs_capsfilter = True
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 pass
 
-        # Check for AMD AMF
+        # Check for AMD AMF - check for H.264, H.265, VP9 support
         if encoder_name == "x264enc (software fallback)":
             try:
-                subprocess.run(["clinfo"], capture_output=True, check=True, timeout=2)
-                hw_encoder = "amfh264enc usage=transcoding bitrate=8000 gop-size=30 rate-control=cbr"
-                encoder_name = "amfh264enc (AMF)"
+                result = subprocess.run(["gst-inspect-1.0", "amfh265enc"], capture_output=True, timeout=2)
+                if result.returncode == 0:
+                    hw_encoder = "amfh265enc usage=transcoding bitrate=8000 gop-size=30 rate-control=cbr"
+                    encoder_name = "amfh265enc (AMF)"
+                else:
+                    hw_encoder = "amfh264enc usage=transcoding bitrate=8000 gop-size=30 rate-control=cbr"
+                    encoder_name = "amfh264enc (AMF)"
                 needs_capsfilter = True
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 pass
 
-        emit_ipc({"type": "info", "message": f"Using encoder: {encoder_name}"})
+        # Determine supported codecs based on encoder
+        supported_codecs = ["H264"]
+        if "vaapih264enc" in hw_encoder:
+            supported_codecs.extend(["H265", "VP9"])
+        elif "vaapih265enc" in hw_encoder:
+            supported_codecs.extend(["H264", "VP9", "AV1"])
+        elif "vaapivp9enc" in hw_encoder:
+            supported_codecs.extend(["H264", "H265", "AV1"])
+        elif "vaapiav1enc" in hw_encoder:
+            supported_codecs.extend(["H264", "H265", "VP9"])
+        elif "nvh264enc" in hw_encoder:
+            supported_codecs.extend(["H265", "VP9"])
+        elif "nvh265enc" in hw_encoder:
+            supported_codecs.extend(["H264", "VP9", "AV1"])
+        elif "amfh264enc" in hw_encoder:
+            supported_codecs.extend(["H265", "VP9"])
+        elif "amfh265enc" in hw_encoder:
+            supported_codecs.extend(["H264", "VP9"])
+        elif "x264enc" in hw_encoder:
+            supported_codecs = ["H264"]
 
-        capsfilter = "capsfilter caps=video/x-raw,format=NV12" if needs_capsfilter else ""
+        emit_ipc({"type": "info", "message": f"Using encoder: {encoder_name}"})
+        emit_ipc({"type": "info", "message": f"Supported codecs: {', '.join(supported_codecs)}"})
+
+        # Select rtppay element based on encoder
+        if "vaapih264enc" in hw_encoder or "nvh264enc" in hw_encoder or "amfh264enc" in hw_encoder or "x264enc" in hw_encoder:
+            rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
+            rtp_caps = "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
+        elif "vaapih265enc" in hw_encoder or "nvh265enc" in hw_encoder or "amfh265enc" in hw_encoder:
+            rtppay = "rtph265pay"
+            rtp_caps = "application/x-rtp,media=video,encoding-name=H265,payload=96,clock-rate=90000"
+        elif "vaapivp9enc" in hw_encoder or "nvvp9enc" in hw_encoder:
+            rtppay = "rtpvp9pay"
+            rtp_caps = "application/x-rtp,media=video,encoding-name=VP9,payload=96,clock-rate=90000"
+        elif "vaapiav1enc" in hw_encoder or "nvav1enc" in hw_encoder:
+            rtppay = "rtpav1pay"
+            rtp_caps = "application/x-rtp,media=video,encoding-name=AV1,payload=96,clock-rate=90000"
+        else:
+            rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
+            rtp_caps = "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
 
         PIPELINE_DESC = f"""
             webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN_SERVER}
@@ -239,8 +303,8 @@ class GstWebRTCBackend:
             t. ! queue max-size-time=500000000 leaky=downstream
               ! queue max-size-buffers=4
               ! {hw_encoder}
-              ! rtph264pay config-interval=-1 aggregate-mode=zero-latency
-              ! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000
+              ! {rtppay}
+              ! {rtp_caps}
               ! sendrecv.
               
             t. ! queue max-size-buffers=1 leaky=downstream
