@@ -597,7 +597,10 @@ class CaptureManager {
             }
             cmd = 'python3';
             args = ['-u', pyScript];
-            if (nodeStr) args.push('--node', nodeStr);
+            // Only pass --node for headless PipeWire nodes (numeric serials).
+            // Portal tokens (window:/screen:) trigger Python's internal portal flow;
+            // passing them as --node makes Python treat them as headless node IDs.
+            if (nodeStr && !isPortalToken) args.push('--node', nodeStr);
             console.log('[CaptureManager] Spawning GStreamer WebRTC Python Daemon with args:', args);
         }
         this._gstProc = spawn(cmd, args, {
