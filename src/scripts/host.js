@@ -2528,32 +2528,11 @@ async function startCapture() {
         if (document.getElementById('pipelineSelect')?.value === 'gstreamer_webrtc') {
             log('Starting Native C++ GStreamer WebRTC Daemon...', 'warn');
             
-            // On Linux, we MUST getDisplayMedia first to trigger the portal
-            // and get a valid PipeWire node ID. The sourceId from the modal
-            // is just metadata; pipewiresrc needs an active portal session.
+            // The Python daemon handles the full XDG Desktop Portal flow internally
+            // (CreateSession -> SelectSources -> Start -> OpenPipeWireRemote)
+            // to get both the fd and node_id needed for pipewiresrc.
+            // We just pass the user-selected source metadata.
             let gstSourceId = selectedSourceId;
-            if (navigator.userAgent.toLowerCase().includes('linux')) {
-                try {
-                    log('Requesting screen share via portal for GStreamer...', 'ok');
-                    const portalStream = await navigator.mediaDevices.getDisplayMedia({
-                        video: { cursor: 'never' },
-                        audio: false
-                    });
-                    const vTrack = portalStream.getVideoTracks()[0];
-                    if (vTrack) {
-                        const settings = vTrack.getSettings();
-                        // On PipeWire, deviceId is the PipeWire node ID
-                        if (settings.deviceId) {
-                            gstSourceId = settings.deviceId;
-                            log(`Portal session active — PipeWire node: ${gstSourceId}`, 'ok');
-                        }
-                        // Stop the portal stream — we just needed the node ID
-                        vTrack.stop();
-                    }
-                } catch (e) {
-                    log('Portal request failed: ' + e.message, 'err');
-                }
-            }
             
             try {
                 const res = await fetch('/api/capture/start', {

@@ -164,7 +164,7 @@ class GstWebRTCBackend:
 
         # ── Resolve capture source ─────────────────────────────────────────
         if args.node:
-            capture_element = f"pipewiresrc target-object={args.node}"
+            capture_element = f"pipewiresrc path={args.node}"
             emit_ipc({"type": "info", "message": f"Headless PipeWire capture: node {args.node}"})
         else:
             emit_ipc({"type": "info", "message": "Requesting Wayland XDG Portal capture..."})
