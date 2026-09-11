@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 pub fn branch_desc() -> &'static str {
     "queue max-size-buffers=1 leaky=downstream \
      ! videoconvert \
-     ! videoscale ! video/x-raw,width=480,height=270 \
+     ! videoscale ! video/x-raw,width=1280,height=720 \
      ! videorate ! video/x-raw,framerate=60/1 \
-     ! jpegenc quality=60 \
+     ! jpegenc quality=65 \
      ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false"
 }
 
