@@ -2107,9 +2107,9 @@ async function showSourceSelectionModal() {
     const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
 
     // Only show modal if electronAPI is available AND we are not on Linux or macOS.
-    // For GStreamer on Linux, we need getDisplayMedia() to trigger the portal first
-    // (handled in the GStreamer interceptor), so don't bypass here.
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || (isLinux && !isGStreamer) || isMac) {
+    // For GStreamer on Linux, the Python daemon handles the XDG portal flow internally
+    // (CreateSession -> SelectSources -> Start -> OpenPipeWireRemote), so bypass here.
+    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac) {
         if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
         else log(I18N.t('Source selection not available on this platform'), 'warn');
 
