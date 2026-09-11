@@ -237,17 +237,25 @@ class GstWebRTCBackend:
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 pass
 
-        # Check for AMD AMF - check for H.264, H.265, VP9 support
+        # Check for AMD VAAPI/Vulkan encoders
         if encoder_name == "x264enc (software fallback)":
             try:
-                result = subprocess.run(["gst-inspect-1.0", "amfh265enc"], capture_output=True, timeout=2)
+                result = subprocess.run(["gst-inspect-1.0", "vulkanh264enc"], capture_output=True, timeout=2)
                 if result.returncode == 0:
-                    hw_encoder = "amfh265enc usage=transcoding bitrate=8000 gop-size=30 rate-control=cbr"
-                    encoder_name = "amfh265enc (AMF)"
+                    hw_encoder = "vulkanh264enc rate-control=cbr bitrate=8000 gop-size=30"
+                    encoder_name = "vulkanh264enc (Vulkan/AMD)"
+                    needs_capsfilter = True
                 else:
-                    hw_encoder = "amfh264enc usage=transcoding bitrate=8000 gop-size=30 rate-control=cbr"
-                    encoder_name = "amfh264enc (AMF)"
-                needs_capsfilter = True
+                    # Try VAAPI AMD
+                    result = subprocess.run(["gst-inspect-1.0", "vaapih265enc"], capture_output=True, timeout=2)
+                    if result.returncode == 0:
+                        hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                        encoder_name = "vaapih265enc (VAAPI/AMD)"
+                        needs_capsfilter = True
+                    else:
+                        hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                        encoder_name = "vaapih264enc (VAAPI/AMD)"
+                        needs_capsfilter = True
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 pass
 
@@ -265,10 +273,8 @@ class GstWebRTCBackend:
             supported_codecs.extend(["H265", "VP9"])
         elif "nvh265enc" in hw_encoder:
             supported_codecs.extend(["H264", "VP9", "AV1"])
-        elif "amfh264enc" in hw_encoder:
-            supported_codecs.extend(["H265", "VP9"])
-        elif "amfh265enc" in hw_encoder:
-            supported_codecs.extend(["H264", "VP9"])
+        elif "vulkanh264enc" in hw_encoder:
+            supported_codecs.extend(["H265"])
         elif "x264enc" in hw_encoder:
             supported_codecs = ["H264"]
 
@@ -276,16 +282,16 @@ class GstWebRTCBackend:
         emit_ipc({"type": "info", "message": f"Supported codecs: {', '.join(supported_codecs)}"})
 
         # Select rtppay element based on encoder
-        if "vaapih264enc" in hw_encoder or "nvh264enc" in hw_encoder or "amfh264enc" in hw_encoder or "x264enc" in hw_encoder:
+        if "vaapih264enc" in hw_encoder or "nvh264enc" in hw_encoder or "vulkanh264enc" in hw_encoder or "x264enc" in hw_encoder:
             rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
             rtp_caps = "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
-        elif "vaapih265enc" in hw_encoder or "nvh265enc" in hw_encoder or "amfh265enc" in hw_encoder:
+        elif "vaapih265enc" in hw_encoder or "nvh265enc" in hw_encoder:
             rtppay = "rtph265pay"
             rtp_caps = "application/x-rtp,media=video,encoding-name=H265,payload=96,clock-rate=90000"
         elif "vaapivp9enc" in hw_encoder or "nvvp9enc" in hw_encoder:
             rtppay = "rtpvp9pay"
             rtp_caps = "application/x-rtp,media=video,encoding-name=VP9,payload=96,clock-rate=90000"
-        elif "vaapiav1enc" in hw_encoder or "nvav1enc" in hw_encoder:
+        elif "vaapiav1enc" in hw_encoder:
             rtppay = "rtpav1pay"
             rtp_caps = "application/x-rtp,media=video,encoding-name=AV1,payload=96,clock-rate=90000"
         else:
