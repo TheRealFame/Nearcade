@@ -191,55 +191,18 @@ class GstWebRTCBackend:
         #  - queue elements prevent blocking between encode and network stages
         #  - stun-server property gives webrtcbin public IP awareness
         # Auto-detect Hardware Encoding
-        # Try VAAPI first, then NVENC, then AMF, fall back to x264enc.
-        # Uses DMABuf zero-copy from pipewiresrc when available.
+        # For portal-based capture, use software encoder (x264enc) because the XDG Desktop Portal
+        # provides RGBA/BGRA format, but hardware encoders (vaapih264enc, vaapih265enc, etc.)
+        # require NV12 input. The NV12 requirement propagates upstream and causes negotiation
+        # failure with the portal. Hardware encoding is used for headless PipeWire nodes
+        # (Gamescope/SteamVR) via the Rust backend.
         hw_encoder = "x264enc tune=zerolatency speed-preset=ultrafast byte-stream=true"
-        encoder_name = "x264enc (software fallback)"
+        encoder_name = "x264enc (software)"
         needs_capsfilter = False
+        emit_ipc({"type": "info", "message": "Using stable Software Encoder (x264enc) for portal capture"})
 
-        # Check for VAAPI (Intel/AMD) - check for H.264, H.265, VP9, AV1 ENCODE support
-        import subprocess
-        try:
-            result = subprocess.run(["vainfo"], capture_output=True, text=True, check=True, timeout=2)
-            vaapi_output = result.stdout
-            
-            # Parse per-line to check for EncSlice on each profile
-            lines = vaapi_output.split('\n')
-            has_h264_enc = False
-            has_h265_enc = False
-            has_vp9_enc = False
-            has_av1_enc = False
-            
-            for line in lines:
-                if 'VAEntrypointEncSlice' in line:
-                    if 'H264' in line:
-                        has_h264_enc = True
-                    if 'HEVC' in line or 'H265' in line:
-                        has_h265_enc = True
-                    if 'VP9' in line:
-                        has_vp9_enc = True
-                    if 'AV1' in line:
-                        has_av1_enc = True
-            
-            if has_h265_enc:
-                hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                encoder_name = "vaapih265enc (VAAPI)"
-                needs_capsfilter = True
-            elif has_vp9_enc:
-                hw_encoder = "vaapivp9enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                encoder_name = "vaapivp9enc (VAAPI)"
-                needs_capsfilter = True
-            elif "VAProfileAV1Profile0" in vaapi_output and "VAEntrypointEncSlice" in vaapi_output:
-                hw_encoder = "vaapiav1enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                encoder_name = "vaapiav1enc (VAAPI)"
-                needs_capsfilter = True
-            elif "VAProfileH264Main" in vaapi_output and "VAEntrypointEncSlice" in vaapi_output:
-                hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                encoder_name = "vaapih264enc (VAAPI)"
-                needs_capsfilter = True
-            emit_ipc({"type": "info", "message": f"VAAPI available: {encoder_name}"})
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+        # Hardware encoders (VAAPI/NVENC/Vulkan) are only used for headless PipeWire nodes
+        # via the Rust backend (gst-nearcade), which receives NV12 directly from the compositor.
 
         # Check for NVENC (NVIDIA) - check for H.264, H.265, VP9, AV1 support
         if encoder_name == "x264enc (software fallback)":
@@ -266,28 +229,47 @@ class GstWebRTCBackend:
                     encoder_name = "vulkanh264enc (Vulkan/AMD)"
                     needs_capsfilter = True
                 else:
-                    # Try VAAPI AMD
+                    # Try VAAPI AMD - check both vaapi and va plugins
                     result = subprocess.run(["gst-inspect-1.0", "vaapih265enc"], capture_output=True, timeout=2)
                     if result.returncode == 0:
                         hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
                         encoder_name = "vaapih265enc (VAAPI/AMD)"
                         needs_capsfilter = True
                     else:
-                        hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                        encoder_name = "vaapih264enc (VAAPI/AMD)"
-                        needs_capsfilter = True
+                        # Try va plugin AMD encoders
+                        result = subprocess.run(["gst-inspect-1.0", "vah265enc"], capture_output=True, timeout=2)
+                        if result.returncode == 0:
+                            hw_encoder = "vah265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                            encoder_name = "vah265enc (VAAPI/AMD)"
+                            needs_capsfilter = True
+                        else:
+                            result = subprocess.run(["gst-inspect-1.0", "vaapih264enc"], capture_output=True, timeout=2)
+                            if result.returncode == 0:
+                                hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                                encoder_name = "vaapih264enc (VAAPI/AMD)"
+                                needs_capsfilter = True
+                            else:
+                                result = subprocess.run(["gst-inspect-1.0", "vah264enc"], capture_output=True, timeout=2)
+                                if result.returncode == 0:
+                                    hw_encoder = "vah264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                                    encoder_name = "vah264enc (VAAPI/AMD)"
+                                    needs_capsfilter = True
+                                else:
+                                    hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
+                                    encoder_name = "vaapih264enc (VAAPI/AMD)"
+                                    needs_capsfilter = True
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 pass
 
         # Determine supported codecs based on encoder
         supported_codecs = ["H264"]
-        if "vaapih264enc" in hw_encoder:
+        if "vaapih264enc" in hw_encoder or "vah264enc" in hw_encoder:
             supported_codecs.extend(["H265", "VP9"])
-        elif "vaapih265enc" in hw_encoder:
+        elif "vaapih265enc" in hw_encoder or "vah265enc" in hw_encoder:
             supported_codecs.extend(["H264", "VP9", "AV1"])
         elif "vaapivp9enc" in hw_encoder:
             supported_codecs.extend(["H264", "H265", "AV1"])
-        elif "vaapiav1enc" in hw_encoder:
+        elif "vaapiav1enc" in hw_encoder or "vaav1enc" in hw_encoder:
             supported_codecs.extend(["H264", "H265", "VP9"])
         elif "nvh264enc" in hw_encoder:
             supported_codecs.extend(["H265", "VP9"])
@@ -302,16 +284,16 @@ class GstWebRTCBackend:
         emit_ipc({"type": "info", "message": f"Supported codecs: {', '.join(supported_codecs)}"})
 
         # Select rtppay element based on encoder
-        if "vaapih264enc" in hw_encoder or "nvh264enc" in hw_encoder or "vulkanh264enc" in hw_encoder or "x264enc" in hw_encoder:
+        if "vaapih264enc" in hw_encoder or "vah264enc" in hw_encoder or "nvh264enc" in hw_encoder or "vulkanh264enc" in hw_encoder or "x264enc" in hw_encoder:
             rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
             rtp_caps = "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
-        elif "vaapih265enc" in hw_encoder or "nvh265enc" in hw_encoder:
+        elif "vaapih265enc" in hw_encoder or "vah265enc" in hw_encoder or "nvh265enc" in hw_encoder:
             rtppay = "rtph265pay"
             rtp_caps = "application/x-rtp,media=video,encoding-name=H265,payload=96,clock-rate=90000"
         elif "vaapivp9enc" in hw_encoder or "nvvp9enc" in hw_encoder:
             rtppay = "rtpvp9pay"
             rtp_caps = "application/x-rtp,media=video,encoding-name=VP9,payload=96,clock-rate=90000"
-        elif "vaapiav1enc" in hw_encoder:
+        elif "vaapiav1enc" in hw_encoder or "vaav1enc" in hw_encoder:
             rtppay = "rtpav1pay"
             rtp_caps = "application/x-rtp,media=video,encoding-name=AV1,payload=96,clock-rate=90000"
         else:
@@ -323,13 +305,11 @@ class GstWebRTCBackend:
             
             {capture_element}
               ! videoconvert
-              ! queue max-size-buffers=4
-              ! capsfilter caps=video/x-raw,format=NV12
-              ! queue max-size-buffers=4
               ! tee name=t
               
             t. ! queue max-size-time=500000000 leaky=downstream
-              ! queue max-size-buffers=4
+              ! queue max-size-buffers=4 leaky=downstream
+              ! capsfilter caps=video/x-raw,format=NV12
               ! {hw_encoder}
               ! {rtppay}
               ! {rtp_caps}
