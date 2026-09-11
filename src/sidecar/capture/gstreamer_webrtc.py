@@ -237,7 +237,7 @@ class GstWebRTCBackend:
               ! tee name=t
               
             t. ! queue max-size-time=500000000 leaky=downstream
-              ! videoconvert
+              ! queue max-size-buffers=4
               ! {hw_encoder}
               ! rtph264pay config-interval=-1 aggregate-mode=zero-latency
               ! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000
