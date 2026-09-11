@@ -2434,6 +2434,75 @@ async function hotSwapCapture() {
     }
 }
 
+// ── PIPELINE HOT-SWAP ──
+// Switch between pipeline types (gstreamer_webrtc, webcodecs, ffmpeg, webtransport)
+// without disconnecting viewers. Keeps WebRTC connections alive.
+async function swapPipeline(newPipeline) {
+    if (!currentStream || newPipeline === document.getElementById('pipelineSelect')?.value) return;
+    
+    log(I18N.t('Swapping pipeline to') + ' ' + newPipeline + '...', 'warn');
+    
+    const oldPipeline = document.getElementById('pipelineSelect')?.value;
+    document.getElementById('pipelineSelect').value = newPipeline;
+    
+    // Notify viewers of encoder swap
+    if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'host-encoder-swap-start', newPipeline }));
+    }
+    
+    // Disable pipeline select during swap
+    _elDisabled('pipelineSelect', true);
+    _elDisabled('btnSwitch', true);
+    
+    let timeout;
+    try {
+        timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Pipeline swap timeout')), 20000)
+        );
+        
+        // Stop current pipeline backend
+        if (oldPipeline === 'gstreamer_webrtc') {
+            await fetch('/api/capture/stop', { method: 'POST' });
+        } else if (oldPipeline === 'ffmpeg' || oldPipeline === 'windows_dxgi') {
+            await fetch('/api/capture/stop', { method: 'POST' });
+        } else if (oldPipeline === 'webcodecs' || oldPipeline === 'custom_webcodecs') {
+            if (window._webcodecsReader) {
+                try { window._webcodecsReader.cancel(); } catch (_) {}
+                window._webcodecsReader = null;
+            }
+            if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                try { _wcEncoder.close(); } catch (_) {}
+                _wcEncoder = null;
+            }
+        }
+        
+        // Stop WebCodecs reader if running
+        if (window._webcodecsReader) {
+            try { window._webcodecsReader.cancel(); } catch (_) {}
+            window._webcodecsReader = null;
+        }
+        if (_wcEncoder && _wcEncoder.state !== 'closed') {
+            try { _wcEncoder.close(); } catch (_) {}
+            _wcEncoder = null;
+        }
+        
+        // Restart with new pipeline (reuses current video track)
+        await startCapture();
+        
+        log(I18N.t('Pipeline swapped to') + ' ' + newPipeline, 'ok');
+    } catch (err) {
+        log(I18N.t('Pipeline swap failed:') + ' ' + err.message, 'err');
+        // Rollback on failure
+        document.getElementById('pipelineSelect').value = oldPipeline;
+    } finally {
+        _elDisabled('pipelineSelect', false);
+        _elDisabled('btnSwitch', false);
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'host-encoder-swap-end', newPipeline }));
+        }
+    }
+}
+
 async function startCapture() {
     // A fresh attempt must never inherit suppress flags from a previous one.
     window._portalAttemptFailed = false;
@@ -4568,6 +4637,12 @@ function saveCaptureMethod(method) {
         else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
         else if (urlParams.get('gst') === '1') activeMethod = 'gstreamer_webrtc';
         else activeMethod = 'native';
+    }
+
+    // If a stream is already active, try hot-swap instead of restart
+    if (currentStream && typeof swapPipeline === 'function' && method !== activeMethod) {
+        swapPipeline(method);
+        return;
     }
 
     if (window.electronAPI && window.electronAPI.saveSettingsSync) {
