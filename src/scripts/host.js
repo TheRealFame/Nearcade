@@ -1535,29 +1535,11 @@ function connectWS() {
         if (msg.type === 'thumbnail') {
             const mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
             if (mjpegImg) {
-                // Use Blob URL instead of data URL to avoid data URL size limits and encoding issues
-                try {
-                    const byteString = atob(msg.data);
-                    const arrayBuffer = new ArrayBuffer(msg.data.length);
-                    const uint8Array = new Uint8Array(arrayBuffer);
-                    for (let i = 0; i < msg.data.length; i++) {
-                        uint8Array[i] = msg.data.charCodeAt(i);
-                    }
-                    const blob = new Blob([uint8Array], { type: 'image/jpeg' });
-                    const blobUrl = URL.createObjectURL(blob);
-                    mjpegImg.src = blobUrl + '?t=' + Date.now();
-                    mjpegImg.style.display = 'block';
-                    // Revoke the previous blob URL to avoid memory leaks
-                    if (mjpegImg._blobUrl) {
-                        URL.revokeObjectURL(mjpegImg._blobUrl);
-                    }
-                    mjpegImg._blobUrl = blobUrl;
-                } catch (e) {
-                    console.error('Failed to create blob URL for thumbnail:', e);
-                    // Fallback to data URL
-                    mjpegImg.src = 'data:image/jpeg;base64,' + msg.data + '?t=' + Date.now();
-                    mjpegImg.style.display = 'block';
-                }
+                // Plain data URL. No query-string suffix: anything after the
+                // comma is payload, so '?t=' would corrupt the base64 and
+                // break blob: URLs too. New content each frame is its own cache-buster.
+                mjpegImg.src = 'data:image/jpeg;base64,' + msg.data;
+                mjpegImg.style.display = 'block';
             }
             return;
         }
@@ -6268,28 +6250,7 @@ function togglePreview() {
         log(I18N.t('Preview hidden — stream unaffected'), 'ok');
     } else {
         if (isGst) {
-            if (mjpegImg) {
-                mjpegImg.style.display = 'block';
-                // Force refresh of MJPEG preview by updating src with timestamp
-                try {
-                    const byteString = atob(mjpegImg.src.split(',')[1]?.split('?')[0] || '');
-                    const arrayBuffer = new ArrayBuffer(byteString.length);
-                    const uint8Array = new Uint8Array(arrayBuffer);
-                    for (let i = 0; i < byteString.length; i++) {
-                        uint8Array[i] = byteString.charCodeAt(i);
-                    }
-                    const blob = new Blob([uint8Array], { type: 'image/jpeg' });
-                    const blobUrl = URL.createObjectURL(blob);
-                    mjpegImg.src = blobUrl + '?t=' + Date.now();
-                    if (mjpegImg._blobUrl) {
-                        URL.revokeObjectURL(mjpegImg._blobUrl);
-                    }
-                    mjpegImg._blobUrl = blobUrl;
-                } catch (e) {
-                    console.error('Failed to refresh MJPEG preview:', e);
-                    mjpegImg.src = mjpegImg.src.split('?')[0] + '?t=' + Date.now();
-                }
-            }
+            if (mjpegImg) mjpegImg.style.display = 'block';
             if (prev) prev.style.display = 'none'; // Keep video hidden, only show MJPEG
             if (overlay) overlay.classList.add('hidden');
         } else {
