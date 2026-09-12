@@ -361,6 +361,9 @@ class GstWebRTCBackend:
         thumb_sink = self.pipe.get_by_name("thumb_sink")
         if thumb_sink:
             thumb_sink.connect("new-sample", self.on_new_thumbnail)
+            emit_ipc({"type": "info", "message": "Thumbnail branch wired"})
+        else:
+            emit_ipc({"type": "error", "message": "preview appsink not found; continuing without thumbnails"})
 
         ret = self.pipe.set_state(Gst.State.PLAYING)
         if ret == Gst.StateChangeReturn.FAILURE:
@@ -401,6 +404,7 @@ class GstWebRTCBackend:
     #  GStreamer Bus Callbacks
     def on_bus_error(self, bus, message):
         err, debug = message.parse_error()
+        emit_ipc({"type": "error", "message": f"GStreamer bus error: {err} | {debug}"})
     def on_state_changed(self, bus, message):
         if message.src != self.pipe:
             return
