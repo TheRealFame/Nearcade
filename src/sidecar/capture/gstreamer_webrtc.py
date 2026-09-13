@@ -189,114 +189,64 @@ class GstWebRTCBackend:
         #  - config-interval=-1 embeds SPS/PPS in every keyframe packet
         #  - queue elements prevent blocking between encode and network stages
         #  - stun-server property gives webrtcbin public IP awareness
-        # Auto-detect Hardware Encoding
-        # For portal-based capture, use software encoder (x264enc) because the XDG Desktop Portal
-        # provides RGBA/BGRA format, but hardware encoders (vaapih264enc, vaapih265enc, etc.)
-        # require NV12 input. The NV12 requirement propagates upstream and causes negotiation
-        # failure with the portal. Hardware encoding is used for headless PipeWire nodes
-        # (Gamescope/SteamVR) via the Rust backend.
-        hw_encoder = "x264enc tune=zerolatency speed-preset=ultrafast byte-stream=true"
-        encoder_name = "x264enc (software)"
-        needs_capsfilter = False
-        emit_ipc({"type": "info", "message": "Using stable Software Encoder (x264enc) for portal capture"})
-
-        # Hardware encoders (VAAPI/NVENC/Vulkan) are only used for headless PipeWire nodes
-        # via the Rust backend (gst-nearcade), which receives NV12 directly from the compositor.
-
-        # Check for NVENC (NVIDIA) - check for H.264, H.265, VP9, AV1 support
-        if encoder_name == "x264enc (software fallback)":
+        # Hardware-only encoding: no software fallback. Probe for a usable
+        # H.264 hardware encoder via gst-inspect (ground truth is the element
+        # existing, not just the driver). Each entry pairs the encoder with
+        # the converter that feeds it portal DMABuf frames:
+        #   vah264enc    <- vapostproc    (VA memory zero-copy, verified e2e)
+        #   vaapih264enc <- vaapipostproc (classic VA-API path)
+        #   nvh264enc / vulkanh264enc <- videoconvert (self-uploading)
+        import subprocess
+        hw_encoder = None
+        encoder_name = None
+        hw_convert = None
+        hw_caps = None
+        for element, name, convert, caps, props in [
+            ("vah264enc", "vah264enc (VA-API)",
+             "vapostproc", "video/x-raw(memory:VAMemory),format=NV12",
+             "rate-control=cbr bitrate=8000 key-int-max=60"),
+            ("vaapih264enc", "vaapih264enc (VA-API)",
+             "vaapipostproc", "video/x-raw(memory:VASurface),format=NV12",
+             "tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"),
+            ("nvh264enc", "nvh264enc (NVENC)",
+             "videoconvert", "video/x-raw,format=NV12",
+             "preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"),
+            ("vulkanh264enc", "vulkanh264enc (Vulkan)",
+             "videoconvert", "video/x-raw,format=NV12",
+             "rate-control=cbr bitrate=8000 gop-size=30"),
+        ]:
             try:
-                subprocess.run(["nvidia-smi"], capture_output=True, check=True, timeout=2)
-                # Check for NVENC capabilities via gst-inspect
-                result = subprocess.run(["gst-inspect-1.0", "nvh265enc"], capture_output=True, text=True, timeout=2)
-                if result.returncode == 0:
-                    hw_encoder = "nvh265enc preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"
-                    encoder_name = "nvh265enc (NVENC)"
-                else:
-                    hw_encoder = "nvh264enc preset=low-latency-hq bitrate=8000 gop-size=30 rc-mode=cbr"
-                    encoder_name = "nvh264enc (NVENC)"
-                needs_capsfilter = True
-            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-                pass
+                found = subprocess.run(
+                    ["gst-inspect-1.0", element],
+                    capture_output=True, timeout=5).returncode == 0
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+            if not found:
+                continue
+            if convert != "videoconvert":
+                try:
+                    post_ok = subprocess.run(
+                        ["gst-inspect-1.0", convert],
+                        capture_output=True, timeout=5).returncode == 0
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+                if not post_ok:
+                    continue
+            hw_encoder = f"{element} {props}"
+            encoder_name = name
+            hw_convert = convert
+            hw_caps = caps
+            break
 
-        # Check for AMD VAAPI/Vulkan encoders
-        if encoder_name == "x264enc (software fallback)":
-            try:
-                result = subprocess.run(["gst-inspect-1.0", "vulkanh264enc"], capture_output=True, timeout=2)
-                if result.returncode == 0:
-                    hw_encoder = "vulkanh264enc rate-control=cbr bitrate=8000 gop-size=30"
-                    encoder_name = "vulkanh264enc (Vulkan/AMD)"
-                    needs_capsfilter = True
-                else:
-                    # Try VAAPI AMD - check both vaapi and va plugins
-                    result = subprocess.run(["gst-inspect-1.0", "vaapih265enc"], capture_output=True, timeout=2)
-                    if result.returncode == 0:
-                        hw_encoder = "vaapih265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                        encoder_name = "vaapih265enc (VAAPI/AMD)"
-                        needs_capsfilter = True
-                    else:
-                        # Try va plugin AMD encoders
-                        result = subprocess.run(["gst-inspect-1.0", "vah265enc"], capture_output=True, timeout=2)
-                        if result.returncode == 0:
-                            hw_encoder = "vah265enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                            encoder_name = "vah265enc (VAAPI/AMD)"
-                            needs_capsfilter = True
-                        else:
-                            result = subprocess.run(["gst-inspect-1.0", "vaapih264enc"], capture_output=True, timeout=2)
-                            if result.returncode == 0:
-                                hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                                encoder_name = "vaapih264enc (VAAPI/AMD)"
-                                needs_capsfilter = True
-                            else:
-                                result = subprocess.run(["gst-inspect-1.0", "vah264enc"], capture_output=True, timeout=2)
-                                if result.returncode == 0:
-                                    hw_encoder = "vah264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                                    encoder_name = "vah264enc (VAAPI/AMD)"
-                                    needs_capsfilter = True
-                                else:
-                                    hw_encoder = "vaapih264enc tune=low-power rate-control=cbr bitrate=8000 keyframe-period=30"
-                                    encoder_name = "vaapih264enc (VAAPI/AMD)"
-                                    needs_capsfilter = True
-            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-                pass
-
-        # Determine supported codecs based on encoder
-        supported_codecs = ["H264"]
-        if "vaapih264enc" in hw_encoder or "vah264enc" in hw_encoder:
-            supported_codecs.extend(["H265", "VP9"])
-        elif "vaapih265enc" in hw_encoder or "vah265enc" in hw_encoder:
-            supported_codecs.extend(["H264", "VP9", "AV1"])
-        elif "vaapivp9enc" in hw_encoder:
-            supported_codecs.extend(["H264", "H265", "AV1"])
-        elif "vaapiav1enc" in hw_encoder or "vaav1enc" in hw_encoder:
-            supported_codecs.extend(["H264", "H265", "VP9"])
-        elif "nvh264enc" in hw_encoder:
-            supported_codecs.extend(["H265", "VP9"])
-        elif "nvh265enc" in hw_encoder:
-            supported_codecs.extend(["H264", "VP9", "AV1"])
-        elif "vulkanh264enc" in hw_encoder:
-            supported_codecs.extend(["H265"])
-        elif "x264enc" in hw_encoder:
-            supported_codecs = ["H264"]
+        if hw_encoder is None:
+            emit_ipc({"type": "error", "message": "no H.264 hardware encoder found (need vah264enc, vaapih264enc, nvh264enc or vulkanh264enc with its converter); GStreamer pipeline requires GPU encoding"})
+            sys.exit(1)
 
         emit_ipc({"type": "info", "message": f"Using encoder: {encoder_name}"})
-        emit_ipc({"type": "info", "message": f"Supported codecs: {', '.join(supported_codecs)}"})
+        emit_ipc({"type": "info", "message": "Supported codecs: H264"})
 
-        # Select rtppay element based on encoder
-        if "vaapih264enc" in hw_encoder or "vah264enc" in hw_encoder or "nvh264enc" in hw_encoder or "vulkanh264enc" in hw_encoder or "x264enc" in hw_encoder:
-            rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
-            rtp_caps = "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
-        elif "vaapih265enc" in hw_encoder or "vah265enc" in hw_encoder or "nvh265enc" in hw_encoder:
-            rtppay = "rtph265pay"
-            rtp_caps = "application/x-rtp,media=video,encoding-name=H265,payload=96,clock-rate=90000"
-        elif "vaapivp9enc" in hw_encoder or "nvvp9enc" in hw_encoder:
-            rtppay = "rtpvp9pay"
-            rtp_caps = "application/x-rtp,media=video,encoding-name=VP9,payload=96,clock-rate=90000"
-        elif "vaapiav1enc" in hw_encoder or "vaav1enc" in hw_encoder:
-            rtppay = "rtpav1pay"
-            rtp_caps = "application/x-rtp,media=video,encoding-name=AV1,payload=96,clock-rate=90000"
-        else:
-            rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
+        rtppay = "rtph264pay config-interval=-1 aggregate-mode=zero-latency"
+        rtp_caps = "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
             # Pipeline description template - defined as instance attribute to avoid module-level formatting issues
         self._PIPELINE_TEMPLATE = (
             "webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN_SERVER}\n"
@@ -306,7 +256,8 @@ class GstWebRTCBackend:
             "\n"
             "t. ! queue max-size-time=500000000 leaky=downstream\n"
             "  ! queue max-size-buffers=4\n"
-            "  ! videoconvert\n"
+            "  ! {hw_convert}\n"
+            "  ! capsfilter caps={hw_caps}\n"
             "  ! {hw_encoder}\n"
             "  ! rtph264pay config-interval=-1 aggregate-mode=zero-latency\n"
             "  ! application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000\n"
@@ -333,6 +284,8 @@ class GstWebRTCBackend:
             pipeline_str = self._PIPELINE_TEMPLATE.format(
                 STUN_SERVER=STUN_SERVER,
                 capture_element=capture_element,
+                hw_convert=hw_convert,
+                hw_caps=hw_caps,
                 hw_encoder=hw_encoder,
                 rtppay=rtppay,
                 rtp_caps=rtp_caps
@@ -366,16 +319,17 @@ class GstWebRTCBackend:
             emit_ipc({"type": "error", "message": "preview appsink not found; continuing without thumbnails"})
 
         # Source-rate heartbeat: pad probe counts buffers entering the tee,
-        # logged every 10s next to the thumbnail rate. Tells "portal delivers
-        # nothing" (source 0/s) apart from "preview branch dead".
+        # reported every 10s by a GLib timer (fires even with zero buffers,
+        # so silence itself is the signal). Tells "portal delivers nothing"
+        # (source 0/s) apart from "preview branch dead".
         self._src_count = 0
         self._thumb_count = 0
-        self._rate_last_ts = time.monotonic()
         tee = self.pipe.get_by_name("t")
         if tee is not None:
             teepad = tee.get_static_pad("sink")
             if teepad is not None:
                 teepad.add_probe(Gst.PadProbeType.BUFFER, self._tee_probe)
+        GLib.timeout_add_seconds(10, self._rate_tick)
 
         ret = self.pipe.set_state(Gst.State.PLAYING)
         if ret == Gst.StateChangeReturn.FAILURE:
@@ -384,13 +338,13 @@ class GstWebRTCBackend:
 
     def _tee_probe(self, pad, info):
         self._src_count += 1
-        now = time.monotonic()
-        if now - self._rate_last_ts >= 10.0:
-            self._rate_last_ts = now
-            emit_ipc({"type": "info", "message": f"capture rate: {self._src_count} bufs/10s, thumbnails: {self._thumb_count}/10s"})
-            self._src_count = 0
-            self._thumb_count = 0
         return Gst.PadProbeReturn.OK
+
+    def _rate_tick(self):
+        emit_ipc({"type": "info", "message": f"capture rate: {self._src_count} bufs/10s, thumbnails: {self._thumb_count}/10s"})
+        self._src_count = 0
+        self._thumb_count = 0
+        return True
 
     def on_new_thumbnail(self, sink):
         try:
