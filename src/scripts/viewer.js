@@ -511,7 +511,7 @@ function _setupWebGL(gl) {
     return tex;
 }
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
-const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '3.0.6';
+const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '3.0.7';
 function semverGte(a, b) {
   const pa = String(a).split('.').map(Number);
   const pb = String(b).split('.').map(Number);
@@ -2496,7 +2496,40 @@ window.addEventListener('gamepadconnected', e => {
     if (!gpPolling) activateGamepad();
     document.getElementById('gpPrompt')?.classList.add('gone');
     maybeShowControllerGuide();
+    _maybeAutoCalibrate(e.gamepad);
 });
+
+// ── AUTO-CALIBRATION TRIGGER ──────────────────────────────────────────────────
+// When an unknown controller connects, force-open the calibration modal and
+// kick off the guided calibration flow (Pull LT → Pull RT → Push RS right →
+// Push RS down). The session storage gate is intentionally bypassed here —
+// a new unknown controller is always a new situation that requires calibration.
+function _maybeAutoCalibrate(gp) {
+    if (!gp) return;
+    if (lookupCalibMap(gp)) return; // Already has a map
+
+    const safeId = (gp.id || '').replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
+    if (calibMaps[safeId] || calibMaps[gp.id]) return;
+
+    // Skip known standard brands — browser already maps them correctly
+    const idLower = (gp.id || '').toLowerCase();
+    if (idLower.includes('xbox') || idLower.includes('x-box') ||
+        idLower.includes('playstation') || idLower.includes('dualshock') ||
+        idLower.includes('dualsense')) return;
+
+    // Force-open the Controller Guide regardless of session storage flag.
+    // An unknown controller with no map MUST be calibrated — showing the guide
+    // once per session is not sufficient when the user connects a new device.
+    if (_nsHostConnected) {
+        openControllerGuide();
+    }
+
+    // Signal the gamepad-popup iframe to start its calibration flow for this index
+    const frame = document.getElementById('controllerGuideFrame');
+    if (frame?.contentWindow) {
+        frame.contentWindow.postMessage({ type: 'NEARCADE_START_CALIB', index: gp.index }, '*');
+    }
+}
 
 // ── STATUS / OVERLAY ──────────────────────────────────────────────────────────
 function log(msg) { console.log(msg); }

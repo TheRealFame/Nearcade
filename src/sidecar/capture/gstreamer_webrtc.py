@@ -365,10 +365,32 @@ class GstWebRTCBackend:
         else:
             emit_ipc({"type": "error", "message": "preview appsink not found; continuing without thumbnails"})
 
+        # Source-rate heartbeat: pad probe counts buffers entering the tee,
+        # logged every 10s next to the thumbnail rate. Tells "portal delivers
+        # nothing" (source 0/s) apart from "preview branch dead".
+        self._src_count = 0
+        self._thumb_count = 0
+        self._rate_last_ts = time.monotonic()
+        tee = self.pipe.get_by_name("t")
+        if tee is not None:
+            teepad = tee.get_static_pad("sink")
+            if teepad is not None:
+                teepad.add_probe(Gst.PadProbeType.BUFFER, self._tee_probe)
+
         ret = self.pipe.set_state(Gst.State.PLAYING)
         if ret == Gst.StateChangeReturn.FAILURE:
             emit_ipc({"type": "error", "message": "Pipeline failed to start (PLAYING state failed)."})
             sys.exit(1)
+
+    def _tee_probe(self, pad, info):
+        self._src_count += 1
+        now = time.monotonic()
+        if now - self._rate_last_ts >= 10.0:
+            self._rate_last_ts = now
+            emit_ipc({"type": "info", "message": f"capture rate: {self._src_count} bufs/10s, thumbnails: {self._thumb_count}/10s"})
+            self._src_count = 0
+            self._thumb_count = 0
+        return Gst.PadProbeReturn.OK
 
     def on_new_thumbnail(self, sink):
         try:
@@ -390,6 +412,7 @@ class GstWebRTCBackend:
                 emit_ipc({"type": "thumbnail", "data": b64})
                 buf.unmap(mapinfo)
                 self._last_thumb_ts = now
+                self._thumb_count += 1
 
                 if not hasattr(self, 'frame_count'):
                     self.frame_count = 0
