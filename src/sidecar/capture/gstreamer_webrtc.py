@@ -255,7 +255,7 @@ class GstWebRTCBackend:
             "  ! tee name=t\n"
             "\n"
             "t. ! queue max-size-time=500000000 leaky=downstream\n"
-            "  ! queue max-size-buffers=4\n"
+            "  ! queue max-size-buffers=4 leaky=downstream\n"
             "  ! {hw_convert}\n"
             "  ! capsfilter caps={hw_caps}\n"
             "  ! {hw_encoder}\n"
