@@ -34,9 +34,20 @@ import signal
 import dbus
 
 PORTAL_SESSION_HANDLE = None
+_backend = None
 
 def cleanup_and_exit(signum, frame):
     global PORTAL_SESSION_HANDLE
+    # Stop the pipeline first so streaming threads join before the
+    # interpreter tears down (a new-sample callback firing mid-teardown
+    # segfaulted here). Then close the portal session and exit.
+    try:
+        if _backend is not None:
+            _backend._thumb_run = False
+            if getattr(_backend, 'pipe', None) is not None:
+                _backend.pipe.set_state(Gst.State.NULL)
+    except Exception:
+        pass
     if PORTAL_SESSION_HANDLE:
         try:
             bus = dbus.SessionBus()
@@ -268,7 +279,7 @@ class GstWebRTCBackend:
             "  ! videoscale ! video/x-raw,width=1280,height=720\n"
             "  ! videorate ! video/x-raw,framerate=60/1\n"
             "  ! jpegenc quality=65\n"
-            "  ! appsink name=thumb_sink emit-signals=true max-buffers=1 drop=true sync=false\n"
+            "  ! appsink name=thumb_sink emit-signals=false max-buffers=1 drop=true sync=false\n"
             "\n"
             "pulsesrc\n"
             "  ! audio/x-raw,rate=48000,channels=1\n"
@@ -310,11 +321,16 @@ class GstWebRTCBackend:
         bus.connect('message::error', self.on_bus_error)
         bus.connect('message::state-changed', self.on_state_changed)
 
-        # Connect appsink to extract thumbnails
-        thumb_sink = self.pipe.get_by_name("thumb_sink")
-        if thumb_sink:
-            thumb_sink.connect("new-sample", self.on_new_thumbnail)
+        # Thumbnail pump: appsink runs with emit-signals=false and a dedicated
+        # thread does blocking pull_sample(). All Python execution stays off
+        # the GStreamer streaming threads (a new-sample signal callback
+        # segfaulted there). Daemon thread; exits when _thumb_run clears.
+        self._thumb_sink = self.pipe.get_by_name("thumb_sink")
+        self._thumb_run = False
+        if self._thumb_sink is not None:
             emit_ipc({"type": "info", "message": "Thumbnail branch wired"})
+            self._thumb_run = True
+            threading.Thread(target=self._thumb_loop, daemon=True).start()
         else:
             emit_ipc({"type": "error", "message": "preview appsink not found; continuing without thumbnails"})
 
@@ -346,26 +362,38 @@ class GstWebRTCBackend:
         self._thumb_count = 0
         return True
 
-    def on_new_thumbnail(self, sink):
-        try:
-            # Throttle: 60fps cap (~16ms). Drain bursts after stalls.
+    def _thumb_loop(self):
+        # Blocking pull_sample() on a dedicated thread: safe (plain C call,
+        # thread owns its GIL state normally), unlike a signal closure invoked
+        # *by* a streaming thread. ~30fps emit cap; faster arrivals are
+        # consumed and dropped so the queue never backs up.
+        last = 0.0
+        while getattr(self, '_thumb_run', False):
+            try:
+                sample = self._thumb_sink.emit("pull-sample")
+            except Exception:
+                return
+            if sample is None:
+                if not getattr(self, '_thumb_run', False):
+                    return
+                time.sleep(0.05)
+                continue
             now = time.monotonic()
-            last = getattr(self, '_last_thumb_ts', 0.0)
-            if now - last < 0.016:
-                # Drain the sample so the appsink queue doesn't back up.
-                sink.emit("pull-sample")
-                return Gst.FlowReturn.OK
-            sample = sink.emit("pull-sample")
-            if not sample:
-                return Gst.FlowReturn.OK
-
-            buf = sample.get_buffer()
-            result, mapinfo = buf.map(Gst.MapFlags.READ)
-            if result:
-                b64 = base64.b64encode(mapinfo.data).decode('utf-8')
+            if now - last < 0.033:
+                continue
+            last = now
+            try:
+                buf = sample.get_buffer()
+                if buf is None:
+                    continue
+                result, mapinfo = buf.map(Gst.MapFlags.READ)
+                if not result:
+                    continue
+                try:
+                    b64 = base64.b64encode(mapinfo.data).decode('utf-8')
+                finally:
+                    buf.unmap(mapinfo)
                 emit_ipc({"type": "thumbnail", "data": b64})
-                buf.unmap(mapinfo)
-                self._last_thumb_ts = now
                 self._thumb_count += 1
 
                 if not hasattr(self, 'frame_count'):
@@ -373,10 +401,8 @@ class GstWebRTCBackend:
                 self.frame_count += 1
                 if self.frame_count % 50 == 0:
                     emit_ipc({"type": "info", "message": f"Thumbnail frame {self.frame_count}"})
-
-        except Exception as e:
-            emit_ipc({"type": "error", "message": f"Thumbnail error: {e}"})
-        return Gst.FlowReturn.OK
+            except Exception as e:
+                emit_ipc({"type": "error", "message": f"Thumbnail error: {e}"})
 
     #  GStreamer Bus Callbacks
     def on_bus_error(self, bus, message):
@@ -480,6 +506,6 @@ class GstWebRTCBackend:
 if __name__ == '__main__':
     # Must set DBus main loop before any dbus calls
     DBusGMainLoop(set_as_default=True)
-    backend = GstWebRTCBackend()
-    backend.start()
+    _backend = GstWebRTCBackend()
+    _backend.start()
 
