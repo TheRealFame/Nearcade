@@ -58,8 +58,6 @@ class CaptureManager {
         switch (method) {
             case 'ffmpeg':
                 return await this._startFFmpeg(options);
-            case 'sidecapture':
-                return await this._startSidecapture(options);
             case 'ffmpeg-portal':
                 return await this._startPortalBridge(options);
             case 'pipewire':
@@ -199,10 +197,6 @@ class CaptureManager {
         if (this._ffmpegStreamRes) {
             this._ffmpegStreamRes.end();
             this._ffmpegStreamRes = null;
-        }
-                if (this._sidecaptureProc) {
-            try { this._sidecaptureProc.kill('SIGKILL'); } catch (_) {}
-            this._sidecaptureProc = null;
         }
         if (this._ffmpegProc) {
             this._ffmpegProc.kill('SIGKILL');
@@ -690,10 +684,6 @@ class CaptureManager {
     }
 
     _stopFFmpeg() {
-                if (this._sidecaptureProc) {
-            try { this._sidecaptureProc.kill('SIGKILL'); } catch (_) {}
-            this._sidecaptureProc = null;
-        }
         if (this._ffmpegProc) {
             const p = this._ffmpegProc;
             this._ffmpegProc = null;
@@ -720,121 +710,6 @@ class CaptureManager {
     // into FFmpeg's stdin. Same probed encoder chain, same relay, same
     // watchdog as _startFFmpeg — only the frame source differs.
     // NEARCADE_PORTAL_TEST=1 swaps the portal for videotestsrc (headless CI).
-
-    async _startSidecapture({ sourceId, width = 960, height = 540, fps = 60, bitrate = 4000000 } = {}) {
-        await this._ensureFFmpegServer();
-        const chain = this._probeHwEncoders();
-        let lastErr = null;
-        for (const enc of chain) {
-            this._ffmpegEncoder = 'sidecapture:' + enc;
-            try {
-                await this._attemptSidecapture(enc, { sourceId, width, height, fps, bitrate });
-                console.log(`[CaptureManager] Sidecapture live (${enc}, ${width}x${height}@${fps}, ${Math.round(bitrate / 1000)}k)`);
-                return { ok: true, message: `Sidecapture running on ${enc}`, port: this._ffmpegPort, encoder: 'sidecapture:' + enc };
-            } catch (e) {
-                lastErr = e;
-                console.warn(`[CaptureManager] Sidecapture ${enc} unusable: ${e.message}`);
-            }
-        }
-        this._ffmpegEncoder = null;
-        throw lastErr || new Error('[CaptureManager] No working sidecapture encoder found');
-    }
-
-    _attemptSidecapture(enc, { sourceId, width, height, fps, bitrate }) {
-        return new Promise((resolve, reject) => {
-            const ff = this._resolveFFmpegBinary();
-            const cliPath = path.join(__dirname, '..', '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture');
-            
-            const kb = Math.round((bitrate || 4000000) / 1000);
-            const g = Math.max(1, (fps || 60));
-            const args = ['-hide_banner', '-loglevel', 'info',
-                          '-f', 'image2pipe', '-vcodec', 'mjpeg', '-r', String(fps || 60), '-i', 'pipe:0'];
-            
-            if (enc === 'vaapi') {
-                args.push('-vf', 'format=nv12,hwupload',
-                    '-vaapi_device', this._detectVaapiDevice(),
-                    '-c:v', 'h264_vaapi', '-profile:v', 'high', '-level', '4.2',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g));
-            } else if (enc === 'nvenc') {
-                args.push('-c:v', 'h264_nvenc', '-preset', 'p1', '-tune', 'll',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-cq', '20');
-            } else {
-                args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g));
-            }
-            args.push('-f', 'mp4', '-movflags', 'empty_moov+default_base_moof+frag_keyframe+skip_sidx', 'pipe:1');
-            
-            const procFFmpeg = spawn(ff, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-            
-            const cliArgs = ['start', '--device', sourceId, '--width', String(width), '--height', String(height), '--fps', String(fps), '--stdout'];
-            const procCli = spawn(cliPath, cliArgs, { stdio: ['ignore', 'pipe', 'inherit'] });
-            
-            procCli.stdout.pipe(procFFmpeg.stdin);
-            
-            this._ffmpegProc = procFFmpeg;
-            this._sidecaptureProc = procCli;
-            
-            if (procFFmpeg.stdout) this._armNullDrain(procFFmpeg);
-            this._pipeRelay(procFFmpeg);
-            
-            const LAUNCH_MS = 25000, STALL_MS = 10000;
-            const LAUNCH_BYTES = 8192;
-            let errTail = '';
-            let firstFrameAt = 0, lastProgressAt = Date.now(), lastBytes = 0;
-            this._ffmpegBytes = 0;
-            let settled = false;
-            const stats = {
-                encoder: 'sidecapture:' + enc, frames: 0, fps: 0,
-                restarts: 0, startedAt: Date.now(), stalled: false, dead: false,
-            };
-            this._ffmpegStats = stats;
-            const kill = () => { try { procFFmpeg.kill('SIGKILL'); procCli.kill('SIGKILL'); } catch (_) {} this._ffmpegProc = null; this._sidecaptureProc = null; };
-            
-            const wd = setInterval(() => {
-                const now = Date.now();
-                const bytesNow = this._ffmpegBytes || 0;
-                if (bytesNow > lastBytes) { lastBytes = bytesNow; lastProgressAt = now; }
-                stats.bytes = bytesNow;
-                if (!settled) {
-                    if (procFFmpeg.exitCode !== null && procFFmpeg.exitCode !== undefined) {
-                        clearInterval(wd); settled = true; kill();
-                        reject(new Error(`ffmpeg exited code ${procFFmpeg.exitCode}`));
-                    } else if (procCli.exitCode !== null && procCli.exitCode !== undefined) {
-                        clearInterval(wd); settled = true; kill();
-                        reject(new Error(`sidecapture exited code ${procCli.exitCode}`));
-                    } else if (!firstFrameAt && bytesNow > LAUNCH_BYTES) {
-                        firstFrameAt = now; settled = true; resolve(stats);
-                    } else if (!firstFrameAt && now - lastProgressAt > LAUNCH_MS) {
-                        clearInterval(wd); settled = true; kill();
-                        reject(new Error(`no frames in ${LAUNCH_MS}ms`));
-                    }
-                } else if (!stats.stalled && !stats.dead && now - lastProgressAt > STALL_MS) {
-                    stats.stalled = true;
-                    console.warn(`[CaptureManager] Sidecapture pipeline stalled! No bytes for ${STALL_MS}ms.`);
-                }
-            }, 500);
-            
-            procFFmpeg.stderr.on('data', d => {
-                const s = d.toString(); errTail = (errTail + s).slice(-1024);
-                const m = s.match(/frame=\s*(\d+).*fps=\s*([\d.]+)/);
-                if (m) {
-                    stats.frames = parseInt(m[1], 10);
-                    stats.fps = parseFloat(m[2]);
-                    const now = Date.now();
-                    lastProgressAt = now;
-                    if (!firstFrameAt) { firstFrameAt = now; settled = true; resolve(stats); }
-                }
-            });
-            
-            procFFmpeg.on('error', e => { if (!settled) { clearInterval(wd); settled = true; kill(); reject(e); } else stats.dead = true; });
-            procCli.on('error', e => { if (!settled) { clearInterval(wd); settled = true; kill(); reject(e); } else stats.dead = true; });
-            
-            procFFmpeg.on('close', code => {
-                if (!settled) { clearInterval(wd); settled = true; kill(); reject(new Error(`exited code ${code}`)); }
-                else if (!stats.stalled) stats.dead = true;
-            });
-        });
-    }
 
     async _startPortalBridge({ width = 960, height = 540, fps = 70, bitrate = 4000000 } = {}) {
         if (os.platform() !== 'linux') throw new Error('Portal capture only supports Linux.');

@@ -1557,26 +1557,29 @@ async function main() {
     console.log(`[report] Session ${sessionId || '?'} reported from ${anonHash.slice(0, 8)} reason: ${reason || 'unspecified'} (${list.length} total reports for this IP)`);
     res.json({ ok: true });
   });
-  // Sidecapture Devices API for native video picker integration
+  // ADB Devices API for native video picker integration
   app.get("/api/adb-devices", adminMiddleware, (req, res) => {
     try {
       const { execSync } = require('child_process');
-      const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture');
-      const fs = require('fs');
-      if (!fs.existsSync(binPath)) {
-        return res.json({ devices: [] });
+      const output = execSync('adb devices', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const devices = [];
+      const lines = output.split('\n');
+      for (const line of lines) {
+        if (line.includes('List of devices')) continue;
+        const parts = line.trim().split('\t');
+        if (parts.length === 2 && parts[1] === 'device') {
+          // Attempt to get device model
+          let name = parts[0];
+          try {
+            const model = execSync(`adb -s ${parts[0]} shell getprop ro.product.model`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            if (model) name = `${model} (${parts[0]})`;
+          } catch (e) {}
+          devices.push({ id: `android:${parts[0]}`, name: name });
+        }
       }
-      
-      const output = execSync(`${binPath} list --json`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
-      const rawDevices = JSON.parse(output);
-      
-      const devices = rawDevices.filter(d => d.id.startsWith('android:')).map(d => ({
-          id: d.id,
-          name: d.name
-      }));
       res.json({ devices });
     } catch (e) {
-      console.error("[Sidecapture] Error cross-talking to CLI:", e);
+      // ADB not installed or daemon not running
       res.json({ devices: [] });
     }
   });

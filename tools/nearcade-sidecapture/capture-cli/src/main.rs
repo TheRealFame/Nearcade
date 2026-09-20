@@ -59,9 +59,6 @@ enum Command {
         ndi: bool,
         #[arg(long, default_value = "Nearcade Sidecapture")]
         ndi_name: String,
-        /// Stream raw MJPEG frames to stdout (useful for piping into ffmpeg)
-        #[arg(long, default_value_t = false)]
-        stdout: bool,
     },
 }
 
@@ -88,7 +85,6 @@ fn main() {
             upscale_height,
             ndi,
             ndi_name,
-            stdout,
         } => cmd_start(PipelineConfig {
             device,
             width,
@@ -103,7 +99,7 @@ fn main() {
                 (Some(w), Some(h)) => Some((w, h)),
                 _ => None,
             },
-        }, stdout),
+        }),
     }
 }
 
@@ -123,7 +119,7 @@ fn cmd_list(json: bool) {
     }
 }
 
-fn cmd_start(config: PipelineConfig, use_stdout: bool) {
+fn cmd_start(config: PipelineConfig) {
     let mut session = CaptureSession::new();
     let rx = match session.start(config) {
         Ok(rx) => rx,
@@ -140,33 +136,26 @@ fn cmd_start(config: PipelineConfig, use_stdout: bool) {
     })
     .expect("failed to set Ctrl+C handler");
 
-    if !use_stdout {
-        println!("Capturing. Press Ctrl+C to stop.");
-    }
-
-    use std::io::Write;
-    let mut stdout = std::io::stdout();
+    println!("Capturing. Press Ctrl+C to stop.");
 
     while running.load(Ordering::SeqCst) {
         match rx.recv_timeout(std::time::Duration::from_millis(200)) {
-            Ok(PipelineEvent::Started) => { if !use_stdout { println!("[capture] started"); } },
-            Ok(PipelineEvent::SignalLost) => { if !use_stdout { println!("[capture] signal lost"); } },
-            Ok(PipelineEvent::SignalRestored) => { if !use_stdout { println!("[capture] signal restored"); } },
+            Ok(PipelineEvent::Started) => println!("[capture] started"),
+            Ok(PipelineEvent::SignalLost) => println!("[capture] signal lost"),
+            Ok(PipelineEvent::SignalRestored) => println!("[capture] signal restored"),
             Ok(PipelineEvent::Error(e)) => {
                 eprintln!("[capture] error: {e}");
                 break;
             }
             Ok(PipelineEvent::Eos) => {
-                if !use_stdout { println!("[capture] end of stream"); }
+                println!("[capture] end of stream");
                 break;
             }
             Ok(PipelineEvent::Stopped) => break,
-            Ok(PipelineEvent::Frame(bytes)) => {
-                if use_stdout {
-                    let _ = stdout.write_all(&bytes);
-                    let _ = stdout.flush();
-                }
-            }
+            // The CLI has nowhere to display frames — it's headless.
+            // Ignored here; only the GUI subscribes to these for the
+            // embedded preview.
+            Ok(PipelineEvent::Frame(_)) => {}
             Err(_) => continue, // timeout, just re-check `running`
         }
     }
@@ -174,9 +163,7 @@ fn cmd_start(config: PipelineConfig, use_stdout: bool) {
     if let Err(e) = session.stop() {
         eprintln!("error while stopping: {e}");
     }
-    if !use_stdout {
-        println!("Stopped.");
-    }
+    println!("Stopped.");
 }
 
 fn cmd_android_scan() {
