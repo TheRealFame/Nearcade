@@ -767,7 +767,14 @@ class CaptureManager {
             const procFFmpeg = spawn(ff, args, { stdio: ['pipe', 'pipe', 'pipe'] });
             
             const rawSourceId = sourceId ? sourceId.replace('v4l2:', '') : '';
-            const cliArgs = ['start', '--device', rawSourceId, '--width', String(width), '--height', String(height), '--fps', String(fps), '--stdout'];
+            const cliArgs = ['start', '--device', rawSourceId, '--stdout'];
+            // If it's an Android device, scrcpy can handle arbitrary resolutions.
+            // For v4l2 capture cards, forcing 960x540 will cause GStreamer caps negotiation to fail
+            // if the hardware doesn't natively support that exact resolution. FFmpeg handles the scaling anyway.
+            if (sourceId && sourceId.startsWith('android:')) {
+                cliArgs.push('--width', String(width), '--height', String(height), '--fps', String(fps));
+            }
+            
             const procCli = spawn(cliPath, cliArgs, { stdio: ['ignore', 'pipe', 'inherit'] });
             
             procCli.stdout.pipe(procFFmpeg.stdin);

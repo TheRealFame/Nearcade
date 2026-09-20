@@ -2334,7 +2334,7 @@ async function confirmSource() {
     if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
         // Open the native sidecapture dock inside Nearcade
         try {
-            window.open('/pages/sidecapture-dock.html?target=' + encodeURIComponent(selectedSourceId), 'SidecaptureDock', 'width=350,height=300,contextIsolation=no,nodeIntegration=yes');
+            window.open('/pages/sidecapture-dock.html?target=' + encodeURIComponent(selectedSourceId), 'SidecaptureDock', 'width=350,height=300');
         } catch (e) {}
     }
 
@@ -2854,8 +2854,21 @@ async function startCapture() {
                 screenStream = new MediaStream([sidecarTrack]);
             } catch (e) {
                 console.error('Sidecar pipeline failed:', e);
-                log('Sidecar failed (' + e.message + '). Falling back to standard capture...', 'err');
-                try { await fetch('/api/capture/stop', { method: 'POST' }); } catch (_) {}
+                log(`Sidecar failed (${e.message}).`, 'err');
+                await fetch('/api/capture/stop', { method: 'POST' }).catch(()=>{});
+                
+                // If we explicitly picked an android or v4l2 device, DO NOT fall back to desktop capture,
+                // because it will trigger the XDG portal or crash Electron.
+                if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
+                    _forceKillStream(currentStream);
+                    _elDisabled('btnStart', false);
+                    _elDisabled('btnSwitch', false);
+                    alert("Capture failed: " + e.message);
+                    return;
+                }
+                
+                log('Falling back to standard capture...', 'warn');
+                backendSidecarActive = false;
             }
         }
 
