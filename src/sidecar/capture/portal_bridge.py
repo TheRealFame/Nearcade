@@ -236,10 +236,11 @@ def main():
             w, h = pw, ph
         raw_r, raw_w = os.pipe()
         gst = subprocess.Popen(
-            ["gst-launch-1.0", "--quiet", "pipewiresrc", f"fd={fd}", f"path={node}", "!",
+            ["gst-launch-1.0", "--quiet", 
+             "pipewiresrc", f"fd={fd}", f"path={node}", "always-copy=true", f"keepalive-time={int(1000/a.fps)}", "do-timestamp=true", "!",
              "videoconvert", "!", "videoscale", "!", "videorate", "!",
              f"video/x-raw,format=NV12,width={w},height={h},framerate={a.fps}/1", "!",
-             "fdsink", "sync=true", f"fd={raw_w}"],
+             "fdsink", "sync=false", f"fd={raw_w}"],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             pass_fds=(fd, raw_w), preexec_fn=_die_with_parent)
         CHILDREN.append(gst)
