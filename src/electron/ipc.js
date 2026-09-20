@@ -411,15 +411,9 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-accent-color', () => {
     try {
-      const { getThemeColors } = require('@nearcade/native-palette');
+      const { getThemeColors } = require(path.join(__dirname, 'native-palette'));
       const theme = getThemeColors();
       if (theme && theme.accent) return theme.accent;
-    } catch (_) { }
-
-    try {
-      const accent = require('@nearcade/accent-color');
-      const c = accent.get();
-      if (c && c.hex) return c.hex;
     } catch (_) { }
 
     try {
@@ -435,7 +429,7 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-native-theme', () => {
     try {
-      const { getThemeColors } = require('@nearcade/native-palette');
+      const { getThemeColors } = require(path.join(__dirname, 'native-palette'));
       const theme = getThemeColors();
 
       // Force Electron to synchronize the titlebar and dialog colors with the OS as dark
@@ -451,6 +445,13 @@ function registerIpcHandlers(ctx) {
       console.error('[ipc] Failed to fetch native theme:', e);
       return null;
     }
+  });
+
+  ipcMain.handle('get-display-server', () => {
+    // Reliable Wayland detection from main process env
+    // Electron's userAgent doesn't contain 'wayland' in renderer
+    const isWayland = process.platform === 'linux' && !!process.env.WAYLAND_DISPLAY;
+    return { isWayland, displayServer: isWayland ? 'wayland' : 'x11' };
   });
 
   ipcMain.handle('get-app-version', () => {

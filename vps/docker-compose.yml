@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  nearcade-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nearcade-router
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - PORT=${PORT:-9000}
+      - MASTER_KEY=${MASTER_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - nearcade-config:/etc/nearcade
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x nearcade-router > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  nearcade-config:

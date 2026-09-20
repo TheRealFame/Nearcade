@@ -1,5 +1,5 @@
 :root {
-    accent-color: #c084fc;
+    accent-color: var(--accent);
     --bg:         #0d0f18;
     --surface:    #0f111a;
     --card:       rgba(15, 17, 26, 0.92);
@@ -11,7 +11,7 @@
     --accent-glow:rgba(var(--accent-rgb, 139, 92, 246),0.35);
     --text:       #eef0ff;
     --muted:      #7c85a2;
-    --muted2:     #4a5070;
+    --muted2:     #7a7f96;
 
     --green:      #34d399;
     --warn:       #fbbf24;
@@ -757,7 +757,7 @@ user-select: text;
 
 .chat-send-btn:hover {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-ink, #fff);
     border-color: var(--accent);
 }
 
@@ -958,7 +958,7 @@ user-select: text;
 }
 
 .modal-footer button:hover { background: rgba(255,255,255,0.1); }
-.btn-confirm { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+.btn-confirm { background: var(--accent) !important; color: var(--accent-ink, #fff) !important; border-color: var(--accent) !important; }
 .btn-confirm:hover { filter: brightness(1.15) !important; }
 .btn-skip { background: rgba(255,255,255,0.04) !important; color: var(--muted) !important; }
 

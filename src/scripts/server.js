@@ -210,7 +210,22 @@ let _lastWcConfig = null;
 let _gstIceCandidates = [];
 
 // Route GStreamer WebRTC outputs (Offers/ICE) back to viewers
+// NEARCADE_DIAG=1 (bin/diag-run.js): census sidecar message types + a 60 s
+// summary so a 5-minute run shows exactly what the backend produced.
+const _diagOn = process.env.NEARCADE_DIAG === '1';
+const _diagSidecar = { sdp: 0, ice: 0, thumbnail: 0, info: 0, error: 0, 'h264-chunk': 0, other: 0 };
+if (_diagOn) {
+  setInterval(() => {
+    const parts = Object.entries(_diagSidecar).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ');
+    console.log(`[diag] sidecar msgs/60s: ${parts || 'none'}`);
+    for (const k of Object.keys(_diagSidecar)) _diagSidecar[k] = 0;
+  }, 60000).unref();
+}
 captureManager.setGstSignalingCallback((msg) => {
+  if (_diagOn && msg && typeof msg.type === 'string') {
+    if (Object.prototype.hasOwnProperty.call(_diagSidecar, msg.type)) _diagSidecar[msg.type]++;
+    else _diagSidecar.other++;
+  }
   if (msg.type === 'sdp') {
     _gstOfferStr = msg.sdp;
     _gstIceCandidates = [];
@@ -1542,6 +1557,31 @@ async function main() {
     console.log(`[report] Session ${sessionId || '?'} reported from ${anonHash.slice(0, 8)} reason: ${reason || 'unspecified'} (${list.length} total reports for this IP)`);
     res.json({ ok: true });
   });
+  app.post("/api/launch-tool", adminMiddleware, express.json(), (req, res) => {
+    const { tool } = req.body;
+    if (tool === 'sidecapture') {
+      try {
+        const { spawn } = require('child_process');
+        const guiDir = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'capture-gui');
+        
+        // Spawn Tauri Dev in background, detached so it survives if Node restarts, but we don't necessarily want it completely detached since it's a child tool.
+        // Actually since we don't track the PID, detached is safer so it doesn't crash if the server reloads.
+        const child = spawn('npm', ['run', 'dev'], {
+          cwd: guiDir,
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+        res.json({ ok: true });
+      } catch (e) {
+        console.error("Failed to launch sidecapture:", e);
+        res.status(500).json({ error: e.message });
+      }
+    } else {
+      res.status(400).json({ error: 'Unknown tool' });
+    }
+  });
+
 
   app.post("/api/open-terminal", adminMiddleware, express.json(), (req, res) => {
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
@@ -1588,6 +1628,12 @@ async function main() {
     const { method, options } = req.body || {};
     if (!method) return res.status(400).json({ ok: false, reason: 'method is required (webcodecs | ffmpeg | webrtc)' });
     try {
+      // Leaving GStreamer mode invalidates the cached native offer/ICE —
+      // never let it leak into another pipeline's joins/retries.
+      if (method !== 'gstreamer_webrtc') {
+        _gstOfferStr = null;
+        _gstIceCandidates = [];
+      }
       const result = await captureManager.start(method, options || {});
       res.json({ ok: true, ...result });
     } catch (e) {
@@ -1599,6 +1645,8 @@ async function main() {
   app.post('/api/capture/stop', adminMiddleware, async (req, res) => {
     try {
       await captureManager.stop();
+      _gstOfferStr = null;
+      _gstIceCandidates = [];
       res.json({ ok: true });
     } catch (e) {
       console.error('[capture] stop failed:', e.message);
@@ -1720,12 +1768,22 @@ async function main() {
     res.json({ ok: true });
   });
 
+  // Provider detection cache: each detect() can spawn binaries and wait on
+  // subprocess timeouts (seconds). Without caching, every dashboard visit
+  // freezes the shared server event loop — and the Electron UI with it.
+  let _providersCache = { at: 0, data: null };
   app.get("/api/tunnels/providers", async (_req, res) => {
+    try {
+      if (_providersCache.data && Date.now() - _providersCache.at < 60000) {
+        return res.json({ providers: _providersCache.data });
+      }
+    } catch (_) {}
     const results = await Promise.all(tunnels.PROVIDERS.map(async (p) => {
       let status;
       try { status = await p.detect(); } catch (e) { status = { found: false, error: e.message }; }
       return { id: p.id, name: p.name, type: p.type, pricing: p.pricing, difficulty: p.difficulty, description: p.description, tags: p.tags, requiresBinary: p.requiresBinary !== false, integrated: !!p.integrated, status };
     }));
+    _providersCache = { at: Date.now(), data: results };
     res.json({ providers: results });
   });
 
@@ -2105,14 +2163,41 @@ async function main() {
           }
 
           if (msg.type === "request-offer" && msg.viewerId) {
+            if (_diagOn) console.log(`[diag] re-offer requested by viewer ${msg.viewerId} (reason=${msg.reason || 'n/a'} pc=${msg.pcState || 'n/a'})`);
             if (hostWS && hostWS.readyState === 1) {
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId }));
+              // Pass through the viewer's reason + PC state so the host can
+              // tell a dead-viewer retry (rebuild) from a mid-flight duplicate
+              // (ignore) instead of murdering connecting PCs.
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId, reoffer: true, reason: msg.reason || null, viewerPcState: msg.pcState || null }));
+            }
+            // GStreamer native path: the browser host ignores re-offers (its
+            // comment says the daemon owns signaling), so a retrying viewer
+            // would wait forever. Replay the cached native offer + ICE
+            // directly — same as the join path below. Fresh viewer PC +
+            // re-gathering is exactly what unsticks NAT warmup.
+            // Guarded on active method: a stale cached offer from an earlier
+            // GStreamer session must never leak into a WebCodecs session.
+            let _gstActiveNow = false;
+            try { _gstActiveNow = captureManager.getStatus().method === 'gstreamer_webrtc'; } catch (_) {}
+            if (_gstOfferStr && _gstActiveNow) {
+              const vws = viewers.get(msg.viewerId);
+              if (vws && vws.readyState === 1) {
+                if (_diagOn) console.log(`[diag] replaying cached native offer+ICE to viewer ${msg.viewerId} (retry)`);
+                try {
+                  vws.send(JSON.stringify({ type: 'host-stream-ready' }));
+                  vws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
+                  for (const c of _gstIceCandidates) {
+                    vws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
+                  }
+                } catch (_) {}
+              }
             }
             return;
           }
 
           // ── STANDARD SIGNALING ──
           if ((msg.type === "offer" || msg.type === "ice-host" || msg.type === "answer") && msg._viewerId) {
+            if (_diagOn && (msg.type === "offer" || msg.type === "answer")) console.log(`[diag] relay ${msg.type} ↔ viewer ${msg._viewerId}`);
             const vws = viewers.get(msg._viewerId);
             if (vws && vws.readyState === 1) {
               vws.send(JSON.stringify(msg));
@@ -2853,8 +2938,13 @@ async function main() {
             ws.send(JSON.stringify({ type: "host-connected", hostName: _hostDisplayName, hostRegion }));
 
             // If GStreamer is running, replay the cached offer to this new viewer.
-            if (_gstOfferStr) {
+            // Guarded on active method: a stale cached offer from an earlier
+            // GStreamer session must never hijack a WebCodecs session's joins.
+            let _gstJoinActive = false;
+            try { _gstJoinActive = captureManager.getStatus().method === 'gstreamer_webrtc'; } catch (_) {}
+            if (_gstOfferStr && _gstJoinActive) {
               // host-stream-ready signals the viewer to show "Host found, connecting..."
+              if (_diagOn) console.log(`[diag] replaying cached native offer+ICE to joining viewer`);
               ws.send(JSON.stringify({ type: 'host-stream-ready' }));
               ws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
               for (const c of _gstIceCandidates) {
@@ -2902,6 +2992,7 @@ async function main() {
           if (msg.type === "answer" || msg.type === "ice-viewer" || msg.type === "viewer-mic-ready" || msg.type === "offer" || msg.type === "set-viewer-volume") {
             msg._viewerId = id;
             if (captureManager.getStatus().method === 'gstreamer_webrtc') {
+              if (_diagOn && msg.type === 'answer') console.log(`[diag] forwarding answer from viewer ${id} to native backend`);
               captureManager.sendGstSignaling(msg);
             } else if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify(msg));

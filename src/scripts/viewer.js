@@ -1,4 +1,3 @@
-// ── LATENCY TUNING CONSTANTS ─────────────────────────────────────────────────
 const CONGESTION_KEYFRAME_THRESHOLD_MS = 20; // was 40
 
 // Input Diagnostics (optional, enable via URL ?diag=1 or localStorage)
@@ -36,7 +35,7 @@ window.setInputDiagEnabled = async function(enabled) {
 // Silent getter for the Generate Log button
 window.getInputDiag = function() { return _inputDiag; };
 
-// ── BANDWIDTH / QUALITY PROFILES ─────────────────────────────────────────────
+// -- BANDWIDTH / QUALITY PROFILES ---------------------------------------------
 // Auto: unconstrained (let WebRTC CC do its job — best for most users)
 // Low:  cap at 720p / 1.5 Mbps  (mobile data, bad Wi-Fi)
 // High: cap at 4K  / 8 Mbps     (LAN / fibre, power users)
@@ -115,15 +114,56 @@ async function _applyBwProfile(targetPc) {
         console.warn('[BW] Could not apply profile:', e);
     }
 }
-// ──────────────────────────────────────────────────────────────────────────────
+// ------------------------------------------------------------------------------
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 const host = location.host;
-let wsHost = location.host;  // reassigned to 127.0.0.1 on first WebSocket failure
+let wsHost = location.host;  // loopback fallback on 1006 applies to loopback pages only — remote clients must keep the LAN host
 let ws, pc, myId = sessionStorage.getItem('ns_viewer_id') || 'ns_' + Math.random().toString(36).slice(2, 10);
 let myInputToken = null;
 if (!sessionStorage.getItem('ns_viewer_id')) sessionStorage.setItem('ns_viewer_id', myId);
 let _reconnectTimer = null;
+// -- OFFER BUDGET: initial host offer + 1 viewer-requested retry = 2 offers max
+// per join attempt. Previously 3 overlapping triggers (connection-failed,
+// ice-failed, watchdog-stall) each fired request-offer independently, storming
+// the host into 4+ full PC rebuilds per join. Now every path funnels through
+// _requestOffer(), which debounces and parks on the fullscreen overlay with a
+// tap-to-retry instead of rebuilding endlessly.
+let _offerRequestCount = 0;
+const _MAX_OFFER_REQUESTS = 1;
+let _lastOfferRequestMs = 0;
+function _resetOfferBudget() { _offerRequestCount = 0; _lastOfferRequestMs = 0; }
+function _requestOffer(reason) {
+    if (!ws || ws.readyState !== 1) return false;
+    const now = Date.now();
+    if (now - _lastOfferRequestMs < 4000) return false; // debounce: one ask per 4s max
+    if (_offerRequestCount >= _MAX_OFFER_REQUESTS) {
+        // Budget spent — stop rebuilding, show fullscreen retry instead.
+        console.warn(`[WebRTC] Offer budget spent (${reason}). Parking on overlay with manual retry.`);
+        setStatus('Connection is taking longer than expected — tap anywhere to retry');
+        showOverlay(true);
+        const overlay = document.getElementById('overlay');
+        if (overlay && !overlay._nsRetryWired) {
+            overlay._nsRetryWired = true;
+            overlay.addEventListener('click', (e) => {
+                if (e.target && e.target.closest && e.target.closest('#gpPrompt')) return;
+                if (pc && pc.connectionState === 'connected') return;
+                _resetOfferBudget();
+                _requestOffer('manual-retry');
+            });
+        }
+        return false;
+    }
+    _offerRequestCount++;
+    _lastOfferRequestMs = now;
+    // pcState lets the host tell a dead-viewer retry (rebuild) apart from a
+    // mid-flight duplicate (ignore) — no more murdered connecting PCs, no more
+    // ignored legit retries.
+    let pcState = 'none';
+    try { pcState = pc ? pc.connectionState : 'none'; } catch (_) {}
+    try { ws.send(JSON.stringify({ type: 'request-offer', reason: reason || 'retry', pcState })); } catch (_) { return false; }
+    return true;
+}
 let viewerRegion = '';
 let smartDb = {};
 window.smartDb = smartDb;
@@ -139,72 +179,29 @@ let _turnFetchPromise = (async () => {
     } catch (e) { console.warn('Failed to fetch TURN credentials:', e); }
 })();
 
-// ── COMMUNITY TURN LADDER (reliable → fallback → additional fallbacks) ──
-// Fetched once, filtered to entries that respond on their real TURN port, and
-// used only as the *additional* fallback tier (after server + custom TURN) so a
-// dead public relay can never again gate the whole ICE handshake.
-let _communityTurnLadder = [];
-let _communityTurnFetchPromise = null;
-const busyTurnUrls = new Set();
-async function _loadCommunityTurnLadder() {
-    try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const hostParam = urlParams.get('host') ? `?host=${urlParams.get('host')}` : '';
-        const scheme = location.protocol === 'file:' ? 'http://localhost:3000' : '';
-        const res = await fetch(`${scheme}/api/community-turn-servers${hostParam}`);
-        if (!res.ok) { _communityTurnLadder = []; return; }
-        const servers = await res.json();
-        const results = [];
-        // Live-ping each registry entry (short timeout) so we only ladder in
-        // relays that are actually reachable right now.
-        await Promise.all((Array.isArray(servers) ? servers : []).map(async (s) => {
-            if (!s || !s.url || busyTurnUrls.has(s.url)) return;
-            busyTurnUrls.add(s.url);
-            try {
-                let alive = false;
-                try {
-                    const pc = new RTCPeerConnection({
-                        iceServers: [{ urls: [s.url], username: s.username || '', credential: s.credential || '' }],
-                        bundlePolicy: 'max-bundle'
-                    });
-                    pc.createDataChannel('ladder-ping');
-                    alive = await new Promise((resolve) => {
-                        let done = false;
-                        const finish = (ok) => { if (!done) { done = true; try { pc.close(); } catch (_) {} resolve(ok); } };
-                        pc.onicecandidate = (ev) => {
-                            if (ev.candidate) {
-                                if (ev.candidate.type === 'relay' || ev.candidate.candidate.includes('typ relay')) finish(true);
-                            } else {
-                                finish(false);
-                            }
-                        };
-                        pc.oniceconnectionstatechange = () => {
-                            if (pc.iceConnectionState === 'failed') finish(false);
-                        };
-                        setTimeout(() => finish(false), 3000);
-                        try { pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => finish(false)); } catch (_) { finish(false); }
-                    });
-                } catch (_) { alive = false; }
-                if (alive) results.push(s);
-            } finally {
-                busyTurnUrls.delete(s.url);
-            }
-        }));
-        _communityTurnLadder = results;
-        if (results.length) console.log('[WebRTC] Community TURN ladder:', results.map(r => r.name || r.url).join(', '));
-    } catch (e) {
-        console.warn('[WebRTC] Failed to load community TURN ladder:', e);
-        _communityTurnLadder = [];
+// Community TURN servers are now centralized in ice-servers.js (COMMUNITY_TURN_SERVERS)
+    // and included by default in buildIceServers(). No local ladder needed.
+    // Hardware acceleration detection
+    let _wcHwSupportCache = null;
+    async function getHardwareAccelSupport() {
+        if (_wcHwSupportCache) return _wcHwSupportCache;
+        try {
+            const { detectAllCodecSupport } = await import('./core/hw-accel-detect.js');
+            const results = await detectAllCodecSupport();
+            _wcHwSupportCache = results;
+            return results;
+        } catch (e) {
+            console.warn('[WebCodecs] Hardware detection failed:', e);
+            return { VP8: { supported: true, hardwareAccel: false, mimeType: 'video/vp8' } };
+        }
     }
-}
-_communityTurnFetchPromise = _loadCommunityTurnLadder();
 
-// ── EARLY PIN / CONNECT STATE (must be declared before async standby handler) ──
-let pinRequired = true;
+    // -- EARLY PIN / CONNECT STATE (must be declared before async standby handler) --
+ let pinRequired = true;
 let _autoJoinedVps = false;
 let viewerReconnectAttempts = 0;
 
-// ── EARLY STANDBY CONNECTION ────────────────────────────────────────────────
+// -- EARLY STANDBY CONNECTION ------------------------------------------------
 // Always attempt to connect to the VPS standby lane. If we are on a standard
 // peer-to-peer local server, this route doesn't exist and will silently fail (404),
 // which is perfectly fine. If we are on the VPS, it connects and instantly checks state.
@@ -287,8 +284,30 @@ async function safeApiJson(url, fallback) {
         return fallback;
     }
 }
-function requestKeyframeFromHost() {
+function requestKeyframeFromHost(force) {
+    // Throttled: the host forces an IDR on receipt, so repeats inside 800ms
+    // are pure spam (error bursts used to fire one per bad chunk).
+    // `force` bypasses the throttle for decoder-rebuild recovery, where the
+    // companion config resend is the only thing that triggers the rebuild —
+    // throttling it away would strand the viewer with no decoder at all.
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (!force && now - (window._lastKeyframeReqMs || 0) < 800) return;
+    window._lastKeyframeReqMs = now;
     if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-keyframe', viewerId: typeof myId !== 'undefined' ? myId : null }));
+}
+// A corrupt chunk on the lossy channel is routine — drop it and ask for a
+// keyframe. Only after SUSTAINED consecutive failures is the decoder itself
+// rebuilt. Previously EVERY bad chunk nuked the decoder (×39 relocks in one
+// session), which is what made video appear "only when it feels like it".
+function _noteChunkError(tag) {
+    window._wcConsecutiveErrors = (window._wcConsecutiveErrors || 0) + 1;
+    if (window._wcConsecutiveErrors > 15) {
+        console.warn(`[WebCodecs${tag}] ${window._wcConsecutiveErrors} consecutive chunk errors. Rebuilding decoder...`);
+        window._wcConsecutiveErrors = 0;
+        recoverWebCodecsDecoder();
+    } else {
+        requestKeyframeFromHost();
+    }
 }
 
 window.forceReloadStream = function() {
@@ -299,17 +318,22 @@ window.forceReloadStream = function() {
         requestKeyframeFromHost();
         console.log('[Viewer] Forced WebCodecs keyframe request.');
     } else {
-        // In WebRTC mode, trigger a full SDP renegotiation
-        ws.send(JSON.stringify({ type: 'request-offer' }));
+        // In WebRTC mode, trigger a full SDP renegotiation (manual action: fresh budget)
+        _resetOfferBudget();
+        _requestOffer('manual');
         console.log('[Viewer] Forced WebRTC offer request.');
     }
 };
 
 function recoverWebCodecsDecoder() {
     window.nsWaitKey = true;
-    requestKeyframeFromHost();
+    requestKeyframeFromHost(true); // forced: host resends keyframe + cached config (see host.js request-keyframe)
     try { if (wcDecoder?.state !== 'closed') wcDecoder.close(); } catch (_) { }
     wcDecoder = null;
+    window._wcViewerInitialized = false; // allow initWebCodecsViewer to rebuild on the resent config
+    if (typeof setStatus === 'function') setStatus('Reconnecting…');
+    // Stop viewer connection watchdog on decoder recovery
+    _stopViewerConnectionWatchdog();
 }
 let sysAudioCtx = null;
 let nextAudioTime = 0;
@@ -318,7 +342,7 @@ let useVps = false;
 let myName = localStorage.getItem('ns_name') || urlParamsGlobal.get('name') || '';
 document.getElementById("nameInput").value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
 if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
-// ── PRE-JOIN HOST INFO ──
+// -- PRE-JOIN HOST INFO --
 (function fetchHostInfo() {
   const hostUrl = urlParamsGlobal.get('host');
   if (hostUrl) {
@@ -343,7 +367,7 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 let enteredPin = '', enteredPassword = '', audioMuted = false;
 let kbEnabled = false;
 
-// ── VOICE CHAT STATE ──────────────────────────────────────────────────────────
+// -- VOICE CHAT STATE ----------------------------------------------------------
 let localMicStream = null;
 let micSender = null;
 let micEnabled = false;
@@ -358,8 +382,8 @@ const VAD_THRESHOLD = 18;   // RMS energy level (0-255)
 const VAD_HOLD_MS = 800;  // ms to hold "talking" indicator after silence
 let vadTalkingTimer = null;
 let vadIsTalking = false;
-// ─────────────────────────────────────────────────────────────────────────────
-// ── WebCodecs Globals ──
+// -----------------------------------------------------------------------------
+// -- WebCodecs Globals --
 // USE_WEBCODECS: true when launched with --webcodecs flag (?wc=1 or ?wc=2 in URL).
 // In this mode the DataChannel pipeline is the primary renderer; the WebRTC
 // video track is still received (for timing / signalling parity) but is
@@ -578,49 +602,45 @@ function maybeShowControllerGuide() {
         setTimeout(() => openControllerGuide(), 700);
     }
 }
-// ── PEER CONNECTION ───────────────────────────────────────────────────────────
+// -- PEER CONNECTION -----------------------------------------------------------
 async function createPC() {
     if (pc) { try { pc.close(); } catch (e) { } }
+    window._wcDcOpen = false; // old DataChannel dead: WS binary path resumes until the new one opens
     console.log('[WebRTC] Initializing new PeerConnection...');
 
     if (!_turnCredentials && _turnFetchPromise) {
         await _turnFetchPromise;
     }
 
-    // ── ICE SERVER LADDER ───────────────────────────────────────────────────
+    // -- ICE SERVER LADDER ---------------------------------------------------
     // Ordered tiers: reliable → fallback → additional fallbacks. WebRTC gathers
     // from every entry in parallel, so a healthy list shortens recursion by
     // giving ICE multiple live paths immediately. Dead entries no longer gate
     // the whole connection (they used to burn the full ~10s ICE timeout).
-    const iceServers = [];
+    // Uses centralized ICE server config from ice-servers.js (3x STUN +
+    // server /api/turn only — dead public TURNs stay disabled so one bad
+    // relay can't burn the full ~10s ICE timeout per offer).
+    // Import failure must NEVER kill the connection: fall back to bare STUN.
+    let iceServers;
+    try {
+        const iceServersModule = await import('./core/network/ice-servers.js');
+        iceServers = iceServersModule.buildIceServers(_turnCredentials);
+    } catch (e) {
+        console.warn('[WebRTC] ice-servers.js import failed, using STUN-only fallback:', e?.message);
+        iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    }
 
-    // TIER 1 — reliable: the user's explicit custom STUN (if any) goes first,
-    // otherwise the canonical Google resolver.
+    // TIER 1 — reliable: the user's explicit custom STUN (if any) goes first
     const customStun = localStorage.getItem('ns_custom_stun');
     if (customStun) {
         console.log('[WebRTC] Using Custom Community STUN (reliable tier):', customStun);
-        iceServers.push({ urls: customStun });
+        iceServers.unshift({ urls: customStun }); // prepend so it's tried first
     }
-    iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
 
-    // TIER 2 — fallback: Google's alternate resolvers (no single point of choice).
-    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun2.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun3.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun4.l.google.com:19302' });
-
-    // TIER 3 — additional fallback STUNs (kept to trusted infrastructure only).
-    iceServers.push({ urls: 'stun:stun.cloudflare.com:3478' });
-
-    // ── TURN LADDER ──────────────────────────────────────────────────────────
-    // Reliable TURN: server-configured credentials (host-provided /api/turn).
-    if (_turnCredentials) {
-        if (Array.isArray(_turnCredentials)) {
-            iceServers.push(..._turnCredentials);
-        } else {
-            iceServers.push(_turnCredentials);
-        }
-    }
+    // -- TURN ----------------------------------------------------------
+    // Reliable TURN comes from buildIceServers(_turnCredentials) above
+    // (server /api/turn). It accepts a lone object or an array and dedupes,
+    // so do NOT push _turnCredentials again here (that doubled every relay).
 
     // Fallback TURN: the user's explicit community pick (dashboard selection).
     const customTurnUrl = localStorage.getItem('ns_custom_turn_url');
@@ -631,17 +651,6 @@ async function createPC() {
             username: localStorage.getItem('ns_custom_turn_username') || '',
             credential: localStorage.getItem('ns_custom_turn_credential') || ''
         });
-    }
-
-    // Additional TURN fallbacks: live-pinged community registry entries that
-    if (_communityTurnLadder && _communityTurnLadder.length) {
-        for (const entry of _communityTurnLadder) {
-            if (entry && entry.url) {
-                if (busyTurnUrls.has(entry.url)) continue;
-                busyTurnUrls.add(entry.url);
-                iceServers.push({ urls: entry.url, username: entry.username || '', credential: entry.credential || '' });
-            }
-        }
     }
 
     if (window._isP2P && window.P2PManager && window.P2PManager.clientSession && window.P2PManager.clientSession.pc) {
@@ -669,20 +678,28 @@ async function createPC() {
                 clearTimeout(_reconnectTimer);
                 _reconnectTimer = setTimeout(() => {
                     if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
-                        ws.send(JSON.stringify({ type: 'request-offer' }));
+                        _requestOffer('connection-failed');
                     }
                 }, delay);
             }
             if (pc.connectionState === 'connected') {
                 _iceFailCount = 0;
+                _resetOfferBudget();
+                if (window._quietP2PTimer) { clearInterval(window._quietP2PTimer); window._quietP2PTimer = null; }
             }
             if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
         };
         pc.oniceconnectionstatechange = () => {
             console.log(`[WebRTC] ICE State: ${pc.iceConnectionState}`);
             if (pc.iceConnectionState === 'failed') {
-                console.warn('[WebRTC] ICE failed. Requesting fresh offer to recover...');
-                if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
+                // No direct request-offer here: ICE failure drives the PC to
+                // 'failed' right after, and the connection handler above owns
+                // the single budgeted retry. Firing here too caused duplicates.
+                console.warn('[WebRTC] ICE failed. Awaiting connection-state recovery...');
+            } else if (pc.iceConnectionState === 'disconnected') {
+                console.warn('[WebRTC] ICE disconnected, waiting for recovery...');
+            } else if (pc.iceConnectionState === 'connected') {
+                console.log('[WebRTC] ICE connected');
             }
         };
         pc.onsignalingstatechange = () => console.log(`[WebRTC] Signaling State: ${pc.signalingState}`);
@@ -725,6 +742,10 @@ async function createPC() {
                     let vfcLoop = () => {
                         let handledByUpscaler = false;
                         if (videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+                            if (!videoEl._nsFirstFrameLogged) {
+                                videoEl._nsFirstFrameLogged = true;
+                                console.log(`[WebRTC] First video frame rendered (${videoEl.videoWidth}x${videoEl.videoHeight})`);
+                            }
                             if (_gpuUpscalerInstance && window._gpuCanvas) {
                                 const gpuC = window._gpuCanvas;
                                 if (gpuC.width !== videoEl.videoWidth || gpuC.height !== videoEl.videoHeight) {
@@ -804,7 +825,7 @@ async function createPC() {
             }
         };
     }
-    // ── EXPERIMENTAL WEBCODECS DATA CHANNEL RECEIVER ──
+    // -- EXPERIMENTAL WEBCODECS DATA CHANNEL RECEIVER --
     let waitingForKeyframe = true;
 
     pc.ondatachannel = (event) => {
@@ -815,6 +836,7 @@ async function createPC() {
             console.log(`[WebRTC] DataChannel opened for WebCodecs payload: ${channel.label}`);
 
             const askForSync = () => {
+                window._wcDcOpen = true; // DataChannel video live: WS binary path stands down (no double decode)
                 console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
                 requestKeyframeFromHost();
             };
@@ -844,6 +866,11 @@ async function createPC() {
                     // Prevent double-decoding if we are receiving frames from the VPS SFU
                     if (ws && ws.url.includes('/vps')) return;
 
+                    try {
+                        const ns = window._wcNetStats || (window._wcNetStats = { ws: 0, dc: 0, dec: 0 });
+                        ns.dc++;
+                    } catch (_) {}
+
                     if (!wcDecoder || wcDecoder.state !== 'configured') return;
 
                     const view = new DataView(e.data);
@@ -854,7 +881,11 @@ async function createPC() {
                     const chunkData = new Uint8Array(e.data, 9);
 
                     // --- RESILIENCY LAYER ---
-                    if (waitingForKeyframe) {
+                    // Honor the global gate too: after a decoder rebuild both
+                    // recoverWebCodecsDecoder() and initWebCodecsViewer() set
+                    // nsWaitKey, so pre-keyframe deltas drop silently instead
+                    // of erroring on the fresh decoder (rebuild thrash).
+                    if (waitingForKeyframe || window.nsWaitKey) {
                         if (!isKey) return;
                         waitingForKeyframe = false;
                         window.nsWaitKey = false;
@@ -868,19 +899,27 @@ async function createPC() {
                             data: chunkData
                         });
                         
-                        // Prevent viewer hardware decode latency from building up
-                        if (wcDecoder.decodeQueueSize > 5) {
-                            console.warn(`[WebCodecs] Decoder queue overwhelmed (${wcDecoder.decodeQueueSize}). Dropping to kill latency...`);
-                            recoverWebCodecsDecoder();
+                        // Backpressure: drop this frame instead of queuing latency.
+                        // Only nuke + rebuild the decoder after SUSTAINED overload
+                        // (~90 consecutive drops). Previously a single burst over
+                        // the (lossy) DataChannel destroyed the decoder, and the
+                        // one-shot init flag meant it never came back (black screen).
+                        if (wcDecoder.decodeQueueSize > 8) {
+                            window._wcDropStreak = (window._wcDropStreak || 0) + 1;
+                            if (window._wcDropStreak > 90) {
+                                console.warn(`[WebCodecs] Decoder persistently overwhelmed (${window._wcDropStreak} drops). Rebuilding...`);
+                                window._wcDropStreak = 0;
+                                recoverWebCodecsDecoder();
+                            }
                             return;
                         }
                         
+                        try { if (!window._wcRecvTimes) window._wcRecvTimes = new Map(); window._wcRecvTimes.set(timestamp, performance.now()); } catch (_) {}
                         wcDecoder.decode(chunk);
                     } catch (err) {
-                        console.error('[WebCodecs] Decode error, dropping frame...', err);
-                        recoverWebCodecsDecoder();
-                    }
-                }
+                        _noteChunkError('');
+                        return;
+                    }                }
             };
             return; // Stop here so it doesn't fall through to the input block
         }
@@ -919,7 +958,7 @@ async function createPC() {
     };
 }
 
-// ── MIC TOGGLE ────────────────────────────────────────────────────────────────
+// -- MIC TOGGLE ----------------------------------------------------------------
 async function toggleMic() {
     if (forceMutedByHost) return;
     if (!micEnabled) await enableMic(); else disableMic();
@@ -1002,7 +1041,7 @@ function showMicToast(msg) {
     setTimeout(() => t.classList.remove('toast-show'), 5000);
 }
 
-// ── AUDIO VOLUME CONTROLS ─────────────────────────────────────────────────────
+// -- AUDIO VOLUME CONTROLS -----------------------------------------------------
 // Persist prefs so they survive refresh
 const _audioPrefs = {
     streamVol: parseFloat(localStorage.getItem('ns_vol_stream') ?? '1.0'),
@@ -1116,7 +1155,7 @@ function toggleAudioPanel() {
     if (btn) btn.classList.toggle('open', !isOpen);
     if (!isOpen) document.getElementById('nsBar')?.classList.remove('open');
 }
-// ── VIEWER SETTINGS MODAL ───────────────────────────────────────────────────
+// -- VIEWER SETTINGS MODAL ---------------------------------------------------
 function openViewerSettings() {
     const modal = document.getElementById('viewerSettingsModal');
     if (modal) modal.classList.add('open');
@@ -1130,7 +1169,7 @@ function closeViewerSettings() {
     if (modal) modal.classList.remove('open');
 }
 
-// ── WebGPU BACKEND TOGGLE ────────────────────────────────────────────────────
+// -- WebGPU BACKEND TOGGLE ----------------------------------------------------
 let _gpuBackendEnabled = localStorage.getItem('ns_gpu_backend') === '1';
 let _gpuUpscalerInstance = null;
 
@@ -1256,9 +1295,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
-// ── VOICE ACTIVITY DETECTION ──────────────────────────────────────────────────
+// -- VOICE ACTIVITY DETECTION --------------------------------------------------
 function startVAD(stream) {
     stopVAD();
     try {
@@ -1308,7 +1347,7 @@ function stopVAD() {
 function setLocalTalking(active) {
     if (typeof window.vcSetTalking === 'function') window.vcSetTalking('self', active);
 }
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 const CODEC_PRIORITY = ['video/H264', 'video/VP8'];
 function preferReceiverCodec(transceiver, preferredMime) {
@@ -1408,7 +1447,7 @@ function startFrameProcessor(track) {
     });
 }
 
-// ── INPUT ─────────────────────────────────────────────────────────────────────
+// -- INPUT ---------------------------------------------------------------------
 let keyMap = {
     'KeyW': 'KEY_W', 'KeyA': 'KEY_A', 'KeyS': 'KEY_S', 'KeyD': 'KEY_D',
     'ArrowUp': 'KEY_UP', 'ArrowDown': 'KEY_DOWN', 'ArrowLeft': 'KEY_LEFT', 'ArrowRight': 'KEY_RIGHT',
@@ -1526,7 +1565,7 @@ window.setKeyPreset = function(preset) {
 };
 const mouseMap = { 0: 'BTN_LEFT', 1: 'BTN_MIDDLE', 2: 'BTN_RIGHT' };
 
-// ── Input Sequence Tracking (rollback prediction support) ──────────────────────
+// -- Input Sequence Tracking (rollback prediction support) ----------------------
 // Each sent input gets a sequence number so the host can acknowledge receipt.
 // Lost inputs are detected by gaps in the ack sequence.
 let _inputSeq = 0;
@@ -1552,7 +1591,7 @@ function _onInputAck(ackSeq) {
     }
 }
 
-// ── Fast-Lane Input Dispatcher ────────────────────────────────────────────────
+// -- Fast-Lane Input Dispatcher ------------------------------------------------
 // Tries WebTransport datagrams first, then WebRTC DataChannel, then WebSocket.
 function sendInputData(data) {
     const isBin = data instanceof Uint8Array || data instanceof ArrayBuffer;
@@ -1660,7 +1699,7 @@ document.addEventListener('mousemove', e => { if (!document.pointerLockElement) 
 document.addEventListener('mousedown', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keydown', key: mouseMap[e.button] }); });
 document.addEventListener('mouseup', e => { if (!document.pointerLockElement) return; if (mouseMap[e.button]) sendKbm({ event: 'keyup', key: mouseMap[e.button] }); });
 
-// ── EXPERIMENTAL TABLET SUPPORT ───────────────────────────────────────────────
+// -- EXPERIMENTAL TABLET SUPPORT -----------------------------------------------
 function handleTabletEvent(e) {
     if (e.pointerType !== 'pen') return;
     
@@ -1695,7 +1734,7 @@ document.addEventListener('pointerup', handleTabletEvent, { passive: false });
 
 
 
-// ── TOUCH ─────────────────────────────────────────────────────────────────────
+// -- TOUCH ---------------------------------------------------------------------
 let touchMode = false, useGyro = false;
 const touchState = {
     axes: [0, 0, 0, 0],
@@ -1858,7 +1897,7 @@ if (jBaseRight) {
 
 // Removed redundant dpad-btn listener block since it's handled by data-btn above
 
-// ── HID GYRO ──────────────────────────────────────────────────────────────────
+// -- HID GYRO ------------------------------------------------------------------
 // SECURITY RESTRICTION: Completely remove write access from the WebHID API in this window context
 // This guarantees that a malicious host script cannot send payloads or rumble spam to the device.
 if (typeof HIDDevice !== 'undefined') {
@@ -1936,7 +1975,7 @@ function handleHIDReport(event) {
     }
 }
 
-// ── CALIBRATION ───────────────────────────────────────────────────────────────
+// -- CALIBRATION ---------------------------------------------------------------
 const calibMaps = {};
 (function loadSavedCalibMaps() {
     const PREFIX = 'nearsec_map_';
@@ -1963,7 +2002,7 @@ window.addEventListener('message', e => {
         }
     });
 
-// ── NEARCADE PROBE SIM CORE: START ──────────────────────────────────────────
+// -- NEARCADE PROBE SIM CORE: START ------------------------------------------
 // Everything between the START/END markers is extracted VERBATIM at build time
 // into tools/gamepad-probe/www/viewer-sim.js so the standalone Gamepad Probe
 // simulates the viewer with the real production code. Keep this region free of
@@ -2078,9 +2117,9 @@ function applyGamepadDzSens(gp, cache, state, gpDeadzones, gpSens) {
     }
     return changed;
 }
-// ── NEARCADE PROBE SIM CORE: END ────────────────────────────────────────────
+// -- NEARCADE PROBE SIM CORE: END --------------------------------------------
 
-// ── GAMEPAD POLLING ───────────────────────────────────────────────────────────
+// -- GAMEPAD POLLING -----------------------------------------------------------
 lastGpSend = {}, lastGpStr = {};
 let gpCache = {}, gpStateObj = {};
 window.nsRedundancyEnabled = localStorage.getItem('ns_redundancy') !== 'false';
@@ -2411,7 +2450,7 @@ function pollGamepad() {
     }
 }
 
-// ── NEARCADE PROBE SIM CORE: START ──────────────────────────────────────────
+// -- NEARCADE PROBE SIM CORE: START ------------------------------------------
 function _packGamepadJson(vIndex, state) {
     let btnMask = 0;
     if (state.buttons[0]?.pressed) btnMask |= 0x0001;
@@ -2454,7 +2493,7 @@ function _packGamepadJson(vIndex, state) {
 
     return JSON.stringify(obj);
 }
-// ── NEARCADE PROBE SIM CORE: END ────────────────────────────────────────────
+// -- NEARCADE PROBE SIM CORE: END --------------------------------------------
 
 function _packGamepadBinary(vIndex, state) {
     const buf = new Uint8Array(14);
@@ -2499,7 +2538,7 @@ window.addEventListener('gamepadconnected', e => {
     _maybeAutoCalibrate(e.gamepad);
 });
 
-// ── AUTO-CALIBRATION TRIGGER ──────────────────────────────────────────────────
+// -- AUTO-CALIBRATION TRIGGER --------------------------------------------------
 // When an unknown controller connects, force-open the calibration modal and
 // kick off the guided calibration flow (Pull LT → Pull RT → Push RS right →
 // Push RS down). The session storage gate is intentionally bypassed here —
@@ -2531,7 +2570,7 @@ function _maybeAutoCalibrate(gp) {
     }
 }
 
-// ── STATUS / OVERLAY ──────────────────────────────────────────────────────────
+// -- STATUS / OVERLAY ----------------------------------------------------------
 function log(msg) { console.log(msg); }
 function setStatus(msg, live) {
     const st = document.getElementById('overlayStatus');
@@ -2621,7 +2660,7 @@ function connectInputWS() {
     inputWs.onerror = () => console.error('[Input] Fast Lane error.');
 }
 
-// ── WEBSOCKET ─────────────────────────────────────────────────────────────────
+// -- WEBSOCKET -----------------------------------------------------------------
 // State vars (vpsConnected, stopReconnect, _autoJoinedVps, pinRequired) declared early at top of file.
 let vpsConnected = false;
 let stopReconnect = false;
@@ -2804,7 +2843,7 @@ async function connect() {
         connectInputWS();
         stopReconnect = false;
 
-        // ── WEBTRANSPORT DATAGRAM TRANSPORT (local/VPS only, not through tunnels) ──
+        // -- WEBTRANSPORT DATAGRAM TRANSPORT (local/VPS only, not through tunnels) --
         const _isLocalHost = host === 'localhost' || host.startsWith('localhost:') || host === '127.0.0.1' || host.startsWith('127.0.0.1:');
         if ('WebTransport' in window && (_isLocalHost || useVps)) {
             const wtUrl = useVps
@@ -2863,10 +2902,26 @@ async function connect() {
     };
 
     ws.onmessage = async (e) => {
-        // ── BINARY ROUTING ────────────────────────────────────────────────────
+        // -- BINARY ROUTING ----------------------------------------------------
         // VPS SFU mode routes both video chunks and PCM audio as ArrayBuffers
         // over the same WebSocket. Distinguish by the 9-byte video header.
+        // Tolerance: some browsers/proxies deliver binary as Blob despite
+        // binaryType=arraybuffer. Convert and re-enter this same handler so
+        // video is never silently dropped on a type technicality.
+        if (e.data instanceof Blob) {
+            try {
+                const ab = await e.data.arrayBuffer();
+                return ws.onmessage({ data: ab });
+            } catch (_) { return; }
+        }
         if (e.data instanceof ArrayBuffer) {
+            try {
+                const ns = window._wcNetStats || (window._wcNetStats = { ws: 0, dc: 0, dec: 0 });
+                ns.ws++;
+            } catch (_) {}
+            // DataChannel has priority: once it opens, the WS copy stands
+            // down so chunks are never decoded twice (see _wcDcOpen).
+            if (window._wcDcOpen) return;
             const byteLen = e.data.byteLength;
             if (byteLen > 9) {
                 const firstByte = new Uint8Array(e.data, 0, 1)[0];
@@ -2883,16 +2938,22 @@ async function connect() {
                     const timestamp = view.getFloat64(1, true);
                     const chunkData = new Uint8Array(e.data, 9);
                     try {
-                        // Prevent viewer hardware decode latency from building up
-                        if (wcDecoder.decodeQueueSize > 5) {
-                            console.warn(`[WebCodecs/VPS] Decoder queue overwhelmed (${wcDecoder.decodeQueueSize}). Dropping to kill latency...`);
-                            recoverWebCodecsDecoder();
+                        // Backpressure (VPS path): drop on bursts, rebuild only
+                        // after sustained overload — same policy as DataChannel.
+                        if (wcDecoder.decodeQueueSize > 8) {
+                            window._wcDropStreak = (window._wcDropStreak || 0) + 1;
+                            if (window._wcDropStreak > 90) {
+                                console.warn(`[WebCodecs/VPS] Decoder persistently overwhelmed (${window._wcDropStreak} drops). Rebuilding...`);
+                                window._wcDropStreak = 0;
+                                recoverWebCodecsDecoder();
+                            }
                             return;
                         }
+                        try { if (!window._wcRecvTimes) window._wcRecvTimes = new Map(); window._wcRecvTimes.set(timestamp, performance.now()); } catch (_) {}
                         wcDecoder.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp, data: chunkData }));
                     } catch (err) {
-                        console.error('[WebCodecs/VPS] Decode error:', err);
-                        recoverWebCodecsDecoder();
+                        _noteChunkError('/VPS');
+                        return;
                     }
                     return;
                 }
@@ -2920,7 +2981,7 @@ async function connect() {
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
 
-        // ── AUTH HANDSHAKE ────────────────────────────────────────────────────
+        // -- AUTH HANDSHAKE ----------------------------------------------------
         // The server challenges every new viewer with a nonce; we must reply with
         // sha256(nonce + "nearcade_client_v3") before it accepts any other message.
         if (msg.type === 'auth-challenge' && msg.nonce) {
@@ -3005,7 +3066,9 @@ async function connect() {
             }
             _nsHostConnected = true;
             window.sessionEndedByHost = false; // Reset session ended state
+            _resetOfferBudget(); // new host session = new offer budget
             if (pc) { try { pc.close(); } catch { } pc = null; }
+            window._wcDcOpen = false; // old DataChannel dead: WS video resumes until the new one opens
             const videoEl = document.getElementById('video');
             if (videoEl?.srcObject) { videoEl.srcObject.getTracks().forEach(t => t.stop()); videoEl.srcObject = null; }
             document.getElementById('frameCanvas').style.display = 'none';
@@ -3123,11 +3186,12 @@ async function connect() {
                 for (const c of (pc._iceBuf || [])) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { } }
                 pc._iceBuf = [];
                 const answer = await pc.createAnswer();
-                // ── LOW-LATENCY SDP MUNGING (answer side) ──
+                // -- LOW-LATENCY SDP MUNGING (answer side) --
                 let ansSdp = answer.sdp;
                 ansSdp = ansSdp.replace(/(a=rtpmap:\d+ opus\/48000\/2)/g, '$1\na=ptime:1\na=maxptime:1');
                 await pc.setLocalDescription({ type: answer.type, sdp: ansSdp });
                 ws.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription }));
+                _resetOfferBudget(); // offer cycle completed — fresh budget for any future cycle
                 // Apply bandwidth profile now that transceivers are negotiated
                 _applyBwProfile(pc);
             } catch (err) {
@@ -3135,7 +3199,7 @@ async function connect() {
                 try { pc.close(); } catch { } pc = null;
                 // Retry with a fresh request-offer in case it was a transient failure
                 setTimeout(() => {
-                    if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-offer' }));
+                    _requestOffer('offer-error');
                 }, 2000);
             }
             return;
@@ -3211,7 +3275,7 @@ async function connect() {
             return;
         }
 
-        // ── RUMBLE ────────────────────────────────────────────────────────────
+        // -- RUMBLE ------------------------------------------------------------
         if (msg.type === 'rumble') {
             if (!clientRumbleEnabled) return;
 
@@ -3561,10 +3625,18 @@ async function connect() {
                 return;
             }
             if (event.code === 1006) {
-                const newHost = '127.0.0.1:' + (location.port || (location.protocol === 'https:' ? 443 : 80));
-                if (wsHost !== newHost) {
-                    wsHost = newHost;
-                    console.warn(`[WebSocket] Falling back to ${wsHost}`);
+                // Loopback fallback ONLY when the page itself was loaded from
+                // loopback (then it's a no-op anyway). For LAN/remote clients,
+                // 127.0.0.1 is the client's OWN device — repointing there
+                // orphans it: every reconnect hits itself, stuck at
+                // "connecting" forever. (This was the 3.0.5 LAN bug.)
+                const _ph = location.hostname;
+                if (_ph === 'localhost' || _ph === '127.0.0.1' || _ph === '::1' || _ph === '[::1]') {
+                    const newHost = '127.0.0.1:' + (location.port || (location.protocol === 'https:' ? 443 : 80));
+                    if (wsHost !== newHost) {
+                        wsHost = newHost;
+                        console.warn(`[WebSocket] Falling back to ${wsHost}`);
+                    }
                 }
             }
             
@@ -3647,7 +3719,7 @@ async function connect() {
     }
 })();
 
-function submitPin() {
+window.submitPin = function submitPin() {
     const nameVal = document.getElementById('nameInput').value.trim();
     if (nameVal) { myName = nameVal; localStorage.setItem('ns_name', myName); }
     const val = document.getElementById('pinInput').value.trim();
@@ -3700,7 +3772,7 @@ function submitSessionPassword() {
     setTimeout(connect, 200);
 }
 
-// ── CHAT ──────────────────────────────────────────────────────────────────────
+// -- CHAT ----------------------------------------------------------------------
 let lastChatMsg = '', lastChatTime = 0;
 
 function platIcon(name) {
@@ -3847,7 +3919,7 @@ if (document.readyState === 'loading') {
 }
 const chatHistory = [];
 let chatHistoryIndex = -1;
-// ── @MENTION AUTOCOMPLETE ──
+// -- @MENTION AUTOCOMPLETE --
 let _mentionData = { items: [], idx: -1, type: '' };
 function _showAutocompleteDropdown(inp) {
     const val = inp.value;
@@ -3859,8 +3931,8 @@ function _showAutocompleteDropdown(inp) {
         const commands = [
             { id: '/me', name: '/me [action]', desc: 'Act out an action' },
             { id: '/shrug', name: '/shrug', desc: '¯\\_(ツ)_/¯' },
-            { id: '/tableflip', name: '/tableflip', desc: '(╯°□°)╯︵ ┻━┻' },
-            { id: '/unflip', name: '/unflip', desc: '┬─┬ノ( º _ ºノ)' },
+            { id: '/tableflip', name: '/tableflip', desc: '(╯°□°)╯︵ ┻=┻' },
+            { id: '/unflip', name: '/unflip', desc: '┬-┬ノ( º _ ºノ)' },
             { id: '/dance', name: '/dance', desc: 'Starts dancing' },
             { id: '/roll', name: '/roll [max]', desc: 'Roll a random number' }
         ];
@@ -3937,8 +4009,8 @@ function sendChat() {
     if (!msg || !ws || ws.readyState !== 1) return;
     
     if (msg === '/shrug') msg = '¯\\_(ツ)_/¯';
-    else if (msg === '/tableflip') msg = '(╯°□°)╯︵ ┻━┻';
-    else if (msg === '/unflip') msg = '┬─┬ノ( º _ ºノ)';
+    else if (msg === '/tableflip') msg = '(╯°□°)╯︵ ┻=┻';
+    else if (msg === '/unflip') msg = '┬-┬ノ( º _ ºノ)';
     else if (msg === '/dance') msg = '/me starts dancing! 💃🕺';
     else if (msg.startsWith('/roll')) {
         let max = parseInt(msg.split(' ')[1]) || 100;
@@ -3982,7 +4054,7 @@ function toggleAudio() {
     }
 }
 
-// ── WAKE LOCK ─────────────────────────────────────────────────────────────────
+// -- WAKE LOCK -----------------------------------------------------------------
 let wakeLock = null;
 async function acquireWakeLock() {
     if (!('wakeLock' in navigator)) return;
@@ -3994,7 +4066,7 @@ async function acquireWakeLock() {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acquireWakeLock(); });
 acquireWakeLock();
 
-// ── STATS HUD ─────────────────────────────────────────────────────────────────
+// -- STATS HUD -----------------------------------------------------------------
 const statsHud = document.getElementById('statsHud');
 let prevBytesReceived = 0, prevStatsTime = 0, prevJitterDelay = 0, prevEmitted = 0;
 let _prevPacketsLost = 0;
@@ -4038,7 +4110,7 @@ async function updateStats() {
         }
         if (rtt !== null) {
 
-            // ── Quality tier from RTT + packet loss ──────────────────────────
+            // -- Quality tier from RTT + packet loss --------------------------
             const rttN = parseInt(rtt);
             const lossRatio = packetsReceived > 0 ? (packetsLost / (packetsLost + packetsReceived)) * 100 : 0;
 
@@ -4069,7 +4141,7 @@ async function updateStats() {
 }
 setInterval(updateStats, 500);
 
-// ── LOW-LATENCY ENFORCEMENT: Proactive buffer drain ──
+// -- LOW-LATENCY ENFORCEMENT: Proactive buffer drain --
 // Runs every 500ms. Uses jitterBufferTarget + playoutDelayHint to force the
 // browser's WebRTC stack to minimize the jitter buffer. playbackRate acts as
 // a secondary mechanism when the browser ignores the hints.
@@ -4110,7 +4182,7 @@ setInterval(async () => {
     } catch (_) {}
 }, 500);
 
-// ── #2: VIEWER-SIDE CURSOR PREDICTION ─────────────────────────────────────────
+// -- #2: VIEWER-SIDE CURSOR PREDICTION -----------------------------------------
 // Applies mouse delta to a local overlay instantly, snap-corrects on server echo.
 let _cursorPredict = { x: 0, y: 0, active: false };
 function initCursorPrediction() {
@@ -4157,7 +4229,7 @@ function initCursorPrediction() {
 }
 document.addEventListener('DOMContentLoaded', initCursorPrediction);
 
-// ── GAMEPAD PREDICTION ─────────────────────────────────────────────────────────
+// -- GAMEPAD PREDICTION ---------------------------------------------------------
 // Shows button presses on a local overlay instantly (no wait for server echo).
 let _gpPredictEl = null;
 let _gpPredictBtns = [];
@@ -4221,7 +4293,7 @@ pollGamepad = function() {
 
 document.addEventListener('DOMContentLoaded', initGamepadPrediction);
 
-// ── LATENCY OVERLAY ───────────────────────────────────────────────────────────
+// -- LATENCY OVERLAY -----------------------------------------------------------
 // Shows ping, frame rate, and packet loss in the viewer info panel.
 let _latencyOverlayEl = null;
 
@@ -4303,7 +4375,7 @@ function initLatencyOverlay() {
 
 document.addEventListener('DOMContentLoaded', initLatencyOverlay);
 
-// ── FULLSCREEN ────────────────────────────────────────────────────────────────
+// -- FULLSCREEN ----------------------------------------------------------------
 function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
 function toggleFS() {
     if (!document.fullscreenElement) {
@@ -4319,7 +4391,7 @@ document.addEventListener('fullscreenchange', () => {
     }
 });
 
-// ── RUMBLE ────────────────────────────────────────────────────────────────────
+// -- RUMBLE --------------------------------------------------------------------
 let clientRumbleEnabled = localStorage.getItem('ns_rumble') !== 'false';
 function toggleClientRumble() {
     clientRumbleEnabled = !clientRumbleEnabled;
@@ -4332,7 +4404,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (toggle) toggle.classList.toggle('on', clientRumbleEnabled);
 });
 
-// ── WEBCODECS FRAME HEALTH MONITOR ──
+// -- WEBCODECS FRAME HEALTH MONITOR --
 // Detects black screen, frozen stream, and decoder stalls.
 // Reports issues to host; auto-fallbacks to standard WebRTC after repeated failures.
 let _wcHealth = {
@@ -4388,9 +4460,39 @@ function _startWcHealthMonitor() {
     }, 3000));
 
     _wcHealth.intervals.push(setInterval(() => {
+        let viewLag = null;
+        try {
+            const vs = window._wcViewStats;
+            if (vs && vs.n > 0) {
+                viewLag = { avgMs: Math.round(vs.sum / vs.n), maxMs: Math.round(vs.max) };
+                // Routine render stats at most every ~18s (every 3rd tick);
+                // anomalies (high lag) always print.
+                window._wcViewLogTick = ((window._wcViewLogTick || 0) + 1) % 3;
+                if (window._wcViewLogTick === 0 || viewLag.avgMs > 120 || viewLag.maxMs > 400) {
+                    console.log(`[WebCodecs] view in=${Math.round(vs.n / 6)}fps renderLag avg=${viewLag.avgMs}ms max=${viewLag.maxMs}ms`);
+                }
+                window._wcViewStats = { n: 0, sum: 0, max: 0 };
+            }
+            if (window._wcRecvTimes && window._wcRecvTimes.size > 240) window._wcRecvTimes.clear();
+        } catch (_) {}
+        // Transport arrivals per path — proves from THIS side whether the
+        // host emits (ws/dc > 0) or the viewer drops (arrivals but dec = 0).
+        // Same ~18s cadence as above; silence here + watchdog stalls = host
+        // sends nothing.
+        try {
+            const ns = window._wcNetStats;
+            if (ns && (ns.ws > 0 || ns.dc > 0 || ns.dec > 0)) {
+                window._wcNetLogTick = ((window._wcNetLogTick || 0) + 1) % 3;
+                if (window._wcNetLogTick === 0) {
+                    console.log(`[WebCodecs] net wsChunks=${ns.ws} dcChunks=${ns.dc} decoded=${ns.dec} dcLive=${!!window._wcDcOpen}`);
+                }
+                window._wcNetStats = { ws: 0, dc: 0, dec: 0 };
+            }
+        } catch (_) {}
         _reportWcHealth('telemetry', {
             fps: _wcHealth.frameCount > 0 ? Math.round(_wcHealth.frameCount / 6) : 0,
             decoderState: wcDecoder?.state || 'none',
+            ...(viewLag ? { viewLagAvgMs: viewLag.avgMs, viewLagMaxMs: viewLag.maxMs } : {}),
         });
         _wcHealth.frameCount = 0;
     }, 6000));
@@ -4404,6 +4506,92 @@ function _stopWcHealthMonitor() {
         window._trackViewerFrame = _wcHealth._origTrackFrame;
         _wcHealth._origTrackFrame = null;
     }
+}
+
+// -- Viewer Connection Watchdog --------------------------------------------------
+// Monitors viewer connection health and forces recovery on stalls
+let _viewerConnWatchdogInterval = null;
+let _lastViewerFrameReceived = 0;
+let _viewerConnectionStallCount = 0;
+const VIEWER_CONNECTION_STALL_TIMEOUT = 8000; // 8 seconds without frames = stall
+const MAX_VIEWER_STALL_RECOVERIES = 3;
+
+function _startViewerConnectionWatchdog() {
+    if (_viewerConnWatchdogInterval) return;
+    _lastViewerFrameReceived = performance.now();
+    _viewerConnectionStallCount = 0;
+    
+    _viewerConnWatchdogInterval = setInterval(() => {
+        if (!wcDecoder || wcDecoder.state !== 'configured') return;
+        
+        const elapsed = performance.now() - _lastViewerFrameReceived;
+        if (elapsed > VIEWER_CONNECTION_STALL_TIMEOUT) {
+            _viewerConnectionStallCount++;
+            console.warn(`[Viewer Watchdog] Connection stall detected (${elapsed}ms), recovery attempt ${_viewerConnectionStallCount}/${MAX_VIEWER_STALL_RECOVERIES}`);
+
+            // Request fresh offer from host (budgeted — see _requestOffer)
+            _requestOffer('stall');
+            
+            // Also try to request a keyframe
+            if (window.wcChannel && window.wcChannel.readyState === 'open') {
+                window.wcChannel.send(JSON.stringify({ type: 'request-keyframe' }));
+            }
+
+            // Honest overlay: P2P up but no frames is a HOST problem, not a
+            // connection problem — say so (overrides the generic retry text).
+            try {
+                if (pc && pc.connectionState === 'connected') {
+                    setStatus('Connected — waiting for host video…');
+                    showOverlay(true);
+                }
+            } catch (_) {}
+            
+            if (_viewerConnectionStallCount >= MAX_VIEWER_STALL_RECOVERIES) {
+                console.error('[Viewer Watchdog] sustained stall — parking on overlay, quiet P2P retry continues. NEVER reloading.');
+                setStatus('Connection is taking longer than expected — tap anywhere to retry');
+                showOverlay(true);
+                _scheduleQuietP2PRetry();
+                _viewerConnectionStallCount = 0; // keep watching; WS fallback carries video meanwhile
+            }
+        }
+    }, 3000); // Check every 3 seconds
+}
+ 
+function _markViewerFrameReceived() {
+    _lastViewerFrameReceived = performance.now();
+}
+
+function _stopViewerConnectionWatchdog() {
+    if (_viewerConnWatchdogInterval) {
+        clearInterval(_viewerConnWatchdogInterval);
+        _viewerConnWatchdogInterval = null;
+    }
+}
+
+// Quiet P2P upgrade loop: when media is stalled long-term (P2P never came up),
+// keep swapping in a FRESH PC every 12s without touching the decoder, the
+// overlay, or the page. WS fallback video (if flowing) continues underneath;
+// the moment P2P connects, the DataChannel takes over silently. This replaces
+// the old location.reload() sledgehammer, which nuked the session, rejoined
+// as a new viewer, and restarted the whole failure from zero.
+function _scheduleQuietP2PRetry() {
+    if (window._quietP2PTimer) return;
+    window._quietP2PTimer = setInterval(() => {
+        try {
+            if (pc && pc.connectionState === 'connected') {
+                clearInterval(window._quietP2PTimer);
+                window._quietP2PTimer = null;
+                return;
+            }
+            if (!ws || ws.readyState !== 1) return; // signaling down: wait
+            console.log('[WebRTC] Quiet P2P retry with fresh PC (page untouched)...');
+            try { if (pc) pc.close(); } catch (_) {}
+            pc = null;
+            window._wcDcOpen = false;
+            _resetOfferBudget();
+            _requestOffer('quiet-retry');
+        } catch (_) {}
+    }, 12000);
 }
 
 function _reportWcHealth(type, data) {
@@ -4427,7 +4615,7 @@ function _reportWcHealth(type, data) {
     }
 }
 
-// ── WEBCODECS VIEWER INITIALIZER ──
+// -- WEBCODECS VIEWER INITIALIZER --
 let _pendingWcFrame = null;
 let _wcRenderLoopId = null;
 
@@ -4457,6 +4645,9 @@ function _wcRenderLoop() {
             }
         }
         
+        // Mark frame received for connection watchdog
+        _markViewerFrameReceived();
+
         let handledByUpscaler = false;
         // GPU path (WebGPU) — highest priority
         if (_gpuUpscalerInstance && window._gpuCanvas) {
@@ -4528,6 +4719,23 @@ async function initWebCodecsViewer(config) {
         return;
     }
 
+    // Re-init gate: the host re-sends this same config on every keyframe
+    // request, so ignore exact duplicates. But DO rebuild when the decoder is
+    // gone (recoverWebCodecsDecoder) or the codec/dimensions changed (host
+    // resolution switch) — previously the one-shot flag deadlocked the viewer
+    // on a black screen forever after either event.
+    if (window._wcViewerInitialized) {
+        const prev = window._lastWcViewerConfig;
+        const sameStream = prev && wcDecoder && wcDecoder.state !== 'closed' &&
+            prev.codec === config.codec &&
+            prev.codedWidth === config.codedWidth &&
+            prev.codedHeight === config.codedHeight;
+        if (sameStream) return;
+        console.log('[WebCodecs] Stream changed or decoder lost — rebuilding decoder.');
+    }
+    window._wcViewerInitialized = true;
+    window._lastWcViewerConfig = { codec: config.codec, codedWidth: config.codedWidth, codedHeight: config.codedHeight };
+
     console.log('[WebCodecs] Received Host Configuration:', config);
 
     const videoEl = document.getElementById('video');
@@ -4535,9 +4743,13 @@ async function initWebCodecsViewer(config) {
     const frameCanvas = document.getElementById('frameCanvas');
     if (frameCanvas) frameCanvas.style.display = 'none';
 
-    if (typeof showOverlay === 'function') showOverlay(false);
+    // Keep the FULLSCREEN overlay up until the first frame actually renders
+    // (hidden in the decoder output callback below). Hiding it on mere config
+    // receipt left users staring at a black page. The overlay keeps its
+    // ORIGINAL text ("Waiting for host..." / "Connecting...") — never renamed.
+    if (typeof showOverlay === 'function') showOverlay(true);
     const spinner = document.getElementById('spinner');
-    if (spinner) spinner.style.display = 'none';
+    if (spinner) spinner.style.display = 'block';
 
     if (!wcCanvas) {
         wcCanvas = document.createElement('canvas');
@@ -4637,6 +4849,19 @@ async function initWebCodecsViewer(config) {
         output: (frame) => {
             if (_pendingWcFrame) _pendingWcFrame.close();
             _pendingWcFrame = frame;
+            window._wcDropStreak = 0; // decoding keeps up — clear backpressure streak
+            window._wcConsecutiveErrors = 0; // a clean frame clears the error streak
+            try { if (window._wcNetStats) window._wcNetStats.dec++; } catch (_) {}
+            // Telemetry: wire-receive → decode-output latency for this frame.
+            try {
+                const vs = window._wcViewStats || (window._wcViewStats = { n: 0, sum: 0, max: 0 });
+                const recvMs = window._wcRecvTimes ? window._wcRecvTimes.get(frame.timestamp) : undefined;
+                if (recvMs !== undefined) {
+                    const l = performance.now() - recvMs;
+                    if (l >= 0 && l < 10000) { vs.n++; vs.sum += l; if (l > vs.max) vs.max = l; }
+                    window._wcRecvTimes.delete(frame.timestamp);
+                }
+            } catch (_) {}
             if (!_wcRenderLoopId) _wcRenderLoopId = requestAnimationFrame(_wcRenderLoop);
 
             if (_wcFirstFrame) {
@@ -4672,11 +4897,36 @@ async function initWebCodecsViewer(config) {
         delete decoderConfig.optimizeForLatency;
         wcDecoder.configure(decoderConfig);
     }
-    console.log('[WebCodecs] Hardware Decoder Ready!');
+    // Log hardware acceleration status
+    try {
+        const { detectCodecSupport } = await import('./core/hw-accel-detect.js');
+        const support = await detectCodecSupport(config.codec);
+        if (!window._wcDecoderReadyLogged) {
+            window._wcDecoderReadyLogged = true;
+            console.log(`[WebCodecs] Hardware Decoder Ready! (${config.codec} ${support.hardwareAccel ? 'Hardware' : 'Software'})`);
+        }
+        // Update UI if codec badge exists
+        const cb = document.getElementById('codecBadge');
+        if (cb) {
+            cb.textContent = `${config.codec} (${support.hardwareAccel ? 'Hardware' : 'Software'})`;
+            if (support.hardwareAccel) {
+                cb.style.border = '1px solid var(--ok)';
+                cb.style.color = 'var(--ok)';
+            }
+        }
+} catch (_) {
+        if (!window._wcDecoderReadyLogged) {
+            window._wcDecoderReadyLogged = true;
+            console.log('[WebCodecs] Hardware Decoder Ready!');
+        }
+    }
+
+    // Start viewer-side connection watchdog
+    _startViewerConnectionWatchdog();
     _startWcHealthMonitor();
 }
 
-// ── STEAM DECK / IMMERSIVE AUTO-DETECT ───────────────────────────────────────
+// -- STEAM DECK / IMMERSIVE AUTO-DETECT ---------------------------------------
 (function detectSteamDeck() {
     const ua = navigator.userAgent;
     const params = new URLSearchParams(location.search);
@@ -4697,7 +4947,7 @@ async function initWebCodecsViewer(config) {
     }
 })();
 
-// ── SIDE BAR FADE ─────────────────────────────────────────────────────────────
+// -- SIDE BAR FADE -------------------------------------------------------------
 (function () {
     const fsBtn = document.getElementById('fsOverlayBtn');
     if (!fsBtn) return;
@@ -4717,7 +4967,7 @@ async function initWebCodecsViewer(config) {
     showBtn();
 })();
 
-// ── GAMEPAD CALIBRATION SAVER ──
+// -- GAMEPAD CALIBRATION SAVER --
 window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'SAVE_CONTROLLER_CALIB') {
         const { hardwareId, map } = e.data;
@@ -4761,7 +5011,7 @@ window.toggleNetStats = function() {
     }
 };
 
-// ── PHASE 2: PARTY MODE PANEL ─────────────────────────────────────────────────
+// -- PHASE 2: PARTY MODE PANEL -------------------------------------------------
 window.togglePartySettings = function() {
     const hud = document.getElementById('hudWidget');
     if (hud && !hud.classList.contains('hide')) return; // Block sidebar if HUD is open
@@ -4798,7 +5048,7 @@ window.togglePartyNetStats = function() {
 
 
 
-// ── PHASE 4: TOAST NOTIFICATIONS ─────────────────────────────────────────────
+// -- PHASE 4: TOAST NOTIFICATIONS ---------------------------------------------
 window.pushToast = function(msg, opts={}) {
     const stack = document.getElementById('toastStack');
     if (!stack) return;
@@ -4822,7 +5072,7 @@ window.pushToast = function(msg, opts={}) {
 
 
 
-// ── PHASE 7: IDLE MODE / IMMERSION ───────────────────────────────────────────
+// -- PHASE 7: IDLE MODE / IMMERSION -------------------------------------------
 window.immersionEnabled = false;
 let _idleTimer = null;
 let _idleCueVisible = false;
@@ -4881,7 +5131,7 @@ function startIdleWatch() {
 
 
 
-// ── Phase 5: SHIFT+TAB FLOATING HUD (draggable + resizable) ───────────────────
+// -- Phase 5: SHIFT+TAB FLOATING HUD (draggable + resizable) -------------------
 let _hudDrag = null;
 let _hudResize = null;
 let _hudLastFrames = 0;
@@ -5143,7 +5393,7 @@ setTimeout(async () => {
     }
 }, 500);
 
-// ── Phase 10: SHARE / INVITE ─────────────────────────────────────────────────
+// -- Phase 10: SHARE / INVITE -------------------------------------------------
 const _shareInvno = 0;
 let _shareQrPending = null;
 
@@ -5183,7 +5433,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { window.closePartySettings && window.closePartySettings(); window.closeShareModal && window.closeShareModal(); }
 });
 
-// ── PARTY STATE PERSISTENCE (localStorage) ───────────────────────────────────
+// -- PARTY STATE PERSISTENCE (localStorage) -----------------------------------
 window.pushPartyState = function() {
     try {
         localStorage.setItem('ns_party_state', JSON.stringify({
@@ -5310,7 +5560,7 @@ window.startNetStats = function() {
     }, 1000);
 };
 
-// ── WEBXR (VR) INPUT POLLING ──────────────────────────────────────────────────
+// -- WEBXR (VR) INPUT POLLING --------------------------------------------------
 let xrSession = null;
 let xrRefSpace = null;
 let xrVideoTex = null;
@@ -5460,7 +5710,7 @@ function onXRFrame(time, frame) {
     }
 }
 
-// ── Voice: set user volume / mute — called from voice overlay ──
+// -- Voice: set user volume / mute — called from voice overlay --
 window.setUserVolume = function (targetId, volume) {
     if (!ws || ws.readyState !== 1) return;
     ws.send(JSON.stringify({

@@ -6,7 +6,7 @@
   "main": "src/electron/electron-main.js",
   "scripts": {
     "start": "node src/scripts/server.js",
-    "test": "node bin/verify.js",
+    "test": "node bin/verify.js && node bin/lan-sim.js",
     "vr:stream": "node src/wivrn/relay.js",
     "vr:bridge-builder": "bash bin/build_wivrn_bridge.sh",
     "probe": "electron tools/gamepad-probe",

@@ -1,3 +1,28 @@
+// ── Boot-phase timing (diagnoses "dashboard freezes for a moment") ─────────
+// Records wall-clock marks during startup; 3 s after load, prints ONE line
+// naming only phases slower than 250 ms. Silent on fast boots. This exists
+// because a momentary post-splash freeze can come from anywhere (script
+// parse under load, awaited accent/IPC, first data batch) and guessing
+// wastes everyone's time.
+const __bootT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+const __bootMarks = [];
+function __bootMark(name) {
+  try {
+    const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - __bootT0;
+    __bootMarks.push([name, Math.round(t)]);
+  } catch (_) {}
+}
+try {
+  setTimeout(() => {
+    try {
+      const slow = __bootMarks.filter(([, t]) => t > 250);
+      if (slow.length) console.log('[boot] slow phases (>250ms): ' + slow.map(([n, t]) => `${n}=${t}ms`).join(' '));
+    } catch (_) {}
+  }, 3000);
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('load', () => __bootMark('window-load'), { once: true });
+  }
+} catch (_) {}
 // ── In-app confirm modal (replaces all native confirm() calls) ────────────────
 // Returns a Promise<boolean> so callers can await it just like confirm().
 function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') {
@@ -108,10 +133,12 @@ function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') 
 })();
 
 document.addEventListener('DOMContentLoaded', async () => {
+  __bootMark('dom-ready');
   const vEl = document.getElementById('version-text');
   const cEl = document.getElementById('commit-hash');
 
   await applySystemAccent();
+  __bootMark('accent+version-ready');
 
   // Handle ?tab= URL parameter for deep-linking from web viewer
   const urlParams = new URLSearchParams(window.location.search);
@@ -391,6 +418,7 @@ async function applySystemAccent() {
     root.style.setProperty('--accent2', accent);
     root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
     root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+    root.style.setProperty('--accent-ink', ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) > 0.45 ? '#111116' : '#ffffff');
     if (indicator) indicator.style.display = 'inline-flex';
 
     if (appConfig.hostColor !== accent) {
@@ -470,6 +498,7 @@ async function applyNativeTheme() {
         root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
         root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
         root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+        root.style.setProperty('--accent-ink', ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) > 0.45 ? '#111116' : '#ffffff');
         
         if (appConfig.hostColor !== theme.accent) {
           appConfig.hostColor = theme.accent;
@@ -2052,7 +2081,16 @@ async function copyPairCode(secret) {
   try {
     await navigator.clipboard.writeText(secret);
     const btn = document.querySelector('#friendPairNotice button');
+    if (btn && btn.dataset.copyBusy === '1') return;
+    if (btn) btn.dataset.copyBusy = '1';
     if (btn) btn.textContent = I18N.t('Copied!');
+    setTimeout(() => {
+      const b2 = document.querySelector('#friendPairNotice button');
+      if (b2 && b2.dataset.copyBusy === '1') {
+        b2.textContent = I18N.t('Copy Pairing Code');
+        b2.dataset.copyBusy = '0';
+      }
+    }, 1500);
   } catch (_) { }
 }
 

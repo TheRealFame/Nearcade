@@ -6,6 +6,7 @@ const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
+let _pinExplicit = false; // set once the user toggles: local intent beats server echo on reconnect
 let kbmPanicActive = false;
 const viewerAudioStates = {}; // Tracks { volume: 100, state: 0 } per viewer
 
@@ -272,6 +273,7 @@ function setDesktopVolume(val) {
     if (!window._masterMuteActive && _desktopGainNode)
         _desktopGainNode.gain.value = v / 100;
 }
+window.setDesktopVolume = setDesktopVolume;
 
 function setHostMicGain(val) {
     const v = parseInt(val, 10);
@@ -1426,6 +1428,7 @@ function toggleSlotLock(rosterId, newLockState) {
 function togglePin() {
     if (arcadePingInterval) { log(I18N.t('Cannot change PIN during active Arcade session'), 'warn'); return; }
     pinEnabled = !pinEnabled;
+    _pinExplicit = true;
     const btn = document.getElementById('pinToggle');
     if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled }));
@@ -1502,7 +1505,14 @@ function connectWS() {
 
         fetch('/api/info').then(r => r.json()).then(d => {
             if (d.pin) currentPin = d.pin;
-            if (d.pinEnabled !== undefined) {
+            if (_pinExplicit) {
+                // Local intent wins: a toggle dropped mid-flight (socket down)
+                // used to strand the server on a stale value while the button
+                // showed the new one. Re-assert on every connect (idempotent).
+                try { ws.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled })); } catch (_) {}
+                const btn = document.getElementById('pinToggle');
+                if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
+            } else if (d.pinEnabled !== undefined) {
                 pinEnabled = d.pinEnabled;
                 const btn = document.getElementById('pinToggle');
                 if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
@@ -1535,6 +1545,14 @@ function connectWS() {
         if (msg.type === 'thumbnail') {
             const mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
             if (mjpegImg) {
+                // Throttle: a 100KB+ data URL 20x/sec churns the renderer
+                // (parse + JPEG decode + layout each time) and can make the
+                // preview look stuck under load. 5fps is plenty for a preview;
+                // hidden tabs skip entirely (nothing to see, save the cycles).
+                const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+                if (typeof document !== 'undefined' && document.hidden) return;
+                if (nowMs - (window._nsThumbLastMs || 0) < 200) return;
+                window._nsThumbLastMs = nowMs;
                 // Plain data URL. No query-string suffix: anything after the
                 // comma is payload, so '?t=' would corrupt the base64 and
                 // break blob: URLs too. New content each frame is its own cache-buster.
@@ -1553,6 +1571,24 @@ function connectWS() {
         }
         if (msg.type === 'error') {
             console.error(`[GST ERROR] ${msg.message}`);
+            // Fatal backend errors while GStreamer is the active pipeline:
+            // revert the UI to stopped instead of showing a fake "Running".
+            // (Portal denied/timed out, no HW encoder, parse/start failures.)
+            try {
+                const em = String(msg.message || '');
+                const pipeSel = document.getElementById('pipelineSelect');
+                const isGst = (pipeSel && pipeSel.value === 'gstreamer_webrtc') || currentStream === 'gstreamer';
+                if (isGst && /denied|timed out|no H\.264 hardware encoder|parse error|failed to start|not installed/i.test(em)) {
+                    log(I18N.t('GStreamer backend failed:') + ' ' + em, 'err');
+                    if (typeof sysChat === 'function') sysChat('GStreamer failed — ' + em);
+                    currentStream = null;
+                    streamActive = false;
+                    _elDisabled('btnStart', false);
+                    _elDisabled('btnSwitch', true);
+                    _elDisabled('btnStop', true);
+                    setCapDot('');
+                }
+            } catch (_) {}
             return;
         }
         if (msg.type === 'webcodecs-health') {
@@ -1609,7 +1645,7 @@ function connectWS() {
                     
                     return;
                 }
-                await sendOfferToViewer(msg.viewerId);
+                await sendOfferToViewer(msg.viewerId, msg.viewerPcState);
             } else {
                 ws.send(JSON.stringify({ type: 'host-not-streaming', viewerId: msg.viewerId }));
             }
@@ -1792,13 +1828,46 @@ function connectWS() {
     ws.onerror = () => log(I18N.t('WS error'), 'err');
 }
 
-async function sendOfferToViewer(viewerId) {
+async function sendOfferToViewer(viewerId, viewerPcState) {
     if (!currentStream) return;
-    if (peerConnections[viewerId]) {
+    // Never murder a live handshake: viewer-joined, request-offer, the
+    // watchdog and the 20s handshake timer can ALL fire for one join. Only a
+    // dead PC gets rebuilt; a connecting one is left alone; a connected one
+    // gets a same-PC renegotiation (viewer applies those without rebuilding).
+    // The viewer's reported PC state breaks ties: if IT is failed/closed while
+    // WE still show connecting, its truth wins and we rebuild.
+    const prevPc = peerConnections[viewerId];
+    if (prevPc && prevPc.signalingState !== 'closed') {
+        const pcs = prevPc.connectionState;
+        const viewerDead = viewerPcState === 'failed' || viewerPcState === 'closed' || viewerPcState === 'none';
+        if ((pcs === 'connecting' || pcs === 'new' || pcs === 'disconnected') && !viewerDead) {
+            log(I18N.t('Offer already in flight for') + ' ' + viewerId + ' (' + pcs + ') — ignoring duplicate request', 'warn');
+            return;
+        }
+        if (viewerDead && pcs !== 'connected') {
+            log(I18N.t('Viewer reports dead PC, rebuilding offer for') + ' ' + viewerId, 'warn');
+        }
+        if (pcs === 'connected') {
+            try {
+                const reOffer = await prevPc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+                await prevPc.setLocalDescription(reOffer);
+                await _waitIceGatheringDone(prevPc, 1500);
+                const reMsg = { type: 'offer', sdp: prevPc.localDescription, _viewerId: viewerId };
+                if (window.P2PManager && window.P2PManager.isPeer(viewerId)) window.P2PManager.sendToPeer(viewerId, reMsg);
+                else if (ws && ws.readyState === 1) ws.send(JSON.stringify(reMsg));
+                log(I18N.t('Re-offer (renegotiation, same PC) → viewer') + ' ' + viewerId, 'ok');
+            } catch (e) {
+                log(I18N.t('Renegotiation failed for') + ' ' + viewerId + ': ' + e.message, 'err');
+            }
+            return;
+        }
+        // failed/closed → fall through to full rebuild below
+    }
+    if (prevPc) {
         try {
-            peerConnections[viewerId].onicecandidate = null;
-            peerConnections[viewerId].onconnectionstatechange = null;
-            peerConnections[viewerId].close();
+            prevPc.onicecandidate = null;
+            prevPc.onconnectionstatechange = null;
+            prevPc.close();
         } catch { }
         delete peerConnections[viewerId];
         _removeViewerVAD(viewerId);
@@ -1808,41 +1877,21 @@ async function sendOfferToViewer(viewerId) {
         await _turnFetchPromise;
     }
 
-    // ── ICE SERVER LADDER (reliable → fallback → additional fallbacks) ────
-    // ICE gathers from every entry in parallel, so we provide a full ordered
-    // ladder instead of a single random pick. This prevents one dead relay or
-    // STUN from gating the entire connection for ~10s.
-    const iceServers = [];
-
-    // TIER 1 — reliable STUN.
-    iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
-
-    // TIER 2 — fallback STUNs (Google alternates + Cloudflare).
-    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun2.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun3.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun4.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun.cloudflare.com:3478' });
-
-    // Reliable TURN: server-configured credentials.
-    if (_turnCredentials) {
-        if (Array.isArray(_turnCredentials)) {
-            iceServers.push(..._turnCredentials);
-        } else {
-            iceServers.push(_turnCredentials);
-        }
+    // ── ICE SERVER LADDER (3x STUN + server /api/turn) ──────────────────────
+    // Lean on purpose: every extra (or dead) entry slows ICE discovery for all
+    // offers. Import failure must NEVER kill the offer: fall back to bare STUN.
+    let iceServers;
+    try {
+        const iceServersModule = await import('./core/network/ice-servers.js');
+        iceServers = iceServersModule.buildIceServers(_turnCredentials);
+    } catch (e) {
+        console.warn('[WebRTC] ice-servers.js import failed, using STUN-only fallback:', e?.message);
+        iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
     }
 
-    // Additional TURN fallbacks: live-pinged community registry.
-    if (_communityTurnLadder && _communityTurnLadder.length) {
-        for (const entry of _communityTurnLadder) {
-            if (entry && entry.url) {
-                if (busyTurnUrls.has(entry.url)) continue;
-                busyTurnUrls.add(entry.url);
-                iceServers.push({ urls: entry.url, username: entry.username || '', credential: entry.credential || '' });
-            }
-        }
-    }
+    // Reliable TURN comes from buildIceServers(_turnCredentials) above
+    // (server /api/turn). It accepts a lone object or an array and dedupes,
+    // so do NOT push _turnCredentials again here (that doubled every relay).
 
     const pc = new RTCPeerConnection({
         iceServers: iceServers,
@@ -2078,9 +2127,34 @@ async function sendOfferToViewer(viewerId) {
         }
     };
 
+// Wait for host ICE candidates so the FIRST offer already carries a routable
+// path (≤1.5s cap, then send whatever we have — trickle covers the rest).
+// Previously offers went out candidate-less and viewers failed before trickle
+// arrived, burning an offer cycle every join.
+function _waitIceGatheringDone(pc, timeoutMs) {
+    return new Promise((resolve) => {
+        if (!pc || pc.iceGatheringState === 'complete') return resolve();
+        let done = false;
+        const finish = () => {
+            if (done) return; done = true;
+            try { pc.addEventListener && pc.removeEventListener
+                ? pc.removeEventListener('icegatheringstatechange', onChg)
+                : (pc.onicegatheringstatechange = null); } catch (_) {}
+            resolve();
+        };
+        const onChg = () => { if (pc.iceGatheringState === 'complete') finish(); };
+        try {
+            if (pc.addEventListener) pc.addEventListener('icegatheringstatechange', onChg);
+            else pc.onicegatheringstatechange = onChg;
+        } catch (_) { return finish(); }
+        setTimeout(finish, timeoutMs || 1500);
+    });
+}
+
     try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
+        await _waitIceGatheringDone(pc, 1500);
         const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
         const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: viewerId, codec: rawCodecName };
         if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
@@ -2127,6 +2201,7 @@ async function showSourceSelectionModal() {
     }
     await _populateSourceGrid();
 }
+window.showSourceSelectionModal = showSourceSelectionModal;
 
 async function refreshSourceModal() {
     await _populateSourceGrid();
@@ -2162,28 +2237,67 @@ async function _populateSourceGrid() {
         }
 
         const isLinux = navigator.userAgent.toLowerCase().includes('linux');
+        const pSelect = document.getElementById('pipelineSelect');
+        const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
 
         // Show modal now if it wasn't shown earlier
         document.getElementById('sourceModal').classList.remove('gone');
 
-        sources.forEach((source, idx) => {
-            const card = document.createElement('div');
-            card.className = 'source-card';
-            card.id = 'source-' + idx;
-            card.onclick = () => selectSource(idx, source.id, source.name);
+        // On Linux with GStreamer: only show screens (portal captures monitor only)
+        if (isLinux && isGStreamer) {
+            const screens = sources.filter(s => s.isScreen);
+            
+            if (screens.length === 0) {
+                const msg = document.createElement('div');
+                msg.style.cssText = 'padding:20px;text-align:center;color:var(--warn);font-size:11px;';
+                msg.textContent = 'No screens found — GStreamer captures full screen via portal';
+                sourceGrid.appendChild(msg);
+            } else {
+                const header = document.createElement('div');
+                header.className = 'source-section-header';
+                header.innerHTML = '<span style="color:var(--ok);">🖥 Screen Capture (Portal — persists when minimized)</span>';
+                header.style.cssText = 'padding:8px 4px; font-size:11px; border-bottom:1px solid var(--border); margin-bottom:4px;';
+                sourceGrid.appendChild(header);
 
-            const thumbnail = source.thumbnail || '';
-            const imgHtml = thumbnail
-                ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
-                : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
+                screens.forEach((source, idx) => {
+                    const card = document.createElement('div');
+                    card.className = 'source-card';
+                    card.id = 'source-screen-' + idx;
+                    card.onclick = () => selectSource(idx, source.id, source.name);
 
-            const sourceType = source.isScreen ? '🖥 Screen' : ' Window';
-            card.innerHTML = `${imgHtml}
-            <div class="source-name">${source.name}</div>
-            <div class="source-type">${sourceType}</div>`;
+                    const thumbnail = source.thumbnail || '';
+                    const imgHtml = thumbnail
+                        ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
+                        : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
 
-            sourceGrid.appendChild(card);
-        });
+                    card.innerHTML = `${imgHtml}
+                    <div class="source-name">${source.name}</div>
+                    <div class="source-type" style="color:var(--ok);">🖥 Screen (Portal)</div>`;
+
+                    sourceGrid.appendChild(card);
+                });
+            }
+        } else {
+            // Original behavior for non-Linux or non-GStreamer
+            sources.forEach((source, idx) => {
+                const card = document.createElement('div');
+                card.className = 'source-card';
+                card.id = 'source-' + idx;
+                card.onclick = () => selectSource(idx, source.id, source.name);
+
+                const thumbnail = source.thumbnail || '';
+                const imgHtml = thumbnail
+                    ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
+                    : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
+
+                const sourceType = source.isScreen ? '🖥 Screen' : '🪟 Window';
+                card.innerHTML = `${imgHtml}
+                <div class="source-name">${source.name}</div>
+                <div class="source-type">${sourceType}</div>`;
+
+                sourceGrid.appendChild(card);
+            });
+        }
 
         log(I18N.t('Found ${sources.length} capture source(s)').replace('${sources.length}', sources.length), 'ok');
     } catch (e) {
@@ -2466,7 +2580,7 @@ async function swapPipeline(newPipeline) {
         // Stop current pipeline backend
         if (oldPipeline === 'gstreamer_webrtc') {
             await fetch('/api/capture/stop', { method: 'POST' });
-        } else if (oldPipeline === 'ffmpeg' || oldPipeline === 'windows_dxgi') {
+        } else if (oldPipeline === 'ffmpeg' || oldPipeline === 'windows_dxgi' || oldPipeline === 'ffmpeg-portal') {
             await fetch('/api/capture/stop', { method: 'POST' });
         } else if (oldPipeline === 'webcodecs' || oldPipeline === 'custom_webcodecs') {
             if (window._webcodecsReader) {
@@ -2544,6 +2658,11 @@ async function startCapture() {
     // Strip artificial height constraints. Requesting a resolution higher
     // than the native monitor causes the OS to crop/zoom the screen.
     // This forces pure, unscaled native hardware capture.
+    // NOTE (2026-09): requesting a REDUCED height here was tried so the
+    // compositor would pre-scale for the 540p pipeline — but on some portals
+    // the constrained track delivers NO frames at all (silent encoder, zero
+    // output, no errors). Native capture always flows, so it stays native;
+    // the encode loop scales as fallback.
     let videoConstraints = { frameRate: { ideal: fpsVal } };
 
     try {
@@ -2619,7 +2738,8 @@ async function startCapture() {
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    log('GStreamer WebRTC Pipeline Running in Background!', 'ok');
+                    const hwStr = data.encoder || 'VA-API';
+                    log(`GStreamer WebRTC Pipeline Running (${hwStr})!`, 'ok');
                     setCapDot('live', 'GStreamer WebRTC');
                     ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '' }));
                     sysChat('Native WebRTC daemon started.');
@@ -2644,6 +2764,10 @@ async function startCapture() {
                             mjpegImg.style.pointerEvents = 'none';
                             localVideo.insertAdjacentElement('afterend', mjpegImg);
                         }
+                        // Stop hides it (display:none) — a retry must re-show
+                        // it or thumbnails update an invisible element.
+                        mjpegImg.style.display = 'block';
+                        mjpegImg.src = '';
                         // The server will push base64 thumbnail frames via websocket, which are handled in ws.onmessage
                     }
 
@@ -2669,13 +2793,47 @@ async function startCapture() {
             }
         }
 
+// ── 0. FFMPEG/DXGI ARM INTERCEPTOR ──
+        // The pipeline dropdown + config can select ffmpeg/windows_dxgi, but
+        // nothing ever armed the backend for it (status stayed inactive, so
+        // section 1 below never engaged and hosts silently ran browser
+        // capture while believing they were on FFmpeg). Arm explicitly here.
+        try {
+            const _selPipe = document.getElementById('pipelineSelect')?.value || '';
+            // On Wayland, 'ffmpeg' transparently uses the portal bridge
+            // (x11grab only sees XWayland). No user-facing separate pipeline.
+            // Use main-process IPC for reliable Wayland detection (renderer UA doesn't contain 'wayland').
+            const _isWayland = await window.electronAPI?.getDisplayServer?.().then(r => r?.isWayland) || false;
+            const _usePortal = _selPipe === 'ffmpeg' && _isWayland;
+            const _method = _usePortal ? 'ffmpeg-portal' : _selPipe;
+            if (_method === 'ffmpeg' || _method === 'windows_dxgi' || _method === 'ffmpeg-portal') {
+                const _ffRes = document.getElementById('resSelect')?.value || '';
+                const _ffFps = parseInt(document.getElementById('fpsSelect')?.value, 10) || 0;
+                const _ffBr = parseInt(document.getElementById('bitrateSelect')?.value, 10) || 0;
+                const _ffWH = { '1080p': [1920, 1080], '720p': [1280, 720], '540p': [960, 540], '480p': [854, 480] }[_ffRes] || [];
+                const _ffOpts = {};
+                if (_ffWH.length === 2) { _ffOpts.width = _ffWH[0]; _ffOpts.height = _ffWH[1]; }
+                if (_ffFps > 0) _ffOpts.fps = _ffFps;
+                if (_ffBr > 0) _ffOpts.bitrate = _ffBr;
+                log(`Arming ${_selPipe} backend...`, 'warn');
+                const _armRes = await withTimeout(fetch('/api/capture/start', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ method: _method, options: _ffOpts })
+                }).then(r => r.json()), 25000, 'FFmpeg backend arming timed out');
+                if (_armRes && _armRes.ok) log(`FFmpeg backend live (${_armRes.encoder || _selPipe})`, 'ok');
+                else { log('FFmpeg backend refused (' + ((_armRes && _armRes.reason) || 'unknown') + ') — falling back to browser capture', 'err'); }
+            }
+        } catch (e) {
+            console.warn('[Host] FFmpeg arm failed, falling back to browser capture:', e && e.message);
+        }
+
         // ── 1. NATIVE SIDECAR INTERCEPTOR (DXGI / FFmpeg) ──
         // Ask the backend directly if a native sidecar is active, bypassing UI state
         let backendSidecarActive = false;
         let backendMethod = null;
         try {
             const statusRes = await fetch('/api/capture/status').then(r => r.json());
-            if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi')) {
+            if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi' || statusRes.method === 'ffmpeg-portal')) {
                 backendSidecarActive = true;
                 backendMethod = statusRes.method;
             }
@@ -2755,7 +2913,7 @@ async function startCapture() {
             if (!screenStream && !zeroCopyOn && isLinux) {
                 const portalMsg = document.createElement('div');
                 portalMsg.id = 'ns-portal-msg';
-                portalMsg.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;background:rgba(20,22,28,0.92);color:#fff;padding:12px 20px;border-radius:10px;border:1px solid #c084fc;text-align:center;font-family:monospace;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:440px;';
+                portalMsg.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;background:rgba(20,22,28,0.92);color:#fff;padding:12px 20px;border-radius:10px;border:1px solid var(--accent);text-align:center;font-family:monospace;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:440px;';
                 const gameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
                 portalMsg.innerHTML = 'Screen Selection Required — select ' + (gameName ? '<strong>' + gameName + '</strong>' : 'your screen or game window') + ' in the system dialog that just appeared.<br><span style="color:#888;font-size:11px;">Required once per session on Wayland.</span>';
                 document.body.appendChild(portalMsg);
@@ -3354,6 +3512,12 @@ function stopCapture() {
     _wcEncoder = null;
     _wcForceKeyframe = false;
     window._gstWcConfig = false;
+    // Manual stop = fresh intent: reset wedge-ladder budgets so the next
+    // Start gets full automatic recovery again.
+    window._wcAutoRestarts = 0;
+    window._wcZeroOutWindows = 0;
+    window._wcStarvedWindows = 0;
+    window._wcOutstanding = 0;
     const wcCanvas = document.getElementById('webcodecs-preview-canvas');
     if (wcCanvas) wcCanvas.remove();
 
@@ -3553,6 +3717,29 @@ async function startWebCodecsPipeline(videoTrack, dataChannel) {
             const buffer = new ArrayBuffer(chunk.byteLength);
             chunk.copyTo(buffer);
 
+            // FIX: On Linux, VaapiVideoEncoder doesn't emit AVCC description for H264.
+            // Extract SPS/PPS from first keyframe and send as webcodecs-config.
+            if (chunk.type === 'key' && chunk.codec.startsWith('avc1') && navigator.userAgent.toLowerCase().includes('linux')) {
+                if (!window._wcH264ConfigSent) {
+                    const bytes = new Uint8Array(buffer);
+                    const cfg = _avccConfigFromAnnexB(bytes, chunk.codedWidth, chunk.codedHeight);
+                    if (cfg) {
+                        const configMsg = JSON.stringify({
+                            type: 'webcodecs-config',
+                            codec: cfg.codec,
+                            codedWidth: cfg.width,
+                            codedHeight: cfg.height,
+                            description: Array.from(cfg.desc)
+                        });
+                        window._wcH264ConfigSent = true;
+                        if (dataChannel.readyState === 'open') {
+                            dataChannel.send(configMsg);
+                            console.log('[WebCodecs] Sent H264 AVCC description for Linux viewers');
+                        }
+                    }
+                }
+            }
+
             // Send chunk data & type (keyframe vs delta frame)
             const payload = JSON.stringify({
                 type: chunk.type,
@@ -3685,13 +3872,94 @@ let _lastWcConfig = null;
 let _wcEncoder = null;
 let _wcForceKeyframe = false;
 
+// Detect hardware acceleration support for available codecs.
+// Top-level (not nested in the pipeline) so the settings modal can call it.
+let _wcHwSupportCache = null;
+async function _getHwAccelSupport() {
+    if (_wcHwSupportCache) return _wcHwSupportCache;
+    try {
+        const { detectAllCodecSupport } = await import('./core/hw-accel-detect.js');
+        _wcHwSupportCache = await detectAllCodecSupport();
+        return _wcHwSupportCache;
+    } catch (_) {
+        return { VP8: { supported: true, hardwareAccel: false, mimeType: 'video/vp8' } };
+    }
+}
+
+// Update codec select UI to show/hide codecs based on hardware support.
+// Reads the already-probed map (no per-codec re-probe, no bare globals).
+async function _updateCodecSelectUI() {
+    const selectEl = document.getElementById('codecSelect');
+    if (!selectEl) return;
+
+    const results = await _getHwAccelSupport();
+    const currentValue = selectEl.value;
+
+    // Clear and rebuild
+    selectEl.innerHTML = '';
+
+    const codecOrder = ['H264', 'H265', 'VP8', 'VP9', 'AV1'];
+
+    for (const codec of codecOrder) {
+        const result = results[codec];
+        if (!result || !result.supported) continue;
+
+        const option = document.createElement('option');
+        option.value = codec;
+        option.textContent = `${codec} (${result.hardwareAccel ? 'Hardware' : 'Software'})`;
+        option.dataset.hwAccel = result.hardwareAccel ? 'true' : 'false';
+        selectEl.appendChild(option);
+    }
+
+    // Restore selection if still valid
+    if ([...selectEl.options].some(o => o.value === currentValue)) {
+        selectEl.value = currentValue;
+    } else if (selectEl.options.length > 0) {
+        selectEl.value = selectEl.options[0].value;
+    }
+}
+window._updateCodecSelectUI = _updateCodecSelectUI;
+
 async function startWebCodecsNetworkPipeline(videoTrack) {
     console.log('[WebCodecs] Initializing Network Pipeline...');
-    if (typeof sysChat === 'function') sysChat('WebCodecs Network Pipeline Armed');
+    // Watchdog-driven restarts stay out of user chat (they already spam the
+    // console on purpose); only manual/user starts announce.
+    if (window._wcSilentPipelineStart) window._wcSilentPipelineStart = false;
+    else if (typeof sysChat === 'function') sysChat('WebCodecs Network Pipeline Armed');
 
     _lastWcConfig = null;
     _wcForceKeyframe = false;
     window._wcHwFallbackDone = false;
+    window._wcH264ConfigSent = false;
+
+    // ── SINGLE-FLIGHT TEARDOWN ──────────────────────────────────────────
+    // Capture restarts, track swaps, codec switches and watchdog reconnects
+    // ALL re-enter here. The old instance's encoder was never closed and its
+    // keyframe/ABR intervals never cleared: stale encoders kept broadcasting
+    // interleaved streams while stale ABR timers reconfigured the NEW encoder
+    // with OLD configs. Viewers saw that as resolution flapping, endless
+    // decoder rebuilds and "frames only when it feels like it".
+    if (window._webcodecsReader) { try { window._webcodecsReader.cancel(); } catch (_) {} window._webcodecsReader = null; }
+    if (_wcEncoder && _wcEncoder.state !== 'closed') { try { _wcEncoder.close(); } catch (_) {} }
+    _wcEncoder = null;
+    if (Array.isArray(window._wcPipelineIntervals)) {
+        for (const id of window._wcPipelineIntervals) { try { clearInterval(id); } catch (_) {} }
+    }
+    window._wcPipelineIntervals = [];
+    // Generation token: stale loops/outputs/intervals from a previous instance
+    // no-op themselves out even if they somehow survive teardown.
+    const _pipeGen = (window._wcPipelineGen = (window._wcPipelineGen || 0) + 1);
+    // Remember the live track: the top-level watchdog reconnect runs outside
+    // this scope, so it restarts from here (with guards) instead of crashing
+    // on an out-of-scope variable (which silently killed all recovery).
+    window._wcVideoTrack = videoTrack;
+    // Drop carried-over telemetry state so the fresh pipeline starts clean.
+    // (Auto-restart budget is NOT reset here — only success resets it, so a
+    // wedged box can't restart-loop forever. Manual Start resets via stopCapture.)
+    window._wcPipeStats = { n: 0, lagSum: 0, lagMax: 0, dQ: 0, t0: 0, framesRead: 0 };
+    window._wcOutstanding = 0;
+    window._wcStarvedWindows = 0;
+    window._wcZeroOutWindows = 0;
 
     // Grab the exact hardware resolution from the native capture track
     const settings = videoTrack.getSettings();
@@ -3703,25 +3971,120 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         cfg = await window.electronAPI.getSettings() || {};
     }
 
-    let resVal = parseInt(document.getElementById('resSelect')?.value) || 0;
-    if (resVal === 0 && cfg.quality_res) {
-        resVal = parseInt(cfg.quality_res) || 0;
-    }
+    // 3.0.4-proven: encode at NATIVE capture size. resSelect downscaling was
+    // removed with the canvas path (see loop) — the initial config matches
+    // the track so there is no startup reconfigure flap either.
+    const encWidth = Math.round(exactWidth / 16) * 16 || 16;
+    const encHeight = Math.round(exactHeight / 16) * 16 || 16;
 
-    let encWidth = Math.round(exactWidth / 16) * 16;
-    let encHeight = Math.round(exactHeight / 16) * 16;
-    if (resVal > 0 && resVal < exactHeight) {
-        const scale = resVal / exactHeight;
-        encWidth = Math.round((exactWidth * scale) / 16) * 16;
-        encHeight = Math.round((exactHeight * scale) / 16) * 16;
+    // Pipeline telemetry: capture→send latency + per-cause drops + 5s
+    // heartbeat summary. The summary ALWAYS fires (timer-driven): zero chunks
+    // with zero reads = starved track alarm; zero chunks with reads = 100%
+    // drop alarm. A silent pipeline can never hide again.
+    function _reportPipeStats(fromTimer, chunk) {
+        try {
+            const nowMs = performance.now();
+            const st = window._wcPipeStats || (window._wcPipeStats = { n: 0, lagSum: 0, lagMax: 0, dQ: 0, t0: nowMs, framesRead: 0 });
+            if (!st.t0) st.t0 = nowMs;
+            if (chunk) {
+                const lagMs = nowMs - chunk.timestamp / 1000;
+                if (lagMs >= 0 && lagMs < 10000) {
+                    st.n++; st.lagSum += lagMs;
+                    if (lagMs > st.lagMax) st.lagMax = lagMs;
+                }
+            }
+            if (!fromTimer && nowMs - st.t0 < 5000) return;
+            const secs = Math.max(1, (nowMs - st.t0) / 1000);
+            // Print gate: routine flow at most every 15s, alarms on state
+            // change or every 30s. Escalation counters below still tick every
+            // 5s window — only the console noise is throttled.
+            const kind = st.n > 0 ? 'flow' : ((st.framesRead || 0) > 0 ? 'zero' : 'starved');
+            const lastPrint = window._wcLastPipePrint || { kind: '', ms: 0 };
+            const shouldPrint = kind !== lastPrint.kind || nowMs - lastPrint.ms >= (kind === 'flow' ? 15000 : 30000);
+            if (shouldPrint) window._wcLastPipePrint = { kind, ms: nowMs };
+            if (st.n > 0) {
+                if (shouldPrint) console.log(`[WebCodecs] pipe out=${Math.round(st.n / secs)}fps sendLag avg=${Math.round(st.lagSum / st.n)}ms max=${Math.round(st.lagMax)}ms drops{queue:${st.dQ}} pend=${window._wcOutstanding || 0} src=${st.lastFrame || '?'}`);
+                window._wcStarvedWindows = 0;
+                window._wcZeroOutWindows = 0;
+                window._wcAutoRestarts = 0;
+            } else if ((st.framesRead || 0) > 0) {
+                if (shouldPrint) console.error(`[WebCodecs] PIPE ALARM: ${st.framesRead} frames read, 0 emitted — all dropped {queue:${st.dQ}} pend=${window._wcOutstanding || 0}`);
+                // Wedge ladder (reads flow, nothing comes out — mechanism
+                // unknown, so escalate mechanically):
+                //  1. windows 2-3: restart the whole pipeline same-config
+                //     (fresh reader + encoder; fixes stuck engines/queues).
+                //  2. windows 4+: abandon the codec for the VP8-SW baseline.
+                //  3. past 6 auto-restarts total: stop escalating (alarms
+                //     continue; a human needs to look).
+                window._wcZeroOutWindows = (window._wcZeroOutWindows || 0) + 1;
+                if (window._wcZeroOutWindows >= 2 && (window._wcAutoRestarts || 0) < 6 && typeof _forceFullReconnect === 'function') {
+                    window._wcAutoRestarts = (window._wcAutoRestarts || 0) + 1;
+                    window._wcZeroOutWindows = 0;
+                    console.error(`[WebCodecs] Encoder wedged (attempt ${window._wcAutoRestarts}/6) — restarting pipeline same-config...`);
+                    try { _forceFullReconnect(); } catch (_) {}
+                } else if (window._wcZeroOutWindows >= 4 && !window._wcHwFallbackDone && typeof _fallbackToSoftwareEncoder === 'function') {
+                    window._wcHwFallbackDone = true;
+                    console.error('[WebCodecs] Restarts did not unstick output — falling back to VP8-SW safe baseline');
+                    try { _fallbackToSoftwareEncoder('zero-output'); } catch (_) {}
+                }
+            } else {
+                let trackState = 'unknown';
+                try { trackState = (videoTrack ? videoTrack.readyState : 'no-track') + '/' + (videoTrack && videoTrack.muted ? 'muted' : 'live'); } catch (_) {}
+                if (shouldPrint) console.error('[WebCodecs] PIPE ALARM: 0 frames read from capture track in ' + Math.round(secs) + 's — track starved/muted (track=' + trackState + ')');
+                // A dead track never recovers on its own (portal revoked the
+                // source, window closed, device suspended). After ~20s, stop
+                // the pipeline instead of alarming forever: frees the encoder,
+                // silences the timers, and tells the user the one action that
+                // fixes it. No auto re-prompt — portals need a user gesture.
+                window._wcStarvedWindows = (window._wcStarvedWindows || 0) + 1;
+                if (window._wcStarvedWindows >= 4) {
+                    window._wcStarvedWindows = 0;
+                    console.error('[WebCodecs] Capture track dead for ~20s — stopping pipeline. Click Start to re-pick the source.');
+                    if (typeof sysChat === 'function') sysChat('Capture track died — click Start to re-pick the source');
+                    try { if (window._webcodecsReader) window._webcodecsReader.cancel(); } catch (_) {}
+                    window._webcodecsReader = null;
+                    try { if (_wcEncoder && _wcEncoder.state !== 'closed') _wcEncoder.close(); } catch (_) {}
+                    _wcEncoder = null;
+                    if (Array.isArray(window._wcPipelineIntervals)) {
+                        for (const id of window._wcPipelineIntervals) { try { clearInterval(id); } catch (_) {} }
+                        window._wcPipelineIntervals = [];
+                    }
+                    window._wcPipelineGen = (window._wcPipelineGen || 0) + 1;
+                }
+            }
+            window._wcPipeStats = { n: 0, lagSum: 0, lagMax: 0, dQ: 0, t0: nowMs, framesRead: 0 };
+        } catch (_) {}
     }
-    
-    // Ensure we don't scale to 0
-    if (encWidth < 16) encWidth = 16;
-    if (encHeight < 16) encHeight = 16;
 
     // Shared chunk path so a rebuilt (fallback) encoder feeds viewers identically.
     const _wcOutput = (chunk, metadata) => {
+        try { if (window._wcOutstanding > 0) window._wcOutstanding--; } catch (_) {}
+        if (_pipeGen !== window._wcPipelineGen) return; // stale instance: stay silent
+        _reportPipeStats(false, chunk);
+        // FIX: On Linux, VaapiVideoEncoder doesn't emit AVCC description for H264.
+        // Extract SPS/PPS from first keyframe and send as webcodecs-config.
+        // Note: EncodedVideoChunk doesn't have a codec property; use metadata or encoder config.
+        const chunkCodec = metadata?.decoderConfig?.codec || encoder?._lastConfig?.codec || '';
+        if (chunk.type === 'key' && chunkCodec.startsWith('avc1') && navigator.userAgent.toLowerCase().includes('linux')) {
+            if (!window._wcH264ConfigSent) {
+                const buffer = new ArrayBuffer(chunk.byteLength);
+                chunk.copyTo(buffer);
+                const cfg = _avccConfigFromAnnexB(new Uint8Array(buffer), chunk.codedWidth, chunk.codedHeight);
+                if (cfg) {
+                    _lastWcConfig = JSON.stringify({
+                        type: 'webcodecs-config',
+                        codec: cfg.codec,
+                        codedWidth: cfg.width,
+                        codedHeight: cfg.height,
+                        description: Array.from(cfg.desc)
+                    });
+                    window._wcH264ConfigSent = true;
+                    broadcastToViewers(_lastWcConfig);
+                    console.log('[WebCodecs] Sent H264 AVCC description for Linux viewers');
+                }
+            }
+        }
+
         if (metadata.decoderConfig) {
             _lastWcConfig = JSON.stringify({
                 type: 'webcodecs-config',
@@ -3749,7 +4112,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     const _wcHwError = (e) => {
         console.error('[WebCodecs] Encoder Error:', e);
         if (!window._wcHwFallbackDone && _wcEncoder && encoder && encoder._lastConfig &&
-            encoder._lastConfig.hardwareAcceleration === 'prefer-hardware') {
+            encoder._lastConfig.hardwareAcceleration !== 'prefer-software' &&
+            encoder._lastConfig.codec !== 'vp8') {
             window._wcHwFallbackDone = true;
             _fallbackToSoftwareEncoder(String((e && e.message) || e));
         }
@@ -3785,6 +4149,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         }
         encoder._lastConfig = swConfig;
         _wcForceKeyframe = true;
+        // Reset H264 config sent flag since we're now VP8
+        window._wcH264ConfigSent = false;
         console.warn(`[WebCodecs] Hardware encoder failed (${reason}). Fell back to software VP8 — stream continues.`);
         if (typeof log === 'function') log('Hardware encoder failed, using software encoding instead.', 'warn');
     }
@@ -3799,15 +4165,19 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     // WebCodecs codec strings differ from WebRTC mimeTypes — map them explicitly.
     let _wcCodecSel = (document.getElementById('codecSelect')?.value || 'VP8').toUpperCase();
 
-    // FIX: Linux VaapiVideoEncoder fails to emit mandatory AVCC extradata (description) for H264.
-    // Windows VideoDecoder completely crashes/blacks out if description is missing.
-    // Force fallback to VP9 on Linux to bypass the H264 hardware encoder bug in WebCodecs.
+    // 3.0.4-proven: Linux + H264 is forced to VP9. The Linux WebCodecs H264
+    // path (hardware AND software OpenH264) has repeatedly wedged to zero
+    // output on real boxes, while VP9 runs flawlessly under identical load.
+    // This override predates every regression and stays until H264-on-Linux
+    // proves itself again — the AVCC polyfill below remains for other OSes.
+    let _wcLinuxVp9 = false;
     if (_wcCodecSel === 'H264' && navigator.userAgent.toLowerCase().includes('linux')) {
-        console.warn('[WebCodecs] Linux H264 hardware encoding lacks AVCC headers. Viewers on Windows may see a black screen.');
-        // Removed forced VP9 fallback to allow hardware acceleration
+        console.warn('[WebCodecs] Linux H264 encoding is unreliable (missing AVCC / SW stalls). Forcing VP9 fallback (3.0.4 behavior).');
+        _wcCodecSel = 'VP9';
+        _wcLinuxVp9 = true;
     }
 
-    const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.41.08', 'VP8': 'vp8', 'H264': 'avc1.4d002a', 'H265': 'hvc1.1.6.L93.B0' };
+    const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.10.08', 'VP8': 'vp8', 'H264': 'avc1.4d002a', 'H265': 'hvc1.1.6.L93.B0' };
     const _wcCodecStr = _wcCodecMap[_wcCodecSel] || 'vp8';
 
     // Dynamically calculate bitrate based on resolution (8 Mbps for 1080p baseline)
@@ -3819,16 +4189,26 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     const sliderBitrate = parseInt(document.getElementById('bitrateSelect')?.value, 10) || 0;
     const cbrEnabled = document.getElementById('cbrToggle') ? document.getElementById('cbrToggle').checked : true;
 
+    // User-configured target framerate (quality_fps in nearcade.config.json,
+    // mirrored from the UI). Encoder hint only — backpressure is the queue cap.
+    const _userTargetFps = parseInt(cfg.quality_fps || (function () { try { return localStorage.getItem('ns_quality_fps'); } catch (_) { return null; } })() || '0', 10)
+        || Math.round(settings.frameRate || 60);
+
     const wcConfig = {
         codec: _wcCodecStr,
         width: encWidth,
         height: encHeight,
         bitrate: sliderBitrate > 0 ? sliderBitrate : dynamicBitrate,
-        ...(cbrEnabled ? { bitrateMode: 'constant' } : { bitrateMode: 'variable' }),
-        framerate: Math.round(settings.frameRate || 60),
-        hardwareAcceleration: _wcCodecSel === 'VP8' ? 'prefer-software' : 'prefer-hardware',
-        latencyMode: 'realtime',
-        ...(['VP9', 'AV1'].includes(_wcCodecSel) ? { scalabilityMode: 'L1T2' } : {})
+        // User's configured framerate first (quality_fps), track default second.
+        framerate: _userTargetFps,
+        // 3.0.4 used no-preference here — but Chrome 138→153 changed the
+        // roulette: with a GPU present-but-unusable-in-sandbox, no-preference
+        // can route into a hung VAAPI attempt (frames in, zero out, no
+        // errors) instead of cleanly falling back. prefer-software is
+        // deterministic and proven (even saturated it degrades to ~15fps,
+        // never zero). HW stays available to every other platform/selection.
+        hardwareAcceleration: _wcLinuxVp9 ? 'prefer-software' : (_wcCodecSel === 'VP8' ? 'prefer-software' : 'prefer-hardware'),
+        latencyMode: 'realtime'
     };
 
     const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
@@ -3875,69 +4255,59 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
 
     encoder.configure(wcConfig);
     encoder._lastConfig = wcConfig;
+    const isHw = wcConfig.hardwareAcceleration === 'prefer-hardware';
+    // Detect hardware acceleration support for this codec
+    let hwAccelSupported = false;
+    try {
+        const { detectCodecSupport } = await import('./core/hw-accel-detect.js');
+        const support = await detectCodecSupport(wcConfig.codec);
+        hwAccelSupported = support.hardwareAccel;
+    } catch (_) { }
     console.log(`[WebCodecs] Encoder configured with codec: ${wcConfig.codec} (from UI: ${_wcCodecSel}, accel: ${wcConfig.hardwareAcceleration}) — auto-fallback to software armed on driver failure.`);
+    if (typeof log === 'function') log(`Encoder: ${wcConfig.codec} (${isHw ? 'Hardware' : 'Software'})`, isHw ? 'ok' : 'warn');
 
     const processor = new MediaStreamTrackProcessor({ track: videoTrack });
     const reader = processor.readable.getReader();
     window._webcodecsReader = reader;
+
+    // Start connection watchdog
+    _startConnectionWatchdog();
+
+    // Pipeline telemetry drop counter (queue backpressure).
+    const _bumpDrop = (k) => { try { const s = window._wcPipeStats; if (s && typeof s[k] === 'number') s[k]++; } catch (_) {} };
 
     async function processFrames() {
         try {
             while (true) {
                 const { done, value: frame } = await reader.read();
                 if (done) break;
+                if (_pipeGen !== window._wcPipelineGen) { try { frame.close(); } catch (_) {} break; }
+                try { if (window._wcPipeStats) window._wcPipeStats.framesRead++; } catch (_) {}
+                try {
+                    if (window._wcPipeStats) window._wcPipeStats.lastFrame =
+                        (frame.codedWidth || 0) + 'x' + (frame.codedHeight || 0) + '/' + (frame.format || '?');
+                } catch (_) {}
 
                 if (encoder.state === 'closed') {
                     frame.close();
                     continue;
                 }
 
-                // If MediaStreamTrackProcessor is buffering because the CPU is overwhelmed,
-                // the frames will be stale. We MUST instantly drop stale frames to stay in real-time.
-                if (!window._lastFrameReceiveTime) window._lastFrameReceiveTime = performance.now();
-                if (!window._lastFrameTimestamp) window._lastFrameTimestamp = frame.timestamp;
-                
-                const realTimeDelta = performance.now() - window._lastFrameReceiveTime;
-                const frameTimeDelta = (frame.timestamp - window._lastFrameTimestamp) / 1000;
-                
-                window._lastFrameReceiveTime = performance.now();
-                window._lastFrameTimestamp = frame.timestamp;
+                // Mark frame received for connection watchdog
+                _markFrameReceived();
 
-                // Track accumulated lag. If we are more than 100ms behind, flush the queue!
-                if (!window._accumulatedLag) window._accumulatedLag = 0;
-                
-                // If frame.timestamp is missing or jumps wildly, reset lag
-                if (frameTimeDelta < 0 || frameTimeDelta > 1000) {
-                    window._accumulatedLag = 0;
-                } else {
-                    window._accumulatedLag += (realTimeDelta - frameTimeDelta);
-                }
-                
-                if (window._accumulatedLag > 150) {
-                    window._accumulatedLag -= 33; // Drain aggressively
-                    frame.close();
-                    continue;
-                }
-                if (window._accumulatedLag < 0) window._accumulatedLag = 0;
-
-
-                // FIX: Dynamic Resolution Handling + User Scaling
-                // If the source changes size (e.g. Smash emulator resized), we must re-scale it
-                // otherwise the encoder aborts or overrides the user's bandwidth preference.
+                // 3.0.4-proven: follow the SOURCE size (dynamic resolution
+                // handling for resized emulators/capture cards). The resSelect
+                // downscale + per-frame canvas scaling that came later is
+                // GONE: on real boxes it wedged output to zero
+                // (both H264-SW and VP8-SW, no errors) while 3.0.4's direct
+                // encode flowed flawlessly under identical load. If a smaller
+                // stream is wanted, captureMethod/native pipelines cover it.
                 const fW = Math.floor((frame.displayWidth || frame.codedWidth) / 16) * 16 || 16;
                 const fH = Math.floor((frame.displayHeight || frame.codedHeight) / 16) * 16 || 16;
 
-                let newEncW = Math.round(fW / 16) * 16;
-                let newEncH = Math.round(fH / 16) * 16;
-                if (resVal > 0 && resVal < fH) {
-                    const scale = resVal / fH;
-                    newEncW = Math.round((fW * scale) / 16) * 16;
-                    newEncH = Math.round((fH * scale) / 16) * 16;
-                }
-                
-                // Ensure we don't scale to 0
-                if (newEncW < 16) newEncW = 16;
-                if (newEncH < 16) newEncH = 16;
+                const newEncW = Math.round(fW / 16) * 16;
+                const newEncH = Math.round(fH / 16) * 16;
 
                 if (newEncW > 0 && newEncH > 0 && (newEncW !== encoder._lastConfig.width || newEncH !== encoder._lastConfig.height)) {
                     console.log(`[WebCodecs] Resolution changed from ${encoder._lastConfig.width}x${encoder._lastConfig.height} to ${newEncW}x${newEncH} (Native: ${fW}x${fH})`);
@@ -3945,32 +4315,30 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                     encoder._lastConfig.height = newEncH;
                     try { encoder.configure(encoder._lastConfig); } catch (e) { console.error(e); }
                     _wcForceKeyframe = true;
+                    // Reset H264 config sent flag on resolution change
+                    window._wcH264ConfigSent = false;
                 }
 
-                let frameToEncode = frame;
-                const actualFW = frame.displayWidth || frame.codedWidth;
-                const actualFH = frame.displayHeight || frame.codedHeight;
-                const hasAlpha = frame.format && frame.format.includes('A');
-                if (newEncW !== actualFW || newEncH !== actualFH || hasAlpha) {
-                    if (!window._wcScaleCanvas || window._wcScaleCanvas.width !== newEncW) {
-                        window._wcScaleCanvas = new OffscreenCanvas(newEncW, newEncH);
-                        window._wcScaleCtx = window._wcScaleCanvas.getContext('2d', { alpha: false, desynchronized: true });
-                    }
-                    window._wcScaleCtx.drawImage(frame, 0, 0, newEncW, newEncH);
-                    frameToEncode = new VideoFrame(window._wcScaleCanvas, { timestamp: frame.timestamp, alpha: 'discard' });
-                    frame.close();
-                }
+                // Direct encode of the source frame (3.0.4 shape) — see above.
+                const frameToEncode = frame;
 
                 // Increased queue tolerance from 2 to 10 to prevent micro-stutters when
                 // the hardware encoder takes slightly longer than 16ms to process a complex frame.
-                const maxQueue = encoder._lastConfig && encoder._lastConfig.hardwareAcceleration === 'prefer-software' ? 2 : 10;
-                if (encoder.encodeQueueSize > maxQueue) {
+                // 3.0.4-proven backpressure: one queued frame max, drop the rest.
+                // No lag-tracker, no pacing gate — those post-3.0.4 additions
+                // stacked drops on top of drops and oscillated at 70fps.
+                if (encoder.encodeQueueSize > 1) {
+                    _bumpDrop('dQ');
                     frameToEncode.close();
                 } else {
                     const keyFrame = _wcForceKeyframe;
                     if (keyFrame) _wcForceKeyframe = false;
                     try {
                         encoder.encode(frameToEncode, { keyFrame });
+                        // Our own in-flight count: if this grows while output
+                        // stays zero, the encoder is wedged no matter what
+                        // encodeQueueSize claims. The heartbeat acts on it.
+                        try { window._wcOutstanding = (window._wcOutstanding || 0) + 1; } catch (_) {}
                     } catch (e) {
                         console.error('[WebCodecs] Encode frame error:', e);
                     }
@@ -3983,13 +4351,25 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     }
     processFrames();
 
+    // Forced-IDR cadence (1/sec). Late-joiners and loss recovery use on-demand
+    // keyframes (request-keyframe / wcChannel-open force), so the periodic
+    // cadence only needs to bound worst-case drift — not run at 5Hz.
     const _kfInterval = setInterval(() => {
+        if (_pipeGen !== window._wcPipelineGen) { clearInterval(_kfInterval); return; }
         if (!_wcEncoder || _wcEncoder.state !== 'configured') {
             clearInterval(_kfInterval);
             return;
         }
         _wcForceKeyframe = true;
     }, KEYFRAME_INTERVAL_MS);
+    window._wcPipelineIntervals.push(_kfInterval);
+
+    // Telemetry heartbeat: fires the pipe summary even when zero chunks flow.
+    const _pipeStatTimer = setInterval(() => {
+        if (_pipeGen !== window._wcPipelineGen) { clearInterval(_pipeStatTimer); return; }
+        _reportPipeStats(true);
+    }, 5000);
+    window._wcPipelineIntervals.push(_pipeStatTimer);
 
     let _abrCurrentBitrate = wcConfig.bitrate;
     const _abrBaseBitrate = wcConfig.bitrate;
@@ -3998,6 +4378,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     // Otherwise, it directly overrides their forced quality preferences.
     if (!cbrEnabled) {
         const _abrInterval = setInterval(() => {
+            if (_pipeGen !== window._wcPipelineGen) { clearInterval(_abrInterval); return; }
             if (!_wcEncoder || _wcEncoder.state !== 'configured') {
                 clearInterval(_abrInterval);
                 return;
@@ -4025,6 +4406,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
             });
 
             Promise.all(promises).then(() => {
+                if (_pipeGen !== window._wcPipelineGen) return; // stale instance won the race: touch nothing
                 if (rttValues.length === 0) return;
 
                 // Sort and find median RTT to prevent one bad connection from dragging down everyone's quality
@@ -4052,19 +4434,136 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                 }
             });
         }, 2000);
-    }
+        window._wcPipelineIntervals.push(_abrInterval);
 }
+    }
 
-let _lastKeyframeTime = 0;
+    // ── Connection Watchdog ──────────────────────────────────────────────────
+    // Monitors connection health and forces recovery on stalls
+    let _connWatchdogInterval = null;
+    let _lastFrameReceived = 0;
+    let _connectionStallCount = 0;
+    const CONNECTION_STALL_TIMEOUT = 5000; // 5 seconds without frames = stall
+    const MAX_STALL_RECOVERIES = 3;
+
+    function _startConnectionWatchdog() {
+        if (_connWatchdogInterval) return;
+        _lastFrameReceived = performance.now();
+        _connectionStallCount = 0;
+        
+        _connWatchdogInterval = setInterval(() => {
+            if (!_wcEncoder || _wcEncoder.state !== 'configured') return;
+            
+            const elapsed = performance.now() - _lastFrameReceived;
+            if (elapsed > CONNECTION_STALL_TIMEOUT) {
+                _connectionStallCount++;
+                console.warn(`[Watchdog] Connection stall detected (${elapsed}ms), recovery attempt ${_connectionStallCount}/${MAX_STALL_RECOVERIES}`);
+                
+                // Force keyframe to recover
+                _wcForceKeyframe = true;
+                
+                // Request fresh offer from all viewers
+                Object.values(peerConnections).forEach(pc => {
+                    if (pc && pc.connectionState === 'connected') {
+                        pc.createOffer().then(offer => {
+                            pc.setLocalDescription(offer).catch(() => {});
+                        }).catch(() => {});
+                    }});
+                
+                if (_connectionStallCount >= MAX_STALL_RECOVERIES) {
+                    console.error('[Watchdog] Max stall recoveries exceeded, forcing full reconnect');
+                    _forceFullReconnect();
+                }
+            }
+        }, 2000); // Check every 2 seconds
+    }
+
+function _stopConnectionWatchdog() {
+        if (_connWatchdogInterval) {
+            clearInterval(_connWatchdogInterval);
+            _connWatchdogInterval = null;
+        }
+    }
+
+    function _forceFullReconnect() {
+        console.warn('[Watchdog] Forcing full reconnect...');
+        _stopConnectionWatchdog();
+        // Reset encoder
+        if (_wcEncoder && _wcEncoder.state !== 'closed') {
+            try { _wcEncoder.close(); } catch (_) {}
+        }
+        _wcEncoder = null;
+        if (window._webcodecsReader) {
+            try { window._webcodecsReader.cancel(); } catch (_) {}
+            window._webcodecsReader = null;
+        }
+        // Reset encoder state
+        window._wcH264ConfigSent = false;
+        window._wcHwFallbackDone = false;
+        window._wcForceKeyframe = true;
+
+        // Restart pipeline (track comes from window — this function lives at
+        // top level, outside the pipeline closure, so the parameter is NOT in
+        // scope here; the old direct reference threw ReferenceError and no
+        // recovery ever ran).
+        window._wcSilentPipelineStart = true; // watchdog restarts: no chat spam
+        setTimeout(() => {
+            try {
+                const vt = window._wcVideoTrack;
+                if (!vt || vt.readyState === 'ended') {
+                    console.error('[Watchdog] Cannot restart pipeline — capture track is gone. Click Start to re-pick the source.');
+                    if (typeof sysChat === 'function') sysChat('Stream recovery needs a source — click Start');
+                    return;
+                }
+                startWebCodecsNetworkPipeline(vt).catch(e => {
+                    console.error('[Watchdog] Failed to restart pipeline:', e);
+                });
+            } catch (e) {
+                console.error('[Watchdog] Restart scheduling failed:', e);
+            }
+        }, 1000);
+    }
+
+    // Update last frame received timestamp (call this when frames are processed)
+    function _markFrameReceived() {
+        _lastFrameReceived = performance.now();
+    }
+
+    let _lastKeyframeTime = 0;
 
 // ── GStreamer native chunk ingest ──
 // Feeds Rust-sidecar H264 Annex-B chunks into the exact same viewer transport
 // as the browser WebCodecs pipeline: one decoder-config JSON, then binary
 // frames (1-byte keyflag + 8-byte micros timestamp + payload).
-function _avccConfigFromAnnexB(data, w, h) {
+function _splitNalus(data) {
+    // Split one access unit into raw NAL payloads (no start codes, no
+    // length prefixes), accepting BOTH framings:
+    //  - Annex-B (00 00 01 / 00 00 00 01 delimited; x264 byte-stream output)
+    //  - AVCC (4-byte big-endian lengths; what avc1 decoders actually want
+    //    and what the VA-API chunk pipeline emits)
     const nalus = [];
+    if (!data || data.length < 5) return nalus;
+    const hasStartCodeAt0 = (data[0] === 0 && data[1] === 0 &&
+        (data[2] === 1 || (data[2] === 0 && data[3] === 1)));
+    if (!hasStartCodeAt0) {
+        // Try AVCC length-walk with strict sanity (lengths must chain
+        // exactly through the buffer); fall through to Annex-B scan below
+        // if it doesn't parse cleanly.
+        let offs = [];
+        let p = 0, ok = false;
+        while (p + 4 <= data.length) {
+            const len = (data[p] * 16777216) + (data[p + 1] << 16) + (data[p + 2] << 8) + data[p + 3];
+            if (len <= 0 || len > 8 * 1024 * 1024 || p + 4 + len > data.length) break;
+            offs.push([p + 4, p + 4 + len]);
+            p += 4 + len;
+            if (p === data.length) { ok = true; break; }
+        }
+        if (ok && offs.length) {
+            for (const [s, e] of offs) nalus.push(data.subarray(s, e));
+            return nalus;
+        }
+    }
     let i = 0;
-    const hex = (b) => b.toString(16).padStart(2, '0');
     while (i < data.length - 3) {
         let sc = 0;
         if (data[i] === 0 && data[i + 1] === 0) {
@@ -4084,6 +4583,15 @@ function _avccConfigFromAnnexB(data, w, h) {
         if (end > start) nalus.push(data.subarray(start, end));
         i = end;
     }
+    return nalus;
+}
+
+function _avccConfigFromAnnexB(data, w, h) {
+    // Builds the AVCC decoder description from the SPS/PPS in a keyframe,
+    // regardless of whether the chunk arrived Annex-B or AVCC framed
+    // (name kept for backward compat).
+    const nalus = _splitNalus(data);
+    const hex = (b) => b.toString(16).padStart(2, '0');
     let sps = null, pps = null;
     for (const n of nalus) {
         if (!n.length) continue;
@@ -4669,7 +5177,7 @@ function saveCaptureMethod(method) {
     }
 }
 
-// Ensure the UI matches the loaded URL parameter on boot
+// Ensure the UI matches the loaded config or URL parameter on boot
 function hydratePipelineSelect() {
     const pSelect = document.getElementById('pipelineSelect');
     if (!pSelect) return;
@@ -4688,7 +5196,16 @@ function hydratePipelineSelect() {
     } else if (urlParams.get('gst') === '1') {
         pSelect.value = 'gstreamer_webrtc';
     } else {
-        pSelect.value = 'native';
+        // Fallback to config (not localStorage)
+        loadAppConfig().then(cfg => {
+            if (cfg?.captureMethod) {
+                pSelect.value = cfg.captureMethod;
+            } else {
+                pSelect.value = 'native';
+            }
+        }).catch(() => {
+            pSelect.value = 'native';
+        });
     }
 }
 if (document.readyState === 'loading') {
@@ -4741,16 +5258,22 @@ function showTunnelError(msg) {
 function copyCmdText(e, el) {
     e.preventDefault();
     e.stopPropagation();
-    const cmd = el.innerText;
+    // Re-entry guard: while the "Copied!" feedback is showing, the label IS
+    // the element text — a second click would copy "Copied!" to the clipboard
+    // instead of the command. Ignore feedback-state clicks outright.
+    if (el.dataset.copyBusy === '1') return;
+    const cmd = (el.dataset.orig || el.innerText).trim();
+    if (!el.dataset.orig) el.dataset.orig = cmd;
+    el.dataset.copyBusy = '1';
     navigator.clipboard.writeText(cmd).then(() => {
-        const orig = el.innerText;
         el.innerText = 'Copied!';
         el.style.color = 'var(--accent)';
         setTimeout(() => {
-            el.innerText = orig;
+            el.innerText = el.dataset.orig;
             el.style.color = '';
+            el.dataset.copyBusy = '0';
         }, 1000);
-    });
+    }).catch(() => { el.dataset.copyBusy = '0'; });
 }
 
 function copyCmd(e, cmd, el = null) {
@@ -4762,21 +5285,26 @@ function copyCmd(e, cmd, el = null) {
     }
     navigator.clipboard.writeText(finalCmd).then(() => {
         if (el && el.tagName.toLowerCase() === 'code') {
+            if (el.dataset.copyBusy === '1') return;
+            el.dataset.copyBusy = '1';
             const orig = el.innerText;
             el.innerText = 'Copied!';
             el.style.color = 'var(--accent)';
             setTimeout(() => {
                 el.innerText = orig;
                 el.style.color = 'var(--muted)';
+                el.dataset.copyBusy = '0';
             }, 1000);
         } else {
             const btn = e.target;
+            if (btn && btn.dataset && btn.dataset.copyBusy === '1') return;
+            if (btn && btn.dataset) btn.dataset.copyBusy = '1';
             const orig = btn.textContent;
             btn.textContent = '✓';
             btn.style.borderColor = 'var(--accent)';
-            setTimeout(() => { btn.textContent = orig; btn.style.borderColor = '#4e5058'; }, 1000);
+            setTimeout(() => { btn.textContent = orig; btn.style.borderColor = '#4e5058'; if (btn && btn.dataset) btn.dataset.copyBusy = '0'; }, 1000);
         }
-    });
+    }).catch(() => { try { if (el && el.dataset) el.dataset.copyBusy = '0'; } catch (_) {} });
 }
 
 function confirmTunnel() {
@@ -5666,6 +6194,8 @@ function showSettingsModal(tab) {
     if (ndiSel) ndiSel.value = localStorage.getItem('ns_ndi_res') || '720p';
     switchSettingsTab(tab || 'video');
     document.getElementById('settingsModal').classList.remove('gone');
+    // Update codec select UI to show hardware acceleration support
+    _updateCodecSelectUI().catch(() => {});
 }
 
 function closeSettingsModal() {
@@ -5988,16 +6518,20 @@ function saveAudioBackend(val) {
 
 // Populates the sm-prefixed selects in settingsModal Audio tab by mirroring
 // the canonical audioInputSelect / audioOutputSelect from appSettingsModal.
+// Does NOT call getUserMedia - that would freeze the modal. Device list is
+// populated from the already-enumerated devices (or defaults) and updated
+// asynchronously when the user actually needs it.
 function enumerateAudioDevicesSM() {
-    enumerateAudioDevices().then(() => {
-        // Mirror populated options into the sm selects
-        const srcOut = document.getElementById('audioOutputSelect');
-        const dstOut = document.getElementById('smAudioOutputSelect');
-        const srcIn = document.getElementById('audioInputSelect');
-        const dstIn = document.getElementById('smAudioInputSelect');
-        if (srcOut && dstOut) { dstOut.innerHTML = srcOut.innerHTML; dstOut.value = srcOut.value; }
-        if (srcIn && dstIn) { dstIn.innerHTML = srcIn.innerHTML; dstIn.value = srcIn.value; }
-    }).catch(() => { });
+    // Mirror populated options into the sm selects immediately from existing data
+    const srcOut = document.getElementById('audioOutputSelect');
+    const dstOut = document.getElementById('smAudioOutputSelect');
+    const srcIn = document.getElementById('audioInputSelect');
+    const dstIn = document.getElementById('smAudioInputSelect');
+    if (srcOut && dstOut) { dstOut.innerHTML = srcOut.innerHTML; dstOut.value = srcOut.value; }
+    if (srcIn && dstIn) { dstIn.innerHTML = srcIn.innerHTML; dstIn.value = srcIn.value; }
+    
+    // Kick off async device enumeration in background (non-blocking)
+    enumerateAudioDevices().catch(() => { });
 }
 
 // Keeps the smRowCaptureMic / smMicDeviceRow in sync with appSettings.captureMic
@@ -6806,9 +7340,9 @@ let _discordStartTime = null;
 
 function _updateDiscordRPC() {
     if (appSettings.tournamentMode) return;
-    console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
+    if (window._nsVerboseRpc) console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
     if (!window.electronAPI || typeof window.electronAPI.discordSetActivity !== 'function') {
-        console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
+        if (window._nsVerboseRpc) console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
         return;
     }
 
@@ -6838,7 +7372,7 @@ function _updateDiscordRPC() {
         const secret = window._isP2P ? window._p2pCode : window._globalTunnelUrl;
         if (secret && secret !== 'none') payload.joinSecret = secret;
 
-        console.log('[DEBUG] Sending Discord Arcade Activity:', payload);
+        if (window._nsVerboseRpc) console.log('[DEBUG] Sending Discord Arcade Activity:', payload);
         window.electronAPI.discordSetActivity(payload);
         return;
     }
@@ -6861,7 +7395,7 @@ function _updateDiscordRPC() {
         }
         if (secret && secret !== 'none') payload.joinSecret = secret;
 
-        console.log('[DEBUG] Sending Discord Private Activity:', payload);
+        if (window._nsVerboseRpc) console.log('[DEBUG] Sending Discord Private Activity:', payload);
         window.electronAPI.discordSetActivity(payload);
         return;
     }
@@ -6881,7 +7415,7 @@ function _updateDiscordRPC() {
         payload.partyMax = 10;
         payload.joinSecret = secret;
 
-        console.log('[DEBUG] Sending Discord Ready Activity:', payload);
+        if (window._nsVerboseRpc) console.log('[DEBUG] Sending Discord Ready Activity:', payload);
         window.electronAPI.discordSetActivity(payload);
         return;
     }

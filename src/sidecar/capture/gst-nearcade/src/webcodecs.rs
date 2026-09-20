@@ -21,8 +21,45 @@ pub struct Config {
     pub source_override: Option<String>,
 }
 
-/// Annex-B scan: keyframe if the buffer holds an IDR (type 5) or SPS (type 7).
-fn is_keyframe(annexb: &[u8]) -> bool {
+/// Keyframe scan over one access unit, Annex-B or AVCC framing.
+/// Annex-B: NALs delimited by 00 00 01 / 00 00 00 01 start codes.
+/// AVCC: each NAL prefixed by a 4-byte big-endian length (what our pipeline
+/// emits after the byte-stream forcing caps; also what decoders want).
+/// Keyframe if any NAL is IDR (type 5) or SPS (type 7).
+fn is_keyframe(buf: &[u8]) -> bool {
+    if buf.len() < 5 {
+        return false;
+    }
+    let annexb = buf[0] == 0
+        && buf[1] == 0
+        && (buf[2] == 1 || (buf[2] == 0 && buf.get(3) == Some(&1)));
+    if annexb {
+        return is_keyframe_annexb(buf);
+    }
+    // AVCC length-prefixed walk with sanity cap (lengths must stay in-bounds).
+    let mut i = 0;
+    let mut saw_nal = false;
+    while i + 4 <= buf.len() {
+        let len = u32::from_be_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]) as usize;
+        if len == 0 || len > buf.len() - (i + 4) || len > 8 * 1024 * 1024 {
+            break;
+        }
+        saw_nal = true;
+        if i + 4 < buf.len() && matches!(buf[i + 4] & 31, 5 | 7) {
+            return true;
+        }
+        i += 4 + len;
+    }
+    // Not valid AVCC (or empty) — fall back to an Annex-B scan in case the
+    // caps forcing didn't apply and start codes are present after all.
+    if !saw_nal {
+        return is_keyframe_annexb(buf);
+    }
+    false
+}
+
+/// Annex-B start-code scan (original logic, factored out).
+fn is_keyframe_annexb(annexb: &[u8]) -> bool {
     let mut i = 0;
     while i + 4 < annexb.len() {
         let sc4 = i + 4 <= annexb.len()
@@ -62,13 +99,27 @@ pub fn run(cfg: Config) {
     };
 
     let gop = cfg.fps * 2;
-    let enc = match cfg.encoder.as_str() {
-        "vaapi" => format!(
-            "vaapih264enc bitrate={} keyframe-period={gop} ! h264parse",
-            cfg.bitrate / 1000
-        ),
+    // Encoder tail after `videoconvert ! video/x-raw,format=I420`.
+    // x264 path is byte-stream native (untouched, proven). VA-API needs a
+    // proper upload converter (system-memory I420 does NOT link into VA-API
+    // encoders) and must emit AVCC (length-prefixed) access units — avc1
+    // decoders reject Annex-B start codes outright.
+    let enc_tail = match cfg.encoder.as_str() {
+        "vaapi" => match crate::webrtc::vaapi_encoder_fragment(cfg.bitrate / 1000, gop) {
+            Some(frag) => format!(
+                "{frag} ! h264parse config-interval=-1 \
+                 ! video/x-h264,stream-format=avc,alignment=au"
+            ),
+            None => {
+                crate::ipc::error(
+                    "no VA-API H264 encoder found (need vah264enc+vapostproc or vaapih264enc+vaapipostproc); cannot honor --encoder vaapi",
+                );
+                std::process::exit(1);
+            }
+        },
         _ => "x264enc tune=zerolatency speed-preset=ultrafast byte-stream=true".to_string(),
     };
+    let enc = enc_tail;
     let preview = if cfg.with_preview {
         format!("t2. ! {}", crate::preview::branch_desc())
     } else {

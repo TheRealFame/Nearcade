@@ -7,13 +7,184 @@ const which = require("which");
 let currentTunnelProc = null;
 let currentTunnelUrl = null;
 let currentTunnelProvider = null;
+let currentZrokShareToken = null;
+// Every share token minted by this process (bounded). zrok hands out a NEW
+// random token per `share public`, so retries/timeouts orphan reservations
+// the single `currentZrokShareToken` never knew about — this list + the
+// on-disk list close that gap. Tokens are capabilities: never logged.
+let createdZrokShareTokens = [];
+const MAX_TRACKED_TOKENS = 20;
+
+function shareFilePath() {
+  return path.join(__dirname, '..', '..', '.zrok_last_share');
+}
+
+function readShareTokens() {
+  try {
+    const f = shareFilePath();
+    if (!fs.existsSync(f)) return [];
+    const raw = fs.readFileSync(f, 'utf8').trim();
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return arr.filter((x) => typeof x === 'string');
+    } catch (_) {}
+    return raw.length >= 3 ? [raw] : []; // legacy single-token format
+  } catch (_) { return []; }
+}
+
+function writeShareTokens(arr) {
+  try {
+    fs.writeFileSync(shareFilePath(), JSON.stringify(arr.slice(0, MAX_TRACKED_TOKENS)), { mode: 0o600 });
+    try { fs.chmodSync(shareFilePath(), 0o600); } catch (_) {}
+  } catch (_) {}
+}
+
+function rememberZrokToken(t) {
+  if (!t || typeof t !== 'string') return;
+  createdZrokShareTokens = [t, ...createdZrokShareTokens.filter((x) => x !== t)].slice(0, MAX_TRACKED_TOKENS);
+  try {
+    const arr = readShareTokens();
+    if (!arr.includes(t)) {
+      arr.unshift(t);
+      writeShareTokens(arr);
+    }
+  } catch (_) {}
+}
+
+function forgetZrokToken(t) {
+  createdZrokShareTokens = createdZrokShareTokens.filter((x) => x !== t);
+  try { writeShareTokens(readShareTokens().filter((x) => x !== t)); } catch (_) {}
+}
+
+// Best-effort synchronous delete. Returns true when the reservation is gone
+// (or was already gone). Never logs the token. SYNC BLOCKS THE EVENT LOOP —
+// the server runs IN-PROCESS in Electron's main thread, so this is ONLY for
+// the shutdown sweep (bounded, app is exiting). Everything else uses the
+// async variant below.
+// CAUTION: zrok2 has no `delete share` subcommand (it 404s) — v2 releases
+// reservations via `delete name <token>`. v1 keeps `release <token>`.
+function deleteZrokShareSync(zrokPath, token) {
+  try {
+    if (!zrokPath || !token) return false;
+    const args = zrokPath.includes('zrok2') ? ['delete', 'name', token] : ['release', token];
+    const r = require('child_process').spawnSync(zrokPath, args, { stdio: 'ignore', timeout: 8000 });
+    return !!(r && r.status === 0);
+  } catch (_) { return false; }
+}
+
+// Async twin: same semantics, never blocks. Use everywhere except shutdown.
+function deleteZrokShareAsync(zrokPath, token) {
+  return new Promise((resolve) => {
+    try {
+      if (!zrokPath || !token) return resolve(false);
+      const args = zrokPath.includes('zrok2') ? ['delete', 'name', token] : ['release', token];
+      require('child_process').execFile(zrokPath, args, { timeout: 8000 }, (err) => resolve(!err));
+    } catch (_) { resolve(false); }
+  });
+}
+
+// Orphan reaper: list IDLE shares and delete the ones pointing at our local
+// port that are not live. Heals reservations orphaned by timeouts, retries
+// and crashes (whose tokens we never learned). Never touches shares for
+// other targets, never touches the live share. Silent unless it reaps.
+async function reapStaleZrokShares(port) {
+  const run = async () => {
+    const zrokPath = findZrokBinarySync();
+    if (!zrokPath) return 0;
+    const { execFile } = require('child_process');
+    const out = await new Promise((resolve) => {
+      execFile(zrokPath, ['list', 'shares', '--json', '-I'], { timeout: 15000 }, (err, stdout) => {
+        if (err) return resolve(null);
+        resolve(stdout);
+      });
+    });
+    if (!out) return 0;
+    let items;
+    try {
+      const d = JSON.parse(out);
+      items = Array.isArray(d) ? d : (d.data || d.shares || d.items || []);
+    } catch (_) { return 0; }
+    if (!Array.isArray(items)) return 0;
+    const portStr = ':' + port;
+    const live = new Set([currentZrokShareToken, ...createdZrokShareTokens].filter(Boolean));
+    const nowMs = Date.now();
+    let n = 0;
+    for (const s of items) {
+      try {
+        const token = s.shareToken || s.token;
+        const target = String(s.target || s.backendTarget || '');
+        if (!token || live.has(token)) continue;
+        if (!target.includes(portStr)) continue;
+        // Age guard (10 min): a freshly minted share is idle until its first
+        // viewer, and a sibling process (second server, Electron + node) may
+        // legitimately own it — this reaper must never eat live shares.
+        // Unknown-age entries are still reaped (idle + port-match + not-live
+        // is enough); known-young ones are left alone.
+        let ageMs = Infinity;
+        try {
+          const cands = [Date.parse(s.createdAt), Date.parse(s.updatedAt)].filter((v) => Number.isFinite(v));
+          if (cands.length) ageMs = nowMs - Math.max(...cands);
+        } catch (_) {}
+        if (ageMs <= 600000) continue;
+        // Async: the sync variant freezes Electron's main thread (in-process
+        // server) for up to 8s PER SHARE — with dozens of orphans that was
+        // a minute-plus app freeze on every tunnel start.
+        if (await deleteZrokShareAsync(zrokPath, token)) { n++; forgetZrokToken(token); }
+      } catch (_) {}
+    }
+    return n;
+  };
+  try {
+    const n = await Promise.race([
+      run(),
+      new Promise((res) => setTimeout(() => res(-1), 20000)),
+    ]);
+    if (n > 0) console.log(`  [tunnel] Reaped ${n} stale zrok share(s).`);
+  } catch (_) {}
+}
 
 function stopCurrentTunnel() {
+  // zrok2 share ignores SIGTERM (orphaned procs piled up for hours) — it
+  // needs SIGKILL. Others get TERM with a KILL fallback.
+  const hardKill = currentTunnelProvider === 'zrok';
+  const stoppedProvider = currentTunnelProvider;
   if (currentTunnelProc) {
     try {
-      currentTunnelProc.kill();
+      if (hardKill) currentTunnelProc.kill('SIGKILL');
+      else {
+        currentTunnelProc.kill();
+        const _p = currentTunnelProc;
+        setTimeout(() => { try { if (_p.exitCode === null) _p.kill('SIGKILL'); } catch (_) {} }, 1500);
+      }
     } catch (e) {}
     currentTunnelProc = null;
+  }
+  // Delete the live share plus tracked tokens (this run + file from
+  // previous runs). Each delete is verified; survivors stay tracked.
+  // Bounded by count AND wall-clock: sync deletes that outlive a 4s budget
+  // (slow/flaky controller) must never stall server shutdown past the
+  // test-suite failsafe — leftovers are picked up by the background reaper.
+  const t0 = Date.now();
+  const zrokPath = findZrokBinarySync();
+  const tokens = [...new Set([currentZrokShareToken, ...createdZrokShareTokens, ...readShareTokens()].filter(Boolean))].slice(0, 5);
+  for (const t of tokens) {
+    if (Date.now() - t0 > 4000) break;
+    if (deleteZrokShareSync(zrokPath, t)) forgetZrokToken(t);
+  }
+  currentZrokShareToken = null;
+  createdZrokShareTokens = [];
+  // `tailscale serve` writes daemon-side state that outlives both the proc
+  // (there is none tracked) and this stop: without an explicit reset, ghost
+  // routes keep serving a dead port on the tailnet after every switch/stop.
+  // Async fire-and-forget only — never block shutdown on the daemon.
+  // NOTE: reset clears all serve configs; the app owns the tunnel lifecycle,
+  // so a stale dead route is worse than a wiped custom one.
+  if (stoppedProvider === 'tailscale-serve') {
+    findBinaryPath('tailscale').then((tp) => {
+      if (!tp) return;
+      require('child_process').execFile(tp, ['serve', 'reset'], { timeout: 10000 }, () => {});
+    }).catch(() => {});
   }
   currentTunnelUrl = null;
   currentTunnelProvider = null;
@@ -169,6 +340,30 @@ function ensureExecutable(binPath) {
   try { fs.chmodSync(binPath, 0o755); } catch (e) { console.warn('[chmod]', binPath, e.message); }
 }
 
+function findZrokBinarySync() {
+  // Synchronous version for cleanup on shutdown
+  const candidates = [
+    'zrok2', 'zrok',
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok2'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'zrok'),
+    '/usr/bin/zrok2', '/usr/bin/zrok', '/usr/local/bin/zrok2', '/usr/local/bin/zrok',
+    path.join(os.homedir(), 'bin', 'zrok2'), path.join(os.homedir(), 'bin', 'zrok'),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        const stat = fs.statSync(p);
+        if (!stat.isFile()) continue;
+        if (process.platform !== 'win32') ensureExecutable(p);
+        const mode = process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK;
+        fs.accessSync(p, mode);
+        return p;
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 function getTailscaleIP() {
   for (const iface of Object.values(os.networkInterfaces()))
     for (const n of iface)
@@ -182,7 +377,34 @@ function openBrowser(url) {
 
 // ── Primary tunnel implementations ──────────────────────────────────────────
 
-function startTunnelCloudflared(port) {
+// Shared end-to-end check: a printed URL is NOT a working tunnel (zrok taught
+// us that; Cloudflare's restricted edges answer 404/530 HTML). Resolves true
+// only when the public URL serves OUR /api/info with a version field.
+function verifyTunnelUrl(url, { tries = 4, gapMs = 1500, timeoutMs = 2500 } = {}) {
+  return new Promise((resolve) => {
+    let n = 0, done = false;
+    const apiUrl = url.replace(/\/?(\?.*)?$/, '/api/info$1');
+    const probe = async () => {
+      if (done) return;
+      n++;
+      try {
+        const ctl = new AbortController();
+        const to = setTimeout(() => ctl.abort(), timeoutMs);
+        const r = await fetch(apiUrl, { signal: ctl.signal });
+        clearTimeout(to);
+        if (r && r.ok) {
+          const j = await r.json().catch(() => null);
+          if (j && j.version) { done = true; return resolve(true); }
+        }
+      } catch (_) {}
+      if (!done && n < tries) setTimeout(probe, gapMs);
+      else if (!done) { done = true; resolve(false); }
+    };
+    probe();
+  });
+}
+
+function startTunnelCloudflared(port, retries = 2) {
   return new Promise(resolve => {
     findBinaryPath('cloudflared').then(cloudflaredPath => {
       if (!cloudflaredPath) { resolve({ error: 'NOT_FOUND', provider: 'cloudflared' }); return; }
@@ -193,8 +415,18 @@ function startTunnelCloudflared(port) {
         console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Token)...");
         const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--url", "http://localhost:" + port], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
-        console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-        return resolve({ url, proc });
+        verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
+          if (ok) {
+            console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+            console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+            resolve({ url, proc });
+          } else {
+            console.log("  \x1b[31m!\x1b[0m Custom domain did not serve our API — check the tunnel routing.");
+            try { proc.kill(); } catch (_) {}
+            resolve(null);
+          }
+        });
+        return;
       }
 
       const cfName = readEnv('CF_TUNNEL_NAME');
@@ -202,28 +434,76 @@ function startTunnelCloudflared(port) {
         console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Locally Managed)...");
         const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", cfName], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
-        console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-        return resolve({ url, proc });
+        verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
+          if (ok) {
+            console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+            console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+            resolve({ url, proc });
+          } else {
+            console.log("  \x1b[31m!\x1b[0m Named tunnel did not serve our API — check `cloudflared tunnel info " + cfName + "`.");
+            try { proc.kill(); } catch (_) {}
+            resolve(null);
+          }
+        });
+        return;
       }
 
       console.log("  \x1b[33m~\x1b[0m Starting cloudflared tunnel...");
+      console.log("  \x1b[33m~\x1b[0m (binary: " + cloudflaredPath + ")");
       console.log("  \x1b[31m!\x1b[0m WARNING: Free Cloudflare tunnels (trycloudflare.com) are currently heavily restricted.");
-      console.log("  \x1b[31m!\x1b[0m If this happens, please use Zrok instead.");
 
       const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:" + port], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-      let done = false;
+      let done = false, verifying = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-        if (m && !done) {
-          done = true;
+        if (m && !done && !verifying) {
+          verifying = true;
           const url = m[0] + '/?v3';
-          console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-          resolve({ url, proc });
+          console.log("  \x1b[33m~\x1b[0m Edge URL printed — verifying it actually reaches us (restricted edges answer 404/530)...");
+          verifyTunnelUrl(url).then((ok) => {
+            if (done) return;
+            if (ok) {
+              done = true;
+              clearTimeout(timeoutHandle);
+              console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+              console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+              resolve({ url, proc });
+            } else {
+              console.log("  \x1b[33m!\x1b[0m Edge is restricted (no our-server answer) — respawning for a clean edge...");
+              try { proc.kill('SIGKILL'); } catch (_) {}
+              if (retries > 0) setTimeout(() => resolve(startTunnelCloudflared(port, retries - 1)), 2000);
+              else { done = true; clearTimeout(timeoutHandle); resolve(null); }
+            }
+          });
         }
       };
       proc.stderr.on("data", check);
-      proc.on("error", () => { if (!done) { done = true; resolve(null); } });
-      proc.on("close", () => { if (!done) { done = true; resolve(null); } });
+      // Surface the binary's own diagnostics on early death: a proc that
+      // exits before printing a URL otherwise fails with zero explanation.
+      let _cfErrBuf = '';
+      proc.stderr.on('data', (d) => { _cfErrBuf = (_cfErrBuf + d.toString()).slice(-3000); });
+      proc.on("error", (e) => {
+        if (!done) {
+          done = true; clearTimeout(timeoutHandle);
+          console.log("  \x1b[33m!\x1b[0m cloudflared spawn error: " + (e && e.message ? e.message : e));
+          resolve(null);
+        }
+      });
+      proc.on("close", (code) => {
+        if (!done) {
+          done = true; clearTimeout(timeoutHandle);
+          const tail = _cfErrBuf.split('\n').map((l) => l.trim()).filter(Boolean)
+            .filter((l) => !/trycloudflare\.com/.test(l)).slice(-6);
+          console.log("  \x1b[33m!\x1b[0m cloudflared exited before printing a URL (code " + code + ")");
+          // Redact share subdomains AND bare IPs (cloudflared logs its own
+          // source addresses) — logs stay local, but never print them anyway.
+          for (const line of tail) console.log("  \x1b[33m!\x1b[0m [cloudflared] " + line.replace(/^[0-9TZ:\-\.]+Z?\s+INF\s+/, '').replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, '[ip]').slice(0, 300));
+          resolve(null);
+        }
+      });
+      const timeoutHandle = setTimeout(() => {
+        if (!done) { done = true; try { proc.kill('SIGKILL'); } catch (_) {} resolve(null); console.log("  \x1b[33m!\x1b[0m cloudflared printed no URL in 45s."); }
+      }, 45000);
     });
   });
 }
@@ -265,16 +545,40 @@ function startTunnelVps(port, vpsHost) {
         url += '/?v3';
 
         let done = false;
+        // A "forward success" line is not a working tunnel (the VPS sshd may
+        // bind loopback-only without GatewayPorts, or filter the port) —
+        // verify end-to-end like every other provider. Plus a stall timeout:
+        // previously a failed forward never resolved at all (API hang).
+        const timeoutHandle = setTimeout(() => {
+          if (!done) {
+            done = true;
+            try { proc.kill('SIGKILL'); } catch (_) {}
+            console.log("  \x1b[33m!\x1b[0m VPS tunnel stalled (no forward confirmation in 30s).");
+            resolve(null);
+          }
+        }, 30000);
         proc.stderr.on("data", data => {
           const out = data.toString();
           if ((out.includes("remote forward success") || out.includes("Forwarding address")) && !done) {
-            done = true;
-            console.log("  \x1b[32m✓\x1b[0m VPS Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-            resolve({ url, proc });
+            console.log("  \x1b[33m~\x1b[0m Forward confirmed — verifying it serves our API...");
+            verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
+              if (done) return; // stall timeout won
+              done = true;
+              clearTimeout(timeoutHandle);
+              if (ok) {
+                console.log("  \x1b[32m✓\x1b[0m VPS Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+                console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+                resolve({ url, proc });
+              } else {
+                try { proc.kill('SIGKILL'); } catch (_) {}
+                console.log("  \x1b[31m!\x1b[0m Forward is up but the VPS does not serve our API — check GatewayPorts/client-specified bind on the VPS sshd and cloud firewall rules.");
+                resolve(null);
+              }
+            });
           }
         });
-        proc.on("error", () => { if (!done) { done = true; resolve(null); } });
-        proc.on("close", () => { if (!done) { done = true; resolve(null); } });
+        proc.on("error", () => { if (!done) { done = true; clearTimeout(timeoutHandle); resolve(null); } });
+        proc.on("close", () => { if (!done) { done = true; clearTimeout(timeoutHandle); resolve(null); } });
       });
     });
   });
@@ -363,7 +667,7 @@ function startTunnelZrok(port, retries = 3, token = '') {
         !currentTunnelProc.killed &&
         (currentTunnelProc.signalCode === null || currentTunnelProc.signalCode === undefined);
       if (alive) {
-        console.log(`  \x1b[33m~\x1b[0m Reusing live zrok share: ${currentTunnelUrl}`);
+        console.log(`  \x1b[33m~\x1b[0m Reusing live zrok share (address unchanged).`);
         return resolve({ url: currentTunnelUrl, proc: currentTunnelProc });
       }
     }
@@ -397,43 +701,114 @@ function startTunnelZrok(port, retries = 3, token = '') {
       await new Promise(r => enableProc.on('close', r));
     }
 
-    const shareFile = path.join(__dirname, '..', '..', '.zrok_last_share');
+    // Clear reservations from previous runs (tracked token list, 0600).
+    // Tokens are never printed: they are capabilities.
+    // ASYNC + parallel + capped: the old sequential spawnSync loop froze
+    // Electron's main thread (in-process server) up to 8s PER TOKEN.
     try {
-      if (fs.existsSync(shareFile)) {
-        const oldToken = fs.readFileSync(shareFile, 'utf8').trim();
-        if (oldToken && oldToken.length >= 3) {
-          console.log(`  \x1b[33m~\x1b[0m Cleaning up previous zrok share (${oldToken})...`);
-          if (zrokPath.includes('zrok2')) {
-            spawn(zrokPath, ['delete', 'share', oldToken], { stdio: 'ignore' });
-          } else {
-            spawn(zrokPath, ['release', oldToken], { stdio: 'ignore' });
-          }
-        }
+      const oldTokens = readShareTokens().slice(0, 5);
+      if (oldTokens.length) {
+        console.log(`  \x1b[33m~\x1b[0m Cleaning up ${oldTokens.length} previous zrok share(s)...`);
+        const results = await Promise.all(oldTokens.map((t) => deleteZrokShareAsync(zrokPath, t)));
+        oldTokens.forEach((t, i) => { if (results[i]) { try { forgetZrokToken(t); } catch (_) {} } });
       }
     } catch (e) {}
+
+    // Reap orphans whose tokens we never learned (timeouts/retries/crashes):
+    // idle shares pointing at our port that are not live get deleted.
+    // Fire-and-forget: cleanup must NEVER block startup (it once stalled
+    // the tunnel API behind CLI timeouts and froze the dashboard).
+    reapStaleZrokShares(port).catch(() => {});
 
     console.log(`  \x1b[33m~\x1b[0m Starting zrok public share (${zrokPath})... (Retries left: ${retries})`);
     const args = ["share", "public", "http://localhost:" + port, "--backend-mode", "proxy", "--headless"];
     const proc = spawn(zrokPath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let done = false;
+    // A printed URL is NOT a working tunnel (the controller can refuse or
+    // invalidate the share seconds later while the proc happily idles).
+    // Verify end-to-end (public URL -> local server) before resolving.
+    // Patient budget: slow controllers need 10-20s for a fresh share to
+    // become dialable (CLI calls alone take 4-9s on bad days). 6 probes of
+    // 2.5s ≈ ≤25s worst case — still bounded, never hangs startup. The old
+    // 3-probe/10s budget murdered healthy shares on slow controllers, which
+    // piled up orphans AND reported "not starting".
+    const verifyShare = (url, token) => {
+      let tries = 0;
+      const probe = async () => {
+        if (done) return;
+        tries++;
+        try {
+          const ctl = new AbortController();
+          const to = setTimeout(() => ctl.abort(), 2500);
+          const r = await fetch(url + '/api/info', { signal: ctl.signal });
+          clearTimeout(to);
+          if (r && r.ok) {
+            const j = await r.json().catch(() => null);
+            if (j && j.version) {
+              if (done) return;
+              done = true;
+              clearTimeout(timeoutHandle);
+              process.env.USING_TUNNEL = "true";
+              resolve({ url, proc });
+              console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+              console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+              return;
+            }
+          }
+        } catch (_) {}
+        if (!done && tries < 6) {
+          setTimeout(probe, 1500);
+        } else if (!done) {
+          console.log("  \x1b[33m!\x1b[0m Tunnel share never became reachable — discarding proc and retrying (share stays tracked for the reaper)...");
+          // NOTE: no synchronous delete here. deleteZrokShareSync shells out
+          // to a slow controller and once froze the dashboard for 10s+ per
+          // retry. The token was already rememberZrokToken()'d at creation,
+          // so the background reaper (and the 4s shutdown sweep) clean it up.
+          done = true;
+          clearTimeout(timeoutHandle);
+          try { proc.kill('SIGKILL'); } catch (_) {} // zrok ignores SIGTERM
+          if (retries > 0) {
+            setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+          } else {
+            resolve(null);
+          }
+        }
+      };
+      probe();
+    };
+    let verifying = false;
     const check = data => {
       const out = data.toString();
       const m = out.match(/(https:\/\/)?(([a-z0-9\-]+)\.shares?\.zrok\.io)/i);
-      if (m && !done) {
-        done = true;
+      if (m && !done && !verifying) {
+        verifying = true;
         const url = m[1] ? m[0] : "https://" + m[2];
         const token = m[3];
-        try { fs.writeFileSync(shareFile, token, 'utf8'); } catch (e) {}
-        
-        process.env.USING_TUNNEL = "true";
-        resolve({ url, proc });
-        console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+        currentZrokShareToken = token;
+        rememberZrokToken(token);
+        // NOTE: intentionally not resolved yet — verifyShare resolves only
+        // after the public URL actually answers.
+        verifyShare(url, token);
       }
     };
     proc.stdout.on("data", check); proc.stderr.on("data", check);
+    // Surface the CLI's own diagnostics: previously non-URL stderr was
+    // silently dropped, so a share that died with a printed reason looked
+    // identical to a silent hang ("failed or closed (code 1)" with nothing
+    // else). Share subdomains are capabilities — redact before logging.
+    let _zrokErrBuf = '';
+    proc.stderr.on('data', (d) => {
+      _zrokErrBuf = (_zrokErrBuf + d.toString()).slice(-3000);
+    });
     proc.on("close", c => {
       if (!done) {
+        done = true;
+        clearTimeout(timeoutHandle);
         console.log("  \x1b[33m!\x1b[0m zrok share failed or closed (code " + c + ")");
+        const tail = _zrokErrBuf.split('\n').map((l) => l.trim()).filter(Boolean)
+          .map((l) => l.replace(/[a-z0-9-]+\.shares?\.zrok\.io/gi, '[share]')
+            .replace(/https?:\/\/\[share\]/gi, '[url]')).slice(-6);
+        for (const line of tail) console.log("  \x1b[33m!\x1b[0m [zrok] " + line.slice(0, 300));
         if (retries > 0) {
           console.log("  \x1b[33m~\x1b[0m Retrying Zrok tunnel in 3 seconds...");
           setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
@@ -442,9 +817,10 @@ function startTunnelZrok(port, retries = 3, token = '') {
         }
       }
     });
-    setTimeout(() => {
+    const timeoutHandle = setTimeout(() => {
       if (!done) {
-        done = true; proc.kill();
+        done = true;
+        try { proc.kill('SIGKILL'); } catch (_) {} // zrok ignores SIGTERM
         if (retries > 0) {
           console.log("  \x1b[33m~\x1b[0m Zrok timeout. Retrying in 3 seconds...");
           setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
@@ -453,7 +829,7 @@ function startTunnelZrok(port, retries = 3, token = '') {
           console.log("  \x1b[33m!\x1b[0m zrok share timeout.");
         }
       }
-    }, 20000);
+    }, 30000);
   }).catch(() => null);
 }
 
@@ -571,6 +947,25 @@ function startTunnelTailscaleFunnel(port) {
         const proc = spawn(tailscalePath, ['funnel', '--bg=false', String(port)], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         let done = false;
         let output = '';
+        let verifying = false;
+
+        // A printed URL is not a working tunnel — verify before reporting.
+        const finishFunnel = (url) => {
+          verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (ok) {
+              resolve({ url, proc });
+              console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+              console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+            } else {
+              try { proc.kill('SIGKILL'); } catch (_) {}
+              resolve({ error: 'VERIFY_FAILED', provider: 'tailscale-funnel', details: 'URL printed but serves no API' });
+              console.log("  \x1b[31m!\x1b[0m Funnel URL printed but unreachable — not reporting it.");
+            }
+          });
+        };
 
         const check = data => {
           output += data.toString();
@@ -579,14 +974,15 @@ function startTunnelTailscaleFunnel(port) {
           const url = str.match(/https?:\/\/[a-z0-9][a-z0-9\-\.]*[a-z0-9]\.ts\.net(?::\d+)?/i)
             || str.match(/https?:\/\/[a-z0-9\-\.]+\.ts\.net(?::\d+)?/i);
           if (url && !done) {
-            done = true;
-            resolve({ url: url[0], proc });
-            console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url[0] + "\x1b[0m");
+            verifying = true;
+            finishFunnel(url[0]);
             return;
           }
           // Check for error messages
           if (str.includes('Funnel is not available') || str.includes('not available')) {
             done = true;
+            clearTimeout(timer);
+            try { proc.kill('SIGKILL'); } catch (_) {}
             resolve({ error: 'FUNNEL_NOT_AVAILABLE', provider: 'tailscale-funnel', details: str });
             console.log("  \x1b[31m✗\x1b[0m " + str.trim());
             return;
@@ -598,11 +994,10 @@ function startTunnelTailscaleFunnel(port) {
 
         proc.on("close", code => {
           if (!done) {
-            if (output && !output.includes('error')) {
-              // Process exited but we have some output - try to extract URL
-              const m = output.match(/https?:\/\/[a-z0-9][a-z0-9\-\.]*[a-z0-9]\.ts\.net(?::\d+)?/i);
-              if (m) { done = true; resolve({ url: m[0], proc: null }); console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + m[0] + "\x1b[0m"); return; }
-            }
+            // Dead proc = dead tunnel (--bg=false ties the funnel to process
+            // lifetime). Never report a URL for a dead backend.
+            done = true;
+            clearTimeout(timer);
             resolve({ error: 'EXIT_CODE_' + code, provider: 'tailscale-funnel', details: output });
             console.log("  \x1b[31m!\x1b[0m tailscale funnel closed (code " + code + "): " + output.trim());
           }
@@ -618,22 +1013,22 @@ function startTunnelTailscaleFunnel(port) {
           }
         }, timeout);
 
-        // Also try to get URL from serve status as fallback
+        // Also try to get URL from serve status as fallback (only while no
+        // URL has been seen yet — never race an in-flight verification).
         setTimeout(() => {
-          if (!done) {
+          if (!done && !verifying) {
             const serveCheck = spawn(tailscalePath, ['serve', 'status', '--json'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
             let serveData = '';
             serveCheck.stdout.on('data', d => serveData += d);
             serveCheck.on('close', () => {
-              if (!done) {
+              if (!done && !verifying) {
                 try {
                   const j = JSON.parse(serveData);
                   const funnelUrl = j?.Funnel?.find?.(f => f?.URL)?.URL || j?.Serve?.find?.(f => f?.URL)?.URL;
                   if (funnelUrl) {
-                    done = true;
-                    clearTimeout(timer);
-                    resolve({ url: funnelUrl, proc });
-                    console.log("  \x1b[32m✓\x1b[0m Tunnel URL (from status): \x1b[1m" + funnelUrl + "\x1b[0m");
+                    verifying = true;
+                    console.log("  \x1b[33m~\x1b[0m Tunnel URL (from status), verifying...");
+                    finishFunnel(funnelUrl);
                   }
                 } catch (e) {}
               }
@@ -750,7 +1145,9 @@ function startTunnelZeroTier(port) {
 function getZeroTierIP(networkId) {
   try {
     const { execSync } = require('child_process');
-    const out = execSync('zerotier-cli listnetworks', { encoding: 'utf8' });
+    // Bounded: an unresponsive zerotier daemon must never freeze the whole
+    // server event loop (this runs on the join path).
+    const out = execSync('zerotier-cli listnetworks', { encoding: 'utf8', timeout: 4000 });
     const lines = out.trim().split('\n').slice(1);
     for (const line of lines) {
       const parts = line.split(/\s+/);
@@ -808,7 +1205,7 @@ async function startTunnel(port, provider, options = {}) {
       !currentTunnelProc.killed &&
       (currentTunnelProc.signalCode === null || currentTunnelProc.signalCode === undefined);
     if (alive) {
-      console.log(`  \x1b[33m~\x1b[0m Reusing already-running ${provider} tunnel: ${currentTunnelUrl}`);
+      console.log(`  \x1b[33m~\x1b[0m Reusing already-running ${provider} tunnel (address unchanged).`);
       return { url: currentTunnelUrl, proc: currentTunnelProc };
     }
   }
@@ -886,17 +1283,30 @@ const PROVIDERS = [
       let authenticated = false;
       if (p) {
         try {
-          const { execSync } = require('child_process');
-          const statusOut = execSync(`"${p}" status`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+          // Async interrogation only: execSync here would freeze the entire
+          // server (and the Electron UI sharing its event loop) for up to
+          // the timeout on every providers-endpoint hit.
+          const { execFile } = require('child_process');
+          const statusOut = await new Promise((resolve) => {
+            execFile(p, ['status'], { timeout: 5000 }, (err, stdout) => {
+              resolve(err ? '' : String(stdout || ''));
+            });
+          });
           // zrok classic (v0.x) prints "Environment:" + "Contact:" rows only
           // when enabled. zrok2 (v2) prints a local "Environment" table with an
           // "Account Token" row only when enabled. Check both so whichever
           // binary is installed reports authentication correctly.
           if (statusOut.includes('Account Token') ||
-              (statusOut.includes('Environment') && statusOut.includes('Contact'))) {
-             authenticated = true;
+              (statusOut.includes('Environment') && statusOut.includes('Contact')) ||
+              statusOut.includes('enabled') ||
+              statusOut.includes('Authenticated')) {
+            authenticated = true;
           }
-        } catch(e) {}
+        } catch (e) {
+          // If status check fails, binary exists but we can't determine auth state
+          // Assume it might be authenticated to avoid unnecessary token prompts
+          authenticated = true; // Be lenient - user can skip if needed
+        }
       }
       return { found: !!p, path: p, authenticated };
     },

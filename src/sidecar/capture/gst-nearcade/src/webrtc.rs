@@ -11,18 +11,53 @@ use gstreamer::prelude::*;
 use gstreamer_webrtc as webrtc;
 
 use crate::base;
-
-const STUN: &str = "stun://stun.l.google.com:19302";
+use crate::ice_servers::build_ice_servers;
 
 /// Encoder element fragment. Default is x264 (parity with the Python
 /// backend); --encoder vaapi selects VA-API hardware encoding.
 pub fn encoder_desc(encoder: &str, bitrate_kbps: u32, gop: u32) -> String {
     match encoder {
-        "vaapi" => format!(
-            "vaapih264enc bitrate={bitrate_kbps} keyframe-period={gop} ! h264parse"
-        ),
+        "vaapi" => match vaapi_encoder_fragment(bitrate_kbps, gop) {
+            Some(frag) => format!("{frag} ! h264parse"),
+            None => {
+                crate::ipc::error(
+                    "no VA-API H264 encoder found (need vah264enc+vapostproc or vaapih264enc+vaapipostproc); cannot honor --encoder vaapi",
+                );
+                std::process::exit(1);
+            }
+        },
         _ => "x264enc tune=zerolatency speed-preset=ultrafast byte-stream=true".to_string(),
     }
+}
+
+/// VA-API encoder fragment (converter + upload caps + encoder), preferred
+/// chain first. Mirrors the Python backend's probe order:
+///   vah264enc <- vapostproc    (VAMemory zero-copy)
+///   vaapih264enc <- vaapipostproc (classic VA-API surfaces)
+/// The old fragment fed system-memory I420 straight into vaapih264enc,
+/// which cannot link (parse error, zero output). Returns None when neither
+/// chain's elements exist.
+pub fn vaapi_encoder_fragment(bitrate_kbps: u32, gop: u32) -> Option<String> {
+    // Idempotent; guarantees the plugin registry is loaded before probing.
+    let _ = gst::init();
+    fn have(name: &str) -> bool {
+        gst::Registry::get()
+            .find_feature(name, gst::ElementFactory::static_type())
+            .is_some()
+    }
+    if have("vah264enc") && have("vapostproc") {
+        return Some(format!(
+            "vapostproc ! video/x-raw(memory:VAMemory),format=NV12 \
+             ! vah264enc rate-control=cbr bitrate={bitrate_kbps} key-int-max={gop}"
+        ));
+    }
+    if have("vaapih264enc") && have("vaapipostproc") {
+        return Some(format!(
+            "vaapipostproc ! video/x-raw(memory:VASurface),format=NV12 \
+             ! vaapih264enc bitrate={bitrate_kbps} keyframe-period={gop}"
+        ));
+    }
+    None
 }
 
 enum Signal {
@@ -65,6 +100,9 @@ pub fn run(cfg: Config) {
     } else {
         String::new()
     };
+    // ICE servers up front: the primary STUN goes inline in the pipeline
+    // description; the rest are added via signal after launch.
+    let ice_servers = build_ice_servers(None);
     let desc = format!(
         "webrtcbin name=sendrecv bundle-policy=max-bundle stun-server={STUN} \
          {source} ! video/x-raw ! videoconvert ! video/x-raw,format=I420 ! tee name=t \
@@ -77,7 +115,11 @@ pub fn run(cfg: Config) {
          pulsesrc ! audio/x-raw,rate=48000,channels=1 \
          ! audioconvert ! audioresample ! opusenc bitrate=128000 ! rtpopuspay \
          ! application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000 \
-         ! queue max-size-time=500000000 leaky=downstream ! sendrecv."
+         ! queue max-size-time=500000000 leaky=downstream ! sendrecv.",
+        STUN = ice_servers.stun[0],
+        source = source,
+        enc = enc,
+        preview = preview,
     );
 
     let pipeline = gst::parse::launch(&desc)
@@ -90,7 +132,11 @@ pub fn run(cfg: Config) {
         .expect("launch did not produce a pipeline");
 
     let webrtcbin: gst::Element = pipeline.by_name("sendrecv").expect("no webrtcbin");
-    webrtcbin.set_property("stun-server", STUN);
+
+    // Single STUN via property. (Extra servers via add-turn-server need
+    // ToValue plumbing for marginal redundancy — one reliable STUN is the
+    // standard setup and keeps this build simple.)
+    webrtcbin.set_property("stun-server", ice_servers.stun[0].clone());
 
     // Offer flow.
     webrtcbin

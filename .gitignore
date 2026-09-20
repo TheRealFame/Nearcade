@@ -61,3 +61,11 @@ src/sidecar/audio/rust_*/target/
 tools/open-remote-play/node_modules/
 tools/open-remote-play/packages/*/node_modules/
 tools/open-remote-play/packages/*/target/
+
+# zrok share token store (capability tokens — never commit)
+**/.zrok_last_share
+# diagnostic run logs (may contain environment details)
+logs/
+# Rust capture/TURN sidecar build artifacts
+src/sidecar/capture/gst-nearcade/target/
+tools/nearcade-turn/target/

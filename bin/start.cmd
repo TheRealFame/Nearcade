@@ -36,9 +36,9 @@ pkill -15 -f "sidecar/input_driver.py" >/dev/null 2>&1
 
 
 
-echo "  ┌─────────────────────────────────────┐"
-echo "  │      Nearcade Launcher      │"
-echo "  └─────────────────────────────────────┘"
+echo "  ┌────────────────────┐"
+echo "  │      Nearcade      │"
+echo "  └────────────────────┘"
 
 # OS Detection & Environment Logic
 OS="$(uname -s)"

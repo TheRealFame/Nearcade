@@ -210,7 +210,7 @@ const PPS_LIMIT = 300;
 const PPS_WINDOW = 1000;        // ms
 
 // ── Latency tuning constants ────────────────────────────────────────────────────
-const KEYFRAME_INTERVAL_MS = 200;   // was 500
+const KEYFRAME_INTERVAL_MS = 1000;  // was 200: 5 IDRs/sec at 4Mbps starved delta frames (quality pulsing). 1/sec + on-demand keyframes keeps joins fast.
 const CONGESTION_KEYFRAME_THRESHOLD_MS = 20; // was 40
 
 function _checkPps(viewerId) {
@@ -237,8 +237,10 @@ function _checkPps(viewerId) {
 // ── [extracted from host.js] ─────────────────────────────────────────
 // ── COMMUNITY TURN LADDER ────────────────────────────────────────────────
 // Fetched once, filtered to entries that respond on the real TURN port, and
-// used only as the *additional* fallback tier so a dead public relay can never
-// gate the whole ICE handshake.
+// used as the *additional* fallback tier. Community TURN servers are included
+// in the ICE ladder by default (via ice-servers.js) for immediate availability;
+// this ladder probes them in the background and updates the ladder with only
+// working servers for subsequent connections.
 let _communityTurnLadder = [];
 let _communityTurnFetchPromise = null;
 const busyTurnUrls = new Set();
@@ -249,7 +251,10 @@ async function _loadCommunityTurnLadder() {
         const servers = await res.json();
         const results = [];
         await Promise.all((Array.isArray(servers) ? servers : []).map(async (s) => {
-            if (!s || !s.url || busyTurnUrls.has(s.url)) return;
+            // Honor enabled:false — probing a dead relay burns DNS + a relay
+            // allocation attempt (renderer error spam) on every host boot for
+            // zero benefit. Explicit dashboard selection still works.
+            if (!s || !s.url || s.enabled === false || busyTurnUrls.has(s.url)) return;
             busyTurnUrls.add(s.url);
             try {
                 let alive = false;
@@ -579,6 +584,20 @@ function preferVideoCodec(pc) {
 }
 
 // ── [extracted from host.js] ─────────────────────────────────────────
+// ── Hardware Acceleration Detection ───────────────────────────────────────────
+let _hwAccelSupportCache = null;
+async function _getHwAccelSupport() {
+    if (_hwAccelSupportCache) return _hwAccelSupportCache;
+    try {
+        const { detectAllCodecSupport } = await import('../core/hw-accel-detect.js');
+        _hwAccelSupportCache = await detectAllCodecSupport();
+        return _hwAccelSupportCache;
+    } catch (_) {
+        return { VP8: { supported: true, hardwareAccel: false, mimeType: 'video/vp8' } };
+    }
+}
+
+// ── [extracted from host.js] ─────────────────────────────────────────
 // ── CODEC AUTO-BENCHMARK ──────────────────────────────────────────────────────
 // Tests each WebRTC codec the browser supports by:
 // 1. Creating a loopback RTCPeerConnection pair
@@ -629,6 +648,7 @@ async function runBenchmark(mode) {
     const CODEC_MAP = {
         'video/h264': 'H264',
         'video/hevc': 'H265',
+        'video/h265': 'H265',
         'video/vp8': 'VP8',
         'video/vp9': 'VP9',
         'video/av1': 'AV1',
@@ -643,7 +663,21 @@ async function runBenchmark(mode) {
         if (mapped && !seen.has(mapped)) { seen.add(mapped); toTest.push({ mime: key, name: mapped, codec: c }); }
     }
 
-    benchLog(`Testing ${toTest.length} codec(s) — 8s each…`);
+    // Filter to only supported codecs with hardware acceleration detection
+    const hwSupport = await _getHwAccelSupport();
+    const supportedToTest = toTest.filter(t => {
+        const support = hwSupport[t.name];
+        return support?.supported === true;
+    });
+
+    if (supportedToTest.length === 0) {
+        benchLog('No supported codecs found for benchmark', 'var(--error)');
+        btnSpeed.disabled = false; btnQuality.disabled = false;
+        delete activeBtn.dataset.running; activeBtn.innerHTML = originalHTML;
+        return;
+    }
+
+    benchLog(`Testing ${supportedToTest.length} supported codec(s) — 8s each…`);
 
     // Set up real video stream for benchmark
     const testVideo = document.createElement('video');

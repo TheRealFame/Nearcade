@@ -8,6 +8,13 @@ const fs = require('fs');
 const { powerSaveBlocker } = require('electron');
 const { loadSettings, saveSettings, CONFIG_DIR, LOG_FILE } = require('./config');
 const { registerIpcHandlers } = require('./ipc');
+const { checkSystemDependencies, probeGPUAcceleration } = require('./checkDependencies');
+
+// Enable Chromium logging BEFORE any other initialization
+app.commandLine.appendSwitch('enable-logging');
+app.commandLine.appendSwitch('v', '1');
+app.commandLine.appendSwitch('vmodule', 'gpu*=1,render*=1,web_content*=1');
+app.commandLine.appendSwitch('log-file', path.join(CONFIG_DIR, 'nearcade.log'));
 
 powerSaveBlocker.start('prevent-app-suspension');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
@@ -270,7 +277,7 @@ if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, '..', '
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('log-level', '3'); // Suppress STUN timeouts & VSync C++ spam
-app.commandLine.appendSwitch('disable-logging');
+// app.commandLine.appendSwitch('disable-logging');
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 // Never touch the desktop keyring: on mixed gnome-keyring/KWallet boxes
@@ -281,6 +288,16 @@ app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 // its plaintext config file, so no real secret protection is lost.
 // Override with NEARCADE_PASSWORD_STORE=gnome-libsecret|kwallet* if wanted.
 app.commandLine.appendSwitch('password-store', process.env.NEARCADE_PASSWORD_STORE || 'basic');
+
+// Check for missing system dependencies before proceeding
+if (!checkSystemDependencies()) {
+  console.error('[electron] Dependency check failed - exiting gracefully');
+  app.quit();
+  process.exit(1);
+}
+
+// Probe GPU acceleration capabilities
+probeGPUAcceleration();
 
 // Chromium FATAL-crashes the renderer when /dev/shm is unusable (bad perms,
 // tiny/prohibited mount, container quirks) and the whole app tears itself
@@ -358,8 +375,16 @@ if (isArcadeWorker && process.platform === 'linux') {
 // or Gamescope sessions get it, where boot is impossible otherwise.
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('disable-gpu-vsync');
-app.commandLine.appendSwitch('disable-frame-rate-limit');
+// app.commandLine.appendSwitch('use-gl', 'desktop'); // causes GL init failure on some drivers
+app.commandLine.appendSwitch('enable-features', 'VaapiVideoEncoder,VaapiVideoDecoder,PlatformHEVCDecoderSupport');
+// Uncapped compositing is gated behind the user's explicit settings —
+// forcing it always made the shell burn CPU/GPU presenting a mostly-static
+// dashboard at hundreds of fps. Background flags below stay unconditional:
+// the host must keep encoding while minimized. Both take effect on restart.
+let _bootFlags = {};
+try { _bootFlags = loadSettings(); } catch (_) {}
+if (_bootFlags.vsyncOff) app.commandLine.appendSwitch('disable-gpu-vsync');
+if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit');
 // NOTE: no 'disable-software-rasterizer' — when native GL fails (broken
 // Mesa/driver combos), SwiftShader software rasterization is the only thing
 // standing between a working dashboard and a permanently blank window.
@@ -436,6 +461,37 @@ async function createWindow() {
   if (!isGamescopeEnv) {
     win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
   }
+  // Blank-screen detection: Monitor for 3 seconds after ready-to-show
+  let blankScreenDetected = false;
+  const blankScreenTimeout = setTimeout(() => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.executeJavaScript(`
+        document.body.offsetWidth === 0 || 
+        document.body.offsetHeight === 0 ||
+        document.documentElement.innerHTML.trim() === ''
+      `).then(isBlank => {
+        if (isBlank) {
+          blankScreenDetected = true;
+          console.error('[electron] Blank screen detected - renderer output is empty');
+          
+          // If --debug flag, open devtools
+          if (process.argv.includes('--debug')) {
+            win.webContents.openDevTools({ mode: 'detach' });
+            console.log('[electron] DevTools opened automatically due to --debug flag and blank screen detection');
+          }
+        }
+      }).catch(() => {
+        // Renderer may have crashed
+        blankScreenDetected = true;
+      });
+    }
+  }, 3000); // 3 second timeout
+
+  // If content loads normally, clear the timeout
+  win.webContents.on('did-finish-load', () => {
+    clearTimeout(blankScreenTimeout);
+  });
+
 
   const PAGES_DIR = path.join(__dirname, 'src', 'pages');
 
@@ -608,7 +664,19 @@ async function createWindow() {
       serverCore.cleanup(true);
     }
   });
+
+  // Monitor GPU process health
+  app.on('gpu-process-crashed', (_event, killed) => {
+    console.error('\n[electron] ⚠ GPU process crashed!');
+    console.error('  Reason: ' + (killed ? 'killed by OS' : 'crashed'));
+    console.error('  This may be due to:');
+    console.error('    - Outdated GPU drivers');
+    console.error('    - Missing GPU libraries (libgbm1, libxshmfence1)');
+    console.error('    - Hardware acceleration disabled by OS');
+    console.error('\n[electron] Attempting to continue with software rendering...');
+  });
 }
+
 
 app.whenReady().then(() => {
   createWindow();

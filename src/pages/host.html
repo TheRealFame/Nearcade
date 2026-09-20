@@ -48,6 +48,12 @@
         </button>
       </div>
 
+      <button class="rail-btn" id="btnExternalSources" onclick="showExternalSourcesModal()" title="External Sources">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19.439 7.85c-.049.322-.059.648-.029.975.112 1.234 1.169 2.175 2.41 2.175h.18v2a2 2 0 0 1-2 2h-.18a2.5 2.5 0 0 0-2.41 2.175c-.03.327-.02.653.029.975.297 1.942 1.956 3.483 3.961 3.85V22h-4v-2.5a2.5 2.5 0 0 0-5 0V22H2v-4h2.5a2.5 2.5 0 0 0 0-5H2V2h4v2.5a2.5 2.5 0 0 0 5 0V2h4v4.5a2.5 2.5 0 0 0 0 5H22v4h-2.5a2.5 2.5 0 0 0-2.5 2.5v2.5H19.439z"/>
+        </svg>
+      </button>
+
       <div class="rail-divider"></div>
 
       <button class="rail-btn" id="btnArcade" onclick="showArcadeModal()" title="Arcade Mode">
@@ -429,13 +435,18 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Brand shading — random accent
+      // Brand shading — user accent when applied, random brand glow otherwise.
       const isLightMode = window.matchMedia('(prefers-color-scheme: light)').matches;
-      const brandShades = [
-        { color: '#c084fc' },
-        { color: '#ff8a4c' },
-        { color: isLightMode ? '#6366f1' : '#eef0ff' },
-      ];
+      const appliedAccent = (document.documentElement.dataset.nsAccent === '1')
+        ? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+        : '';
+      const brandShades = appliedAccent
+        ? [{ color: appliedAccent }]
+        : [
+          { color: '#c084fc' },
+          { color: '#ff8a4c' },
+          { color: isLightMode ? '#6366f1' : '#eef0ff' },
+        ];
       const shade = brandShades[Math.floor(Math.random() * brandShades.length)];
       const railLogo = document.querySelector('.rail-logo img');
       if (railLogo) railLogo.style.filter = `drop-shadow(0 0 10px ${shade.color}66)`;
@@ -476,6 +487,32 @@
         slider.dispatchEvent(new Event('input', { bubbles: true }));
       });
     });
+  </script>
+
+  <script>
+    function showExternalSourcesModal() {
+      document.getElementById('externalSourcesModal').classList.remove('gone');
+    }
+    function closeExternalSourcesModal() {
+      document.getElementById('externalSourcesModal').classList.add('gone');
+    }
+    async function launchSidecapture() {
+      try {
+        const res = await fetch('/api/launch-tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tool: 'sidecapture' })
+        });
+        if (res.ok) {
+          closeExternalSourcesModal();
+        } else {
+          const err = await res.json();
+          if (window.showError) window.showError("Failed to launch Sidecapture: " + (err.error || res.statusText));
+        }
+      } catch (e) {
+        if (window.showError) window.showError("Network error: " + e.message);
+      }
+    }
   </script>
 
 </body>

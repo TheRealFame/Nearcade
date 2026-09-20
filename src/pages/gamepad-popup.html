@@ -113,6 +113,20 @@
 
     window.addEventListener('message', e => {
       if (e.data?.type === 'NEARCADE_SMART_DB' && e.data.db) smartDb = e.data.db;
+
+      // Auto-triggered by viewer.js when an unknown controller connects for the first time.
+      // Starts the calibration overlay immediately so the user sees the prompt right away.
+      if (e.data?.type === 'NEARCADE_START_CALIB' && e.data.index !== undefined) {
+        const idx = e.data.index;
+        // If we've already rendered a card for this controller, start calibration on it.
+        // If not yet rendered, flag it so addController() kicks it off as soon as the card appears.
+        if (gpStates.has(idx)) {
+          startCalibration(idx);
+        } else {
+          window._pendingAutoCalib = window._pendingAutoCalib || new Set();
+          window._pendingAutoCalib.add(idx);
+        }
+      }
     });
 
     function lookupSmartMap(gp) {
@@ -228,8 +242,9 @@
       card.innerHTML = `
         <div class="calib-overlay" id="${p}-calib">
           <div class="calib-step" id="${p}-prompt">${T('WAITING...')}</div>
-          <div class="calib-desc">${T('Hold the requested input fully.')}</div>
+          <div class="calib-desc">${T('Hold the input fully for a moment.')}</div>
           <div class="calib-verified" id="${p}-verified">${T('Calibration Verified')}</div>
+          <button onclick="skipCalibStep(${idx})" style="margin-top:10px;background:none;border:1px solid var(--muted);color:var(--muted);border-radius:6px;padding:5px 14px;font-size:10px;cursor:pointer;font-family:'Outfit',sans-serif;font-weight:700;" title="Skip this step if you don't have this input">${T('SKIP STEP')}</button>
         </div>
         <div class="header">
           <div class="controller-id">
@@ -416,6 +431,12 @@
         window.parent.postMessage({ type: 'NEARCADE_REQUEST_WEBHID_STATUS' }, PARENT_ORIGIN);
       } catch (e) {}
 
+      // If viewer.js sent NEARCADE_START_CALIB before this card was rendered, start it now
+      if (window._pendingAutoCalib?.has(gp.index) && !savedMap) {
+        window._pendingAutoCalib.delete(gp.index);
+        setTimeout(() => startCalibration(gp.index), 50);
+      }
+
       updateEmptyState();
     }
 
@@ -441,6 +462,8 @@
       if (!state) return;
       state.calibStep = 1;
       state.tempMap = { lt: null, rt: null, rsx: null, rsy: null };
+      state._holdCandidate = null;
+      state._holdStart     = null;
       // Clear any stale localStorage entry so we don't fall back to a bad old map
       const gp = navigator.getGamepads()[index];
       if (gp) {
@@ -451,35 +474,88 @@
       updatePrompt(index);
     }
 
+    // Skip the current calibration step (leaves that input unmapped but moves forward)
+    window.skipCalibStep = function(index) {
+      const state = gpStates.get(index);
+      if (!state || state.calibStep === 0) return;
+      state._holdCandidate = null;
+      state._holdStart     = null;
+      state.calibCooldown  = true;
+      // Leave tempMap entry null for this step — applyCalibration handles nulls gracefully
+      state.calibStep++;
+      setTimeout(() => { state.calibCooldown = false; }, 400);
+      const gp = navigator.getGamepads()[index];
+      if (!gp) return;
+      if (state.calibStep > 4) {
+        // Finished (possibly with skipped steps) — save whatever we got
+        state.calibStep = 0;
+        state.mapCache  = state.tempMap;
+        const safeId    = getSafeId(gp);
+        localStorage.setItem(STORAGE_PREFIX + safeId, JSON.stringify(state.mapCache));
+        window.parent.postMessage({ type: 'SAVE_CONTROLLER_CALIB', hardwareId: safeId, map: state.mapCache }, PARENT_ORIGIN);
+        document.getElementById(`c${index}-calib`)?.classList.remove('active');
+        broadcastConfigExternally(safeId, state.mapCache);
+      } else {
+        updatePrompt(index);
+      }
+    };
+
     function runCalibration(gp) {
       const state = gpStates.get(gp.index);
       if (!state || state.calibStep === 0 || state.calibCooldown) return;
 
-      // Threshold 0.6: strong enough to ignore drift but forgiving for Stadia/DS triggers.
-      // Skip axes 0+1 (left stick) and ignore resting trigger axes that sit at -1.
-      let maxVal = 0.6, detected = null;
+      // ── Sustained-hold detection ──────────────────────────────────────────────
+      // An accidental bump, drift spike, or wrong input must be HELD for
+      // HOLD_MS continuously before it is accepted. Any frame where nothing
+      // crosses threshold resets the timer, preventing misfire.
+      // This is critical for Smash-style play where users mash before calibrating.
+      const HOLD_MS   = 350; // Must hold the same input for this long
+      const THRESHOLD = 0.65; // Must cross this value (axis delta or button value)
+      const NOISE     = 0.15; // Changes smaller than this are ignored outright
+
+      let maxVal = THRESHOLD, detected = null;
+
       gp.buttons.forEach((btn, i) => {
         if (btn.value > maxVal) { maxVal = btn.value; detected = { type: 'btn', idx: i }; }
       });
       gp.axes.forEach((val, i) => {
-        if (i === 0 || i === 1) return;             // skip left stick
-        const baseline = (state.calibBaseline && state.calibBaseline[i]) !== undefined ? state.calibBaseline[i] : 0;
-        
-        // Ignore tiny fluctuations (noise) on stuck axes
-        if (Math.abs(val - baseline) < 0.2) return;
-
-        // Still ignore triggers at true -1 rest if no baseline was captured for them correctly
-        if (val === -1 && baseline === -1) return;
-
-        // Detect if the axis moved significantly from its baseline
+        if (i === 0 || i === 1) return; // Left stick axes always excluded
+        const baseline = state.calibBaseline?.[i] ?? 0;
         const delta = Math.abs(val - baseline);
+        if (delta < NOISE) return;          // Ignore sub-noise movement
+        if (val === -1 && baseline === -1) return; // Resting trigger, ignore
         if (delta > maxVal) { maxVal = delta; detected = { type: 'axis', idx: i }; }
       });
 
-      if (!detected) return;
+      if (!detected) {
+        // Nothing held — reset the hold timer
+        state._holdCandidate = null;
+        state._holdStart     = null;
+        return;
+      }
 
-      if (state.calibStep === 1) state.tempMap.lt = detected;
-      else if (state.calibStep === 2) state.tempMap.rt = detected;
+      const candidateKey = detected.type + detected.idx;
+
+      if (state._holdCandidate !== candidateKey) {
+        // Different input detected (or first detection) — start the hold clock
+        state._holdCandidate = candidateKey;
+        state._holdStart     = performance.now();
+        // Show a "pending" label so the user can see WHAT is being detected
+        const promptEl = document.getElementById(`c${gp.index}-prompt`);
+        const label = detected.type === 'btn' ? `Button ${detected.idx}` : `Axis ${detected.idx}`;
+        if (promptEl) promptEl.textContent = `Detecting: ${label}… hold!`;
+        return;
+      }
+
+      // Same input still held — check if we've crossed the threshold duration
+      if ((performance.now() - state._holdStart) < HOLD_MS) return;
+
+      // ── COMMITTED ────────────────────────────────────────────────────────────
+      state._holdCandidate = null;
+      state._holdStart     = null;
+
+      if (state.calibStep === 1) state.tempMap.lt  = detected;
+      else if (state.calibStep === 2) state.tempMap.rt  = detected;
       else if (state.calibStep === 3) state.tempMap.rsx = detected;
       else if (state.calibStep === 4) state.tempMap.rsy = detected;
 
@@ -487,11 +563,10 @@
       state.calibCooldown = true;
       setTimeout(() => { state.calibCooldown = false; }, 600);
 
-      // 4 steps complete (calibStep is now 5 after incrementing past step 4)
       if (state.calibStep > 4) {
         state.calibStep = 0;
-        state.mapCache = state.tempMap;
-        const safeId = getSafeId(gp);
+        state.mapCache  = state.tempMap;
+        const safeId    = getSafeId(gp);
 
         localStorage.setItem(STORAGE_PREFIX + safeId, JSON.stringify(state.mapCache));
 
@@ -502,19 +577,16 @@
         }, PARENT_ORIGIN);
 
         document.getElementById(`c${gp.index}-calib`)?.classList.remove('active');
-        
+        applyVerifiedBadge(gp.index);
+        broadcastConfigExternally(safeId, state.mapCache);
+
         const promptEl = document.getElementById(`c${gp.index}-prompt`);
         if (promptEl) {
-          promptEl.textContent = T('DONE!');
+          promptEl.textContent = T('DONE! Controller mapped.');
           setTimeout(() => {
-            const currentState = gpStates.get(gp.index);
-            if (currentState && currentState.calibStep === 0) {
-              promptEl.textContent = '';
-            }
+            if (gpStates.get(gp.index)?.calibStep === 0) promptEl.textContent = '';
           }, 2000);
         }
-
-        broadcastConfigExternally(safeId, state.mapCache);
       } else {
         updatePrompt(gp.index);
       }

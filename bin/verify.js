@@ -108,6 +108,32 @@ function runAuxiliaryTests() {
     const root = __dirname + '/..';
     const tasks = [
         // { file: 'python3', args: ['-m', 'py_compile', 'src/sidecar/plugin_manager.py'], name: 'plugin_manager compile' },
+        // Syntax gates: a single parse error in these files blanks the whole
+        // app (every function undefined). Never ship one again.
+        { file: 'node', args: ['--check', 'src/scripts/host.js'], name: 'host.js syntax' },
+        { file: 'node', args: ['--check', 'src/scripts/viewer.js'], name: 'viewer.js syntax' },
+        { file: 'node', args: ['--check', 'src/scripts/server.js'], name: 'server.js syntax' },
+        { file: 'node', args: ['--check', 'src/scripts/core/network/ice-servers.js'], name: 'ice-servers.js syntax' },
+        // ESM dynamiques: a parse error here silently degrades features
+        // (e.g. hw-accel-detect once failed import -> codec list collapsed
+        // to VP8-only). Node 22+ --check parses module syntax too.
+        { file: 'node', args: ['--check', 'src/scripts/core/hw-accel-detect.js'], name: 'hw-accel-detect.js syntax' },
+        { file: 'node', args: ['--check', 'src/scripts/core/network/signaling.js'], name: 'signaling.js syntax' },
+        { file: 'node', args: ['--check', 'src/scripts/host-engine.js'], name: 'host-engine.js syntax' },
+        { file: 'node', args: ['--check', 'bin/diag-run.js'], name: 'diag-run.js syntax' },
+        // ICE ladder regression: small, dupe-free, dead relays disabled,
+        // lone-object TURN honored exactly once (prevents 4-offer storms).
+        { file: 'node', args: ['-e', `
+            const m = require('./src/scripts/core/network/ice-servers.js');
+            const assert = require('assert');
+            const def = m.buildIceServers(null);
+            assert(def.length <= 5, 'ladder too long: ' + def.length);
+            const keys = def.map(e => JSON.stringify(e.urls));
+            assert.strictEqual(new Set(keys).size, keys.length, 'duplicate ICE entries');
+            assert.strictEqual(m.COMMUNITY_TURN_SERVERS.filter(t => t.enabled).length, 0, 'dead TURN re-enabled');
+            const one = m.buildIceServers({ urls: ['turn:x:3478'], username: 'u', credential: 'p' });
+            assert.strictEqual(one.filter(e => JSON.stringify(e.urls).includes('turn:x')).length, 1, 'single TURN mishandled');
+        `], name: 'ice-ladder shape' },
     ];
     return Promise.all(tasks.map(t => new Promise((resolve) => {
         execFile(t.file, t.args, { cwd: root, timeout: 12000 }, (err) => {
@@ -167,13 +193,24 @@ serverProc.stderr.on('data', (data) => {
 });
 
 // ── Teardown ────────────────────────────────────────────────────────────────
+let _finished = false;
+let _completed = false; // checks+aux passed; only server shutdown remains
 function finishTests(success) {
+    if (_finished) return; // failsafe + close race must not double-report
+    _finished = true;
+    if (success) _completed = true;
     console.log("\n Shutting down server...");
 
     // Send SIGTERM to trigger your server.js cleanup() function
     serverProc.kill('SIGTERM');
 
+    // Loaded boxes unwind sidecars slowly — escalate, never hang forever.
+    const killTimer = setTimeout(() => {
+        try { serverProc.kill('SIGKILL'); } catch (_) {}
+    }, 10000);
+
     serverProc.on('close', (code) => {
+        clearTimeout(killTimer);
         console.log(`\n Verification Complete!`);
         if (success) {
             console.log(`\x1b[32mAll core systems are operational.\x1b[0m\n`);
@@ -185,8 +222,11 @@ function finishTests(success) {
     });
 }
 
-// Failsafe timeout just in case it hangs forever
+// Failsafe: only fires if the checks themselves stalled. A completed run
+// with a slow shutdown is reported by the close handler above. Budget is
+// generous on purpose — this box routinely verifies under gaming/render load.
 setTimeout(() => {
-    console.error("\n Timeout: Test suite hung for 15 seconds.");
+    if (_completed) return;
+    console.error("\n Timeout: Test suite hung for 60 seconds.");
     finishTests(false);
-}, 15000);
+}, 60000);

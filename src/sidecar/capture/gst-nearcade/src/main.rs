@@ -11,6 +11,7 @@
 //! Not yet ported: XDG portal screencast (needs a D-Bus client); pass --node.
 
 mod base;
+mod ice_servers;
 mod ipc;
 mod preview;
 mod webcodecs;

@@ -1,0 +1,12 @@
+.git
+.gitignore
+*.md
+*.log
+*.pid
+*.log
+target/
+Cargo.lock
+.DS_Store
+node_modules/
+venv/
+.env

@@ -91,7 +91,12 @@ def sigterm_handler(_signo, _stack_frame):
     ungrab_all()
     sys.exit(0)
 
+def sigint_handler(_signo, _stack_frame):
+    ungrab_all()
+    sys.exit(0)
+
 signal.signal(signal.SIGTERM, sigterm_handler)
+signal.signal(signal.SIGINT, sigint_handler)
 
 try:
     for line in sys.stdin:

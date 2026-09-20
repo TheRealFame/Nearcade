@@ -7,6 +7,7 @@
     "description": "The default community TURN server provided by metered.ca. Live-probed at connect time and only added to the ICE ladder if it actually allocates a relay.",
     "region": "Global",
     "author": "metered.ca",
-    "enabled": true
+    "enabled": false,
+    "disabledReason": "Free tier returns ICE 701 / DNS failures in production and the auto-probe's allocation attempts spam renderer error logs. Remains explicitly selectable in the dashboard; automatic background probing is off."
   }
 ]
