@@ -2825,20 +2825,25 @@ async function startCapture() {
             }
         }
 
-// ── 0. FFMPEG/DXGI ARM INTERCEPTOR ──
+// ── 0. FFMPEG/DXGI/SIDECAPTURE ARM INTERCEPTOR ──
         // The pipeline dropdown + config can select ffmpeg/windows_dxgi, but
         // nothing ever armed the backend for it (status stayed inactive, so
         // section 1 below never engaged and hosts silently ran browser
         // capture while believing they were on FFmpeg). Arm explicitly here.
         try {
-            const _selPipe = document.getElementById('pipelineSelect')?.value || '';
-            // On Wayland, 'ffmpeg' transparently uses the portal bridge
-            // (x11grab only sees XWayland). No user-facing separate pipeline.
-            // Use main-process IPC for reliable Wayland detection (renderer UA doesn't contain 'wayland').
+            let _selPipe = document.getElementById('pipelineSelect')?.value || '';
             const _isWayland = await window.electronAPI?.getDisplayServer?.().then(r => r?.isWayland) || false;
-            const _usePortal = _selPipe === 'ffmpeg' && _isWayland;
-            const _method = _usePortal ? 'ffmpeg-portal' : _selPipe;
-            if (_method === 'ffmpeg' || _method === 'windows_dxgi' || _method === 'ffmpeg-portal') {
+            
+            let _method = _selPipe;
+            if (_selPipe === 'ffmpeg' && _isWayland) _method = 'ffmpeg-portal';
+            
+            // Auto-detect and force sidecapture pipeline if picking android: or v4l2:
+            if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
+                _method = 'sidecapture';
+                _selPipe = 'sidecapture';
+            }
+
+            if (_method === 'ffmpeg' || _method === 'windows_dxgi' || _method === 'ffmpeg-portal' || _method === 'sidecapture') {
                 const _ffRes = document.getElementById('resSelect')?.value || '';
                 const _ffFps = parseInt(document.getElementById('fpsSelect')?.value, 10) || 0;
                 const _ffBr = parseInt(document.getElementById('bitrateSelect')?.value, 10) || 0;
@@ -2847,6 +2852,11 @@ async function startCapture() {
                 if (_ffWH.length === 2) { _ffOpts.width = _ffWH[0]; _ffOpts.height = _ffWH[1]; }
                 if (_ffFps > 0) _ffOpts.fps = _ffFps;
                 if (_ffBr > 0) _ffOpts.bitrate = _ffBr;
+                
+                if (_method === 'sidecapture') {
+                    _ffOpts.sourceId = selectedSourceId;
+                }
+
                 log(`Arming ${_selPipe} backend...`, 'warn');
                 const _armRes = await withTimeout(fetch('/api/capture/start', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2865,7 +2875,7 @@ async function startCapture() {
         let backendMethod = null;
         try {
             const statusRes = await fetch('/api/capture/status').then(r => r.json());
-            if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi' || statusRes.method === 'ffmpeg-portal')) {
+            if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi' || statusRes.method === 'ffmpeg-portal' || statusRes.method === 'sidecapture')) {
                 backendSidecarActive = true;
                 backendMethod = statusRes.method;
             }
