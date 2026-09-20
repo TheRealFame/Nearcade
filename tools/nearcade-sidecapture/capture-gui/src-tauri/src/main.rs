@@ -111,18 +111,46 @@ fn stop_capture(state: State<AppState>) -> Result<(), String> {
 
 #[tauri::command]
 fn set_brightness(state: State<AppState>, value: i32) -> Result<(), String> {
+    let is_mini = std::env::args().any(|a| a == "--mini");
+    if is_mini {
+        let target = std::env::args().position(|a| a == "--target").and_then(|i| std::env::args().nth(i + 1)).unwrap_or_default();
+        if target.starts_with("v4l2:") {
+            let dev = target.replace("v4l2:", "");
+            std::process::Command::new("v4l2-ctl").args(["-d", &dev, "-c", &format!("brightness={value}")]).output().ok();
+        }
+        return Ok(());
+    }
     let session = state.session.lock().map_err(|_| "session lock poisoned".to_string())?;
     session.set_brightness(value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn set_contrast(state: State<AppState>, value: i32) -> Result<(), String> {
+    let is_mini = std::env::args().any(|a| a == "--mini");
+    if is_mini {
+        let target = std::env::args().position(|a| a == "--target").and_then(|i| std::env::args().nth(i + 1)).unwrap_or_default();
+        if target.starts_with("v4l2:") {
+            let dev = target.replace("v4l2:", "");
+            std::process::Command::new("v4l2-ctl").args(["-d", &dev, "-c", &format!("contrast={value}")]).output().ok();
+        }
+        return Ok(());
+    }
     let session = state.session.lock().map_err(|_| "session lock poisoned".to_string())?;
     session.set_contrast(value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn set_mirror(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    let is_mini = std::env::args().any(|a| a == "--mini");
+    if is_mini {
+        let target = std::env::args().position(|a| a == "--target").and_then(|i| std::env::args().nth(i + 1)).unwrap_or_default();
+        if target.starts_with("v4l2:") {
+            let dev = target.replace("v4l2:", "");
+            let val = if enabled { "1" } else { "0" };
+            std::process::Command::new("v4l2-ctl").args(["-d", &dev, "-c", &format!("hflip={val}")]).output().ok();
+        }
+        return Ok(());
+    }
     let session = state.session.lock().map_err(|_| "session lock poisoned".to_string())?;
     session.set_mirror(enabled).map_err(|e| e.to_string())
 }
@@ -134,7 +162,23 @@ fn main() {
         std::process::exit(1);
     }
 
+    let is_mini = std::env::args().any(|a| a == "--mini");
+    let target = std::env::args()
+        .position(|a| a == "--target")
+        .and_then(|i| std::env::args().nth(i + 1))
+        .unwrap_or_default();
+
     tauri::Builder::default()
+        .setup(move |app| {
+            if is_mini {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 350.0, height: 250.0 }));
+                    let _ = window.eval(&format!("window.__MINI_DOCK__ = true; window.__TARGET__ = '{}'; document.body.classList.add('mini-dock'); window.running = true;", target));
+                }
+            }
+            Ok(())
+        })
         .manage(AppState {
             session: Mutex::new(CaptureSession::new()),
             latest_frame: Mutex::new(None),

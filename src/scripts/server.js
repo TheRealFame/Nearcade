@@ -1557,35 +1557,32 @@ async function main() {
     console.log(`[report] Session ${sessionId || '?'} reported from ${anonHash.slice(0, 8)} reason: ${reason || 'unspecified'} (${list.length} total reports for this IP)`);
     res.json({ ok: true });
   });
-  // ADB Devices API for native video picker integration
+  // Sidecapture Devices API for native video picker integration
   app.get("/api/adb-devices", adminMiddleware, (req, res) => {
     try {
       const { execSync } = require('child_process');
-      const output = execSync('adb devices', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
-      const devices = [];
-      const lines = output.split('\n');
-      for (const line of lines) {
-        if (line.includes('List of devices')) continue;
-        const parts = line.trim().split('\t');
-        if (parts.length === 2 && parts[1] === 'device') {
-          // Attempt to get device model
-          let name = parts[0];
-          try {
-            const model = execSync(`adb -s ${parts[0]} shell getprop ro.product.model`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-            if (model) name = `${model} (${parts[0]})`;
-          } catch (e) {}
-          devices.push({ id: `android:${parts[0]}`, name: name });
-        }
+      const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture');
+      const fs = require('fs');
+      if (!fs.existsSync(binPath)) {
+        return res.json({ devices: [] });
       }
+      
+      const output = execSync(`${binPath} list --json`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const rawDevices = JSON.parse(output);
+      
+      const devices = rawDevices.filter(d => d.id.startsWith('android:')).map(d => ({
+          id: d.id,
+          name: d.name
+      }));
       res.json({ devices });
     } catch (e) {
-      // ADB not installed or daemon not running
+      console.error("[Sidecapture] Error cross-talking to CLI:", e);
       res.json({ devices: [] });
     }
   });
 
   app.post("/api/launch-tool", adminMiddleware, express.json(), (req, res) => {
-    const { tool } = req.body;
+    const { tool, mini, target } = req.body;
     if (tool === 'sidecapture') {
       try {
         const { spawn, execSync } = require('child_process');
@@ -1593,11 +1590,15 @@ async function main() {
         const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture-gui');
         const guiDir = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'capture-gui');
         
+        const args = [];
+        if (mini) args.push('--mini');
+        if (target) args.push('--target', target);
+
         let child;
         if (fs.existsSync(binPath)) {
-            child = spawn(binPath, [], { detached: true, stdio: 'ignore' });
+            child = spawn(binPath, args, { detached: true, stdio: 'ignore' });
         } else {
-            child = spawn('npm', ['run', 'dev'], { cwd: guiDir, detached: true, stdio: 'ignore', shell: true });
+            child = spawn('npm', ['run', 'dev', '--', ...args], { cwd: guiDir, detached: true, stdio: 'ignore', shell: true });
         }
         child.unref();
         res.json({ ok: true });
@@ -1606,7 +1607,7 @@ async function main() {
         res.status(500).json({ error: e.message });
       }
     } else {
-      res.status(400).json({ error: 'Unknown tool' });
+      res.status(404).json({ error: "Unknown tool" });
     }
   });
 

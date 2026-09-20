@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nearcade Sidecapture</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f10;
+    --surface: #1a1a1d;
+    --surface-hover: #232326;
+    --border: #2a2a2e;
+    --text: #f0f0f2;
+    --text-sec: #888892;
+    --accent: #6c63ff;
+    --accent-dim: rgba(108,99,255,0.18);
+    --red: #ff4c4c;
+    --green: #3ddc84;
+    --yellow: #ffcc00;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --radius-pill: 999px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Top bar ── */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg);
+    z-index: 20;
+  }
+  .logo { font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+  .logo span { color: var(--accent); }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 800; color: var(--text-sec);
+    padding: 5px 12px; border-radius: var(--radius-pill); background: var(--surface);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-sec); }
+  .status-pill.live { color: var(--green); }
+  .status-pill.live .status-dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-pill.error { color: var(--red); }
+  .status-pill.error .status-dot { background: var(--red); }
+  .status-pill.busy { color: var(--yellow); }
+  .status-pill.busy .status-dot { background: var(--yellow); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Main layout: full height column ── */
+  .layout {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* ── Preview fills the space ── */
+  .preview-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    padding-bottom: 76px; /* space for dock-toggle */
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .preview-frame {
+    flex: 1;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 2px solid transparent;
+    position: relative;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    transition: border-color .2s ease;
+    min-height: 0;
+  }
+  .preview-frame.active { border-color: var(--accent); box-shadow: 0 12px 32px var(--accent-dim); }
+
+  .preview-placeholder {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    color: var(--text-sec);
+  }
+  .preview-placeholder svg { width: 48px; height: 48px; opacity: .2; }
+  .preview-placeholder span { font-size: 12px; font-weight: 600; }
+
+  #previewImg {
+    width: 100%; height: 100%; object-fit: contain; display: none; position: absolute; inset: 0;
+  }
+
+  .badge {
+    position: absolute; padding: 5px 10px; border-radius: var(--radius-pill);
+    font-weight: 800; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+    background: rgba(0,0,0,0.75); backdrop-filter: blur(8px);
+  }
+  .latency-tag { top: 12px; right: 12px; color: var(--green); display: none; }
+  .no-signal-badge { top: 12px; left: 12px; color: var(--red); display: none; }
+
+  /* ── Launch / Stop button ── */
+  .preview-actions { flex-shrink: 0; display: flex; gap: 8px; }
+  .btn {
+    font-family: inherit; font-weight: 700; font-size: 14px;
+    border: none; border-radius: var(--radius-pill);
+    padding: 12px 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    transition: all .15s ease;
+  }
+  .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .btn-primary { background: var(--text); color: var(--bg); flex: 1; }
+  .btn-primary:hover { background: var(--accent); color: #fff; }
+  .btn-primary.stop { background: var(--red); color: #fff; }
+  .btn-primary.stop:hover { background: #ff6b6b; }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Log panel ── */
+  .log-panel {
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    max-height: 80px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .log-line { color: var(--text-sec); }
+  .log-line.ok { color: var(--green); }
+  .log-line.err { color: var(--red); }
+
+  /* ── Dock toggle button ── */
+  .dock-toggle {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 9px 18px;
+    border-radius: var(--radius-pill);
+    color: var(--text);
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+    z-index: 5;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    display: flex; align-items: center; gap: 7px;
+    transition: background .15s, box-shadow .15s;
+    white-space: nowrap;
+  }
+  .dock-toggle svg { width: 14px; height: 14px; }
+  .dock-toggle:hover { background: var(--surface-hover); }
+
+  /* ── Backdrop ── */
+  .overlay-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 9;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s;
+  }
+  .overlay-backdrop.open { opacity: 1; pointer-events: all; }
+
+  /* ── Settings dock ── */
+  .settings-panel {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-radius: 20px 20px 0 0;
+    padding: 20px 20px 28px;
+    display: flex; flex-direction: column; gap: 18px;
+    z-index: 10;
+    transform: translateY(100%);
+    transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1);
+    max-height: 78vh;
+    overflow-y: auto;
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
+  }
+  .settings-panel.open { transform: translateY(0); }
+
+  .dock-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .dock-title { font-weight: 800; font-size: 15px; }
+  .close-dock-btn {
+    background: transparent; border: none; color: var(--text-sec);
+    cursor: pointer; font-size: 22px; line-height: 1; padding: 2px;
+    transition: color .15s;
+  }
+  .close-dock-btn:hover { color: var(--red); }
+
+  .sep { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+  .section-label { font-size: 11px; font-weight: 800; color: var(--text-sec); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+  .field { display: flex; flex-direction: column; }
+
+  /* Device row */
+  .device-row { display: flex; gap: 8px; align-items: center; }
+  .device-select-wrap { flex: 1; position: relative; }
+  select {
+    width: 100%;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    -webkit-appearance: none; appearance: none; cursor: pointer;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+  .refresh-btn {
+    width: 38px; height: 38px; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-sec); transition: all .15s; flex-shrink: 0;
+  }
+  .refresh-btn:hover { background: var(--surface-hover); color: var(--text); }
+  .refresh-btn svg { width: 15px; height: 15px; }
+
+  /* Chip groups */
+  .chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    padding: 7px 12px; border-radius: var(--radius-pill);
+    background: var(--bg); border: 1px solid var(--border);
+    font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text-sec);
+    transition: all .15s;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Toggles */
+  .toggle-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .toggle-label { font-weight: 700; font-size: 13px; }
+  .toggle-sub { font-size: 11px; color: var(--text-sec); margin-top: 2px; }
+  .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; border-radius: var(--radius-pill);
+    background: var(--border); cursor: pointer; transition: background .2s;
+  }
+  .slider::before {
+    content: ''; position: absolute;
+    width: 18px; height: 18px; left: 3px; top: 3px;
+    border-radius: 50%; background: #fff; transition: transform .2s;
+  }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+
+  /* Sliders */
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  .slider-row input[type=range] {
+    flex: 1; accent-color: var(--accent); cursor: pointer;
+  }
+  .slider-val { font-weight: 800; font-size: 12px; min-width: 28px; text-align: right; color: var(--text-sec); }
+  .reset-link {
+    font-size: 11px; font-weight: 700; color: var(--text-sec); cursor: pointer; text-align: right;
+  }
+  .reset-link:hover { color: var(--text); }
+  /* =========================================
+     Mini Dock Mode (--mini)
+     ========================================= */
+  body.mini-dock .top-bar { display: none !important; }
+  body.mini-dock .preview-panel { display: none !important; }
+  body.mini-dock .dock-toggle { display: none !important; }
+  body.mini-dock .overlay-backdrop { display: none !important; }
+  body.mini-dock .settings-panel { 
+    position: static; 
+    transform: none; 
+    width: 100%; 
+    height: 100vh; 
+    box-shadow: none; 
+    padding-bottom: 20px;
+    border-radius: 0;
+    background: transparent;
+  }
+  body.mini-dock .close-dock-btn { display: none !important; }
+  body.mini-dock .dock-header { padding: 15px; }
+  body.mini-dock { background: var(--bg); overflow-y: auto; }
+</style>
+</head>
+<body>
+
+    <div class="top-bar">
+    <div class="logo">Nearcade <span>Sidecapture</span></div>
+    <div class="status-pill" id="statusPill">
+      <div class="status-dot"></div>
+      <span id="statusText">Idle</span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- Preview area -->
+    <div class="preview-panel">
+      <div class="preview-frame" id="previewFrame">
+        <div class="badge no-signal-badge" id="noSignalBadge">No Signal</div>
+        <div class="preview-placeholder" id="previewPlaceholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M15 10l4.55-2.5A1 1 0 0121 8.4v7.2a1 1 0 01-1.45.9L15 14M5 6h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z"/>
+          </svg>
+          <span>Preview will appear here</span>
+        </div>
+        <img id="previewImg" src="" alt="preview">
+      </div>
+
+      <div class="preview-actions">
+        <button class="btn btn-primary" id="launchBtn">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Launch Viewer
+        </button>
+        <button class="btn btn-secondary" id="popoutBtn" style="background: rgba(255,255,255,0.1); color: var(--text);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+          Popout
+        </button>
+      </div>
+
+      <div class="log-panel" id="logPanel">
+        <div class="log-line">Camera is off. Select a device and press Launch to start capture.</div>
+      </div>
+    </div>
+
+    <!-- Dock toggle button -->
+    <button class="dock-toggle" id="dockToggleBtn">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V5H3z"/></svg>
+      Quick Settings
+    </button>
+
+    <!-- Backdrop -->
+    <div class="overlay-backdrop" id="dockBackdrop"></div>
+
+    <!-- Settings dock (slides up from bottom) -->
+    <div class="settings-panel" id="settingsDock">
+      <div class="dock-header">
+        <span class="dock-title">Quick Settings</span>
+        <button class="close-dock-btn" id="closeDockBtn">&times;</button>
+      </div>
+
+      <div class="field">
+        <div class="section-label">Capture Device</div>
+        <div class="device-row">
+          <div class="device-select-wrap">
+            <select id="deviceSelect">
+              <option value="">Scanning for devices…</option>
+            </select>
+          </div>
+          <div class="refresh-btn" id="refreshBtn" title="Rescan devices">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <div class="section-label">Resolution</div>
+        <div class="chip-group" id="resChips">
+          <div class="chip" data-w="640" data-h="480">640×480</div>
+          <div class="chip active" data-w="1280" data-h="720">1280×720</div>
+          <div class="chip" data-w="1920" data-h="1080">1920×1080</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="section-label">Framerate</div>
+        <div class="chip-group" id="fpsChips">
+          <div class="chip" data-fps="15">15</div>
+          <div class="chip" data-fps="24">24</div>
+          <div class="chip active" data-fps="30">30</div>
+          <div class="chip" data-fps="60">60</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="section-label">Upscale Output (optional)</div>
+        <div class="chip-group" id="upscaleChips">
+          <div class="chip active" data-scale="">Off</div>
+          <div class="chip" data-scale="1.5">1.5×</div>
+          <div class="chip" data-scale="2">2×</div>
+          <div class="chip" data-scale="4">4×</div>
+        </div>
+        <div id="resCalc" style="margin-top:10px;font-size:12px;color:var(--text-sec);
+          background:var(--bg);border-radius:var(--radius-sm);padding:8px 12px;
+          display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="resCalcText">Capture: <strong style="color:var(--text)">1280×720</strong> → Output: <strong style="color:var(--accent)">1280×720</strong> (no upscale)</span>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Hardware Acceleration</div>
+          <div class="toggle-sub">VA-API / D3D11 / VideoToolbox</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="hwAccelToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Mirror Video</div>
+          <div class="toggle-sub">Flip horizontally</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="mirrorToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Audio Passthrough</div>
+          <div class="toggle-sub">Auto-detect capture audio</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="audioToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Send over NDI</div>
+          <div class="toggle-sub">Broadcast to network NDI apps</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="ndiToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="field" id="ndiNameField" style="display:none;">
+        <div class="section-label">NDI Source Name</div>
+        <input type="text" id="ndiNameInput" value="Nearcade Sidecapture"
+          style="background:var(--bg);border:1px solid var(--border);color:var(--text);
+          font-family:inherit;font-size:13px;font-weight:600;padding:10px 12px;
+          border-radius:var(--radius-sm);width:100%;">
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <div class="section-label">Brightness</div>
+        <div class="slider-row">
+          <input type="range" id="brightRange" min="-50" max="50" value="0">
+          <span class="slider-val" id="brightVal">0</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="section-label">Contrast</div>
+        <div class="slider-row">
+          <input type="range" id="contrastRange" min="-50" max="50" value="0">
+          <span class="slider-val" id="contrastVal">0</span>
+        </div>
+      </div>
+
+      <div class="reset-link" id="resetLink">Reset brightness &amp; contrast</div>
+
+      <p style="font-size:11px;color:var(--text-sec);text-align:center;margin-top:4px;">
+        CLI: <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:monospace;">nearcade-sidecapture start --device /dev/video0</code>
+      </p>
+
+      <hr class="sep">
+
+      <div class="field">
+        <div class="section-label">📱 Android Screen Capture (scrcpy)</div>
+        <p style="font-size:12px;color:var(--text-sec);line-height:1.7;margin-bottom:10px;">
+          Mirror your Android phone or tablet screen. Enable <strong>Developer Options</strong> and <strong>USB Debugging</strong> (or Wireless Debugging) on your phone first.
+        </p>
+
+        <!-- USB Section -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:8px;">Wired (USB)</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-size:11px;color:var(--text-sec);flex:1;">Plug in via USB and click use:</span>
+            <button id="androidUsbBtn" class="btn btn-primary" style="flex:0;padding:7px 12px;font-size:11px;">
+              Use USB
+            </button>
+          </div>
+        </div>
+
+        <!-- Wireless Section -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px;">Wireless (Wi-Fi)</div>
+          <div style="font-size:11px;color:var(--text-sec);margin-bottom:8px;line-height:1.5;">
+            Find the IP/Port in your phone's Wireless Debugging pairing screen.
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="androidInput" placeholder="192.168.1.x:PORT"
+              style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);
+              font-family:monospace;font-size:12px;padding:8px 10px;border-radius:var(--radius-sm);">
+            <button id="androidConnectBtn" class="btn btn-primary" style="flex:0;padding:8px 12px;font-size:11px;">
+              Use Wi-Fi
+            </button>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  'use strict';
+
+  const { invoke } = window.__TAURI__.core;
+  const { listen } = window.__TAURI__.event;
+
+  // ---- DOM refs ----
+  const statusPill      = document.getElementById('statusPill');
+  const statusText      = document.getElementById('statusText');
+  const previewFrame    = document.getElementById('previewFrame');
+  const previewPlaceholder = document.getElementById('previewPlaceholder');
+  const previewImg      = document.getElementById('previewImg');
+  const noSignalBadge   = document.getElementById('noSignalBadge');
+  const launchBtn       = document.getElementById('launchBtn');
+  const logPanel        = document.getElementById('logPanel');
+  const deviceSelect    = document.getElementById('deviceSelect');
+  const refreshBtn      = document.getElementById('refreshBtn');
+  const hwAccelToggle   = document.getElementById('hwAccelToggle');
+  const mirrorToggle    = document.getElementById('mirrorToggle');
+  const audioToggle     = document.getElementById('audioToggle');
+  const ndiToggle       = document.getElementById('ndiToggle');
+  const ndiNameField    = document.getElementById('ndiNameField');
+  const ndiNameInput    = document.getElementById('ndiNameInput');
+  const brightRange     = document.getElementById('brightRange');
+  const brightVal       = document.getElementById('brightVal');
+  const contrastRange   = document.getElementById('contrastRange');
+  const contrastVal     = document.getElementById('contrastVal');
+  const resetLink       = document.getElementById('resetLink');
+  const dockToggleBtn   = document.getElementById('dockToggleBtn');
+  const settingsDock    = document.getElementById('settingsDock');
+  const dockBackdrop    = document.getElementById('dockBackdrop');
+  const closeDockBtn    = document.getElementById('closeDockBtn');
+
+  let running = false;
+  let frameRequestPending = false;
+  let popoutWin = null;
+  const popoutBtn = document.getElementById('popoutBtn');
+
+  popoutBtn.onclick = () => {
+    if (popoutWin) {
+      // Dock it back
+      popoutWin.close();
+      return;
+    }
+    // Create Popout
+    const WWin = window.__TAURI__.webviewWindow?.WebviewWindow || window.__TAURI__.window?.WebviewWindow;
+    popoutWin = new WWin('viewer-popout', {
+      url: 'popout.html',
+      title: 'Nearcade Capture Viewer',
+      width: 1280,
+      height: 720,
+      decorations: false,
+      transparent: true,
+      alwaysOnTop: true,
+      center: true
+    });
+    
+    popoutBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6v6M20 10h-6V4M10 14l-7 7M14 10l7-7"/></svg> Dock Viewer';
+    previewPlaceholder.innerHTML = '<span>Viewer is popped out</span>';
+    previewPlaceholder.style.display = 'flex';
+    previewImg.style.display = 'none';
+
+    popoutWin.once('tauri://error', (e) => {
+      console.error('Popout error:', e);
+      dockViewer();
+    });
+  };
+
+  listen('popout-closed', () => {
+    dockViewer();
+  });
+
+  function dockViewer() {
+    popoutWin = null;
+    popoutBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg> Popout';
+    if (running) {
+      previewPlaceholder.style.display = 'none';
+      previewImg.style.display = 'block';
+    } else {
+      previewPlaceholder.innerHTML = '<span>Preview will appear here</span>';
+    }
+  }
+
+  // ---- Dock ----
+  function openDock() { settingsDock.classList.add('open'); dockBackdrop.classList.add('open'); }
+  function closeDock() { settingsDock.classList.remove('open'); dockBackdrop.classList.remove('open'); }
+  dockToggleBtn.onclick = openDock;
+  closeDockBtn.onclick  = closeDock;
+  dockBackdrop.onclick  = closeDock;
+
+  // ---- Log ----
+  function addLog(msg, type) {
+    const line = document.createElement('div');
+    line.className = 'log-line' + (type ? ' ' + type : '');
+    line.textContent = msg;
+    logPanel.appendChild(line);
+    logPanel.scrollTop = logPanel.scrollHeight;
+  }
+
+  // ---- UI state ----
+  function setLiveUi(isLive) {
+    running = isLive;
+    frameRequestPending = false; // always reset so next start isn't stuck
+    if (isLive) {
+      statusPill.className = 'status-pill live';
+      statusText.textContent = 'Live';
+      previewFrame.classList.add('active');
+      previewPlaceholder.style.display = 'none';
+      previewImg.style.display = 'block';
+      launchBtn.classList.add('stop');
+      launchBtn.disabled = false;
+      launchBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg> Stop Viewer';
+    } else {
+      statusPill.className = 'status-pill';
+      statusText.textContent = 'Idle';
+      previewFrame.classList.remove('active');
+      noSignalBadge.style.display = 'none';
+      previewPlaceholder.style.display = 'flex';
+      previewImg.style.display = 'none';
+      previewImg.src = '';
+      launchBtn.classList.remove('stop');
+      launchBtn.disabled = false;
+      launchBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Launch Viewer';
+    }
+  }
+
+  // ---- Resolution / framerate / upscale helpers ----
+  function selectedResolution() {
+    const chip = document.querySelector('#resChips .chip.active');
+    return chip ? { width: parseInt(chip.dataset.w), height: parseInt(chip.dataset.h) } : { width: 1280, height: 720 };
+  }
+  function selectedFramerate() {
+    const chip = document.querySelector('#fpsChips .chip.active');
+    return chip ? parseInt(chip.dataset.fps) : 30;
+  }
+  function selectedUpscale() {
+    const chip = document.querySelector('#upscaleChips .chip.active');
+    if (!chip || !chip.dataset.scale) return null;
+    const scale = parseFloat(chip.dataset.scale);
+    const { width, height } = selectedResolution();
+    return [Math.round(width * scale), Math.round(height * scale)];
+  }
+
+  const resCalcText = document.getElementById('resCalcText');
+  function updateResCalc() {
+    const { width, height } = selectedResolution();
+    const scaleChip = document.querySelector('#upscaleChips .chip.active');
+    const scale = scaleChip && scaleChip.dataset.scale ? parseFloat(scaleChip.dataset.scale) : null;
+    const outW = scale ? Math.round(width * scale) : width;
+    const outH = scale ? Math.round(height * scale) : height;
+    const arrow = scale ? `→ <strong style="color:var(--accent)">${outW}×${outH}</strong> (${scale}× upscale)` : `→ <strong style="color:var(--text-sec)">${outW}×${outH}</strong> (no upscale)`;
+    resCalcText.innerHTML = `Capture: <strong style="color:var(--text)">${width}×${height}</strong> ${arrow}`;
+  }
+
+  // Chip selection behaviour — update res calc on every change
+  document.querySelectorAll('#resChips .chip, #fpsChips .chip, #upscaleChips .chip').forEach(c => {
+    c.onclick = () => {
+      c.closest('.chip-group').querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      updateResCalc();
+    };
+  });
+  updateResCalc(); // initial render
+
+  // ---- Device listing ----
+  async function refreshDevices() {
+    deviceSelect.innerHTML = '<option value="">Scanning for devices…</option>';
+    try {
+      const { devices } = await invoke('list_devices');
+      if (!devices || devices.length === 0) {
+        deviceSelect.innerHTML = '<option value="">No devices found</option>';
+        addLog('No capture devices found.', 'err');
+        return;
+      }
+      deviceSelect.innerHTML = '';
+      for (const d of devices) {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.name} (${d.id})`;
+        deviceSelect.appendChild(opt);
+      }
+      addLog(`Found ${devices.length} device(s).`);
+    } catch (e) {
+      deviceSelect.innerHTML = '<option value="">Error scanning</option>';
+      addLog(`Device scan failed: ${e}`, 'err');
+    }
+  }
+  refreshBtn.onclick = refreshDevices;
+
+  // ---- Live controls ----
+  brightRange.oninput = () => {
+    brightVal.textContent = brightRange.value;
+    if (running) invoke('set_brightness', { value: +brightRange.value }).catch(() => {});
+  };
+  contrastRange.oninput = () => {
+    contrastVal.textContent = contrastRange.value;
+    if (running) invoke('set_contrast', { value: +contrastRange.value }).catch(() => {});
+  };
+  mirrorToggle.onchange = () => {
+    if (running) invoke('set_mirror', { enabled: mirrorToggle.checked }).catch(() => {});
+  };
+  ndiToggle.onchange = () => {
+    ndiNameField.style.display = ndiToggle.checked ? 'flex' : 'none';
+    if (running) addLog('NDI setting takes effect on next launch.');
+  };
+  resetLink.onclick = () => {
+    brightRange.value = 0; brightVal.textContent = 0;
+    contrastRange.value = 0; contrastVal.textContent = 0;
+    if (running) {
+      invoke('set_brightness', { value: 0 }).catch(() => {});
+      invoke('set_contrast', { value: 0 }).catch(() => {});
+    }
+  };
+
+  // ---- Capture ----
+  async function startCapture() {
+    const device = deviceSelect.value;
+    if (!device) { addLog('Select a device first.', 'err'); return; }
+    const { width, height } = selectedResolution();
+    const config = {
+      device, width, height,
+      framerate: selectedFramerate(),
+      use_hardware_accel: hwAccelToggle.checked,
+      mirror: mirrorToggle.checked,
+      audio: audioToggle.checked,
+      upscale_to: selectedUpscale(),
+      ndi_enabled: ndiToggle.checked,
+      ndi_name: ndiNameInput.value.trim() || 'Nearcade Sidecapture',
+    };
+    launchBtn.disabled = true;
+    statusPill.className = 'status-pill busy';
+    statusText.textContent = 'Starting…';
+    addLog(`Starting capture on ${device} at ${width}x${height}@${config.framerate}fps…`);
+    try {
+      await invoke('start_capture', { config });
+    } catch (e) {
+      statusPill.className = 'status-pill error';
+      statusText.textContent = 'Error';
+      launchBtn.disabled = false;
+      addLog(`Failed to start: ${e}`, 'err');
+    }
+  }
+
+  async function stopCapture() {
+    launchBtn.disabled = true;
+    addLog('Stopping…');
+    try {
+      await invoke('stop_capture');
+      // Reset UI immediately on successful stop — don't wait for the
+      // capture-stopped event, which may lag. The event will still arrive
+      // and call setLiveUi(false) again which is idempotent.
+      setLiveUi(false);
+      addLog('Stopped.');
+    } catch (e) {
+      addLog(`Stop error: ${e}`, 'err');
+      launchBtn.disabled = false;
+    }
+  }
+
+  launchBtn.onclick = () => { running ? stopCapture() : startCapture(); };
+
+  // Android connect shortcuts
+  const androidInput = document.getElementById('androidInput');
+  const androidConnectBtn = document.getElementById('androidConnectBtn');
+  const androidUsbBtn = document.getElementById('androidUsbBtn');
+
+  function addAndSelectDevice(device, label) {
+    let opt = deviceSelect.querySelector(`option[value="${device}"]`);
+    if (!opt) {
+      opt = document.createElement('option');
+      opt.value = device;
+      opt.textContent = label;
+      deviceSelect.appendChild(opt);
+    }
+    deviceSelect.value = device;
+    closeDock();
+    addLog(`Android device set to ${device}. Press Launch Viewer to connect.`);
+  }
+
+  androidConnectBtn.onclick = () => {
+    const val = androidInput.value.trim();
+    if (!val) return;
+    const device = val.startsWith('android:') ? val : `android:${val}`;
+    addAndSelectDevice(device, `📱 Android (${device.replace('android:', '')})`);
+  };
+
+  androidUsbBtn.onclick = () => {
+    addAndSelectDevice('android:usb', '📱 Android (USB Wired)');
+  };
+
+  // ---- Pipeline events ----
+  listen('capture-frame-ready', async () => {
+    if (frameRequestPending) return;
+    frameRequestPending = true;
+    try {
+      const frame = await invoke('get_latest_frame');
+      if (frame && !popoutWin) previewImg.src = frame;
+    } catch (_) {}
+    frameRequestPending = false;
+  });
+
+  listen('capture-started', () => {
+    setLiveUi(true);
+    addLog('Pipeline started.', 'ok');
+    closeDock();
+  });
+
+  listen('capture-signal-lost', () => {
+    noSignalBadge.style.display = 'block';
+    addLog('Signal lost — check source device.', 'err');
+  });
+
+  listen('capture-signal-restored', () => {
+    noSignalBadge.style.display = 'none';
+    addLog('Signal restored.', 'ok');
+  });
+
+  listen('capture-error', event => {
+    statusPill.className = 'status-pill error';
+    statusText.textContent = 'Error';
+    addLog(`Pipeline error: ${event.payload}`, 'err');
+    setLiveUi(false);
+  });
+
+  listen('capture-eos', () => {
+    addLog('End of stream.');
+    setLiveUi(false);
+  });
+
+  listen('capture-stopped', () => {
+    setLiveUi(false);
+    addLog('Stopped.');
+  });
+
+  // ---- Init ----
+  refreshDevices();
+</script>
+
+</body>
+</html>
