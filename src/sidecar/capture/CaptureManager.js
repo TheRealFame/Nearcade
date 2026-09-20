@@ -95,6 +95,8 @@ class CaptureManager {
             this._stopWindowsDXGI();
         } else if (this._activeMethod === 'gstreamer_webrtc') {
             await this._stopGstWebRTC();
+        } else if (this._activeMethod === 'sidecapture') {
+            this._stopFFmpeg();
         }
 
         this._activeMethod = null;
