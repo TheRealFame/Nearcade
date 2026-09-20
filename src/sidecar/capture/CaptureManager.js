@@ -395,13 +395,22 @@ class CaptureManager {
         const ff = this._resolveFFmpegBinary();
         const chain = [];
         let hasNvidia = false;
+        let hasAmd = false;
         try { hasNvidia = fs.existsSync('/dev/nvidia0'); } catch (_) {}
         if (!hasNvidia) {
             try { hasNvidia = /nvidia/i.test(execSync('lspci 2>/dev/null', { encoding: 'utf8' })); } catch (_) {}
         }
+        try { hasAmd = /amd/i.test(execSync('lspci 2>/dev/null', { encoding: 'utf8' })); } catch (_) {}
         const cands = [];
         if (hasNvidia) cands.push('nvenc');
-        cands.push('vaapi');
+        
+        // AMD VAAPI H.264 encoders output bitstreams that Chromium's Linux MSE 
+        // aggressively rejects, causing "Video decode error". We strictly blacklist 
+        // VAAPI for AMD hardware to force the highly compatible libx264 software fallback.
+        if (!hasAmd) {
+            cands.push('vaapi');
+        }
+        
         for (const c of cands) {
             if (this._testEncode(ff, c)) chain.push(c);
             else console.warn(`[CaptureManager] FFmpeg probe: ${c} advertised but test encode failed — skipped`);
@@ -752,20 +761,20 @@ class CaptureManager {
             const args = ['-hide_banner', '-loglevel', 'info',
                           '-f', 'image2pipe', '-vcodec', 'mjpeg', '-r', String(fps || 60), '-i', 'pipe:0'];
             
-            const vfScale = (width && height) ? `scale=${width}:trunc(${height}/2)*2,` : '';
+            const vfScale = (width && height) ? `scale=${width}:trunc(${height}/2)*2:out_range=tv,` : 'scale=out_range=tv,';
             if (enc === 'vaapi') {
                 args.push('-vf', `${vfScale}format=nv12,hwupload`,
                     '-vaapi_device', this._detectVaapiDevice(),
                     '-c:v', 'h264_vaapi', '-profile:v', 'high', '-level', '4.2',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-color_range', 'tv');
+                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g));
             } else if (enc === 'nvenc') {
                 args.push('-vf', `${vfScale}format=nv12`,
                     '-c:v', 'h264_nvenc', '-preset', 'p1', '-tune', 'll',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-cq', '20', '-color_range', 'tv');
+                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-cq', '20');
             } else {
                 args.push('-vf', `${vfScale}format=yuv420p`,
                     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-color_range', 'tv');
+                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g));
             }
             args.push('-f', 'mp4', '-movflags', 'empty_moov+default_base_moof+frag_keyframe+skip_sidx', 'pipe:1');
             
