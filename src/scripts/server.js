@@ -1570,10 +1570,14 @@ async function main() {
       const output = execSync(`${binPath} list --json`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
       const rawDevices = JSON.parse(output);
       
-      const devices = rawDevices.filter(d => d.id.startsWith('android:')).map(d => ({
-          id: d.id,
-          name: d.name
-      }));
+      const devices = rawDevices.map(d => {
+          if (d.id.startsWith('android:')) {
+              return { id: d.id, name: d.name };
+          } else if (d.id.startsWith('/dev/video')) {
+              return { id: `v4l2:${d.id}`, name: d.name };
+          }
+          return null;
+      }).filter(Boolean);
       res.json({ devices });
     } catch (e) {
       console.error("[Sidecapture] Error cross-talking to CLI:", e);

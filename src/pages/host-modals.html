@@ -521,8 +521,8 @@
 <div class="modal-bg gone" id="sourceModal">
   <div class="modal">
     <div class="modal-head">
-      <h3>Select Capture Source (Windows/Screens)</h3>
-      <p>Choose a window or screen to share. Your selection will be remembered.</p>
+      <h3>Select Capture Source</h3>
+      <p>Choose a capture source to share. Your selection will be remembered.</p>
     </div>
     <div id="sourceNoSources" style="display:none;padding:24px;text-align:center;color:var(--muted);font-size:11px;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
@@ -531,7 +531,7 @@
         <path d="M8 21h8M12 17v4" />
       </svg>
       <div>No capture sources found.</div>
-      <div style="margin-top:4px;font-size:9px;color:var(--muted2);">Make sure windows are open and not minimised.
+      <div style="margin-top:4px;font-size:9px;color:var(--muted2);">Make sure your capture sources are active.
       </div>
     </div>
     <div class="source-grid" id="sourceGrid"></div>
@@ -539,7 +539,7 @@
       <div class="btn-row">
         <button class="btn-confirm" id="confirmSourceBtn" onclick="confirmSource()" disabled>Select</button>
         <button class="btn-skip" onclick="refreshSourceModal()" title="Rescan sources"
-          style="background:rgba(255,255,255,0.05);border:1px solid var(--border2);">↻ Refresh</button>
+          style="background:rgba(255,255,255,0.05);border:1px solid var(--border2);">Refresh</button>
         <button class="btn-skip" onclick="closeSourceModal()">Cancel</button>
       </div>
     </div>

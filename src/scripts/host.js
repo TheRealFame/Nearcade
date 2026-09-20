@@ -2239,7 +2239,7 @@ async function _populateSourceGrid(skipElectronSources) {
         if (skipElectronSources) {
             sources.unshift({
                 id: 'xdg_portal_fallback',
-                name: 'Desktop Screen / Window (Native OS Picker)',
+                name: 'Desktop Screen (Native OS Picker)',
                 isFallback: true
             });
         }
@@ -2253,68 +2253,31 @@ async function _populateSourceGrid(skipElectronSources) {
             return;
         }
 
-        const isLinux = navigator.userAgent.toLowerCase().includes('linux');
-        const pSelect = document.getElementById('pipelineSelect');
-        const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
-
         // Show modal now if it wasn't shown earlier
         document.getElementById('sourceModal').classList.remove('gone');
 
-        // On Linux with GStreamer: only show screens (portal captures monitor only)
-        if (isLinux && isGStreamer) {
-            const screens = sources.filter(s => s.isScreen);
-            
-            if (screens.length === 0) {
-                const msg = document.createElement('div');
-                msg.style.cssText = 'padding:20px;text-align:center;color:var(--warn);font-size:11px;';
-                msg.textContent = 'No screens found — GStreamer captures full screen via portal';
-                sourceGrid.appendChild(msg);
-            } else {
-                const header = document.createElement('div');
-                header.className = 'source-section-header';
-                header.innerHTML = '<span style="color:var(--ok);">🖥 Screen Capture (Portal — persists when minimized)</span>';
-                header.style.cssText = 'padding:8px 4px; font-size:11px; border-bottom:1px solid var(--border); margin-bottom:4px;';
-                sourceGrid.appendChild(header);
+        sources.forEach((source, idx) => {
+            const card = document.createElement('div');
+            card.className = 'source-card';
+            card.id = 'source-' + idx;
+            card.onclick = () => selectSource(idx, source.id, source.name);
 
-                screens.forEach((source, idx) => {
-                    const card = document.createElement('div');
-                    card.className = 'source-card';
-                    card.id = 'source-screen-' + idx;
-                    card.onclick = () => selectSource(idx, source.id, source.name);
+            const thumbnail = source.thumbnail || '';
+            const imgHtml = thumbnail
+                ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
+                : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
 
-                    const thumbnail = source.thumbnail || '';
-                    const imgHtml = thumbnail
-                        ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
-                        : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
+            let sourceType = 'Window';
+            if (source.isScreen) sourceType = 'Screen';
+            if (source.isAndroid) sourceType = 'Device';
+            if (source.isFallback) sourceType = 'Native Picker';
 
-                    card.innerHTML = `${imgHtml}
-                    <div class="source-name">${source.name}</div>
-                    <div class="source-type" style="color:var(--ok);">🖥 Screen (Portal)</div>`;
+            card.innerHTML = `${imgHtml}
+            <div class="source-name">${source.name}</div>
+            <div class="source-type">${sourceType}</div>`;
 
-                    sourceGrid.appendChild(card);
-                });
-            }
-        } else {
-            // Original behavior for non-Linux or non-GStreamer
-            sources.forEach((source, idx) => {
-                const card = document.createElement('div');
-                card.className = 'source-card';
-                card.id = 'source-' + idx;
-                card.onclick = () => selectSource(idx, source.id, source.name);
-
-                const thumbnail = source.thumbnail || '';
-                const imgHtml = thumbnail
-                    ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
-                    : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
-
-                const sourceType = source.isScreen ? '🖥 Screen' : '🪟 Window';
-                card.innerHTML = `${imgHtml}
-                <div class="source-name">${source.name}</div>
-                <div class="source-type">${sourceType}</div>`;
-
-                sourceGrid.appendChild(card);
-            });
-        }
+            sourceGrid.appendChild(card);
+        });
 
         log(I18N.t('Found ${sources.length} capture source(s)').replace('${sources.length}', sources.length), 'ok');
     } catch (e) {
