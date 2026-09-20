@@ -72,8 +72,8 @@ impl PipelineHandle {
 
         let pipeline = gst::Pipeline::builder().name("capture-pipeline").build();
         let is_android = config.device.starts_with("android:");
-        println!("[Capture] Building pipeline for device: {}", config.device);
-        println!("[Capture] Target resolution: {}x{} @ {}fps (Upscale: {:?}, HW Accel: {}, Audio: {})",
+        eprintln!("[Capture] Building pipeline for device: {}", config.device);
+        eprintln!("[Capture] Target resolution: {}x{} @ {}fps (Upscale: {:?}, HW Accel: {}, Audio: {})",
             config.width, config.height, config.framerate, config.upscale_to, config.use_hardware_accel, config.audio
         );
 
@@ -341,7 +341,7 @@ impl PipelineHandle {
             // Check bus for errors to see why it failed!
             if let Some(msg) = pipeline.bus().unwrap().pop_filtered(&[gst::MessageType::Error]) {
                 if let gst::MessageView::Error(err_msg) = msg.view() {
-                    println!("[Capture] Pipeline error: {}", err_msg.error());
+                    eprintln!("[Capture] Pipeline error: {}", err_msg.error());
                 }
             }
             let _ = pipeline.set_state(gst::State::Null);
@@ -375,7 +375,7 @@ impl PipelineHandle {
     /// hits "device busy". Only the bus-thread join is deferred to a background
     /// thread so the Tauri IPC thread isn't held for long.
     pub fn stop(mut self) -> Result<(), CaptureError> {
-        println!("[Capture] Stopping pipeline...");
+        eprintln!("[Capture] Stopping pipeline...");
         self.stop_flag.store(true, Ordering::SeqCst);
         // Flush bus first so iter_timed() exits immediately
         if let Some(bus) = self.pipeline.bus() {
@@ -386,7 +386,7 @@ impl PipelineHandle {
         let _ = self.pipeline.set_state(gst::State::Null);
         let _ = self.pipeline.state(gst::ClockTime::from_seconds(5));
         
-        println!("[Capture] Pipeline destroyed, hardware released.");
+        eprintln!("[Capture] Pipeline destroyed, hardware released.");
         // Join bus watch thread in background so IPC thread isn't held
         if let Some(handle) = self.bus_watch_thread.take() {
             thread::spawn(move || { let _ = handle.join(); });
@@ -491,7 +491,7 @@ fn watch_bus(bus: &gst::Bus, tx: Sender<PipelineEvent>) {
             }
             MessageView::Error(err) => {
                 let text = err.error().to_string();
-                println!("[Capture] Bus Error: {}", text);
+                eprintln!("[Capture] Bus Error: {}", text);
                 let is_busy = text.to_lowercase().contains("busy")
                     || text.to_lowercase().contains("already in use");
                 if is_busy {

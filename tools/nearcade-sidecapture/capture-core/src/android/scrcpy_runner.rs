@@ -46,7 +46,7 @@ pub fn start_scrcpy(ip_port: &str, appsrc: &gst_app::AppSrc, stop_flag: Arc<Atom
         cmd.arg("-s").arg(ip_port);
     }
 
-    println!("[scrcpy] Launching: {:?}", cmd);
+    eprintln!("[scrcpy] Launching: {:?}", cmd);
 
     #[cfg(target_os = "windows")]
     let record_target = "-".to_string();
@@ -96,7 +96,10 @@ pub fn start_scrcpy(ip_port: &str, appsrc: &gst_app::AppSrc, stop_flag: Arc<Atom
     
     #[cfg(not(target_os = "windows"))]
     let mut pipe: Box<dyn Read + Send> = Box::new(
-        std::fs::File::open(&fifo_path)
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&fifo_path)
             .map_err(|e| format!("Failed to open FIFO: {}", e))?
     );
 
@@ -129,7 +132,7 @@ pub fn start_scrcpy(ip_port: &str, appsrc: &gst_app::AppSrc, stop_flag: Arc<Atom
                     }
                 }
                 Err(e) => {
-                    println!("[Capture] scrcpy read error: {}", e);
+                    eprintln!("[Capture] scrcpy read error: {}", e);
                     break;
                 }
             }
