@@ -2174,40 +2174,28 @@ let selectedSourceName = null;
 
 async function showSourceSelectionModal() {
     closeAllModals();
-    // CRITICAL FIX: Bypass custom modal on Linux and macOS.
-    // Electron's desktopCapturer.getSources() triggers a video-only xdg-desktop-portal
-    // on Wayland, which hides the "Share Audio" checkbox. On macOS, bypassing allows the native SCK picker.
     const ua = navigator.userAgent.toLowerCase();
     const isLinux = ua.includes('linux');
     const isMac = ua.includes('mac os x');
-    const pSelect = document.getElementById('pipelineSelect');
-    const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
 
-    // Only show modal if electronAPI is available AND we are not on Linux or macOS.
-    // For GStreamer on Linux, the Python daemon handles the XDG portal flow internally
-    // (CreateSession -> SelectSources -> Start -> OpenPipeWireRemote), so bypass here.
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac) {
-        if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
-        else log(I18N.t('Source selection not available on this platform'), 'warn');
-
+    if (!window.electronAPI || (!window.electronAPI.getWindowSources && !isLinux)) {
+        log(I18N.t('Source selection not available on this platform'), 'warn');
         startCapture();
         return;
     }
 
-    // Only show "Scanning sources..." modal immediately if NOT on Linux
-    // (Because Linux Wayland blocks on the OS portal popup and we don't want the HTML UI showing behind it)
-    if (!isLinux) {
-        document.getElementById('sourceModal').classList.remove('gone');
-    }
-    await _populateSourceGrid();
+    document.getElementById('sourceModal').classList.remove('gone');
+    await _populateSourceGrid(isLinux || isMac);
 }
 window.showSourceSelectionModal = showSourceSelectionModal;
 
 async function refreshSourceModal() {
-    await _populateSourceGrid();
+    const isLinux = navigator.userAgent.toLowerCase().includes('linux');
+    const isMac = navigator.userAgent.toLowerCase().includes('mac os x');
+    await _populateSourceGrid(isLinux || isMac);
 }
 
-async function _populateSourceGrid() {
+async function _populateSourceGrid(skipElectronSources) {
     const sourceGrid = document.getElementById('sourceGrid');
     const noSources = document.getElementById('sourceNoSources');
     const confirmBtn = document.getElementById('confirmSourceBtn');
@@ -2220,12 +2208,15 @@ async function _populateSourceGrid() {
     selectedSourceName = null;
 
     try {
-        // Request both windows AND screens from Electron
-        const sources = await window.electronAPI.getWindowSources({
-            types: ['window', 'screen'],
-            thumbnailSize: { width: 320, height: 180 },
-            fetchWindowIcons: true
-        });
+        let sources = [];
+        
+        if (!skipElectronSources && window.electronAPI && window.electronAPI.getWindowSources) {
+            sources = await window.electronAPI.getWindowSources({
+                types: ['window', 'screen'],
+                thumbnailSize: { width: 320, height: 180 },
+                fetchWindowIcons: true
+            });
+        }
 
         let adbSources = [];
         try {
@@ -2241,6 +2232,15 @@ async function _populateSourceGrid() {
         } catch(e) {}
         
         sources.push(...adbSources);
+
+        // On Linux/Mac, always add a native Desktop Screen fallback button
+        if (skipElectronSources) {
+            sources.unshift({
+                id: 'xdg_portal_fallback',
+                name: 'Desktop Screen / Window (Native OS Picker)',
+                isFallback: true
+            });
+        }
 
         sourceGrid.innerHTML = '';
 
@@ -2360,6 +2360,11 @@ async function confirmSource() {
     closeSourceModal();
     selectedSourceId = pendingId;
     selectedSourceName = pendingName;
+
+    if (selectedSourceId === 'xdg_portal_fallback') {
+        selectedSourceId = null;
+        selectedSourceName = null;
+    }
 
     if (selectedSourceId && selectedSourceId.startsWith('android:')) {
         log(`Launching Sidecapture tool for ${selectedSourceName}...`, 'warn');
