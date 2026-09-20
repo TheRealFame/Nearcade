@@ -752,27 +752,29 @@ class CaptureManager {
             const args = ['-hide_banner', '-loglevel', 'info',
                           '-f', 'image2pipe', '-vcodec', 'mjpeg', '-r', String(fps || 60), '-i', 'pipe:0'];
             
+            const vfScale = (width && height) ? `scale=${width}:trunc(${height}/2)*2,` : '';
             if (enc === 'vaapi') {
-                args.push('-vf', 'format=nv12,hwupload',
+                args.push('-vf', `${vfScale}format=nv12,hwupload`,
                     '-vaapi_device', this._detectVaapiDevice(),
                     '-c:v', 'h264_vaapi', '-profile:v', 'high', '-level', '4.2',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g));
+                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-color_range', 'tv');
             } else if (enc === 'nvenc') {
-                args.push('-c:v', 'h264_nvenc', '-preset', 'p1', '-tune', 'll',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-cq', '20');
+                args.push('-vf', `${vfScale}format=nv12`,
+                    '-c:v', 'h264_nvenc', '-preset', 'p1', '-tune', 'll',
+                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-cq', '20', '-color_range', 'tv');
             } else {
-                args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g));
+                args.push('-vf', `${vfScale}format=yuv420p`,
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+                    '-b:v', `${kb}k`, '-bf', '0', '-g', String(g), '-color_range', 'tv');
             }
             args.push('-f', 'mp4', '-movflags', 'empty_moov+default_base_moof+frag_keyframe+skip_sidx', 'pipe:1');
             
             const procFFmpeg = spawn(ff, args, { stdio: ['pipe', 'pipe', 'pipe'] });
             
             const rawSourceId = sourceId ? sourceId.replace('v4l2:', '') : '';
-            const cliArgs = ['start', '--device', rawSourceId, '--stdout'];
+            const cliArgs = ['start', '--device', rawSourceId, '--stdout', '--audio', 'false'];
             // If it's an Android device, scrcpy can handle arbitrary resolutions.
-            // For v4l2 capture cards, forcing 960x540 will cause GStreamer caps negotiation to fail
-            // if the hardware doesn't natively support that exact resolution. FFmpeg handles the scaling anyway.
+            // For v4l2 capture cards, FFmpeg handles the scaling so the native device captures at default resolution.
             if (sourceId && sourceId.startsWith('android:')) {
                 cliArgs.push('--width', String(width), '--height', String(height), '--fps', String(fps));
             }
