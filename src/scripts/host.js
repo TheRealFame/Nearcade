@@ -2172,14 +2172,16 @@ let selectedSourceId = null;
 let selectedSourceName = null;
 
 
-async function showSourceSelectionModal() {
+async function showSourceSelectionModal(forceGrid = false) {
     closeAllModals();
     const ua = navigator.userAgent.toLowerCase();
     const isLinux = ua.includes('linux');
     const isMac = ua.includes('mac os x');
 
-    if (!window.electronAPI || (!window.electronAPI.getWindowSources && !isLinux)) {
-        log(I18N.t('Source selection not available on this platform'), 'warn');
+    // Default Linux/Mac behavior: skip the HTML grid entirely and go straight to native picker (XDG Portal/SCK)
+    if (!forceGrid && (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac)) {
+        if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
+        else log(I18N.t('Source selection not available on this platform'), 'warn');
         startCapture();
         return;
     }
