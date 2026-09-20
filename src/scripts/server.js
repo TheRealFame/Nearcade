@@ -1570,14 +1570,19 @@ async function main() {
       const output = execSync(`${binPath} list --json`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
       const rawDevices = JSON.parse(output);
       
-      const devices = rawDevices.map(d => {
+      const devices = [];
+      const seenNames = new Set();
+      for (const d of rawDevices) {
+          if (seenNames.has(d.name)) continue;
+          
           if (d.id.startsWith('android:')) {
-              return { id: d.id, name: d.name };
+              seenNames.add(d.name);
+              devices.push({ id: d.id, name: d.name });
           } else if (d.id.startsWith('/dev/video')) {
-              return { id: `v4l2:${d.id}`, name: d.name };
+              seenNames.add(d.name);
+              devices.push({ id: `v4l2:${d.id}`, name: d.name });
           }
-          return null;
-      }).filter(Boolean);
+      }
       res.json({ devices });
     } catch (e) {
       console.error("[Sidecapture] Error cross-talking to CLI:", e);
@@ -1600,11 +1605,16 @@ async function main() {
 
         let child;
         if (fs.existsSync(binPath)) {
-            child = spawn(binPath, args, { detached: true, stdio: 'ignore' });
+            child = spawn(binPath, args, { stdio: 'ignore' });
         } else {
-            child = spawn('npm', ['run', 'dev', '--', ...args], { cwd: guiDir, detached: true, stdio: 'ignore', shell: true });
+            child = spawn('npm', ['run', 'dev', '--', ...args], { cwd: guiDir, stdio: 'ignore', shell: true });
         }
-        child.unref();
+        
+        if (global.sidecaptureGui) {
+            try { global.sidecaptureGui.kill(); } catch (e) {}
+        }
+        global.sidecaptureGui = child;
+        
         res.json({ ok: true });
       } catch (e) {
         console.error("Failed to launch sidecapture:", e);
@@ -3561,6 +3571,11 @@ function cleanup(isElectron = false) {
     }
   } catch (e) {
     console.error('[server] Error broadcasting session end:', e);
+  }
+
+  // ── Terminate external tools ──────────────────────────────────
+  if (global.sidecaptureGui) {
+    try { global.sidecaptureGui.kill(); } catch (e) {}
   }
 
   // ── Terminate worker threads gracefully ──────────────────────────────────

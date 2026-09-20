@@ -766,7 +766,8 @@ class CaptureManager {
             
             const procFFmpeg = spawn(ff, args, { stdio: ['pipe', 'pipe', 'pipe'] });
             
-            const cliArgs = ['start', '--device', sourceId, '--width', String(width), '--height', String(height), '--fps', String(fps), '--stdout'];
+            const rawSourceId = sourceId ? sourceId.replace('v4l2:', '') : '';
+            const cliArgs = ['start', '--device', rawSourceId, '--width', String(width), '--height', String(height), '--fps', String(fps), '--stdout'];
             const procCli = spawn(cliPath, cliArgs, { stdio: ['ignore', 'pipe', 'inherit'] });
             
             procCli.stdout.pipe(procFFmpeg.stdin);
