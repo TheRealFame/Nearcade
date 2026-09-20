@@ -2227,6 +2227,21 @@ async function _populateSourceGrid() {
             fetchWindowIcons: true
         });
 
+        let adbSources = [];
+        try {
+            const adbRes = await fetch('/api/adb-devices');
+            if (adbRes.ok) {
+                const data = await adbRes.json();
+                adbSources = (data.devices || []).map(d => ({
+                    id: d.id,
+                    name: d.name,
+                    isAndroid: true
+                }));
+            }
+        } catch(e) {}
+        
+        sources.push(...adbSources);
+
         sourceGrid.innerHTML = '';
 
         if (!sources || sources.length === 0) {
@@ -2345,6 +2360,23 @@ async function confirmSource() {
     closeSourceModal();
     selectedSourceId = pendingId;
     selectedSourceName = pendingName;
+
+    if (selectedSourceId && selectedSourceId.startsWith('android:')) {
+        log(`Launching Sidecapture tool for ${selectedSourceName}...`, 'warn');
+        try {
+            await fetch('/api/launch-tool', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool: 'sidecapture', target: selectedSourceId.replace('android:', '') })
+            });
+            log('Sidecapture launched. Please select the popped-out viewer window when it appears.', 'ok');
+            setTimeout(() => showSourceSelectionModal(), 1500);
+        } catch (e) {
+            log('Failed to launch sidecapture', 'err');
+        }
+        return;
+    }
+
     await startCapture();
 }
 
@@ -2850,8 +2882,8 @@ async function startCapture() {
             try {
                 const sidecarTrack = await withTimeout(
                     startSidecarCapture(backendMethod, selectedSourceId, selectedSourceName),
-                    8000,
-                    'Sidecar timed out waiting for video frames'
+                    75000,
+                    'Sidecar timed out waiting for video frames (75s portal timeout)'
                 );
                 screenStream = new MediaStream([sidecarTrack]);
             } catch (e) {
