@@ -772,7 +772,7 @@ class CaptureManager {
             const procFFmpeg = spawn(ff, args, { stdio: ['pipe', 'pipe', 'pipe'] });
             
             const rawSourceId = sourceId ? sourceId.replace('v4l2:', '') : '';
-            const cliArgs = ['start', '--device', rawSourceId, '--stdout', '--audio', 'false'];
+            const cliArgs = ['start', '--device', rawSourceId, '--stdout'];
             // If it's an Android device, scrcpy can handle arbitrary resolutions.
             // For v4l2 capture cards, FFmpeg handles the scaling so the native device captures at default resolution.
             if (sourceId && sourceId.startsWith('android:')) {
