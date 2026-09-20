@@ -2332,13 +2332,9 @@ async function confirmSource() {
     }
 
     if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
-        // Launch the Tauri GUI mini-dock for settings, but let Nearcade natively capture it
+        // Open the native sidecapture dock inside Nearcade
         try {
-            fetch('/api/launch-tool', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tool: 'sidecapture', mini: true, target: selectedSourceId })
-            });
+            window.open('/pages/sidecapture-dock.html?target=' + encodeURIComponent(selectedSourceId), 'SidecaptureDock', 'width=350,height=300,contextIsolation=no,nodeIntegration=yes');
         } catch (e) {}
     }
 

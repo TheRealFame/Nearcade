@@ -1590,38 +1590,25 @@ async function main() {
     }
   });
 
-  app.post("/api/launch-tool", adminMiddleware, express.json(), (req, res) => {
-    const { tool, mini, target } = req.body;
-    if (tool === 'sidecapture') {
-      try {
-        const { spawn, execSync } = require('child_process');
-        const fs = require('fs');
-        const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture-gui');
-        const guiDir = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'capture-gui');
-        
-        const args = [];
-        if (mini) args.push('--mini');
-        if (target) args.push('--target', target);
-
-        let child;
-        if (fs.existsSync(binPath)) {
-            child = spawn(binPath, args, { stdio: 'ignore' });
-        } else {
-            child = spawn('npm', ['run', 'dev', '--', ...args], { cwd: guiDir, stdio: 'ignore', shell: true });
+  app.post("/api/sidecapture/controls", adminMiddleware, express.json(), (req, res) => {
+    const { target, control, value } = req.body;
+    try {
+        if (target && target.startsWith('v4l2:')) {
+            const dev = target.replace('v4l2:', '');
+            const { execSync } = require('child_process');
+            if (control === 'brightness') {
+                execSync(`v4l2-ctl -d ${dev} -c brightness=${value}`);
+            } else if (control === 'contrast') {
+                execSync(`v4l2-ctl -d ${dev} -c contrast=${value}`);
+            } else if (control === 'mirror') {
+                const val = value ? '1' : '0';
+                execSync(`v4l2-ctl -d ${dev} -c hflip=${val}`);
+            }
         }
-        
-        if (global.sidecaptureGui) {
-            try { global.sidecaptureGui.kill(); } catch (e) {}
-        }
-        global.sidecaptureGui = child;
-        
         res.json({ ok: true });
-      } catch (e) {
-        console.error("Failed to launch sidecapture:", e);
+    } catch (e) {
+        console.error("Failed to set v4l2-ctl:", e);
         res.status(500).json({ error: e.message });
-      }
-    } else {
-      res.status(404).json({ error: "Unknown tool" });
     }
   });
 
