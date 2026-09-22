@@ -3706,6 +3706,7 @@ async function connect() {
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
     const hostParam = urlParams.get('host') || '';
+    const isP2P = hostParam.startsWith('p2p://');
     // Check if we are routing through the public Rust VPS or connecting directly
     const isPublicRouter = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('vps');
     useVps = isPublicRouter || urlParams.has('v3');
