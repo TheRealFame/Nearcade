@@ -4716,8 +4716,28 @@ function _wcRenderLoop() {
 }
 
 async function initWebCodecsViewer(config) {
-    if (typeof VideoDecoder === 'undefined') {
-        console.warn('[WebCodecs] VideoDecoder API is not available (likely an insecure HTTP context). Falling back to standard WebRTC.');
+    if (typeof VideoDecoder === 'undefined' || !window.isSecureContext) {
+        console.warn('[WebCodecs] VideoDecoder API is not available (insecure HTTP context). WebRTC fallback is forbidden by user policy.');
+        const errDiv = document.createElement('div');
+        errDiv.style = "position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(20,0,0,0.95);color:#ff6b6b;z-index:999999;padding:20px;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center;font-family:sans-serif;";
+        errDiv.innerHTML = `
+            <h2 style="font-size:24px;margin-bottom:10px;">⚠️ WebCodecs Blocked by Browser Security ⚠️</h2>
+            <p style="font-size:16px;max-width:600px;line-height:1.5;">You are accessing Nearcade over an insecure HTTP network connection (LAN/VPN). Modern browsers like Chrome and Firefox <b>strictly disable</b> the hardware VideoDecoder API on insecure pages to protect your device.</p>
+            <p style="font-size:16px;margin-top:20px;">To enable WebCodecs on this specific device, you MUST configure your browser:</p>
+            <div style="background:#000;padding:20px;border-radius:8px;text-align:left;max-width:700px;border:1px solid #444;margin-top:10px;color:#ddd;line-height:1.6;">
+                <b>For Chrome / Edge / Brave:</b><br>
+                1. Copy and paste this into a new tab: <code style="color:#fff;background:#222;padding:2px 6px;border-radius:4px;">chrome://flags/#unsafely-treat-insecure-origin-as-secure</code><br>
+                2. Add exactly this address to the text box: <code style="color:#0f0;background:#111;padding:2px 6px;border-radius:4px;user-select:all;">${window.location.origin}</code><br>
+                3. Change the dropdown to <b>Enabled</b> and click the Relaunch button.<br>
+                <br>
+                <b>For Firefox:</b><br>
+                1. Go to <code style="color:#fff;background:#222;padding:2px 6px;border-radius:4px;">about:config</code><br>
+                2. Search for <code style="color:#fff;background:#222;padding:2px 6px;border-radius:4px;">dom.securecontext.allowlist</code><br>
+                3. Add <code style="color:#0f0;background:#111;padding:2px 6px;border-radius:4px;user-select:all;">${window.location.origin}</code> and save.
+            </div>
+            <p style="margin-top:20px;color:#aaa;font-size:14px;">Alternatively, the Host must change their Pipeline from WebCodecs to WebRTC.</p>
+        `;
+        document.body.appendChild(errDiv);
         return;
     }
 

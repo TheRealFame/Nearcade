@@ -2008,12 +2008,9 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
     }
 
     targetStream.getTracks().forEach(track => {
-        const viewerSupportsWc = _viewerWcSupport[viewerId] !== false;
-        if (track.kind === 'video' && forceWc && viewerSupportsWc) {
+        if (track.kind === 'video' && forceWc) {
             console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
             return;
-        } else if (track.kind === 'video' && forceWc && !viewerSupportsWc) {
-            console.warn(`[WebRTC] Attaching standard WebRTC video fallback track for ${viewerId} (Viewer lacks WebCodecs API on insecure HTTP context)`);
         }
 
         const sender = pc.addTrack(track, targetStream);
