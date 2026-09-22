@@ -3659,7 +3659,16 @@ async function connect() {
                 } else {
                     document.getElementById('pinScreen').classList.remove('gone');
                     const errEl = document.getElementById('pinErr');
-                    if (errEl) errEl.textContent = event.code === 4003 ? 'You were kicked by the host.' : event.code === 4001 ? 'Too many attempts. Wait 2 minutes.' : 'Incorrect PIN.';
+                    if (errEl) {
+                        if (event.code === 4003) errEl.textContent = 'You were kicked by the host.';
+                        else if (event.reason === 'PIN_RATE_LIMITED') errEl.textContent = 'Too many attempts. Wait 2 minutes.';
+                        else errEl.textContent = 'Incorrect PIN.';
+                    }
+                    if (event.code === 4001 || event.code === 4002) {
+                        pinRequired = true;
+                        const wrap = document.getElementById('pinWrap');
+                        if (wrap) wrap.style.display = 'block'; // Force show PIN field
+                    }
                     document.getElementById('pinInput').value = '';
                 }
                 enteredPin = ''; enteredPassword = ''; stopReconnect = false; return;
@@ -3697,9 +3706,9 @@ async function connect() {
 (function checkLocalPinRequirement() {
     const urlParams = new URLSearchParams(window.location.search);
     const hostParam = urlParams.get('host') || '';
-    const isP2P = hostParam.startsWith('p2p://');
-    
-    useVps = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('v3') || urlParams.has('vps');
+    // Check if we are routing through the public Rust VPS or connecting directly
+    const isPublicRouter = location.hostname === 'publicnearcade.cutefame.net' || urlParams.has('vps');
+    useVps = isPublicRouter || urlParams.has('v3');
     
     if (isP2P) {
         // P2P rooms authenticate via the signaling room code itself. We cannot probe the
@@ -3707,12 +3716,16 @@ async function connect() {
         pinRequired = false;
         const wrap = document.getElementById('pinWrap');
         if (wrap) wrap.style.display = 'none';
-    } else if (useVps) {
-        // We cannot securely probe the host beforehand through the VPS router.
+    } else if (isPublicRouter) {
+        // We cannot securely probe the host beforehand through the public VPS router.
         // Make the PIN field optional client-side and let the host backend reject it if necessary.
+        // We hide the PIN field so they can just type their name and join. If the host actually requires one,
+        // the server will send a 4001 INVALID_PIN and prompt them.
         pinRequired = false;
+        const wrap = document.getElementById('pinWrap');
+        if (wrap) wrap.style.display = 'none';
     } else {
-        // If an explicit HTTP host is provided, query its API instead of the local one
+        // Direct connections (Localhost, LAN, Custom Tunnels) CAN query the API securely.
         let apiUrl = '/api/pin-required' + window.location.search;
         if (hostParam && hostParam.includes('://')) {
             apiUrl = hostParam.replace(/\/$/, '') + '/api/pin-required' + window.location.search;
