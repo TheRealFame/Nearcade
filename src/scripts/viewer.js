@@ -356,7 +356,7 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
                 <div style="margin-bottom:0;color:#aaa;">Hardware decoding disabled. Expect a black screen.</div>
                 
                 <div id="secureTunnelHint" style="display:none;margin-top:12px;">
-                    <button id="tunnelSwitchBtn" style="padding:10px 16px;background:var(--ok);color:#000;border:none;border-radius:8px;cursor:pointer;font-weight:bold;width:100%;font-size:14px;box-shadow:0 4px 12px rgba(0,255,100,0.2);">Switch to Secure Tunnel (Fix)</button>
+                    <button id="tunnelSwitchBtn" class="pin-submit-btn" style="width:100%;">Switch to Secure Tunnel (Fix)</button>
                 </div>
             `;
             

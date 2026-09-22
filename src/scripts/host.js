@@ -981,27 +981,7 @@ async function renderUrls(d) {
         });
     }
 
-    // Always show LAN IP as a secondary row — useful even in VPS mode for local testing
-    if (d.lanIP && !isPlaygroundHost) {
-        const lanUrl = `http://${d.lanIP}:${d.port}/?v3`;
-        const existing = [...(el?.querySelectorAll('.url-row') || [])].find(e => e.textContent.includes(d.lanIP));
-        if (!existing && el) {
-            const lanDiv = document.createElement('div');
-            lanDiv.className = 'url-row';
-            lanDiv.style.color = '#555';
-            lanDiv.textContent = lanUrl;
-            lanDiv.onclick = () => {
-                navigator.clipboard.writeText(lanUrl).catch(() => { });
-                const tmp = lanDiv.textContent; lanDiv.textContent = 'copied!';
-                setTimeout(() => { lanDiv.textContent = tmp; }, 1500);
-            };
-            const lanSub = document.createElement('div');
-            lanSub.className = 'url-label';
-            lanSub.textContent = 'LAN (v3) — same network only';
-            el.appendChild(lanDiv);
-            el.appendChild(lanSub);
-        }
-    }
+
 }
 
 const savedViewerModes = JSON.parse(localStorage.getItem('ns_saved_modes') || '{}');
