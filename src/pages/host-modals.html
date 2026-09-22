@@ -218,12 +218,7 @@
   <div class="modal" style="position:relative;width:520px;">
     <div class="modal-head">
       <h3>
-        <svg style="width:18px;height:18px;margin-right:8px;vertical-align:middle;" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
+        <svg style="width:20px;height:20px;color:var(--accent);margin-right:8px;" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M208,144H136V95.19a40,40,0,1,0-16,0V144H48a16,16,0,0,0-16,16v48a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V160A16,16,0,0,0,208,144ZM104,56a24,24,0,1,1,24,24A24,24,0,0,1,104,56ZM208,208H48V160H208v48Zm-40-96h32a8,8,0,0,1,0,16H168a8,8,0,0,1,0-16Z"/></svg>
         Arcade Mode Configuration
       </h3>
       <p>Configure your session for Nearcade.</p>
@@ -587,7 +582,7 @@
             <option value="custom_webcodecs" style="color:var(--warn);">Nearcade Gen 2 (Raw Hardware GL /
               Sub-Millisecond)</option>
             <option value="encoded_transform">Encoded Transform (WebCodecs + Native Network)</option>
-            <option id="optFfmpeg" value="ffmpeg" style="color:var(--warn);">FFmpeg (Hardware Encode / Experimental)</option>
+
             <option id="optWebTransport" value="webtransport" style="display:none;" disabled>WebTransport (VPS Only)
             </option>
           </select>
@@ -598,13 +593,13 @@
             <div class="ctrl-row-label">Codec</div>
           </div>
           <select id="codecSelect" class="form-select">
-            <option value="H264">H.264 (Hardware)</option>
+            <option value="H264" selected>H.264 (Hardware)</option>
             <!-- H.265/HEVC not supported in WebCodecs/WebRTC (patent licensing).
                  To use H.265: enable GStreamer pipeline (see pipelineSelect comment) -->
             <!-- <option value="H265">H.265 (Hardware - GStreamer Only)</option> -->
-            <option value="VP8" selected>VP8 (Software)</option>
-            <option value="VP9">VP9 (Hardware)</option>
-            <option value="AV1">AV1 (Hardware)</option>
+            <option value="VP8">VP8 (Software)</option>
+            <option value="VP9">VP9 (Software)</option>
+            <option value="AV1">AV1 (Software)</option>
           </select>
         </div>
         <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:8px;">
@@ -1239,8 +1234,8 @@
   <div class="modal" style="width:500px;max-height:85vh;display:flex;flex-direction:column;">
     <div class="modal-head">
       <h3>
-        <svg style="width:18px;height:18px;margin-right:8px;vertical-align:middle;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19.439 7.85c-.049.322-.059.648-.029.975.112 1.234 1.169 2.175 2.41 2.175h.18v2a2 2 0 0 1-2 2h-.18a2.5 2.5 0 0 0-2.41 2.175c-.03.327-.02.653.029.975.297 1.942 1.956 3.483 3.961 3.85V22h-4v-2.5a2.5 2.5 0 0 0-5 0V22H2v-4h2.5a2.5 2.5 0 0 0 0-5H2V2h4v2.5a2.5 2.5 0 0 0 5 0V2h4v4.5a2.5 2.5 0 0 0 0 5H22v4h-2.5a2.5 2.5 0 0 0-2.5 2.5v2.5H19.439z"/>
+        <svg style="width:18px;height:18px;margin-right:8px;vertical-align:middle;" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/>
         </svg>
         External Sources
       </h3>
@@ -1251,8 +1246,8 @@
       </p>
       <div style="background:var(--bg-lighter); border:1px solid var(--border); border-radius:8px; padding:16px; margin-top:20px; display:flex; align-items:center; gap:16px;">
         <div style="flex-shrink:0; background:var(--accent); color:var(--bg); width:48px; height:48px; border-radius:8px; display:flex; align-items:center; justify-content:center;">
-          <svg style="width:24px;height:24px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19.439 7.85c-.049.322-.059.648-.029.975.112 1.234 1.169 2.175 2.41 2.175h.18v2a2 2 0 0 1-2 2h-.18a2.5 2.5 0 0 0-2.41 2.175c-.03.327-.02.653.029.975.297 1.942 1.956 3.483 3.961 3.85V22h-4v-2.5a2.5 2.5 0 0 0-5 0V22H2v-4h2.5a2.5 2.5 0 0 0 0-5H2V2h4v2.5a2.5 2.5 0 0 0 5 0V2h4v4.5a2.5 2.5 0 0 0 0 5H22v4h-2.5a2.5 2.5 0 0 0-2.5 2.5v2.5H19.439z"/>
+          <svg style="width:24px;height:24px;" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/>
           </svg>
         </div>
         <div style="flex:1;">

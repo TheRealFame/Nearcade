@@ -51,7 +51,7 @@ export async function detectCodecSupport(codecName) {
   // Check if hardware acceleration is available by creating a test encoder
   let hardwareAccel = false;
   try {
-    const config = { codec: codecName === 'H265' ? 'hev1.1.6.L93.B0' : 
+    let config = { codec: codecName === 'H265' ? 'hev1.1.6.L93.B0' : 
                         codecName === 'VP9' ? 'vp09.00.41.08' :
                         codecName === 'AV1' ? 'av01.0.04M.08' :
                         codecName === 'VP8' ? 'vp8' : 'avc1.4d002a',
@@ -60,7 +60,19 @@ export async function detectCodecSupport(codecName) {
       latencyMode: 'realtime'
     };
     
-    const supported = await VideoEncoder.isConfigSupported(config);
+    let supported = await VideoEncoder.isConfigSupported(config);
+    if (!supported.supported && codecName === 'H264') {
+        config.codec = 'avc1.42E02A';
+        supported = await VideoEncoder.isConfigSupported(config);
+    }
+    
+    // Linux Chromium VAAPI sandbox workaround: 'prefer-hardware' is often strictly rejected for H.264/AV1,
+    // but 'no-preference' activates the hardware encoder successfully.
+    if (!supported.supported && (codecName === 'H264' || codecName === 'AV1') && typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('linux')) {
+        config.hardwareAcceleration = 'no-preference';
+        supported = await VideoEncoder.isConfigSupported(config);
+    }
+    
     if (supported.supported) {
       // Try to detect hardware acceleration by creating a test encoder
       const encoder = new VideoEncoder({
@@ -68,13 +80,13 @@ export async function detectCodecSupport(codecName) {
         error: () => {}
       });
       
-      // Configure with hardware acceleration preference
+      // Configure with the working hardware acceleration preference
       const testConfig = { ...config };
-      encoder.configure({ ...config, hardwareAcceleration: 'prefer-hardware' });
+      encoder.configure(testConfig);
       
       // Check if hardware acceleration was actually used
       // This is a heuristic - we check if the encoder actually uses hardware
-      hardwareAccel = true; // If we got here with prefer-hardware, assume it works
+      hardwareAccel = true; // If we got here, assume it works
       encoder.close();
     }
     } catch (e) {

@@ -143,6 +143,7 @@ const viewerTokens = new Map();
 const viewerColors = new Map();
 const viewerAvatars = new Map();
 const viewerPlatforms = new Map();
+const viewerWcSupport = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
 const urlSpam = new Map();
@@ -1578,15 +1579,43 @@ async function main() {
           if (d.id.startsWith('android:')) {
               seenNames.add(d.name);
               devices.push({ id: d.id, name: d.name });
-          } else if (d.id.startsWith('/dev/video')) {
+          } else {
               seenNames.add(d.name);
-              devices.push({ id: `v4l2:${d.id}`, name: d.name });
+              devices.push({ id: 'v4l2:' + d.id, name: d.name });
           }
       }
-      res.json({ devices });
+      return res.json({ devices });
     } catch (e) {
-      console.error("[Sidecapture] Error cross-talking to CLI:", e);
-      res.json({ devices: [] });
+      console.error('[ADB] Failed to list devices:', e);
+      return res.json({ devices: [] });
+    }
+  });
+
+  // Launch scrcpy GUI for native window capture
+  app.post("/api/adb-launch", adminMiddleware, express.json(), (req, res) => {
+    try {
+      const { spawn } = require('child_process');
+      const { sourceId } = req.body;
+      if (!sourceId || !sourceId.startsWith('android:')) return res.status(400).json({ error: 'invalid source' });
+      
+      const rawId = sourceId.replace('android:', '');
+      
+      const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'capture-gui', 'src-tauri', 'bin', 'scrcpy', process.platform === 'win32' ? 'win64' : 'linux', process.platform === 'win32' ? 'scrcpy.exe' : 'scrcpy');
+      
+      const binDir = path.dirname(binPath);
+      const env = Object.assign({}, process.env);
+      env.PATH = `${binDir}${path.delimiter}${env.PATH || ''}`;
+
+      // We spawn scrcpy in windowed mode (no --no-window flag)
+      const p = spawn(binPath, ['-s', rawId, '--max-fps=60', '--video-codec=h264'], { env, stdio: 'ignore', detached: false });
+      
+      if (!global.scrcpyInstances) global.scrcpyInstances = [];
+      global.scrcpyInstances.push(p);
+      
+      res.json({ ok: true });
+    } catch(e) {
+      console.error('Failed to launch scrcpy gui:', e);
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -1596,10 +1625,29 @@ async function main() {
         if (target && target.startsWith('v4l2:')) {
             const dev = target.replace('v4l2:', '');
             const { execSync } = require('child_process');
+            
+            // Helper to get min/max/default and map -100..100 correctly
+            const mapValue = (ctrl, uiVal) => {
+                try {
+                    const out = execSync(`v4l2-ctl -d ${dev} -l`).toString();
+                    const match = out.match(new RegExp(`${ctrl}.*min=(-?\\d+)\\s+max=(-?\\d+).*default=(-?\\d+)`));
+                    if (match) {
+                        const min = parseInt(match[1]);
+                        const max = parseInt(match[2]);
+                        const def = parseInt(match[3]);
+                        const v = parseInt(uiVal);
+                        if (v === 0) return def;
+                        if (v < 0) return def + (def - min) * (v / 100);
+                        if (v > 0) return def + (max - def) * (v / 100);
+                    }
+                } catch (e) {}
+                return uiVal; // Fallback
+            };
+
             if (control === 'brightness') {
-                execSync(`v4l2-ctl -d ${dev} -c brightness=${value}`);
+                execSync(`v4l2-ctl -d ${dev} -c brightness=${Math.round(mapValue('brightness', value))}`);
             } else if (control === 'contrast') {
-                execSync(`v4l2-ctl -d ${dev} -c contrast=${value}`);
+                execSync(`v4l2-ctl -d ${dev} -c contrast=${Math.round(mapValue('contrast', value))}`);
             } else if (control === 'mirror') {
                 const val = value ? '1' : '0';
                 execSync(`v4l2-ctl -d ${dev} -c hflip=${val}`);
@@ -2092,7 +2140,7 @@ async function main() {
 
       // Start audio routing as soon as the host session opens
       if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
-      viewers.forEach((_, id) => hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id })));
+      viewers.forEach((_, id) => hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false })));
 
       if (tunnelUrl) ws.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
 
@@ -2198,7 +2246,7 @@ async function main() {
               // Pass through the viewer's reason + PC state so the host can
               // tell a dead-viewer retry (rebuild) from a mid-flight duplicate
               // (ignore) instead of murdering connecting PCs.
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId, reoffer: true, reason: msg.reason || null, viewerPcState: msg.pcState || null }));
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId, reoffer: true, reason: msg.reason || null, viewerPcState: msg.pcState || null, supportsWebCodecs: viewerWcSupport.get(msg.viewerId) !== false }));
             }
             // GStreamer native path: the browser host ignores re-offers (its
             // comment says the daemon owns signaling), so a retrying viewer
@@ -2566,6 +2614,7 @@ async function main() {
                   name: viewerNames.get(id),
                   viewerRegion: msg.viewerRegion || null,
                   isDesktopApp: !!msg.isDesktopApp,
+                  supportsWebCodecs: viewerWcSupport.get(id) !== false
                 }));
               }
               broadcastRoster();
@@ -2743,12 +2792,10 @@ async function main() {
         console.log(`[viewer] anonymous user (requirePin=${requirePin}) bypassing PIN check`);
       }
 
-      // ── Session password check ────────────────────────────────────────────
-      // Only run when there is NO active pin gate. When pinEnabled && requirePin
-      // is true AND sessionPassword is set, PIN === sessionPassword, so the PIN
-      // check above already validated the credential — checking again here causes
-      // spurious session-password-required rejections for correctly authenticated viewers.
-      if (sessionPassword && !(pinEnabled && requirePin)) {
+      // Only run when there is NO active pin gate, BUT only if pin is actually enabled.
+      // If the user explicitly disabled the PIN in the UI (pinEnabled = false),
+      // they intend for the stream to be fully open, so we must also bypass the persistent session password.
+      if (pinEnabled && sessionPassword && !requirePin) {
         const provided = url.searchParams.get('password') || url.searchParams.get('pin') || '';
         if (provided !== sessionPassword) {
           try { ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' })); } catch { }
@@ -2811,7 +2858,7 @@ async function main() {
               const cryptoLib = require('crypto');
               const expected = cryptoLib.createHash('sha256').update(challengeNonce + "nearcade_client_v3").digest('hex');
               
-              const isLanIp = clientIp.includes('192.168.') || clientIp.includes('10.') || clientIp.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || clientIp.includes('127.0.0.1') || clientIp === '::1' || clientIp.includes('::ffff:192.168.') || clientIp.includes('::ffff:10.') || clientIp.includes('::ffff:127.0.0.1');
+              const isLanIp = clientIp.includes('192.168.') || clientIp.includes('10.') || clientIp.includes('100.') || clientIp.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || clientIp.includes('127.0.0.1') || clientIp === '::1' || clientIp.includes('::ffff:192.168.') || clientIp.includes('::ffff:10.') || clientIp.includes('::ffff:100.') || clientIp.includes('::ffff:127.0.0.1');
 
               if (msg.hash !== expected) {
                 if (isLanIp && msg.hash === "LAN_INSECURE_BYPASS") {
@@ -2935,6 +2982,7 @@ async function main() {
             if (viewerColor) viewerColors.set(id, viewerColor);
             if (viewerAvatar) viewerAvatars.set(id, viewerAvatar);
             if (viewerPlatform) viewerPlatforms.set(id, viewerPlatform);
+            viewerWcSupport.set(id, typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true);
             // Script version check — warn host if viewer script is outdated
             const viewerScriptVer = msg.scriptVersion || null;
             const SERVER_SCRIPT_VER = APP_VERSION;
@@ -2956,7 +3004,8 @@ async function main() {
                 isDesktopApp: !!msg.isDesktopApp,
                 platform: viewerPlatform,
                 color: viewerColor,
-                avatar: viewerAvatar
+                avatar: viewerAvatar,
+                supportsWebCodecs: typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true
               }));
             }
 
@@ -3052,7 +3101,7 @@ async function main() {
               id = claimedId;
               if (hostWS && hostWS.readyState === 1) {
                 hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: tempId }));
-                hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) }));
+                hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id), supportsWebCodecs: viewerWcSupport.get(id) !== false }));
               }
               ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: viewerNames.get(id), inputToken: viewerTokens.get(id) }));
               broadcastRoster();
@@ -3062,7 +3111,7 @@ async function main() {
 
           if (msg.type === "request-offer") {
             if (hostWS && hostWS.readyState === 1)
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id }));
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false }));
             return;
           }
 
@@ -3563,6 +3612,12 @@ function cleanup(isElectron = false) {
   // ── Terminate external tools ──────────────────────────────────
   if (global.sidecaptureGui) {
     try { global.sidecaptureGui.kill(); } catch (e) {}
+  }
+  
+  if (global.scrcpyInstances) {
+    for (const p of global.scrcpyInstances) {
+      try { p.kill(); } catch (e) {}
+    }
   }
 
   // ── Terminate worker threads gracefully ──────────────────────────────────

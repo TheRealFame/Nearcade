@@ -723,7 +723,7 @@ async function createPC() {
             console.log(`[WebRTC] Received Track: ${e.track.kind}`);
             if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
             if (e.track.kind === 'video') {
-                if (USE_WEBCODECS) {
+                if (USE_WEBCODECS && typeof VideoDecoder !== 'undefined') {
                     const sink = document.getElementById('video');
                     if (sink) {
                         sink.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
@@ -2885,6 +2885,7 @@ async function connect() {
         ws.send(JSON.stringify({
             type: 'join', viewerId: myId, name: liveName, pin: enteredPin,
             viewerRegion, clientVersion: CLIENT_VERSION, platform: viewerPlatform,
+            supportsWebCodecs: typeof VideoDecoder !== 'undefined',
             color: localStorage.getItem('ns_chat_color') || '',
             avatar: localStorage.getItem('ns_avatar') || '',
             isDesktopApp: urlParamsGlobal.has('compat')
@@ -3112,6 +3113,7 @@ async function connect() {
                     viewerId: typeof myId !== 'undefined' ? myId : null, 
                     name: liveName, 
                     pin: enteredPin || '',
+                    supportsWebCodecs: typeof VideoDecoder !== 'undefined',
                     password: enteredPassword || '',
                     viewerRegion: window._myRegion || '',
                     clientVersion: typeof CLIENT_VERSION !== 'undefined' ? CLIENT_VERSION : '3.0.4',

@@ -53,6 +53,7 @@ let _vpsConfig = null;   // { vpsEnabled, vpsUrl, vpsMasterKey }
 let _vpsAuthOk = false;
 let _smartDb = {};
 let _viewerRegions = {};
+let _viewerWcSupport = {};
 let _pendingVpsViewers = new Map();
 let hostRegion = '';
 let _tunnelBusy = false;
@@ -1468,7 +1469,11 @@ function connectWS() {
         get onclose() { return _sigOnClose; },
         set onerror(fn) { _sigOnError = fn; },
         get onerror() { return _sigOnError; },
-        send: (data) => sig.send(data),
+        send: (data) => {
+            if (data instanceof ArrayBuffer || data instanceof Blob)
+                return sig.sendBinary(data);
+            return sig.send(data);
+        },
         close: (c, r) => sig.disconnect(c, r),
         addEventListener: () => { },
         removeEventListener: () => { },
@@ -1609,6 +1614,7 @@ function connectWS() {
             const isNew = !knownViewers.has(msg.viewerId);
             knownViewers.add(msg.viewerId);
             if (msg.viewerRegion) _viewerRegions[msg.viewerId] = String(msg.viewerRegion).toLowerCase().slice(0, 2);
+            if (typeof msg.supportsWebCodecs === 'boolean') _viewerWcSupport[msg.viewerId] = msg.supportsWebCodecs;
             if (isNew) {
                 log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' joined', 'ok');
             } else {
@@ -1653,6 +1659,7 @@ function connectWS() {
         if (msg.type === 'viewer-left') {
             knownViewers.delete(msg.viewerId);
             delete _viewerRegions[msg.viewerId];
+            delete _viewerWcSupport[msg.viewerId];
             _removeViewerVAD(msg.viewerId);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
@@ -2001,9 +2008,12 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
     }
 
     targetStream.getTracks().forEach(track => {
-        if (track.kind === 'video' && forceWc) {
+        const viewerSupportsWc = _viewerWcSupport[viewerId] !== false;
+        if (track.kind === 'video' && forceWc && viewerSupportsWc) {
             console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
             return;
+        } else if (track.kind === 'video' && forceWc && !viewerSupportsWc) {
+            console.warn(`[WebRTC] Attaching standard WebRTC video fallback track for ${viewerId} (Viewer lacks WebCodecs API on insecure HTTP context)`);
         }
 
         const sender = pc.addTrack(track, targetStream);
@@ -3999,8 +4009,9 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
             if (!st.t0) st.t0 = nowMs;
             if (chunk) {
                 const lagMs = nowMs - chunk.timestamp / 1000;
+                st.n++; // ALWAYS increment when a chunk is emitted
                 if (lagMs >= 0 && lagMs < 10000) {
-                    st.n++; st.lagSum += lagMs;
+                    st.lagSum += lagMs;
                     if (lagMs > st.lagMax) st.lagMax = lagMs;
                 }
             }
@@ -4166,11 +4177,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         if (typeof log === 'function') log('Hardware encoder failed, using software encoding instead.', 'warn');
     }
 
-    let encoder = new VideoEncoder({
-        output: _wcOutput,
-        error: _wcHwError
-    });
-    _wcEncoder = encoder;
+    // Encoder is instantiated below after config checking
 
     // Derive codec string from the host's UI selection so AV1/VP9/H264 are honored.
     // WebCodecs codec strings differ from WebRTC mimeTypes — map them explicitly.
@@ -4210,72 +4217,38 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         width: encWidth,
         height: encHeight,
         bitrate: sliderBitrate > 0 ? sliderBitrate : dynamicBitrate,
-        // User's configured framerate first (quality_fps), track default second.
         framerate: _userTargetFps,
-        // 3.0.4 used no-preference here — but Chrome 138→153 changed the
-        // roulette: with a GPU present-but-unusable-in-sandbox, no-preference
-        // can route into a hung VAAPI attempt (frames in, zero out, no
-        // errors) instead of cleanly falling back. prefer-software is
-        // deterministic and proven (even saturated it degrades to ~15fps,
-        // never zero). HW stays available to every other platform/selection.
-        hardwareAcceleration: _wcLinuxVp9 ? 'prefer-software' : (_wcCodecSel === 'VP8' ? 'prefer-software' : 'prefer-hardware'),
+        hardwareAcceleration: 'no-preference',
         latencyMode: 'realtime'
     };
 
-    const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
-    if (degPref === 'maintain-framerate' && (_wcCodecStr.startsWith('vp09') || _wcCodecStr.startsWith('av01') || _wcCodecStr.startsWith('vp8'))) {
-        wcConfig.scalabilityMode = 'L1T2';
-    }
+    // Do not inject scalabilityMode (SVC) here. 
+    // It causes AMD VAAPI hardware encoders to crash on Linux, 
+    // and wedges the VP8 software encoder (which falsely claims to support it).
 
     let supported = await VideoEncoder.isConfigSupported(wcConfig);
     if (!supported.supported) {
-        console.warn(`[WebCodecs] Primary config not supported by hardware. Stripping SVC (scalabilityMode)...`);
-        delete wcConfig.scalabilityMode;
-        supported = await VideoEncoder.isConfigSupported(wcConfig);
-        
-        if (!supported.supported && wcConfig.codec.startsWith('avc1')) {
-            console.warn(`[WebCodecs] H.264 profile unsupported! Attempting High Profile fallback...`);
-            wcConfig.codec = 'avc1.64002a';
-            supported = await VideoEncoder.isConfigSupported(wcConfig);
-            if (!supported.supported) {
-                console.warn(`[WebCodecs] High profile unsupported! Attempting Baseline Profile fallback...`);
-                wcConfig.codec = 'avc1.42002A';
-                supported = await VideoEncoder.isConfigSupported(wcConfig);
-            }
-        }
-        
-        if (!supported.supported) {
-            console.warn(`[WebCodecs] Config still unsupported! Forcing software encoding...`);
-            wcConfig.hardwareAcceleration = 'prefer-software';
-            if (typeof log === 'function') log('Hardware encoding rejected by OS. Using software.', 'warn');
-            supported = await VideoEncoder.isConfigSupported(wcConfig);
-            
-            if (!supported.supported) {
-                console.error(`[WebCodecs] FATAL: Codec completely unsupported by browser! Falling back to safe VP8 baseline.`);
-                wcConfig.codec = 'vp8';
-                wcConfig.hardwareAcceleration = 'prefer-software';
-                if (document.getElementById('codecSelect')) {
-                    document.getElementById('codecSelect').value = 'VP8';
-                }
-                if (typeof log === 'function') {
-                    log('Selected codec unsupported by OS. Forced software VP8.', 'error');
-                }
-            }
-        }
+        console.warn(`[WebCodecs] Primary config not supported. Hardware might not support this profile.`);
     }
 
-    encoder.configure(wcConfig);
-    encoder._lastConfig = wcConfig;
-    const isHw = wcConfig.hardwareAcceleration === 'prefer-hardware';
-    // Detect hardware acceleration support for this codec
-    let hwAccelSupported = false;
+    let encoder;
     try {
-        const { detectCodecSupport } = await import('./core/hw-accel-detect.js');
-        const support = await detectCodecSupport(wcConfig.codec);
-        hwAccelSupported = support.hardwareAccel;
-    } catch (_) { }
-    console.log(`[WebCodecs] Encoder configured with codec: ${wcConfig.codec} (from UI: ${_wcCodecSel}, accel: ${wcConfig.hardwareAcceleration}) — auto-fallback to software armed on driver failure.`);
-    if (typeof log === 'function') log(`Encoder: ${wcConfig.codec} (${isHw ? 'Hardware' : 'Software'})`, isHw ? 'ok' : 'warn');
+        encoder = new VideoEncoder({
+            output: _wcOutput,
+            error: _wcHwError
+        });
+        
+        // Ensure _lastConfig correctly tracks the initial state
+        encoder._lastConfig = Object.assign({}, wcConfig);
+        encoder.configure(wcConfig);
+    } catch (e) {
+        console.error('[WebCodecs] Encoder initialization failed:', e);
+        _wcHwError(e);
+        return;
+    }
+    _wcEncoder = encoder;
+
+    console.log(`[WebCodecs] Encoder configured with codec: ${wcConfig.codec} (accel: ${wcConfig.hardwareAcceleration})`);
 
     const processor = new MediaStreamTrackProcessor({ track: videoTrack });
     const reader = processor.readable.getReader();
@@ -4330,15 +4303,11 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                     window._wcH264ConfigSent = false;
                 }
 
-                // Direct encode of the source frame (3.0.4 shape) — see above.
-                const frameToEncode = frame;
+                // Direct encode of the source frame (used by hardware and software)
+                let frameToEncode = frame;
 
-                // Increased queue tolerance from 2 to 10 to prevent micro-stutters when
-                // the hardware encoder takes slightly longer than 16ms to process a complex frame.
-                // 3.0.4-proven backpressure: one queued frame max, drop the rest.
-                // No lag-tracker, no pacing gate — those post-3.0.4 additions
-                // stacked drops on top of drops and oscillated at 70fps.
-                if (encoder.encodeQueueSize > 1) {
+                // 3.0.1 backpressure: two queued frames max
+                if (encoder.encodeQueueSize > 2) {
                     _bumpDrop('dQ');
                     frameToEncode.close();
                 } else {
