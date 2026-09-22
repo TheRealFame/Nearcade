@@ -907,11 +907,9 @@ function setAudDot(state, label) {
 async function renderUrls(d) {
     // 1. Fetch the REAL host name and tunnel provider from your backend config FIRST
     let hostName = 'A player';
-    let isPortForward = false;
     try {
         const cfg = await fetch('/api/config').then(r => r.json());
         if (cfg && cfg.hostName) hostName = cfg.hostName;
-        if (cfg && cfg.tunnelProvider === 'portforward') isPortForward = true;
     } catch (e) { }
 
 
@@ -945,11 +943,12 @@ async function renderUrls(d) {
         rows.push({ url: finalTunnelUrl, label: 'HTTPS tunnel (v3) ← share this', color: 'var(--accent)' });
     } else if (window._vpsConfig && window._vpsConfig.vpsEnabled && !finalTunnelUrl) {
         rows.push({ url: 'VPS SFU mode — connecting...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
-    } else if (!isPortForward) {
+    } else {
         rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
     }
 
     if (!window._isP2P && !isPlaygroundHost) {
+        rows.push({ url: `http://localhost:${d.port}/?v3${pipeArg}`, label: 'Local (v3) — this machine only', color: '#555' });
         rows.push({ url: `http://${d.lanIP}:${d.port}/?v3${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
     }
 

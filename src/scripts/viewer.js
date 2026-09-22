@@ -345,12 +345,11 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 
 (function checkSecureContext() {
     if (typeof VideoDecoder === 'undefined' || !window.isSecureContext) {
-        // Wait for DOM
-        document.addEventListener('DOMContentLoaded', () => {
-            const vcPanel = document.getElementById('vcPanel');
-            if (!vcPanel) return;
+        const renderWarning = () => {
+            const pinCard = document.querySelector('.pin-card');
+            if (!pinCard) return;
             
-            const connectBtn = document.getElementById('connectBtn') || document.querySelector('button[onclick="submitPin()"]');
+            const connectBtn = document.querySelector('button[onclick="submitPin()"]');
             if (connectBtn) connectBtn.style.display = 'none';
 
             const warnDiv = document.createElement('div');
@@ -369,8 +368,7 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
                 </div>
             `;
             
-            const formTarget = vcPanel.querySelector('.room-form') || vcPanel;
-            formTarget.insertBefore(warnDiv, formTarget.firstChild);
+            pinCard.insertBefore(warnDiv, pinCard.firstChild);
 
             document.getElementById('proceedInsecureBtn').onclick = () => {
                 warnDiv.style.display = 'none';
@@ -389,7 +387,13 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
                     };
                 }
             }).catch(() => {});
-        });
+        };
+
+        if (document.readyState !== 'loading') {
+            renderWarning();
+        } else {
+            document.addEventListener('DOMContentLoaded', renderWarning);
+        }
     }
 })();
 
