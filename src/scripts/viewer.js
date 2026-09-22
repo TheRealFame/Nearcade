@@ -342,6 +342,57 @@ let useVps = false;
 let myName = localStorage.getItem('ns_name') || urlParamsGlobal.get('name') || '';
 document.getElementById("nameInput").value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
 if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
+
+(function checkSecureContext() {
+    if (typeof VideoDecoder === 'undefined' || !window.isSecureContext) {
+        // Wait for DOM
+        document.addEventListener('DOMContentLoaded', () => {
+            const vcPanel = document.getElementById('vcPanel');
+            if (!vcPanel) return;
+            
+            const connectBtn = document.getElementById('connectBtn') || document.querySelector('button[onclick="submitPin()"]');
+            if (connectBtn) connectBtn.style.display = 'none';
+
+            const warnDiv = document.createElement('div');
+            warnDiv.style = "background:rgba(30,10,10,0.9); border:1px solid #a44; color:#ddd; padding:15px; margin-bottom:15px; border-radius:8px; font-size:14px; text-align:left; line-height:1.4;";
+            warnDiv.innerHTML = `
+                <div style="color:#ff6b6b;font-weight:bold;margin-bottom:8px;font-size:16px;">⚠️ Secure Connection Recommended</div>
+                <div style="margin-bottom:10px;">Your browser has disabled hardware video decoding (WebCodecs) because this is an insecure HTTP connection. You may experience a black screen.</div>
+                
+                <div id="secureTunnelHint" style="display:none;margin-bottom:10px;padding:10px;background:#1a2b1a;border:1px solid #4a4;border-radius:6px;">
+                    <b style="color:#4a4;">A secure HTTPS tunnel is available!</b><br>
+                    <button id="tunnelSwitchBtn" style="margin-top:8px;padding:8px 12px;background:#2a2;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:bold;width:100%;">Switch to Secure Connection</button>
+                </div>
+                
+                <div style="display:flex;justify-content:center;">
+                    <button id="proceedInsecureBtn" style="padding:8px 12px;background:transparent;color:#aaa;border:1px solid #555;border-radius:4px;cursor:pointer;width:100%;">Proceed Anyway</button>
+                </div>
+            `;
+            
+            const formTarget = vcPanel.querySelector('.room-form') || vcPanel;
+            formTarget.insertBefore(warnDiv, formTarget.firstChild);
+
+            document.getElementById('proceedInsecureBtn').onclick = () => {
+                warnDiv.style.display = 'none';
+                if (connectBtn) connectBtn.style.display = '';
+            };
+
+            const hostUrl = urlParamsGlobal.get('host') || '';
+            safeApiJson(hostUrl + '/api/info', {}).then(info => {
+                if (info && info.tunnelUrl) {
+                    document.getElementById('secureTunnelHint').style.display = 'block';
+                    document.getElementById('tunnelSwitchBtn').onclick = () => {
+                        const targetUrl = new URL(info.tunnelUrl);
+                        const currentUrl = new URL(window.location.href);
+                        currentUrl.searchParams.forEach((value, key) => targetUrl.searchParams.set(key, value));
+                        window.location.href = targetUrl.toString();
+                    };
+                }
+            }).catch(() => {});
+        });
+    }
+})();
+
 // -- PRE-JOIN HOST INFO --
 (function fetchHostInfo() {
   const hostUrl = urlParamsGlobal.get('host');
@@ -4716,33 +4767,8 @@ function _wcRenderLoop() {
 }
 
 async function initWebCodecsViewer(config) {
-    if (typeof VideoDecoder === 'undefined' || !window.isSecureContext) {
-        console.warn('[WebCodecs] VideoDecoder API is not available (insecure HTTP context).');
-        
-        // Try to silently redirect to the active HTTPS tunnel to unlock WebCodecs
-        try {
-            const res = await fetch('/api/info');
-            const info = await res.json();
-            if (info && info.tunnelUrl) {
-                document.body.innerHTML = '<div style="color:white;text-align:center;margin-top:20vh;font-family:sans-serif;">Optimizing secure connection...</div>';
-                const targetUrl = new URL(info.tunnelUrl);
-                const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.forEach((value, key) => targetUrl.searchParams.set(key, value));
-                window.location.href = targetUrl.toString();
-                return;
-            }
-        } catch (_) {}
-
-        // If no tunnel, show a very gentle, non-terrifying message
-        const gentleDiv = document.createElement('div');
-        gentleDiv.style = "position:absolute;top:0;left:0;width:100%;height:100%;background:#111;color:#fff;z-index:999999;display:flex;justify-content:center;align-items:center;font-family:sans-serif;text-align:center;padding:20px;";
-        gentleDiv.innerHTML = `
-            <div>
-                <h2 style="font-weight:normal;">Secure Connection Required</h2>
-                <p style="color:#aaa;max-width:400px;margin:10px auto;">High-performance WebCodecs streaming requires an HTTPS connection. Please ask the Host to enable a Tunnel, or access via localhost.</p>
-            </div>
-        `;
-        document.body.appendChild(gentleDiv);
+    if (typeof VideoDecoder === 'undefined') {
+        console.warn('[WebCodecs] VideoDecoder API is not available. Hardware decoding disabled.');
         return;
     }
 

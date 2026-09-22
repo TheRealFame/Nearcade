@@ -1374,18 +1374,6 @@ const PROVIDERS = [
 
   // ── Extra reverse tunnels ──
   {
-    id: 'bore', name: 'bore', type: 'reverse', category: 'extra',
-    pricing: 'free', difficulty: 'manual',
-    description: 'Minimal Rust tunnel. Run your own server or use public bore.pub.',
-    tags: ['binary', 'rust', 'self-hosted'],
-    binaryNames: ['bore'],
-    start: (port) => startTunnelBore(port),
-    detect: async () => {
-      const p = await findBinaryPath('bore');
-      return { found: !!p, path: p };
-    },
-  },
-  {
     id: 'ngrok', name: 'ngrok', type: 'reverse', category: 'extra',
     pricing: 'paid', difficulty: 'easy',
     description: 'Popular tunnel. Heavy rate limiting on free plan. Requires account token.',
@@ -1394,18 +1382,6 @@ const PROVIDERS = [
     start: (port) => startTunnelNgrok(port),
     detect: async () => {
       const p = await findBinaryPath('ngrok');
-      return { found: !!p, path: p };
-    },
-  },
-  {
-    id: 'frp', name: 'frp', type: 'reverse', category: 'extra',
-    pricing: 'free', difficulty: 'manual',
-    description: 'Self-hosted reverse proxy. Run frps on a VPS, frpc locally.',
-    tags: ['binary', 'go', 'self-hosted'],
-    binaryNames: ['frpc', 'frp'],
-    start: (port) => startTunnelFrp(port),
-    detect: async () => {
-      const p = await findBinaryPath('frpc') || await findBinaryPath('frp');
       return { found: !!p, path: p };
     },
   },
@@ -1421,79 +1397,10 @@ const PROVIDERS = [
       return { found: !!p, path: p };
     },
   },
-  {
-    id: 'tailscale-serve', name: 'Tailscale Serve', type: 'reverse', category: 'extra',
-    pricing: 'free', difficulty: 'easy',
-    description: 'Expose to your tailnet via Tailscale Serve. Free, no account needed beyond Tailscale.',
-    tags: ['binary', 'tailscale'],
-    binaryNames: ['tailscale'],
-    start: (port) => startTunnelTailscaleServe(port),
-    detect: async () => {
-      const p = await findBinaryPath('tailscale');
-      return { found: !!p, path: p };
-    },
-  },
 
   // ── Mesh VPN ──
-  {
-    id: 'tailscale-mesh', name: 'Tailscale (Mesh)', type: 'mesh', category: 'extra',
-    pricing: 'free', difficulty: 'easy',
-    description: 'WireGuard-based mesh VPN. Both sides install. Connect via 100.x.x.x:port.',
-    tags: ['binary', 'mesh', 'wireguard'],
-    binaryNames: ['tailscale'],
-    start: (port) => startTunnelTailscaleMesh(port),
-    detect: async () => {
-      const p = await findBinaryPath('tailscale');
-      const ip = getTailscaleIP();
-      return { found: !!ip, path: p, extra: { tailscaleIP: ip } };
-    },
-  },
-  {
-    id: 'zerotier', name: 'ZeroTier', type: 'mesh', category: 'extra',
-    pricing: 'free', difficulty: 'setup',
-    description: 'SD-WAN mesh. Viewers join same network ID. Direct P2P after handshake.',
-    tags: ['binary', 'mesh'],
-    binaryNames: ['zerotier-cli', 'zerotier-one'],
-    start: (port) => startTunnelZeroTier(port),
-    detect: async () => {
-      const p = await findBinaryPath('zerotier-cli').catch(() => null);
-      return { found: !!p, path: p };
-    },
-  },
-  {
-    id: 'netmaker', name: 'Netmaker', type: 'mesh', category: 'extra',
-    pricing: 'free', difficulty: 'manual',
-    description: 'Self-hosted WireGuard mesh. Requires a VPS as controller.',
-    tags: ['mesh', 'wireguard', 'self-hosted'],
-    requiresBinary: false,
-    binaryNames: [],
-    start: (port) => startTunnelNetmaker(port),
-    detect: async () => ({ found: false }),
-  },
 
   // ── Other ──
-  {
-    id: 'portforward', name: 'Port Forwarding', type: 'other', category: 'primary',
-    pricing: 'free', difficulty: 'manual',
-    description: 'Open port 3000 on your router. Direct connection, no tunnel binary.',
-    tags: ['router'],
-    requiresBinary: false,
-    binaryNames: [],
-    start: (port) => Promise.resolve({ error: 'MANUAL_SETUP', provider: 'portforward', url: 'manual' }),
-    detect: async () => ({ found: false }),
-  },
-  {
-    id: 'wireguard-direct', name: 'WireGuard Direct', type: 'other', category: 'extra',
-    pricing: 'free', difficulty: 'manual',
-    description: 'Raw WireGuard tunnel to a VPS. Viewers connect to VPS IP directly.',
-    tags: ['wireguard', 'vps', 'self-hosted'],
-    binaryNames: ['wg', 'wg-quick'],
-    start: (port) => startTunnelWireguardDirect(port),
-    detect: async () => {
-      const p = await findBinaryPath('wg').catch(() => null);
-      return { found: !!p, path: p };
-    },
-  },
 ];
 
 module.exports = {
