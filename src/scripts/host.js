@@ -949,10 +949,14 @@ async function renderUrls(d) {
 
     if (!window._isP2P && !isPlaygroundHost) {
         rows.push({ url: `http://localhost:${d.port}/?v3${pipeArg}`, label: 'Local (v3) — this machine only', color: '#555' });
-        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+        
+        // Only show insecure LAN IPs if WebCodecs is NOT strictly enforced
+        if (!pipeArg.includes('wc=')) {
+            rows.push({ url: `http://${d.lanIP}:${d.port}/?v3${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+        }
     }
 
-    if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost)
+    if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost && !pipeArg.includes('wc='))
         rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
 
     // 3. NOW clear the HTML and append (prevents the async duplication bug)

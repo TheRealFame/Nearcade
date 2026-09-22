@@ -348,32 +348,19 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
         const renderWarning = () => {
             const pinCard = document.querySelector('.pin-card');
             if (!pinCard) return;
-            
-            const connectBtn = document.querySelector('button[onclick="submitPin()"]');
-            if (connectBtn) connectBtn.style.display = 'none';
 
             const warnDiv = document.createElement('div');
-            warnDiv.style = "background:rgba(30,10,10,0.9); border:1px solid #a44; color:#ddd; padding:15px; margin-bottom:15px; border-radius:8px; font-size:14px; text-align:left; line-height:1.4;";
+            warnDiv.style = "background:rgba(255,50,50,0.1); border:1px solid rgba(255,50,50,0.3); color:#ddd; padding:12px; margin-bottom:20px; border-radius:12px; font-size:13px; text-align:center; line-height:1.3;";
             warnDiv.innerHTML = `
-                <div style="color:#ff6b6b;font-weight:bold;margin-bottom:8px;font-size:16px;">⚠️ Secure Connection Recommended</div>
-                <div style="margin-bottom:10px;">Your browser has disabled hardware video decoding (WebCodecs) because this is an insecure HTTP connection. You may experience a black screen.</div>
+                <div style="color:#ff6b6b;font-weight:bold;margin-bottom:4px;font-size:14px;">⚠️ Insecure Connection Detected</div>
+                <div style="margin-bottom:0;color:#aaa;">Hardware decoding disabled. Expect a black screen.</div>
                 
-                <div id="secureTunnelHint" style="display:none;margin-bottom:10px;padding:10px;background:#1a2b1a;border:1px solid #4a4;border-radius:6px;">
-                    <b style="color:#4a4;">A secure HTTPS tunnel is available!</b><br>
-                    <button id="tunnelSwitchBtn" style="margin-top:8px;padding:8px 12px;background:#2a2;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:bold;width:100%;">Switch to Secure Connection</button>
-                </div>
-                
-                <div style="display:flex;justify-content:center;">
-                    <button id="proceedInsecureBtn" style="padding:8px 12px;background:transparent;color:#aaa;border:1px solid #555;border-radius:4px;cursor:pointer;width:100%;">Proceed Anyway</button>
+                <div id="secureTunnelHint" style="display:none;margin-top:12px;">
+                    <button id="tunnelSwitchBtn" style="padding:10px 16px;background:var(--ok);color:#000;border:none;border-radius:8px;cursor:pointer;font-weight:bold;width:100%;font-size:14px;box-shadow:0 4px 12px rgba(0,255,100,0.2);">Switch to Secure Tunnel (Fix)</button>
                 </div>
             `;
             
             pinCard.insertBefore(warnDiv, pinCard.firstChild);
-
-            document.getElementById('proceedInsecureBtn').onclick = () => {
-                warnDiv.style.display = 'none';
-                if (connectBtn) connectBtn.style.display = '';
-            };
 
             const hostUrl = urlParamsGlobal.get('host') || '';
             safeApiJson(hostUrl + '/api/info', {}).then(info => {
