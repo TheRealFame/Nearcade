@@ -230,7 +230,7 @@ mod ctrlc_shim {
     #[cfg(windows)]
     mod windows_console {
         #[link(name = "kernel32")]
-        extern "system" {
+        unsafe extern "system" {
             pub fn SetConsoleCtrlHandler(
                 handler: Option<extern "system" fn(u32) -> i32>,
                 add: i32,

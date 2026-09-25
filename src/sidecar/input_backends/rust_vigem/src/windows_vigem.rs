@@ -153,32 +153,34 @@ fn handle_binary_payload(slot: u8, payload: &[u8], state_mux: &Arc<Mutex<AppStat
     let hx = payload[13] as i8;
     let hy = payload[14] as i8;
     
-    let mut gamepad = vigem_client::XGamepad {
+    let gamepad = vigem_client::XGamepad {
         thumb_lx: lx,
         thumb_ly: -ly,
         thumb_rx: rx,
         thumb_ry: -ry,
         left_trigger: lt,
         right_trigger: rt,
-        buttons: vigem_client::XButtons!(
-            UP: hy == -1,
-            DOWN: hy == 1,
-            LEFT: hx == -1,
-            RIGHT: hx == 1,
-            START: (cpp_btns & (1 << 9)) != 0,
-            BACK: (cpp_btns & (1 << 8)) != 0,
-            LEFT_THUMB: (cpp_btns & (1 << 10)) != 0,
-            RIGHT_THUMB: (cpp_btns & (1 << 11)) != 0,
-            LEFT_SHOULDER: (cpp_btns & (1 << 4)) != 0,
-            RIGHT_SHOULDER: (cpp_btns & (1 << 5)) != 0,
-            A: (cpp_btns & (1 << 0)) != 0,
-            B: (cpp_btns & (1 << 1)) != 0,
-            X: (cpp_btns & (1 << 2)) != 0,
-            Y: (cpp_btns & (1 << 3)) != 0
-        )
+        buttons: {
+            let mut raw: u16 = 0;
+            if hy == -1 { raw |= vigem_client::XButtons::UP; }
+            if hy == 1 { raw |= vigem_client::XButtons::DOWN; }
+            if hx == -1 { raw |= vigem_client::XButtons::LEFT; }
+            if hx == 1 { raw |= vigem_client::XButtons::RIGHT; }
+            if (cpp_btns & (1 << 9)) != 0 { raw |= vigem_client::XButtons::START; }
+            if (cpp_btns & (1 << 8)) != 0 { raw |= vigem_client::XButtons::BACK; }
+            if (cpp_btns & (1 << 10)) != 0 { raw |= vigem_client::XButtons::LTHUMB; }
+            if (cpp_btns & (1 << 11)) != 0 { raw |= vigem_client::XButtons::RTHUMB; }
+            if (cpp_btns & (1 << 4)) != 0 { raw |= vigem_client::XButtons::LB; }
+            if (cpp_btns & (1 << 5)) != 0 { raw |= vigem_client::XButtons::RB; }
+            if (cpp_btns & (1 << 0)) != 0 { raw |= vigem_client::XButtons::A; }
+            if (cpp_btns & (1 << 1)) != 0 { raw |= vigem_client::XButtons::B; }
+            if (cpp_btns & (1 << 2)) != 0 { raw |= vigem_client::XButtons::X; }
+            if (cpp_btns & (1 << 3)) != 0 { raw |= vigem_client::XButtons::Y; }
+            vigem_client::XButtons { raw }
+        },
     };
     
-    let _ = target.request_update(gamepad);
+    let _ = target.update(&gamepad);
 }
 
 fn handle_json_message(msg: InMessage, state_mux: &Arc<Mutex<AppState>>) {
@@ -194,7 +196,14 @@ fn handle_json_message(msg: InMessage, state_mux: &Arc<Mutex<AppState>>) {
         "allocate_slot" => {
             if let (Some(pad), Some(slot)) = (msg.pad_id, msg.slot) {
                 if !st.devices.contains_key(&pad) {
-                    let mut target = Xbox360Wired::new(st.client.clone(), TargetId::XBOX360_WIRED);
+                    let client = match st.client.try_clone() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            error(&format!("Failed to clone ViGEm client: {}", e), "VIGEMBUS_CREATE_FAILED");
+                            return;
+                        }
+                    };
+                    let mut target = Xbox360Wired::new(client, TargetId::XBOX360_WIRED);
                     match target.plugin() {
                         Ok(_) => {
                             st.devices.insert(pad.clone(), target);
@@ -218,7 +227,7 @@ fn handle_json_message(msg: InMessage, state_mux: &Arc<Mutex<AppState>>) {
             let keys: Vec<String> = st.devices.keys().filter(|k| k.starts_with(&vid) || **k == vid).cloned().collect();
             for k in keys {
                 if let Some(mut t) = st.devices.remove(&k) {
-                    let _ = t.request_update(vigem_client::XGamepad::default());
+                    let _ = t.update(&vigem_client::XGamepad::default());
                     let _ = t.unplug();
                 }
             }

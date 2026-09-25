@@ -7,7 +7,7 @@ authors     = ["Nearcade"]
 
 [[bin]]
 name = "nearcade-router"
-path = "src/main.rs"
+path = "src/nearcade_vps.rs"
 
 [dependencies]
 # Async runtime
@@ -34,7 +34,3 @@ lto         = true
 codegen-units = 1
 panic       = "abort"
 strip       = true
-
-[[bin]]
-name = "nearcade_vps"
-path = "src/nearcade_vps.rs"

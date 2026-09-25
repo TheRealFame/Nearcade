@@ -10,8 +10,8 @@ const viewerPath = path.join(__dirname, '..', '..', 'src', 'scripts', 'viewer.js
 const outPath = path.join(__dirname, 'www', 'viewer-sim.js');
 const viewer = fs.readFileSync(viewerPath, 'utf8');
 
-const START = '// ── NEARCADE PROBE SIM CORE: START ─';
-const END = '// ── NEARCADE PROBE SIM CORE: END ─';
+const START = '// -- NEARCADE PROBE SIM CORE: START';
+const END = '// -- NEARCADE PROBE SIM CORE: END';
 
 const parts = [];
 let i = 0;
@@ -20,7 +20,7 @@ while (true) {
   if (s === -1) break;
   const e = viewer.indexOf(END, s);
   if (e === -1) throw new Error('Unterminated SIM CORE marker in ' + viewerPath);
-  parts.push(viewer.slice(s, e).replace(/^\/\/ ── NEARCADE PROBE SIM CORE: START ─.+\n/, ''));
+  parts.push(viewer.slice(s, e).replace(/^\/\/ -- NEARCADE PROBE SIM CORE: START[^\n]*\n/, ''));
   i = e;
 }
 if (!parts.length) throw new Error('No SIM CORE markers found in ' + viewerPath);

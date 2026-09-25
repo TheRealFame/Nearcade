@@ -49,8 +49,8 @@ jobs:
           file: ./vps/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ghcr.io/${{ github.owner }}/${{ github.event.repository.name }}-router:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.owner }}/${{ github.event.repository.name }}-router:latest
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-router:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-router:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -59,7 +59,7 @@ jobs:
       - name: Verify image (pull test)
         if: github.event_name == 'pull_request'
         run: |
-          docker pull ghcr.io/${{ github.owner }}/${{ github.event.repository.name }}-router:${{ steps.version.outputs.version }}
+          docker pull ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-router:${{ steps.version.outputs.version }}
 
       - name: Upload artifact (for PRs)
         if: github.event_name == 'pull_request'

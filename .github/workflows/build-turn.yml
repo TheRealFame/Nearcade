@@ -48,9 +48,9 @@ jobs:
       run: |
         mkdir -p dist
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp tools/nearcade-turn/target/${{ matrix.target }}/release/nearcade-turn.exe dist/${{ matrix.artifact_name }}
+          cp tools/nearcade-turn/target/${{ matrix.target }}/release/nearcade_turn.exe dist/${{ matrix.artifact_name }}
         else
-          cp tools/nearcade-turn/target/${{ matrix.target }}/release/nearcade-turn dist/${{ matrix.artifact_name }}
+          cp tools/nearcade-turn/target/${{ matrix.target }}/release/nearcade_turn dist/${{ matrix.artifact_name }}
         fi
 
     - name: Upload Artifact

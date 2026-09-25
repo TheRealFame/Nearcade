@@ -15,8 +15,8 @@ function check(name, cond, detail) {
 // ── 1. Extraction integrity ───────────────────────────────────────────────────
 const viewer = fs.readFileSync(path.join(__dirname, '../../src/scripts/viewer.js'), 'utf8');
 const viewerSim = fs.readFileSync(path.join(__dirname, 'www/viewer-sim.js'), 'utf8');
-const START = '// ── NEARCADE PROBE SIM CORE: START ─';
-const END = '// ── NEARCADE PROBE SIM CORE: END ─';
+const START = '// -- NEARCADE PROBE SIM CORE: START';
+const END = '// -- NEARCADE PROBE SIM CORE: END';
 
 const blocks = [];
 let i = 0;
@@ -25,7 +25,7 @@ while (true) {
   if (s === -1) break;
   const e = viewer.indexOf(END, s);
   if (e === -1) throw new Error('unterminated marker');
-  blocks.push(viewer.slice(s, e).replace(/^\/\/ ── NEARCADE PROBE SIM CORE: START ─.+\n/, ''));
+  blocks.push(viewer.slice(s, e).replace(/^\/\/ -- NEARCADE PROBE SIM CORE: START[^\n]*\n/, ''));
   i = e;
 }
 check('sim core has 2 marker blocks in viewer.js', blocks.length === 2, 'blocks=' + blocks.length);

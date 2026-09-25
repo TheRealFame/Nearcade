@@ -20,34 +20,19 @@ function lookupCalibMap(gp) {
     if (smartDb[gp.id]) return smartDb[gp.id];
     if (smartDb[safeId]) return smartDb[safeId];
     
-    // Check for Steam virtual Xbox masking DualSense
-    const idLower = gp.id.toLowerCase();
-    const isSteamVirtualXbox = idLower.includes('xbox one s') || idLower.includes('045e-02ea') || idLower.includes('x-box one s');
-    
-    if (isSteamVirtualXbox) {
-        for (const [key, map] of Object.entries(smartDb)) {
-            const keyLower = key.toLowerCase();
-            if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
-                keyLower.includes('playstation') || keyLower.includes('dualshock') ||
-                keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
-                return map;
-            }
-        }
-        for (const [key, map] of Object.entries(calibMaps)) {
-            const keyLower = key.toLowerCase();
-            if (keyLower.includes('dualsense') || keyLower.includes('dual sense') || 
-                keyLower.includes('playstation') || keyLower.includes('dualshock') ||
-                keyLower.includes('sony') || keyLower.includes('054c-0ce6') || keyLower.includes('054c-09cc')) {
-                return map;
-            }
-        }
-    }
-    
     for (const [key, map] of Object.entries(smartDb)) {
         const keyPrefix = key.split('(')[0].trim().toLowerCase();
         const idPrefix = gp.id.split('(')[0].trim().toLowerCase();
         if (keyPrefix && idPrefix && (gp.id.includes(key) || key.includes(gp.id) || keyPrefix === idPrefix)) return map;
     }
+    
+    // Fallback: If Steam masks the pad as an Xbox One S controller (045e-02ea) but it has 17+ buttons, it might be a DualSense.
+    if (gp.id.includes('045e-02ea') && gp.buttons.length >= 17) {
+        for (const key of Object.keys(smartDb)) {
+            if (key.includes('DualSense')) return smartDb[key];
+        }
+    }
+    
     return null;
 }
 
@@ -70,16 +55,17 @@ function applyCalibration(gp, state) {
     // multiplied by 32767 AGAIN, producing ~1 billion (right stick garbage/overflow).
     // Also apply the active deadzone so calibrated axes get the same filtering
     // as the polling loop already applies to the left stick.
-    const _dz = m.rdz !== undefined ? m.rdz : (window._globalDeadzone !== undefined ? window._globalDeadzone : 0.05);
+    const dzX = window._globalDeadzoneX ?? 0.05;
+    const dzY = window._globalDeadzoneY ?? 0.05;
     const _rsens = m.rsens !== undefined ? m.rsens : (window._globalSens !== undefined ? window._globalSens : 1.0);
-    const _applyDz = (v) => {
-        if (Math.abs(v) < _dz) return 0;
-        return Math.sign(v) * ((Math.abs(v) - _dz) / (1.0 - _dz));
+    const _applyDz = (v, dz) => {
+        if (Math.abs(v) < dz) return 0;
+        return Math.sign(v) * ((Math.abs(v) - dz) / (1.0 - dz));
     };
     const rx = readStick(m.rsx);
     const ry = readStick(m.rsy);
-    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx * _rsens)));
-    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry * _rsens)));
+    if (rx !== null) state.axes[2] = _applyDz(Math.max(-1.0, Math.min(1.0, rx * _rsens)), dzX);
+    if (ry !== null) state.axes[3] = _applyDz(Math.max(-1.0, Math.min(1.0, ry * _rsens)), dzY);
     function readTrigger(mp) {
         if (!mp) return 0;
         if (mp.type === 'btn') return Math.round((gp.buttons[mp.idx]?.value || 0) * 255);
@@ -98,15 +84,17 @@ function applyCalibration(gp, state) {
 // changed, mirroring the original inline logic.
 function applyGamepadDzSens(gp, cache, state, gpDeadzones, gpSens) {
     const idx = gp.index;
-    const ldz = gpDeadzones[idx] !== undefined ? gpDeadzones[idx] : window._globalDeadzone ?? 0.05;
-    const rdz = gpDeadzones[idx + 0.5] !== undefined ? gpDeadzones[idx + 0.5] : window._globalDeadzone ?? 0.05;
     const lsens = gpSens[idx] !== undefined ? gpSens[idx] : window._globalSens ?? 1.0;
     const rsens = gpSens[idx + 0.5] !== undefined ? gpSens[idx + 0.5] : window._globalSens ?? 1.0;
+    
+    const dzX = window._globalDeadzoneX ?? 0.05;
+    const dzY = window._globalDeadzoneY ?? 0.05;
+
     let changed = false;
     for (let i = 0; i < 4; i++) {
         let val = gp.axes[i] || 0;
         const isRightStick = i >= 2;
-        const dz = isRightStick ? rdz : ldz;
+        const dz = (i % 2 === 0) ? dzX : dzY;
         const sens = isRightStick ? rsens : lsens;
         if (Math.abs(val) < dz) val = 0;
         else val = Math.sign(val) * ((Math.abs(val) - dz) / (1 - dz));
