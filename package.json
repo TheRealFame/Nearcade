@@ -60,6 +60,9 @@
     "electron-builder": "^25.1.8",
     "wrangler": "^4.90.0"
   },
+  "overrides": {
+    "node-abi": "^3.96.0"
+  },
   "build": {
     "appId": "com.nearcade.app",
     "productName": "Nearcade",
