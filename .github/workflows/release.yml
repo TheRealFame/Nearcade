@@ -270,12 +270,14 @@ jobs:
       - name: Verify updater metadata + release marking
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ github.ref_name }}"
           echo "verifying release $TAG ..."
           MISSING=""
           for i in $(seq 1 30); do
-            ASSETS=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")' 2>/dev/null || echo "")
+            ASSETS=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")' || echo "")
+            echo "attempt $i: assets=[$ASSETS]"
             MISSING=""
             # Only require latest-*.yml files for platforms that generate them
             for f in latest-linux.yml latest-mac.yml; do
