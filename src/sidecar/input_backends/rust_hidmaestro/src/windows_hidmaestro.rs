@@ -134,20 +134,19 @@ fn dispatch_vigem_fallback(slot: u8, lx: f64, ly: f64, rx: f64, ry: f64,
         // This path only fires if HmBridge.exe is missing and vigem-client is available.
         if let Ok(client) = Client::connect() {
             let id = TargetId::XBOX360_WIRED;
-            if let Ok(mut target) = Xbox360Wired::new(client, id) {
-                let _ = target.plugin();
-                let _ = target.wait_ready();
-                let gamepad = XGamepad {
-                    buttons: XButtons(btns as u16),
-                    left_trigger: (lt * 255.0) as u8,
-                    right_trigger: (rt * 255.0) as u8,
-                    thumb_lx: (lx * 32767.0) as i16,
-                    thumb_ly: (ly * 32767.0) as i16,
-                    thumb_rx: (rx * 32767.0) as i16,
-                    thumb_ry: (ry * 32767.0) as i16,
-                };
-                let _ = target.update(&gamepad);
-            }
+            let mut target = Xbox360Wired::new(client, id);
+            let _ = target.plugin();
+            let _ = target.wait_ready();
+            let gamepad = XGamepad {
+                buttons: XButtons(btns as u16),
+                left_trigger: (lt * 255.0) as u8,
+                right_trigger: (rt * 255.0) as u8,
+                thumb_lx: (lx * 32767.0) as i16,
+                thumb_ly: (ly * 32767.0) as i16,
+                thumb_rx: (rx * 32767.0) as i16,
+                thumb_ry: (ry * 32767.0) as i16,
+            };
+            let _ = target.update(&gamepad);
         }
     }
 }
