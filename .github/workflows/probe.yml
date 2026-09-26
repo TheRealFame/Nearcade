@@ -101,13 +101,15 @@ jobs:
       - name: Upload Probe Zip to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           # The release may not exist yet (workflows run in parallel on the tag
           # push). Create it idempotently so the upload can never be dropped.
           gh release create ${{ github.ref_name }} --verify-tag --latest=false || true
+          # Hard-fail on upload errors — a dropped probe zip must show up red.
           gh release upload ${{ github.ref_name }} \
-            "release/Nearcade-Gamepad-Probe-${{ github.ref_name }}.zip" --clobber || true
+            "release/Nearcade-Gamepad-Probe-${{ github.ref_name }}.zip" --clobber
 
       - name: Upload Probe Zip Artifact
         uses: actions/upload-artifact@v4

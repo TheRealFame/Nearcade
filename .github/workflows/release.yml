@@ -286,6 +286,17 @@ jobs:
             for f in latest-linux.yml latest-mac.yml; do
               case " $ASSETS " in *" $f "*) ;; *) MISSING="$MISSING $f";; esac
             done
+            # Sidecar artifacts uploaded by the parallel tag workflows
+            # (server/probe/turn, ~4min) — the desktop release takes ~16min,
+            # so they are always present by the time this job runs. Requiring
+            # them turns a silently-dropped release asset into a red run.
+            for f in \
+              "Nearcade-Server-${TAG}.zip" \
+              "Nearcade-Gamepad-Probe-${TAG}.zip" \
+              "Nearcade-Turn-${TAG}.zip" \
+              "nearcade-router-x86_64-unknown-linux-gnu"; do
+              case " $ASSETS " in *" $f "*) ;; *) MISSING="$MISSING $f";; esac
+            done
             # Windows portable doesn't generate latest.yml
             # .zsync only for AppImage (optional)
             # .blockmap only for some targets (optional)
