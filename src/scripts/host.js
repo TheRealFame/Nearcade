@@ -2430,7 +2430,8 @@ async function hotSwapCapture() {
         const resVal = document.getElementById('resSelect')?.value || '1080p';
 
         // Strip artificial height constraints so the browser doesn't crop the screen
-        let videoConstraints = { frameRate: { ideal: fpsVal } };
+        const _isWinConstr = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+        let videoConstraints = _isWinConstr ? {} : { frameRate: { ideal: fpsVal } };
 
         const isWindowsLoc = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
         let mediaPromise;
@@ -2453,7 +2454,7 @@ async function hotSwapCapture() {
                 await window.electronAPI.setSelectedSource(window._lastSourceId, window._lastSourceName);
             }
             if (isWindowsLoc) {
-                const videoConstraint = (isWindowCap) ? {} : { frameRate: { ideal: fpsVal } };
+                const videoConstraint = {}; // Electron 44+ strictly rejects frameRate constraints on WinRT
                 mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraint, audio: false });
             } else {
                 // On Linux and macOS, setDisplayMediaRequestHandler does not suppress the native OS picker!
@@ -2646,7 +2647,8 @@ async function startCapture() {
     // the constrained track delivers NO frames at all (silent encoder, zero
     // output, no errors). Native capture always flows, so it stays native;
     // the encode loop scales as fallback.
-    let videoConstraints = { frameRate: { ideal: fpsVal } };
+    const _isWinConstr2 = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+    let videoConstraints = _isWinConstr2 ? {} : { frameRate: { ideal: fpsVal } };
 
     try {
         let screenStream = null;
@@ -2995,7 +2997,8 @@ async function startCapture() {
                     // video source" (post-resolution, mid-stream) when ANY frameRate
                     // constraint — even ideal-only — is applied to a window capture.
                     // Screen captures tolerate it fine. Omit it entirely for windows.
-                    const videoConstraint = (isWindows && isWindowCap)
+                    // Electron 44+ / Chromium 130+ strictly rejects frameRate constraints on WinRT for BOTH windows and screens.
+                    const videoConstraint = isWindows
                         ? {}
                         : { frameRate: { ideal: fpsVal } };
                     vidStream = await navigator.mediaDevices.getDisplayMedia({
@@ -3707,88 +3710,6 @@ async function restoreTunnelAfterP2PInvite(provider) {
     fetch('/api/info').then(r => r.json()).then(d => { renderUrls(d); }).catch(() => { });
 }
 
-async function startWebCodecsPipeline(videoTrack, dataChannel) {
-    console.log("Initializing WebCodecs VideoEncoder...");
-
-    // 1. Configure the Bare-Metal Hardware Encoder
-    const encoder = new VideoEncoder({
-        output: (chunk, metadata) => {
-            // This callback fires the exact millisecond the GPU finishes encoding a frame.
-            // We immediately hurl the raw bytes over the network.
-            const buffer = new ArrayBuffer(chunk.byteLength);
-            chunk.copyTo(buffer);
-
-            // FIX: On Linux, VaapiVideoEncoder doesn't emit AVCC description for H264.
-            // Extract SPS/PPS from first keyframe and send as webcodecs-config.
-            if (chunk.type === 'key' && chunk.codec.startsWith('avc1') && navigator.userAgent.toLowerCase().includes('linux')) {
-                if (!window._wcH264ConfigSent) {
-                    const bytes = new Uint8Array(buffer);
-                    const cfg = _avccConfigFromAnnexB(bytes, chunk.codedWidth, chunk.codedHeight);
-                    if (cfg) {
-                        const configMsg = JSON.stringify({
-                            type: 'webcodecs-config',
-                            codec: cfg.codec,
-                            codedWidth: cfg.width,
-                            codedHeight: cfg.height,
-                            description: Array.from(cfg.desc)
-                        });
-                        window._wcH264ConfigSent = true;
-                        if (dataChannel.readyState === 'open') {
-                            dataChannel.send(configMsg);
-                            console.log('[WebCodecs] Sent H264 AVCC description for Linux viewers');
-                        }
-                    }
-                }
-            }
-
-            // Send chunk data & type (keyframe vs delta frame)
-            const payload = JSON.stringify({
-                type: chunk.type,
-                timestamp: chunk.timestamp,
-                data: Array.from(new Uint8Array(buffer)) // Serialize for transport
-            });
-
-            if (dataChannel.readyState === 'open') {
-                dataChannel.send(payload);
-            }
-        },
-        error: (err) => {
-            console.error("WebCodecs Encoding Error:", err);
-        }
-    });
-
-    // 2. Enforce ultra-low latency hardware parameters
-    encoder.configure({
-        codec: 'avc1.42002A', // H.264 Baseline Profile (Fastest decode)
-        width: 1920,
-        height: 1080,
-        bitrate: 8000000,     // 8 Mbps
-        framerate: 60,
-        hardwareAcceleration: 'prefer-hardware',
-        latencyMode: 'realtime' // Throws away jitter buffers!
-    });
-
-    // 3. Rip the raw frames directly from the PipeWire video track
-    const processor = new MediaStreamTrackProcessor({ track: videoTrack });
-    const reader = processor.readable.getReader();
-
-    // 4. The Encoding Loop
-    async function processFrames() {
-        while (true) {
-            const { done, value: frame } = await reader.read();
-            if (done) break;
-
-            // Feed the raw frame to the GPU, then instantly garbage collect it
-            // to prevent memory leaks.
-            encoder.encode(frame);
-            frame.close();
-        }
-    }
-
-    // Start the loop
-    processFrames();
-    console.log("WebCodecs Pipeline is now pushing raw frames.");
-}
 
 async function startSidecarCapture(methodName, sourceId, sourceName) {
     return new Promise(async (resolve, reject) => {
@@ -5275,36 +5196,33 @@ function confirmTunnel() {
     const remember = document.getElementById('rememberCheck').checked;
     setTunnelBusy(true);
 
-    // ── zrok token gate ─────────────────────────────────────────────────────
-    // The token prompt lives in its OWN popup (never the provider list). It
-    // only appears when the user actually intends to start a zrok tunnel AND
-    // no token has been given to this device yet. If the app verifies a token
-    // is already enabled (zrok status authenticated), it never shows.
-    if (provider === 'zrok') {
+    if (provider === 'zrok' || provider === 'cloudflared') {
         fetch('/api/tunnels/providers').then(r => r.json()).then(data => {
-            const zrok = (data.providers || []).find(p => p.id === 'zrok');
+            const zrok = (data.providers || []).find(p => p.id === provider);
             const authed = !!(zrok && zrok.status && zrok.status.authenticated);
             if (authed) {
-                doStartTunnel(provider, remember, '');
+                doStartTunnel(provider, remember, '', '');
             } else {
                 closeTunnelModal();
-                const modal = document.getElementById('zrokTokenModal');
+                const modalId = provider === 'zrok' ? 'zrokTokenModal' : 'cfTokenModal';
+                const inputId = provider === 'zrok' ? 'zrokTokenPasteInput' : 'cfTokenPasteInput';
+                const modal = document.getElementById(modalId);
                 if (modal) {
                     _pendingZrokRemember = remember;
-                    const inp = document.getElementById('zrokTokenPasteInput');
+                    const inp = document.getElementById(inputId);
                     if (inp) { inp.value = ''; inp.focus(); }
                     modal.classList.remove('gone');
                 } else {
-                    doStartTunnel(provider, remember, '');
+                    doStartTunnel(provider, remember, '', '');
                 }
             }
         }).catch(() => {
-            doStartTunnel(provider, remember, '');
+            doStartTunnel(provider, remember, '', '');
         });
         return;
     }
 
-    doStartTunnel(provider, remember, '');
+    doStartTunnel(provider, remember, '', '');
 }
 
 // Resume a zrok tunnel start from the token popup with the pasted token.
@@ -5313,20 +5231,39 @@ function submitZrokToken() {
     if (modal) modal.classList.add('gone');
     const inp = document.getElementById('zrokTokenPasteInput');
     const token = (inp && inp.value || '').trim();
-    doStartTunnel('zrok', _pendingZrokRemember || false, token || 'skip');
+    doStartTunnel('zrok', _pendingZrokRemember || false, token || 'skip', '');
 }
 
-// Resume a zrok tunnel start from the token popup without a token — the user
-// claims zrok is already enabled on this device another way.
+// Resume a zrok tunnel start from the token popup without a token
 function skipZrokToken() {
     const modal = document.getElementById('zrokTokenModal');
     if (modal) modal.classList.add('gone');
-    doStartTunnel('zrok', _pendingZrokRemember || false, 'skip');
+    doStartTunnel('zrok', _pendingZrokRemember || false, 'skip', '');
 }
 
-// Shared tunnel-start path used by confirmTunnel (direct) and the zrok token
-// popup (resume). zrokToken is '' (already authed), a pasted token, or 'skip'.
-function doStartTunnel(provider, remember, zrokToken) {
+function submitCfToken() {
+    const modal = document.getElementById('cfTokenModal');
+    if (modal) modal.classList.add('gone');
+    const inp = document.getElementById('cfTokenPasteInput');
+    const domInp = document.getElementById('cfDomainPasteInput');
+    const token = (inp && inp.value || '').trim();
+    const domain = (domInp && domInp.value || '').trim();
+    
+    // We send domain alongside token, using a compound string or a new field.
+    // Wait, doStartTunnel takes cfToken as a string. Let's send an object if domain is present.
+    // Or just fetch `/api/start-tunnel` with `customUrl`! 
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', token ? { token, domain } : 'skip');
+}
+
+function skipCfToken() {
+    const modal = document.getElementById('cfTokenModal');
+    if (modal) modal.classList.add('gone');
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', 'skip');
+}
+
+// Shared tunnel-start path used by confirmTunnel (direct) and the token
+// popups (resume).
+function doStartTunnel(provider, remember, zrokToken, cfToken) {
 
     if (provider === 'portforward') {
         saveAppConfig({ tunnelProvider: 'portforward', neverAsk: remember });
@@ -5419,7 +5356,7 @@ function doStartTunnel(provider, remember, zrokToken) {
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken })
+        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken, cfToken })
     }).then(() => { clearTimeout(_autoCloseTimer); }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
 }
 
@@ -5792,7 +5729,7 @@ window.startNdi = async function () {
     // If the main capture isn't a valid MediaStream (e.g., stopped or using Native GStreamer), we must get our own.
     if (!currentStream || typeof currentStream === 'string') {
         try {
-            ndiOnlyStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60 } } });
+            ndiOnlyStream = await navigator.mediaDevices.getDisplayMedia({ video: (navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win')) ? {} : { frameRate: { ideal: 60 } } });
         } catch (e) {
             console.error('NDI Capture cancelled:', e);
             return false;
