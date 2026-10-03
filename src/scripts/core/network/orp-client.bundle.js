@@ -315,6 +315,7 @@ var ORPClient = class extends EventEmitter {
             v: 2,
             type: "ice-candidate",
             senderId: this.viewerId,
+            target: "host",
             candidate: ev.candidate.toJSON(),
             ts: Date.now()
           }, this.opts.pin);
@@ -643,6 +644,7 @@ var ORPHostSession = class {
         v: 2,
         type: "ice-candidate",
         senderId: "host",
+        target: senderId,
         candidate: ev.candidate.toJSON(),
         ts: Date.now()
       }, this.pin);

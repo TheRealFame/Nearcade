@@ -60,8 +60,11 @@ let _tunnelBusy = false;
 let _turnCredentials = null;
 
 // Fetch secure TURN credentials from local server on boot
-let _turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
-    if (!c.error && c.urls) _turnCredentials = c;
+let _turnFetchPromise = window._turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
+    if (!c.error && c.urls) {
+        _turnCredentials = c;
+        window._turnCredentials = c;
+    }
     return c;
 }).catch(() => null);
 
@@ -1619,23 +1622,46 @@ function connectWS() {
                     console.log(`[P2P] Skipping standard WebRTC offer for ${msg.viewerId} (Managed by ORP/Trystero)`);
                     
                     // Inject standard WebRTC tracks into the ORP SDK's PeerConnection if WebCodecs is NOT active
+                    const pipelineVal = document.getElementById('pipelineSelect')?.value;
+                    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
                     const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
-                    if (orpViewer && orpViewer.pc && currentStream && !forceWc) {
+                    if (orpViewer && orpViewer.pc && currentStream) {
+                        // 1. Add to peerConnections map so broadcastToViewers can find it
+                        peerConnections[msg.viewerId] = orpViewer.pc;
+                        
+                        // 2. Setup WebCodecs UDP Tunnel if active
+                        if (forceWc) {
+                            orpViewer.pc.wcChannel = orpViewer.pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0, priority: 'low' });
+                            orpViewer.pc.wcChannel.onopen = () => {
+                                console.log(`[WebCodecs][P2P] wcChannel open for ${msg.viewerId}`);
+                                if (_lastWcConfig && orpViewer.pc.wcChannel.readyState === 'open') {
+                                    orpViewer.pc.wcChannel.send(_lastWcConfig);
+                                }
+                                if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                                    _wcForceKeyframe = true;
+                                }
+                            };
+                        }
+
+                        // 3. Inject standard tracks (Audio always, Video only if not WebCodecs)
                         currentStream.getTracks().forEach(track => {
+                            if (track.kind === 'video' && forceWc) {
+                                console.log(`[P2P] Skipping WebRTC video track for ${msg.viewerId} (WebCodecs active)`);
+                                return;
+                            }
                             if (!orpViewer.pc.getSenders().some(s => s.track === track)) {
                                 const sender = orpViewer.pc.addTrack(track, currentStream);
                                 if (track.kind === 'video' && sender.setParameters) {
                                     const params = sender.getParameters();
                                     if (params.encodings && params.encodings.length > 0) {
                                         params.encodings[0].networkPriority = 'high';
-                                        sender.setParameters(params).catch(()=>{});
+                                        sender.setParameters(params).catch(() => {});
                                     }
                                 }
                             }
                         });
                         console.log(`[P2P] Injected standard WebRTC media tracks into ORP SDK for ${msg.viewerId}`);
                         if (typeof window.P2PManager.hostSession.renegotiate === 'function') window.P2PManager.hostSession.renegotiate(msg.viewerId);
-                        // ORP SDK will automatically renegotiate (onnegotiationneeded) or we might need to manually trigger an offer
                     }
 
                     // Immediately inject config for late joiners
@@ -5444,12 +5470,13 @@ function proceedP2POnly() {
 // (proceedP2POnly) and the friend-invite flow (inviteFriendToP2P). Counts
 // connected peers on window._p2pPeerCount so the stop flow can check whether
 // the invited friend has left the session before restoring the tunnel.
-function initP2PHostRoom(code) {
+async function initP2PHostRoom(code) {
     if (!window.P2PManager) return;
 
     window._p2pPeerCount = 0;
 
     // Initialize Trystero
+    if (window._turnFetchPromise) await window._turnFetchPromise;
     window.P2PManager.initHost(code, (msg, peerId) => {
         // Handle binary inputs sent over Trystero (during handshake before WebRTC channel is open)
         if (msg instanceof Uint8Array || msg instanceof ArrayBuffer) {

@@ -170,13 +170,16 @@ let smartDb = {};
 window.smartDb = smartDb;
 
 let _turnCredentials = null;
-let _turnFetchPromise = (async () => {
+let _turnFetchPromise = window._turnFetchPromise = (async () => {
     try {
         const urlParams = new URLSearchParams(window.location.search);
         const hostParam = urlParams.get('host') ? `?host=${urlParams.get('host')}` : '';
         const scheme = location.protocol === 'file:' ? 'http://localhost:3000' : '';
         const res = await fetch(`${scheme}/api/turn${hostParam}`);
-        if (res.ok) _turnCredentials = await res.json();
+        if (res.ok) {
+            _turnCredentials = await res.json();
+            window._turnCredentials = _turnCredentials;
+        }
     } catch (e) { console.warn('Failed to fetch TURN credentials:', e); }
 })();
 
@@ -648,7 +651,13 @@ function maybeShowControllerGuide() {
 }
 // -- PEER CONNECTION -----------------------------------------------------------
 async function createPC() {
-    if (pc) { try { pc.close(); } catch (e) { } }
+    if (pc) {
+        if (window._isP2P && window.P2PManager && window.P2PManager.clientSession && pc === window.P2PManager.clientSession.pc) {
+            console.log('[P2P] createPC: Skipping close() because pc is owned by ORPClient');
+        } else {
+            try { pc.close(); } catch (e) { }
+        }
+    }
     window._wcDcOpen = false; // old DataChannel dead: WS binary path resumes until the new one opens
     console.log('[WebRTC] Initializing new PeerConnection...');
 
@@ -2779,6 +2788,7 @@ async function connect() {
         };
 
         if (window.P2PManager) {
+            if (window._turnFetchPromise) await window._turnFetchPromise;
             window.P2PManager.initViewer(roomCode, (msg) => {
                 if (typeof ws.onmessage === 'function') {
                     ws.onmessage({ data: JSON.stringify(msg) });
@@ -2794,34 +2804,33 @@ async function connect() {
                 // For ORP v2, the WebRTC PC is already created and connected inside ORPClient.
                 // We just extract the PC and bind the video/audio streams.
                 if (window.P2PManager.clientSession && window.P2PManager.clientSession.pc) {
-                    pc = window.P2PManager.clientSession.pc;
-                    
-                    // Emulate the tracks being received so the viewer UI wires them up
-                    pc.getReceivers().forEach(receiver => {
-                        if (receiver.track) {
-                            pc.ontrack({ track: receiver.track, streams: [new MediaStream([receiver.track])], receiver });
+                    // Create the PC (which will take over the ORP PC and attach listeners)
+                    createPC().then(() => {
+                        // After listeners are attached, emulate existing tracks/datachannels
+                        pc.getReceivers().forEach(receiver => {
+                            if (receiver.track && typeof pc.ontrack === 'function') {
+                                pc.ontrack({ track: receiver.track, streams: [new MediaStream([receiver.track])], receiver });
+                            }
+                        });
+                        
+                        // Emulate the datachannel being received for existing channels
+                        if (window.P2PManager.clientSession.dc && typeof pc.ondatachannel === 'function') {
+                            pc.ondatachannel({ channel: window.P2PManager.clientSession.dc });
                         }
+                        
+                        // Listen for incoming channels from ORPClient
+                        window.P2PManager.clientSession.on('datachannel', (channel) => {
+                            console.log(`[P2P] Received remote channel from ORPClient: ${channel.label}`);
+                            if (channel.label === 'orp-input' || channel.label === 'input') {
+                                window.P2PManager.clientSession.dc = channel;
+                            }
+                            if (typeof pc.ondatachannel === 'function') {
+                                pc.ondatachannel({ channel });
+                            }
+                        });
+                        
+                        if (typeof ws.onopen === 'function') ws.onopen();
                     });
-                    
-                    // Emulate the datachannel being received for existing channels
-                    if (window.P2PManager.clientSession.dc) {
-                        pc.ondatachannel({ channel: window.P2PManager.clientSession.dc });
-                    }
-                    
-                    // Listen for incoming channels from ORPClient
-                    window.P2PManager.clientSession.on('datachannel', (channel) => {
-                        console.log(`[P2P] Received remote channel from ORPClient: ${channel.label}`);
-                        // If it's the host's input channel, let's use it for sendToHost!
-                        if (channel.label === 'orp-input' || channel.label === 'input') {
-                            window.P2PManager.clientSession.dc = channel; // override the local one
-                        }
-                        if (typeof pc.ondatachannel === 'function') {
-                            pc.ondatachannel({ channel });
-                        }
-                    });
-                    
-                    // Fire ws.onopen to start the rest of the viewer pipeline
-                    if (typeof ws.onopen === 'function') ws.onopen();
                 } else {
                     if (typeof ws.onopen === 'function') ws.onopen();
                 }
