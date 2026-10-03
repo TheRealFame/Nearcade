@@ -131,6 +131,11 @@ function setHidMaestroEnabled(enabled) {
 }
 
 let _windowsExperimentalEnabled = false;
+let _androidExperimentalEnabled = false;
+function setAndroidExperimentalEnabled(enabled) {
+    _androidExperimentalEnabled = !!enabled;
+}
+
 function setWindowsExperimentalEnabled(enabled) {
     _windowsExperimentalEnabled = !!enabled;
 }
@@ -347,7 +352,12 @@ function init(screenWidth, screenHeight) {
     let pythonScriptBase;
     let isRustCore = true; // All core platforms have been migrated to Rust
     
-    if (isWin) {
+    if (_androidExperimentalEnabled) {
+        scriptBase = 'backend_android'; // Not made yet
+        pythonScriptBase = 'experimental/backend_android';
+        isRustCore = false; // Force Python
+        console.log('[input] Android Shizuku experimental mode enabled.');
+    } else if (isWin) {
         scriptBase = _hidmaestroEnabled ? 'rust_hidmaestro' : 'rust_vigem';
         pythonScriptBase = _hidmaestroEnabled ? 'hidmaestro' : 'windows_vigem';
     }
@@ -385,7 +395,7 @@ function init(screenWidth, screenHeight) {
 
     if (foundBinary) {
         console.log(`[input] Native binary detected! Spawning: ${foundBinary}`);
-        _pythonProc = spawn(foundBinary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+        _pythonProc = spawn(foundBinary, [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1' } });
     } else {
         console.warn(`[input] Native sidecar binary not found. Falling back to Python backend: ${pythonScriptBase}.py`);
         
@@ -1324,4 +1334,4 @@ setInterval(() => {
     }
 }, 16);
 
-module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, setWindowsExperimentalEnabled, get _bridge() { return _bridge; } };
+module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, setWindowsExperimentalEnabled, setAndroidExperimentalEnabled, get _bridge() { return _bridge; } };

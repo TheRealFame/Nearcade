@@ -409,7 +409,273 @@ function detectGames() {
   }
 }
 
-module.exports = { detect, detectGames, launch, buildUrl, PROTOCOLS, LAUNCHERS, protectSelf, resolveVrInfo };
+// ── Steam launch lifecycle: telling a LAUNCHER apart from the GAME ────────────
+//
+// `steam steam://launch/<id>` is a dispatcher: it hands the URI to the
+// already-running Steam client and exits 0 within milliseconds — often long
+// before the client has actually spawned the game (measured gap ~21s, with the
+// game then surviving long after a naive watcher had already torn itself down
+// on the dispatcher's exit). `launch()` is fire-and-forget for the same reason.
+//
+// So the lifetime signal must come from the GAME, and there are two ways to get
+// it, both free of X11 and of launcher IPC:
+//
+//   'proc'      Linux only. Steam stamps every process it creates with
+//               SteamAppId=/SteamGameId=, readable straight from
+//               /proc/<pid>/environ — fast, and works without Steam's logs.
+//   'steam-log' Every platform. Steam appends `AppID <id> adding PID …`,
+//               `AppID <id> no longer tracking PID …` and
+//               `Remove <id> from running list` to logs/gameprocess_log.txt.
+//               This is the fallback on Windows/macOS (and on Linux when
+//               /proc is unavailable).
+
+/**
+ * Extract the Steam AppID a command is asking Steam to launch, or null when the
+ * command is not a Steam hand-off (direct binary launches are the caller's own
+ * children and need none of this).
+ *
+ * @param {string} command
+ * @returns {string|null}
+ */
+function steamAppIdOf(command) {
+  const s = String(command || '');
+  const m = s.match(/steam:\/\/(?:launch|rungameid|run)\/(\d+)/) || s.match(/-applaunch\s+(\d+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Every live PID currently tagged with this Steam AppID (the game plus its
+ * Proton/Wine children, which inherit the same variables).
+ *
+ * Linux-only: returns [] elsewhere — use `watchGame`, whose 'steam-log'
+ * backend covers Windows/macOS.
+ *
+ * @param {string|number} appId     numeric AppID
+ * @param {object} [opts]           { procDir } overridable for tests
+ * @returns {number[]}
+ */
+function pidsForGame(appId, opts = {}) {
+  const pids = [];
+  if (!appId) return pids;
+  const procDir = opts.procDir || '/proc';
+  let entries;
+  try { entries = fs.readdirSync(procDir); } catch (e) { return pids; }
+  for (const e of entries) {
+    if (!/^\d+$/.test(e)) continue;
+    let env;
+    try { env = fs.readFileSync(`${procDir}/${e}/environ`, 'utf8'); } catch (e2) { continue; }
+    // environ is NUL-separated KEY=VALUE pairs (a value may itself contain '=').
+    if (env.split('\0').some(kv => kv === `SteamAppId=${appId}` || kv === `SteamGameId=${appId}`)) {
+      pids.push(Number(e));
+    }
+  }
+  return pids;
+}
+
+/**
+ * Locate Steam's gameprocess_log.txt for this platform, or null when Steam
+ * isn't installed / hasn't logged yet.
+ *
+ * @param {object} [opts]  { logPath } to force a specific file (tests)
+ * @returns {string|null}
+ */
+function steamLogPath(opts = {}) {
+  if (opts.logPath) { try { return fs.statSync(opts.logPath).isFile() ? opts.logPath : null; } catch (e) { return null; } }
+  const home = os.homedir();
+  let candidates;
+  if (process.platform === 'win32') {
+    const roots = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, process.env.STEAMPATH].filter(Boolean);
+    candidates = roots.flatMap(r => [path.join(r, 'logs', 'gameprocess_log.txt'), path.join(r, 'steam', 'logs', 'gameprocess_log.txt')]);
+  } else if (process.platform === 'darwin') {
+    candidates = [path.join(home, 'Library', 'Application Support', 'Steam', 'logs', 'gameprocess_log.txt')];
+  } else {
+    candidates = [
+      path.join(home, '.steam', 'steam', 'logs', 'gameprocess_log.txt'),
+      path.join(home, '.local', 'share', 'Steam', 'logs', 'gameprocess_log.txt')
+    ];
+  }
+  for (const c of candidates) {
+    try { if (fs.statSync(c).isFile()) return c; } catch (e) { /* keep looking */ }
+  }
+  return null;
+}
+
+function parseSteamLogChunk(text, state) {
+  for (const line of text.split('\n')) {
+    let m = line.match(/AppID (\d+) adding PID (\d+)/);
+    if (m) {
+      if (!state.has(m[1])) state.set(m[1], new Set());
+      state.get(m[1]).add(m[2]);
+      continue;
+    }
+    m = line.match(/AppID (\d+) no longer tracking PID (\d+)/);
+    if (m) { const s = state.get(m[1]); if (s) { s.delete(m[2]); if (!s.size) state.delete(m[1]); } continue; }
+    m = line.match(/Remove (\d+) from running list/);
+    if (m) state.delete(m[1]);
+  }
+  return state;
+}
+
+/**
+ * AppIDs the log currently reports as running. The portable "is it up yet?"
+ * probe for platforms without /proc.
+ *
+ * @param {object} [opts]  { logPath, maxBytes }
+ * @returns {string[]}
+ */
+function steamLogRunningAppIds(opts = {}) {
+  const logPath = opts.logPath || steamLogPath(opts);
+  if (!logPath) return [];
+  try {
+    const size = fs.statSync(logPath).size;
+    const maxBytes = opts.maxBytes || 512 * 1024;
+    const start = Math.max(0, size - maxBytes);
+    const fd = fs.openSync(logPath, 'r');
+    let text;
+    try {
+      const buf = Buffer.allocUnsafe(size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+    } finally { fs.closeSync(fd); }
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1); // drop partial first line
+    const state = parseSteamLogChunk(text, new Map());
+    return Array.from(state.keys());
+  } catch (e) { return []; }
+}
+
+/**
+ * Watch a Steam game's real lifetime — start AND exit — independently of the
+ * launcher process that requested it.
+ *
+ * Semantics match what an arcade/auto-host session needs:
+ *   - fires `onAppear` on the first sighting (good moment to focus/route audio),
+ *   - tolerates brief PID gaps (game re-exec, Proton spawn) before declaring
+ *     the game gone — `graceMs` of consecutive misses,
+ *   - fires `onStartTimeout` at most once while the game never shows up at all
+ *     (slow/failed launch: the session must stay up, not suicide),
+ *   - fires `onGone` exactly once, after which the watcher stops itself.
+ *
+ * @param {string|number} appId
+ * @param {object} [opts]
+ *   source 'auto'|'proc'|'steam-log'   default 'auto'
+ *   pollMs            poll interval                    (2000)
+ *   graceMs           consecutive misses before onGone (5000)
+ *   startTimeoutMs    0 disables                       (0)
+ *   procDir/logPath   test overrides
+ *   onAppear(appId, pids)
+ *   onGone(appId, { neverSeen })
+ *   onStartTimeout(appId)
+ * @returns {{ stop(): void, source: string, appId: string|number, isRunning(): boolean }}
+ */
+function watchGame(appId, opts = {}) {
+  const pollMs = opts.pollMs || 2000;
+  const graceMs = opts.graceMs || 5000;
+  const startTimeoutMs = opts.startTimeoutMs || 0;
+  const procDir = opts.procDir || '/proc';
+  const forcedLog = opts.logPath || null;               // caller-supplied (may not exist yet)
+  const foundLog = steamLogPath(opts);                  // an existing log, if any
+  const logPath = forcedLog || foundLog;
+
+  let source = opts.source || 'auto';
+  if (source === 'auto') {
+    let procAvailable = false;
+    try { procAvailable = fs.statSync(procDir).isDirectory(); } catch (e) { procAvailable = false; }
+    source = procAvailable ? 'proc' : (foundLog ? 'steam-log' : 'none');
+  }
+
+  const startedAt = Date.now();
+  let sawGame = false;
+  let absentSince = null;
+  let timedOut = false;
+  let running = false;
+  let stopped = false;
+  let timer = null;
+
+  // 'steam-log' reads incrementally: remember the byte offset we have parsed.
+  let logOffset = 0;
+  const logState = new Map();
+  if (source === 'steam-log' && logPath) {
+    try {
+      const size = fs.statSync(logPath).size;
+      const maxBytes = 512 * 1024;
+      const start = Math.max(0, size - maxBytes);
+      const fd = fs.openSync(logPath, 'r');
+      try {
+        const buf = Buffer.allocUnsafe(size - start);
+        fs.readSync(fd, buf, 0, buf.length, start);
+        let text = buf.toString('utf8');
+        if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+        parseSteamLogChunk(text, logState);
+      } finally { fs.closeSync(fd); }
+      logOffset = size;
+    } catch (e) { /* no log yet — first poll will retry */ }
+  }
+
+  function logPids() {
+    if (!logPath) return [];
+    try {
+      const size = fs.statSync(logPath).size;
+      if (size < logOffset) { logOffset = 0; logState.clear(); } // rotated/truncated
+      if (size > logOffset) {
+        const fd = fs.openSync(logPath, 'r');
+        try {
+          const buf = Buffer.allocUnsafe(size - logOffset);
+          fs.readSync(fd, buf, 0, buf.length, logOffset);
+          parseSteamLogChunk(buf.toString('utf8'), logState);
+        } finally { fs.closeSync(fd); }
+        logOffset = size;
+      }
+    } catch (e) { return []; }
+    const set = logState.get(String(appId)) || logState.get(appId);
+    return set ? Array.from(set).map(Number) : [];
+  }
+
+  function stop() {
+    stopped = true;
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  function consider(pids) {
+    if (stopped) return;
+    if (pids.length) {
+      if (!sawGame) {
+        sawGame = true;
+        if (opts.onAppear) opts.onAppear(appId, pids);
+      }
+      absentSince = null;
+      running = true;
+      return;
+    }
+    if (!sawGame) {
+      running = false;
+      if (startTimeoutMs && !timedOut && Date.now() - startedAt > startTimeoutMs) {
+        timedOut = true;
+        if (opts.onStartTimeout) opts.onStartTimeout(appId);
+      }
+      return;
+    }
+    if (absentSince === null) { absentSince = Date.now(); return; }
+    if (Date.now() - absentSince < graceMs) return;
+    stop();
+    running = false;
+    if (opts.onGone) opts.onGone(appId, { neverSeen: false });
+  }
+
+  if (source === 'none') {
+    return { stop, source, appId, isRunning: () => false };
+  }
+
+  timer = setInterval(() => {
+    consider(source === 'proc' ? pidsForGame(appId, { procDir }) : logPids());
+  }, pollMs);
+
+  return { stop, source, appId, isRunning: () => running };
+}
+
+module.exports = {
+  detect, detectGames, launch, buildUrl, PROTOCOLS, LAUNCHERS, protectSelf, resolveVrInfo,
+  steamAppIdOf, pidsForGame, steamLogPath, steamLogRunningAppIds, watchGame
+};
 
 // ── Steam VR capability detection via official store API ──
 const https = require('https');

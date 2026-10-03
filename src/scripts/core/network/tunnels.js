@@ -1,3 +1,46 @@
+function saveCfToken(tokenObj) {
+  try {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    
+    let token = typeof tokenObj === 'string' ? tokenObj : tokenObj.token;
+    let domain = typeof tokenObj === 'object' && tokenObj.domain ? tokenObj.domain : null;
+    
+    process.env.CF_TOKEN = token;
+    if (domain) {
+      let cleanDomain = 'https://' + domain.replace(/^https?:\/\//, '');
+      process.env.CUSTOM_URL = cleanDomain;
+    }
+    
+    const home = os.homedir();
+    let p;
+    if (process.platform === 'win32') p = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+    else if (process.platform === 'darwin') p = path.join(home, 'Library', 'Application Support', 'Nearcade');
+    else p = path.join(home, '.config', 'Nearcade');
+    
+    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+    const envPath = path.join(p, '.env');
+    
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, 'utf8');
+      if (content.includes('CF_TOKEN=')) content = content.replace(/CF_TOKEN=.*/g, `CF_TOKEN=${token}`);
+      else content += `\nCF_TOKEN=${token}\n`;
+      
+      if (domain) {
+        let cleanDomain = 'https://' + domain.replace(/^https?:\/\//, '');
+        if (content.includes('CUSTOM_URL=')) content = content.replace(/CUSTOM_URL=.*/g, `CUSTOM_URL=${cleanDomain}`);
+        else content += `\nCUSTOM_URL=${cleanDomain}\n`;
+      }
+      fs.writeFileSync(envPath, content);
+    } else {
+      let content = `CF_TOKEN=${token}\n`;
+      if (domain) content += `CUSTOM_URL=https://${domain.replace(/^https?:\/\//, '')}\n`;
+      fs.writeFileSync(envPath, content);
+    }
+  } catch(e) { console.error("Failed to save CF_TOKEN", e); }
+}
+
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -48,6 +91,8 @@ function rememberZrokToken(t) {
     if (!arr.includes(t)) {
       arr.unshift(t);
       writeShareTokens(arr);
+
+
     }
   } catch (_) {}
 }
@@ -404,16 +449,23 @@ function verifyTunnelUrl(url, { tries = 4, gapMs = 1500, timeoutMs = 2500 } = {}
   });
 }
 
-function startTunnelCloudflared(port, retries = 2) {
+function startTunnelCloudflared(port, options = {}, retries = 2) {
   return new Promise(resolve => {
     findBinaryPath('cloudflared').then(cloudflaredPath => {
       if (!cloudflaredPath) { resolve({ error: 'NOT_FOUND', provider: 'cloudflared' }); return; }
       ensureExecutable(cloudflaredPath);
 
-      const cfToken = readEnv('CF_TOKEN');
-      if (cfToken) {
+      if (options && options.cfToken && options.cfToken !== 'skip') {
+        saveCfToken(options.cfToken);
+      }
+
+      let rawToken = readEnv('CF_TOKEN');
+      if (!rawToken && options && options.cfToken && options.cfToken !== 'skip') {
+          rawToken = typeof options.cfToken === 'string' ? options.cfToken : options.cfToken.token;
+      }
+      if (rawToken) {
         console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Token)...");
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--url", "http://localhost:" + port], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "run", "--token", rawToken], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
         verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
           if (ok) {
@@ -1215,7 +1267,7 @@ async function startTunnel(port, provider, options = {}) {
   if (provider) {
     const fn = {
       zrok: (p) => startTunnelZrok(p, 3, options.zrokToken),
-      cloudflared: startTunnelCloudflared,
+      cloudflared: (p) => startTunnelCloudflared(p, options),
       playit: startTunnelPlayit,
       localhostrun: startTunnelLocalhostRun,
       serveo: startTunnelServeo,
@@ -1317,10 +1369,11 @@ const PROVIDERS = [
     description: 'Cloudflare Tunnel. Free random URL via trycloudflare, custom domain via CF_TOKEN.',
     tags: ['binary', 'cloudflare'],
     binaryNames: ['cloudflared'],
-    start: (port) => startTunnelCloudflared(port),
+    start: (port, options) => startTunnelCloudflared(port, options),
     detect: async () => {
       const p = await findBinaryPath('cloudflared');
-      return { found: !!p, path: p };
+      const hasToken = !!readEnv('CF_TOKEN');
+      return { found: !!p, path: p, authenticated: hasToken };
     },
   },
   {

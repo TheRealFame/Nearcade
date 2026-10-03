@@ -1012,7 +1012,7 @@ async function main() {
     if (fs.existsSync(file)) res.sendFile(file);
     else res.json([]);
   });
-  app.get("/api/config", adminMiddleware, (req, res) => {
+  app.get("/api/config", (req, res) => {
     const cfg = loadConfig();
     if (process.env.CUSTOM_URL) cfg.customUrl = process.env.CUSTOM_URL.trim();
     // Friends-enabled lives in friends.json (its dedicated config file); mirror
@@ -1020,9 +1020,9 @@ async function main() {
     if (typeof cfg.friendsEnabled !== 'boolean') cfg.friendsEnabled = getFriendsConfig().enabled === true;
     res.json(cfg);
   });
-app.post("/api/shutdown", adminMiddleware, (req, res) => {
+  app.post("/api/shutdown", adminMiddleware, (req, res) => {
     res.json({ success: true });
-    console.log('[server] Shutdown requested via API.');
+    console.log("[server] Shutdown requested via API.");
     try { cleanup(false); } catch (e) { }
     setTimeout(() => process.exit(0), 1000);
   });
@@ -1030,20 +1030,6 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
   app.post("/api/config", adminMiddleware, express.json(), (req, res) => {
     const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
-
-    if (req.body && req.body.customUrl !== undefined) {
-      const cleanUrl = req.body.customUrl ? 'https://' + req.body.customUrl.replace(/^https?:\/\//, '') : '';
-      process.env.CUSTOM_URL = cleanUrl;
-      try {
-        if (fs.existsSync(envFile)) {
-          let envContent = fs.readFileSync(envFile, 'utf8');
-          if (envContent.includes('CUSTOM_URL=')) envContent = envContent.replace(/CUSTOM_URL=.*/g, `CUSTOM_URL=${cleanUrl}`);
-          else envContent += `\nCUSTOM_URL=${cleanUrl}\n`;
-          fs.writeFileSync(envFile, envContent);
-        }
-      } catch(e) { console.warn("[env] Could not update CUSTOM_URL in .env", e); }
-    }
-
     if (newCfg.tournamentMode && pusher) {
       try { pusher.disconnect(); } catch (_) { }
       pusher = null;
@@ -1394,7 +1380,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     }
   });
 
-  app.get("/api/sysinfo", adminMiddleware, async (req, res) => {
+  app.get("/api/sysinfo", async (req, res) => {
     try {
       const [cpu, mem, net] = await Promise.all([
         si.currentLoad(),
@@ -1830,10 +1816,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
       : (tunnels.readEnv('VPS_HOST') || '').trim();
 
     // Let tunnels.startTunnel handle stopping the previous process and returning the result
-    const tunnelOptions = { zrokToken: req.body && req.body.zrokToken, cfToken: req.body && req.body.cfToken };
-    if (req.body && req.body.cfToken && req.body.cfToken.domain) {
-      saveConfig({ customUrl: 'https://' + req.body.cfToken.domain.replace(/^https?:\/\//, '') });
-    }
+    const tunnelOptions = { zrokToken: req.body && req.body.zrokToken };
     const startPromise = (provider === 'portforward') ? Promise.resolve(null) : tunnels.startTunnel(PORT, provider, tunnelOptions);
 
     if (provider === 'vps' && resolvedVpsHost) {
@@ -1874,7 +1857,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
   // subprocess timeouts (seconds). Without caching, every dashboard visit
   // freezes the shared server event loop — and the Electron UI with it.
   let _providersCache = { at: 0, data: null };
-  app.get("/api/tunnels/providers", adminMiddleware, async (_req, res) => {
+  app.get("/api/tunnels/providers", async (_req, res) => {
     try {
       if (_providersCache.data && Date.now() - _providersCache.at < 60000) {
         return res.json({ providers: _providersCache.data });
@@ -1889,7 +1872,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     res.json({ providers: results });
   });
 
-  app.post("/api/tunnels/start", adminMiddleware, express.json(), async (req, res) => {
+  app.post("/api/tunnels/start", express.json(), async (req, res) => {
     const { provider } = req.body;
     if (!provider) { return res.status(400).json({ error: 'provider required' }); }
     saveConfig({ tunnelProvider: provider });
@@ -1922,11 +1905,6 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     inputDriver.setHidMaestroEnabled(true);
     console.log('[input] HIDMaestro backend enabled by config');
   }
-  if (_cfg.androidExperimental) {
-    inputDriver.setAndroidExperimentalEnabled(true);
-    console.log('[input] Android Shizuku Host Mode enabled by config');
-  }
-
   if (_cfg.windowsExperimental) {
     inputDriver.setWindowsExperimentalEnabled(true);
     console.log('[input] Windows Experimental Features enabled by config');

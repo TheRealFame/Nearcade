@@ -142,6 +142,7 @@ function _requestOffer(reason) {
         console.warn(`[WebRTC] Offer budget spent (${reason}). Parking on overlay with manual retry.`);
         setStatus('Connection is taking longer than expected — tap anywhere to retry');
         showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
         const overlay = document.getElementById('overlay');
         if (overlay && !overlay._nsRetryWired) {
             overlay._nsRetryWired = true;
@@ -261,6 +262,7 @@ standbyWs.onmessage = (e) => {
         const pinScreen = document.getElementById('pinScreen');
         if (pinScreen && !pinScreen.classList.contains('gone')) return;
         showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
         setStatus('Host is not sharing their screen yet...');
         const sp = document.getElementById('spinner'); if (sp) sp.style.display = 'none';
         
@@ -2718,6 +2720,7 @@ async function connect() {
         if (typeof setStatus === 'function') setStatus('Discovering host via P2P network...');
         if (document.getElementById('spinner')) document.getElementById('spinner').style.display = 'block';
         if (typeof showOverlay === 'function') showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
         
         // Provide progressive feedback for long P2P discovery times
         window._p2pProgression1 = setTimeout(() => {
@@ -3084,6 +3087,7 @@ async function connect() {
             if (pinScreen && !pinScreen.classList.contains('gone')) return;
             
             showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             setStatus('Host is not sharing their screen yet...');
             const sp = document.getElementById('spinner'); if (sp) sp.style.display = 'none';
 
@@ -3136,6 +3140,7 @@ async function connect() {
     </div>`;
             }
             showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             
             const sfOld = document.getElementById('_nsStandbyFrame');
             if (sfOld) sfOld.style.display = 'none';
@@ -3390,6 +3395,7 @@ async function connect() {
             }
             
             showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             const sp = document.getElementById('spinner');
             if (sp) sp.style.display = 'none';
 
@@ -3428,6 +3434,7 @@ async function connect() {
             }
             
             showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             const sp = document.getElementById('spinner');
             if (sp) sp.style.display = 'none';
 
@@ -3438,6 +3445,7 @@ async function connect() {
 
         if (msg.type === 'session-full') {
             showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             setStatus(`Session full — ${msg.reason || 'maximum players reached'}`);
             const sp2 = document.getElementById('spinner'); if (sp2) sp2.style.display = 'none';
             if (pc) { pc.close(); pc = null; }
@@ -3469,7 +3477,8 @@ async function connect() {
             return;
         }
         if (msg.type === 'host-not-streaming') {
-            showOverlay(true); setStatus('Host is not sharing their screen yet...');
+            showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = ''; setStatus('Host is not sharing their screen yet...');
             const sp3 = document.getElementById('spinner'); if (sp3) sp3.style.display = 'none';
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
@@ -4601,6 +4610,7 @@ function _startViewerConnectionWatchdog() {
                 if (pc && pc.connectionState === 'connected') {
                     setStatus('Connected — waiting for host video…');
                     showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
                 }
             } catch (_) {}
             
@@ -4608,6 +4618,7 @@ function _startViewerConnectionWatchdog() {
                 console.error('[Viewer Watchdog] sustained stall — parking on overlay, quiet P2P retry continues. NEVER reloading.');
                 setStatus('Connection is taking longer than expected — tap anywhere to retry');
                 showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
                 _scheduleQuietP2PRetry();
                 _viewerConnectionStallCount = 0; // keep watching; WS fallback carries video meanwhile
             }
@@ -4806,6 +4817,7 @@ async function initWebCodecsViewer(config) {
     // receipt left users staring at a black page. The overlay keeps its
     // ORIGINAL text ("Waiting for host..." / "Connecting...") — never renamed.
     if (typeof showOverlay === 'function') showOverlay(true);
+            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
     const spinner = document.getElementById('spinner');
     if (spinner) spinner.style.display = 'block';
 

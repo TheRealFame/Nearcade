@@ -71,6 +71,12 @@ case "$OS" in
 
         build_rust "$BACKENDS_DIR/rust_read_gamepads" "read_gamepads" "read_gamepads.bin"  \
             || build_nuitka "read_gamepads.py"
+
+        # Android Experimental (compiles to binary via Nuitka so Python isn't required on Android/Termux)
+        build_nuitka "experimental/backend_android.py"
+        if [ -f "$BIN_DIR/backend_android.bin" ]; then
+            echo "[compile_sidecars]   ✓ backend_android.bin (Android/Shizuku)"
+        fi
         ;;
 
     Darwin*)

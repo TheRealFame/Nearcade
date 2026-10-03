@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nearcade Codec Hardware Verifier</title>
+    <style>
+        body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 40px; }
+        table { border-collapse: collapse; width: 100%; max-width: 800px; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #333; }
+        th { background: #222; }
+        .success { color: #4ade80; font-weight: bold; }
+        .fail { color: #f87171; }
+        .warn { color: #fbbf24; }
+    </style>
+</head>
+<body>
+    <h1>Hardware Encoding Verification</h1>
+    <p>This script probes your browser and GPU just like Nearcade does to verify hardware acceleration.</p>
+    <button onclick="runTests()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 4px;">Run Verification</button>
+    
+    <table id="results">
+        <thead>
+            <tr>
+                <th>Codec</th>
+                <th>Profile / Config</th>
+                <th>Supported?</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+
+    <script>
+        async function checkCodec(name, config) {
+            try {
+                const supported = await VideoEncoder.isConfigSupported(config);
+                return supported;
+            } catch (e) {
+                return { supported: false };
+            }
+        }
+
+        async function runTests() {
+            const tbody = document.querySelector('tbody');
+            tbody.innerHTML = '<tr><td colspan="4">Testing... Please wait.</td></tr>';
+            
+            const tests = [
+                { name: 'H.264 (Strict)', config: { codec: 'avc1.4d002a', width: 1920, height: 1080, hardwareAcceleration: 'prefer-hardware' } },
+                { name: 'H.264 (Fallback Profile)', config: { codec: 'avc1.42E02A', width: 1920, height: 1080, hardwareAcceleration: 'prefer-hardware' } },
+                { name: 'H.264 (Linux Bypass)', config: { codec: 'avc1.42E02A', width: 1920, height: 1080, hardwareAcceleration: 'no-preference' } },
+                { name: 'AV1 (Strict)', config: { codec: 'av01.0.04M.08', width: 1920, height: 1080, hardwareAcceleration: 'prefer-hardware' } },
+                { name: 'AV1 (Linux Bypass)', config: { codec: 'av01.0.04M.08', width: 1920, height: 1080, hardwareAcceleration: 'no-preference' } },
+                { name: 'VP8 (Strict)', config: { codec: 'vp8', width: 1920, height: 1080, hardwareAcceleration: 'prefer-hardware' } },
+                { name: 'VP9 (Strict)', config: { codec: 'vp09.00.41.08', width: 1920, height: 1080, hardwareAcceleration: 'prefer-hardware' } },
+                { name: 'H.265 (Strict)', config: { codec: 'hev1.1.6.L93.B0', width: 1920, height: 1080, hardwareAcceleration: 'prefer-hardware' } }
+            ];
+
+            let html = '';
+            for (const t of tests) {
+                const result = await checkCodec(t.name, t.config);
+                let status = result.supported ? '<span class="success">YES</span>' : '<span class="fail">NO</span>';
+                
+                let explanation = '';
+                if (result.supported) {
+                    explanation = t.config.hardwareAcceleration === 'no-preference' 
+                        ? '<span class="warn">Hardware (via Linux Sandbox Bypass)</span>' 
+                        : '<span class="success">Hardware (Native)</span>';
+                } else {
+                    explanation = '<span class="fail">Software Only / Blocked</span>';
+                }
+
+                html += `<tr>
+                    <td><strong>${t.name}</strong></td>
+                    <td><code style="font-size: 12px; color: #aaa;">${t.config.codec} (${t.config.hardwareAcceleration})</code></td>
+                    <td>${status}</td>
+                    <td>${explanation}</td>
+                </tr>`;
+            }
+            tbody.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

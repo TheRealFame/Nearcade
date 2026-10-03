@@ -11,6 +11,9 @@ const { parentPort, workerData } = require('worker_threads');
 const { exec }  = require('child_process');
 const fs        = require('fs');
 
+// True inside an auto-host arcade worker (passed by spawnAudioWorker).
+const IDLE = !!(workerData && workerData.idle);
+
 // ── Module-ID tracking ────────────────────────────────────────────────────────
 const _vAudioModules = { sink: null, remap: null, loopback: null, daemonHandle: null };
 
@@ -105,7 +108,13 @@ async function initVirtualAudio() {
   }
 
   // 5. Establish the Loopback Mirror (Sends game audio from virtual cable BACK to your ears)
-  if (hwSink) {
+  //
+  // IDLE / AUTO-HOST: skip it. Nobody is listening locally, and the mirror is the
+  // only path that pushes game audio onto your headphones/speakers. The stream
+  // itself captures NearcadeVirtualCapture (the remap above), which is untouched.
+  if (IDLE) {
+    log('Idle/auto-host mode: local monitor loopback disabled — stream audio only.');
+  } else if (hwSink) {
     _vAudioModules.loopback = await _pactlExec(
       `pactl load-module module-loopback source=NearcadeVirtual.monitor sink=${hwSink} latency_msec=30`
     );

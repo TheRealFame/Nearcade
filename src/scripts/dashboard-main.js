@@ -309,6 +309,10 @@ function switchTab(name) {
     fetchCommunityServers();
   } else if (name === 'turnlist') {
     fetchCommunityTurnServers();
+  } else if (name === 'containers') {
+    // Scanning libraryfolders.vdf + every appmanifest_*.acf takes a moment —
+    // only do it when the user actually opens Auto-Hosts.
+    loadAutoHostSteamGames();
   }
 }
 
@@ -637,6 +641,7 @@ async function loadAndSyncSettings() {
 function syncSettingsUI() {
   if (appConfig) {
     document.getElementById('settingHostName').value = appConfig.hostName || localStorage.getItem('ns_name') || '';
+    if (document.getElementById('settingCustomUrl')) document.getElementById('settingCustomUrl').value = appConfig.customUrl || '';
 
     let savedHostAvatar = appConfig.hostAvatar || localStorage.getItem('ns_host_avatar') || localStorage.getItem('ns_avatar');
     let needsSave = false;
@@ -697,6 +702,7 @@ function syncSettingsUI() {
   document.getElementById('settingTrackVsyncOff')?.classList.toggle('on', !!appConfig.vsyncOff);
   document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
   document.getElementById('settingTrackWindowsExperimental')?.classList.toggle('on', !!appConfig.windowsExperimental);
+  document.getElementById('settingTrackAndroidExperimental')?.classList.toggle('on', !!appConfig.androidExperimental);
 
   const brandText = document.querySelector('.brand-text');
   if (brandText) {
@@ -748,6 +754,11 @@ function saveLangAndReload(val) {
 }
 
 function saveHostName(val) {
+function saveCustomUrl(val) {
+  appConfig.customUrl = val.trim();
+  saveAppConfigToElectron();
+  syncToNode();
+}
   appConfig.hostName = val.trim();
   // Sync to standard local storage so Arcade and Viewer immediately see it
   localStorage.setItem('ns_name', appConfig.hostName);
@@ -1267,6 +1278,84 @@ function saveAutoHostConfig() {
   }
 }
 
+// ── Installed Steam game detection ──────────────────────────────────────────
+// Auto-hosts launch a shell command, so the hard part for the user is knowing
+// their Steam AppID. /api/games already parses every libraryfolders.vdf +
+// appmanifest_*.acf on disk; we only need the Steam subset of it.
+let _autoSteamByLabel = new Map();
+let _autoSteamLoaded = false;
+let _autoSteamLoading = false;
+let _autoSteamLastPickedName = '';
+
+function loadAutoHostSteamGames(force) {
+  if (_autoSteamLoading || (_autoSteamLoaded && !force)) return Promise.resolve();
+  _autoSteamLoading = true;
+  const meta = document.getElementById('autoGamePickMeta');
+  if (meta) meta.textContent = 'Scanning installed Steam libraries…';
+
+  const port = _getServerPort();
+  return fetch(`http://localhost:${port}/api/games`)
+    .then(r => r.json())
+    .then(d => {
+      const games = (d.games || []).filter(g => g.launcher === 'steam');
+      games.sort((a, b) => (b.lastPlayed - a.lastPlayed) || String(a.name).localeCompare(String(b.name)));
+
+      _autoSteamByLabel = new Map();
+      const dl = document.getElementById('autoSteamGames');
+      if (dl) dl.textContent = '';
+
+      games.forEach(g => {
+        const label = String(g.name);
+        // Two installs can share a display name — disambiguate with the AppID.
+        const key = _autoSteamByLabel.has(label) ? `${label} (${g.id})` : label;
+        _autoSteamByLabel.set(key, g);
+        if (!dl) return;
+        const opt = document.createElement('option');
+        opt.value = key;
+        dl.appendChild(opt);
+      });
+
+      _autoSteamLoaded = true;
+      if (meta) {
+        meta.textContent = games.length
+          ? `${games.length} Steam games detected — pick one to auto-fill its launch command.`
+          : 'No installed Steam games found. Type a launch command manually below.';
+      }
+    })
+    .catch(() => {
+      if (meta) meta.textContent = 'Could not scan installed games — type a launch command manually below.';
+    })
+    .finally(() => { _autoSteamLoading = false; });
+}
+
+// `quiet` is set by the input event, which fires on every keystroke — only the
+// change event (a picked suggestion or a blur) is allowed to complain.
+function onAutoGamePicked(quiet) {
+  const input = document.getElementById('autoGamePick');
+  if (!input) return;
+  const meta = document.getElementById('autoGamePickMeta');
+  const game = _autoSteamByLabel.get(input.value.trim());
+  if (!game) {
+    if (meta && !quiet) meta.textContent = 'Unknown entry — pick a suggested game, or type a command below.';
+    return;
+  }
+
+  const cmd = `steam steam://rungameid/${game.id}`;
+  const cmdInput = document.getElementById('autoCmd');
+  if (cmdInput) cmdInput.value = cmd;
+
+  const nameInput = document.getElementById('autoName');
+  const currentName = nameInput ? nameInput.value.trim() : '';
+  // Only touch the name when it is empty or was filled by a previous pick,
+  // so a hand-typed lobby name is never clobbered.
+  if (nameInput && (!currentName || currentName === _autoSteamLastPickedName)) {
+    nameInput.value = game.name;
+    _autoSteamLastPickedName = game.name;
+  }
+
+  if (meta) meta.textContent = `Steam AppID ${game.id} → ${cmd}`;
+}
+
 function saveAutoHost() {
   const name = document.getElementById('autoName').value.trim();
   const cmd = document.getElementById('autoCmd').value.trim();
@@ -1274,13 +1363,37 @@ function saveAutoHost() {
 
   if (!name || !cmd) return;
   if (!appConfig.autoHosts) appConfig.autoHosts = [];
-  appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
+  // host.js resolves an auto-host by NAME, so a duplicate name silently shadows
+  // the older entry and makes "Save" look like it did nothing. Update in place.
+  const existing = appConfig.autoHosts.find(h => h.name === name);
+  if (existing) {
+    existing.cmd = cmd;
+    existing.tunnel = tunnel;
+    existing.status = 'offline';
+  } else {
+    appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
+  }
 
   saveAppConfigToElectron();
   syncToNode();
   renderAutoHosts();
   document.getElementById('autoName').value = '';
   document.getElementById('autoCmd').value = '';
+}
+
+// Double-quote style: keeps titles readable (`"JoJo's Bizarre Adventure"`)
+// instead of the `'x'"'"'y'` mess single-quoting produces. Characters that are
+// special inside double quotes are backslash-escaped, so it stays safe to type.
+function shellQuote(s) {
+  return '"' + String(s).replace(/[\\"`$]/g, (m) => '\\' + m) + '"';
+}
+
+// The arcade worker is bin/start-arcade.sh (xvfb + `npx electron . --arcade-worker`).
+// electron-main.js reads --game-name / --game-tunnel, and host.js?auto=1 then looks
+// the config entry up by name to get its `cmd` — so the name must match exactly.
+function buildAutoHostCommand(h) {
+  const tunnel = h.tunnel ? ` --game-tunnel ${h.tunnel}` : '';
+  return `./bin/start-arcade.sh --game-name ${shellQuote(h.name || 'Auto-Host')}${tunnel}`;
 }
 
 function renderAutoHosts() {
@@ -1302,10 +1415,12 @@ function renderAutoHosts() {
     const isRunning = currentGameStatus.running && currentGameStatus.command === h.cmd;
 
     let logDisplay = '';
+    const launchCmd = buildAutoHostCommand(h)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     if (isRunning) {
-      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #333; border-radius:4px; font-family:monospace; font-size:10px; color:#eab308;">> Game loop active inside Display :99</div>`;
+      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #333; border-radius:4px; font-family:monospace; font-size:10px; color:#eab308;">&gt; Game loop active inside an isolated virtual display</div>`;
     } else {
-      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #222; border-radius:4px; font-family:monospace; font-size:10px; color:#555;">To launch, run: ./bin/headless-host.cmd in a terminal</div>`;
+      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #222; border-radius:4px; font-family:monospace; font-size:10px; color:#555;">To launch: ${launchCmd}</div>`;
     }
 
     let activeUrl = '';
@@ -1789,16 +1904,39 @@ function toggleAutoHost() {
   }).catch(() => { });
 }
 
+// Launching the raw game command from a terminal only ever gives you a window on
+// your own desktop — no Nearcade session, no capture, no tunnel. The visible
+// terminal action boots the real auto-host worker (bin/start-arcade.sh, the same
+// entry bin/start.cmd uses) with a console left open so you can watch it.
+//
+// The worker resolves the GAME command by looking up this exact name in
+// appConfig.autoHosts, so we must (a) have that entry saved and (b) have it on
+// disk *before* the terminal is spawned — syncToNode() alone is debounced up to
+// 3s after boot and would race the worker's config read.
 function openAutoHostTerminal() {
   const cmd = document.getElementById('autoCmd').value.trim();
-  const name = document.getElementById('autoName').value.trim() || 'Auto-Host';
+  const name = document.getElementById('autoName').value.trim();
+  const tunnelSel = document.getElementById('autoTunnel');
+  const tunnel = tunnelSel ? (tunnelSel.value || '') : 'default';
   if (!cmd) { alert('Enter a launch command first.'); return; }
+  if (!name) { alert('Give this configuration a Game/Lobby Name first — the worker looks it up by name.'); return; }
+
+  if (!appConfig.autoHosts) appConfig.autoHosts = [];
+  const existing = appConfig.autoHosts.find(h => h.name === name);
+  if (existing) { existing.cmd = cmd; existing.tunnel = tunnel; }
+  else appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
+  saveAppConfigToElectron();
+  renderAutoHosts();
+
   const port = _getServerPort();
-  fetch('http://localhost:' + port + '/api/open-terminal', {
+  fetch('http://localhost:' + port + '/api/config', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd, name })
-  }).then(r => r.json()).then(d => { if (!d.ok) alert('Terminal failed: ' + (d.reason || '')); })
-    .catch(() => alert('Terminal launch failed.'));
+    body: JSON.stringify(_cfgWithoutTunnel())
+  }).catch(() => { }).then(() => fetch('http://localhost:' + port + '/api/open-terminal', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: buildAutoHostCommand({ name, tunnel }), name })
+  })).then(r => r.json()).then(d => { if (!d.ok) alert('Launch failed: ' + (d.reason || '')); })
+    .catch(() => alert('Launch failed.'));
 }
 (function () {
   const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
@@ -1806,8 +1944,8 @@ function openAutoHostTerminal() {
   if (!isLinux) { const v = document.getElementById('settingRowVrMode'); if (v) v.style.display = 'none'; }
 })();
 
-function killGame() {
-  if (confirm("Stop the running game?")) {
+async function killGame() {
+  if (await showAppConfirm("Stop Game", "Stop the running game?", "Stop", "Cancel")) {
     const port = _getServerPort();
     fetch(`http://localhost:${port}/api/restart-game`, {
       method: 'POST',
@@ -2292,3 +2430,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }).catch(e => console.error('[dashboard] failed to load game profiles:', e));
 });
+async function exitNearcadeApp() {
+  const confirmed = await showAppConfirm(
+    "Exit Nearcade",
+    "Are you sure you want to completely shut down and exit Nearcade?",
+    "Exit",
+    "Cancel"
+  );
+  if (confirmed) {
+    if (window.electronAPI && typeof window.electronAPI.closeApp === 'function') {
+      window.electronAPI.closeApp();
+    } else {
+      fetch('/api/shutdown', { method: 'POST' }).then(() => {
+        window.close();
+      }).catch(() => { window.close(); });
+    }
+  }
+}

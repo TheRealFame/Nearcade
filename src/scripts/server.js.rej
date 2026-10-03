@@ -1,0 +1,22 @@
+--- src/scripts/server.js
++++ src/scripts/server.js
+@@ -1030,6 +1030,19 @@
+   app.post("/api/config", adminMiddleware, express.json(), (req, res) => {
+     const oldCfg = loadConfig();
+     const newCfg = saveConfig(req.body || {});
++    
++    if (req.body && req.body.customUrl !== undefined) {
++      const cleanUrl = req.body.customUrl ? 'https://' + req.body.customUrl.replace(/^https?:\/\//, '') : '';
++      process.env.CUSTOM_URL = cleanUrl;
++      try {
++        if (fs.existsSync(envFile)) {
++          let envContent = fs.readFileSync(envFile, 'utf8');
++          if (envContent.includes('CUSTOM_URL=')) envContent = envContent.replace(/CUSTOM_URL=.*/g, `CUSTOM_URL=${cleanUrl}`);
++          else envContent += `\nCUSTOM_URL=${cleanUrl}\n`;
++          fs.writeFileSync(envFile, envContent);
++        }
++      } catch(e) { console.warn("[env] Could not update CUSTOM_URL in .env", e); }
++    }
+ 
+     if (newCfg.tournamentMode && pusher) {
+       try { pusher.disconnect(); } catch (_) { }

@@ -528,9 +528,6 @@
       <input type="password" id="cfTokenPasteInput" placeholder="Paste your Cloudflare token (eyJh...)"
         onkeydown="if(event.key==='Enter')submitCfToken()"
         style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:13px;font-family:inherit;outline:none;margin-top:8px;">
-      <input type="text" id="cfDomainPasteInput" placeholder="Mapped Domain (e.g. play.yourdomain.com)"
-        onkeydown="if(event.key==='Enter')submitCfToken()"
-        style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:13px;font-family:inherit;outline:none;margin-top:8px;">
     </div>
     <div class="modal-footer">
       <div class="btn-row" style="justify-content: flex-end;">

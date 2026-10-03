@@ -9,6 +9,18 @@ BATCH_SECTION
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
+# Bypass firejail-wrapped interpreters.
+# `sudo firecfg` (firejail) symlinks /usr/local/bin/node -> firejail, which
+# lands ahead of /usr/bin on the default PATH. That sandbox re-chdirs node to
+# $HOME (so relative paths like node_modules/.bin/electron fail to resolve)
+# and blocks X11/Wayland, so the Electron window never appears. Prefer the
+# real binaries whenever `node` is just a firejail symlink.
+if [ -L "$(command -v node 2>/dev/null)" ] && \
+   [ "$(readlink -f "$(command -v node)")" = "/usr/bin/firejail" ]; then
+    PATH="/usr/bin:$PATH"
+    export PATH
+fi
+
 # Auto-update the portable .desktop icon to the absolute path
 if [ -f "Nearcade.desktop" ]; then
     sed -i "s|^Icon=.*|Icon=$DIR/assets/NearcadeLogo.png|" Nearcade.desktop

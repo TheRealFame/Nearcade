@@ -1618,9 +1618,28 @@ function connectWS() {
                 if (isOrpConnection) {
                     console.log(`[P2P] Skipping standard WebRTC offer for ${msg.viewerId} (Managed by ORP/Trystero)`);
                     
+                    // Inject standard WebRTC tracks into the ORP SDK's PeerConnection if WebCodecs is NOT active
+                    const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
+                    if (orpViewer && orpViewer.pc && currentStream && !forceWc) {
+                        currentStream.getTracks().forEach(track => {
+                            if (!orpViewer.pc.getSenders().some(s => s.track === track)) {
+                                const sender = orpViewer.pc.addTrack(track, currentStream);
+                                if (track.kind === 'video' && sender.setParameters) {
+                                    const params = sender.getParameters();
+                                    if (params.encodings && params.encodings.length > 0) {
+                                        params.encodings[0].networkPriority = 'high';
+                                        sender.setParameters(params).catch(()=>{});
+                                    }
+                                }
+                            }
+                        });
+                        console.log(`[P2P] Injected standard WebRTC media tracks into ORP SDK for ${msg.viewerId}`);
+                        if (typeof window.P2PManager.hostSession.renegotiate === 'function') window.P2PManager.hostSession.renegotiate(msg.viewerId);
+                        // ORP SDK will automatically renegotiate (onnegotiationneeded) or we might need to manually trigger an offer
+                    }
+
                     // Immediately inject config for late joiners
                     if (typeof _wcPipelineActive !== 'undefined' && _wcPipelineActive && typeof _lastWcConfig !== 'undefined' && _lastWcConfig) {
-                        const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
                         if (orpViewer && orpViewer.videoChannel) {
                             if (orpViewer.videoChannel.readyState === 'open') {
                                 try { orpViewer.videoChannel.send(_lastWcConfig); } catch(e) {}

@@ -88,6 +88,12 @@ jobs:
             cd src/sidecar/input_backends/rust_read_gamepads && cargo build --release && cd ../../../..
             cp src/sidecar/input_backends/rust_read_gamepads/target/release/read_gamepads $BIN/read_gamepads.bin
 
+            echo "=== Building backend_android (Nuitka) ==="
+            python3 -m pip install nuitka
+            cd src/sidecar/input_backends
+            python3 -m nuitka --assume-yes-for-downloads --onefile --output-dir=bin experimental/backend_android.py
+            cd ../../..
+
           elif [ "$RUNNER_OS" == "macOS" ]; then
             echo "=== Building mac_gamepad_bridge ==="
             cd src/sidecar/input_backends/rust_mac_bridge && cargo build --release && cd ../../../..
@@ -262,9 +268,14 @@ jobs:
 
   # ── 4. VERIFY UPDATER ARTIFACTS ──
   # Guards against a repeat of v3.0.5, which shipped without updater metadata
-  # (an old pipeline revision deleted *-linux.yml/*.blockmap and never
-  # uploaded *.zsync, breaking in-app auto-update with a 404). Also enforces
-  # the normal-vs-beta release marking.
+  # and broke in-app auto-update with a 404. Also enforces the normal-vs-beta
+  # release marking.
+  #
+  # Artifact layout (electron-builder 25 / electron-updater 6):
+  #  * .zsync — dead: nothing in this toolchain generates or reads it.
+  #  * sidecar .blockmap — dmg (dmg-builder) + nsis/archive targets only.
+  #  * AppImage — blockmap is APPENDED to the artifact itself, and the updater
+  #    Range-reads that tail using size/blockMapSize from latest-linux.yml.
   verify-release-assets:
     runs-on: ubuntu-latest
     needs: [release-desktop, release-android]
@@ -297,9 +308,11 @@ jobs:
               "nearcade-router-x86_64-unknown-linux-gnu"; do
               case " $ASSETS " in *" $f "*) ;; *) MISSING="$MISSING $f";; esac
             done
-            # Windows portable doesn't generate latest.yml
-            # .zsync only for AppImage (optional)
-            # .blockmap only for some targets (optional)
+            # Windows portable doesn't generate latest.yml (no auto-update).
+            # No .zsync is ever produced — do not wait for one.
+            # Sidecar .blockmap: required for mac dmg differential updates;
+            # Linux has no sidecar (its blockmap is embedded, checked below).
+            case " $ASSETS " in *".dmg.blockmap"*) ;; *) MISSING="$MISSING *.dmg.blockmap";; esac
             if [ -z "$MISSING" ]; then echo "all required updater assets present: $ASSETS"; break; fi
             echo "waiting for required:$MISSING (attempt $i/30)"
             sleep 20
@@ -316,3 +329,85 @@ jobs:
             gh release edit "$TAG" --prerelease=false --draft=false || true
             echo "tagged as normal release"
           fi
+
+      # Linux differential updates do not download a sidecar .blockmap: the map
+      # is appended to the AppImage (4-byte BE length + raw-deflate map) and
+      # electron-updater seeks to size-(blockMapSize+4) from latest-linux.yml.
+      # If those fields drift from the real file, every update silently falls
+      # back to a full ~500 MB download — so probe the actual asset.
+      - name: Verify AppImage embedded blockmap
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const zlib = require("zlib");
+          const https = require("https");
+
+          const fail = (msg) => {
+            console.error(`::error::${msg}`);
+            process.exit(1);
+          };
+
+          const get = (url, range, hops = 0) =>
+            new Promise((resolve, reject) => {
+              const headers = { "User-Agent": "verify-embedded-blockmap" };
+              if (range != null) headers.Range = range;
+              https.get(url, { headers }, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && hops < 5) {
+                  res.resume();
+                  return resolve(get(res.headers.location, range, hops + 1));
+                }
+                const chunks = [];
+                res.on("data", (c) => chunks.push(c));
+                res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+              }).on("error", reject);
+            });
+
+          (async () => {
+            const base = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.TAG}`;
+            const ymlRes = await get(`${base}/latest-linux.yml`, null);
+            if (ymlRes.status !== 200) fail(`cannot fetch latest-linux.yml: HTTP ${ymlRes.status}`);
+            const lines = ymlRes.body.toString("utf8").split(/\r?\n/);
+            const start = lines.findIndex((l) => /url:\s*\S+\.AppImage\s*$/.test(l));
+            if (start < 0) fail("latest-linux.yml has no AppImage entry");
+            const field = (name) => {
+              for (const line of lines.slice(start, start + 8)) {
+                const m = new RegExp(`^\\s+${name}:\\s*(\\d+)\\s*$`).exec(line);
+                if (m) return Number(m[1]);
+              }
+              return null;
+            };
+            const size = field("size");
+            const blockMapSize = field("blockMapSize");
+            if (!size || !blockMapSize) {
+              fail(`latest-linux.yml AppImage entry lacks size/blockMapSize (size=${size}, blockMapSize=${blockMapSize})`);
+            }
+
+            const url = `${base}/Nearcade-Linux.AppImage`;
+            const head = await get(url, "bytes=0-0");
+            const total = Number((head.headers["content-range"] || "/0").split("/").pop());
+            if (head.status !== 206 || total !== size) {
+              fail(`AppImage size mismatch: remote=${total} latest-linux.yml=${size} (HTTP ${head.status})`);
+            }
+
+            const from = size - (blockMapSize + 4);
+            const tail = await get(url, `bytes=${from}-${size - 1}`);
+            if (tail.status !== 206 || tail.body.length !== blockMapSize + 4) {
+              fail(`unexpected blockmap tail: HTTP ${tail.status}, got ${tail.body.length} bytes, expected ${blockMapSize + 4}`);
+            }
+            const trailer = tail.body.readUInt32BE(tail.body.length - 4);
+            if (trailer !== blockMapSize) {
+              fail(`embedded blockmap trailer ${trailer} != latest-linux.yml blockMapSize ${blockMapSize}`);
+            }
+            let map;
+            try {
+              map = JSON.parse(zlib.inflateRawSync(tail.body.subarray(0, tail.body.length - 4)).toString("utf8"));
+            } catch (e) {
+              fail(`embedded blockmap does not inflate: ${e.message}`);
+            }
+            const chunks = map && map.files && map.files[0] && map.files[0].sizes ? map.files[0].sizes.length : 0;
+            if (chunks === 0) fail("embedded blockmap contains no chunks");
+            console.log(`embedded blockmap OK: file=${size} map=${blockMapSize} chunks=${chunks}`);
+          })().catch((e) => fail(String((e && e.stack) || e)));
+          NODE
