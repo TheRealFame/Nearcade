@@ -52,22 +52,18 @@ jobs:
           sudo apt-get install -y rpm libarchive-tools fakeroot
 
       - name: Install Dependencies
+        env:
+          JOBS: max
         run: npm install
 
       # ── Rust sidecar builds (replaces Nuitka for Linux & macOS) ──────────────
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo Registry
-        uses: actions/cache@v4
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-release-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-
-            ${{ runner.os }}-cargo-
+          shared-key: "nearcade-rust-cache"
 
       - name: Install Linux sidecar system deps
         if: runner.os == 'Linux'
