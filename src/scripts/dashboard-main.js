@@ -1,8 +1,144 @@
+// ── Boot-phase timing (diagnoses "dashboard freezes for a moment") ─────────
+// Records wall-clock marks during startup; 3 s after load, prints ONE line
+// naming only phases slower than 250 ms. Silent on fast boots. This exists
+// because a momentary post-splash freeze can come from anywhere (script
+// parse under load, awaited accent/IPC, first data batch) and guessing
+// wastes everyone's time.
+const __bootT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+const __bootMarks = [];
+function __bootMark(name) {
+  try {
+    const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - __bootT0;
+    __bootMarks.push([name, Math.round(t)]);
+  } catch (_) {}
+}
+try {
+  setTimeout(() => {
+    try {
+      const slow = __bootMarks.filter(([, t]) => t > 250);
+      if (slow.length) console.log('[boot] slow phases (>250ms): ' + slow.map(([n, t]) => `${n}=${t}ms`).join(' '));
+    } catch (_) {}
+  }, 3000);
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('load', () => __bootMark('window-load'), { once: true });
+  }
+} catch (_) {}
+// ── In-app confirm modal (replaces all native confirm() calls) ────────────────
+// Returns a Promise<boolean> so callers can await it just like confirm().
+function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') {
+  return new Promise((resolve) => {
+    const existing = document.getElementById('_appConfirmOverlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = '_appConfirmOverlay';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:99999',
+      'background:rgba(0,0,0,0.65)', 'backdrop-filter:blur(4px)',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'font-family:inherit'
+    ].join(';');
+
+    // Sanitise message for display (convert \n to <br>)
+    const safeMsg = String(message)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+
+    overlay.innerHTML = `
+      <div style="background:var(--surface,#1e1b2e);border:1px solid var(--border,rgba(255,255,255,0.08));
+                  border-radius:14px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 24px 60px rgba(0,0,0,0.7);">
+        <h3 style="margin:0 0 12px;font-size:16px;font-weight:700;color:var(--text,#f4f4f5);">${title}</h3>
+        <p style="margin:0 0 24px;font-size:13px;color:var(--muted,#a1a1aa);line-height:1.7;">${safeMsg}</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="_appConfirmCancel" style="padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;
+                  cursor:pointer;border:1px solid var(--border,rgba(255,255,255,0.08));
+                  background:var(--card,rgba(44,44,46,0.92));color:var(--text,#f4f4f5);font-family:inherit;">
+            ${cancelLabel}
+          </button>
+          <button id="_appConfirmOk" style="padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;
+                  cursor:pointer;border:none;background:var(--accent,#c084fc);color:#000;font-family:inherit;">
+            ${okLabel}
+          </button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    const finish = (result) => { overlay.remove(); resolve(result); };
+    document.getElementById('_appConfirmOk').addEventListener('click', () => finish(true));
+    document.getElementById('_appConfirmCancel').addEventListener('click', () => finish(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(false); });
+  });
+}
+
+// ── GLOBAL STYLE REFRESH ──────────────────────────────────────────────────
+// Instantly applies persisted CSS variables from localStorage before the DOM
+// or Electron APIs are fully ready to prevent style-flashing during navigation.
+(function applyPersistedStyles() {
+  try {
+    const root = document.documentElement;
+    // 1. Accent Color
+    const accent = localStorage.getItem('ns_chat_color');
+    const useSystemAccent = localStorage.getItem('ns_use_system_accent') === 'true';
+    if (accent && useSystemAccent && accent !== '#c084fc') {
+      const r = parseInt(accent.slice(1, 3), 16);
+      const g = parseInt(accent.slice(3, 5), 16);
+      const b = parseInt(accent.slice(5, 7), 16);
+      root.style.setProperty('--accent', accent);
+      root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+      root.style.setProperty('--accent2', accent);
+      root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+      root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+    }
+
+    // 2. Native Theme (Backgrounds, Surfaces, Text)
+    const useNative = localStorage.getItem('ns_use_native_theme') === 'true';
+    if (useNative) {
+      const themeStr = localStorage.getItem('ns_native_theme_payload');
+      if (themeStr) {
+        const theme = JSON.parse(themeStr);
+        root.style.setProperty('--bg', theme.bg);
+        root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
+        root.style.setProperty('--surface', theme.surface);
+        root.style.setProperty('--surface-hover', theme.surfaceHover);
+        root.style.setProperty('--text', theme.text);
+        root.style.setProperty('--muted', theme.muted);
+        root.style.setProperty('--muted2', theme.muted2);
+        root.style.setProperty('--border', theme.border);
+
+        const hexToRgb = (hex) => {
+          if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
+          return {
+            r: parseInt(hex.slice(1, 3), 16),
+            g: parseInt(hex.slice(3, 5), 16),
+            b: parseInt(hex.slice(5, 7), 16)
+          };
+        };
+
+        const surf = hexToRgb(theme.surface);
+        if (surf) {
+          root.style.setProperty('--surface-rgb', `${surf.r}, ${surf.g}, ${surf.b}`);
+          root.style.setProperty('--card', `rgba(${surf.r},${surf.g},${surf.b},0.92)`);
+          root.style.setProperty('--card2', `rgba(${surf.r},${surf.g},${surf.b},0.95)`);
+        }
+        const bgRgb = hexToRgb(theme.bg);
+        if (bgRgb) {
+          root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to apply persisted styles:', e);
+  }
+})();
+
 document.addEventListener('DOMContentLoaded', async () => {
+  __bootMark('dom-ready');
   const vEl = document.getElementById('version-text');
   const cEl = document.getElementById('commit-hash');
 
   await applySystemAccent();
+  __bootMark('accent+version-ready');
 
   // Handle ?tab= URL parameter for deep-linking from web viewer
   const urlParams = new URLSearchParams(window.location.search);
@@ -12,11 +148,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => switchTab(tabParam), 100);
   }
 
-  // Random brand color: purple, orange, or white
+  // Random brand color: purple, orange, or white (or indigo in light mode)
+  const isLightMode = window.matchMedia('(prefers-color-scheme: light)').matches;
   const brandColors = [
     { color: '#c084fc', stroke: 'rgba(192,132,252,0.3)', shadow: 'rgba(192,132,252,' },
     { color: '#ff8a4c', stroke: 'rgba(255,138,76,0.3)', shadow: 'rgba(255,138,76,' },
-    { color: '#eef0ff', stroke: 'rgba(238,240,255,0.3)', shadow: 'rgba(238,240,255,' },
+    { color: isLightMode ? '#6366f1' : '#eef0ff', stroke: isLightMode ? 'rgba(99,102,241,0.3)' : 'rgba(238,240,255,0.3)', shadow: isLightMode ? 'rgba(99,102,241,' : 'rgba(238,240,255,' },
   ];
   const bc = brandColors[Math.floor(Math.random() * brandColors.length)];
   const bt = document.querySelector('.brand-text');
@@ -158,16 +295,69 @@ function switchTab(name) {
 
   if (name === 'arcade') {
     const arcadeFrame = document.querySelector('#panel-arcade iframe');
-    if (arcadeFrame && !arcadeFrame.src) {
+    if (arcadeFrame && !arcadeFrame.getAttribute('src')) {
       const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
       const currentPort = _getServerPort();
-      arcadeFrame.src = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+      let url = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+      if (window.isVrFilterEnabled) {
+        url += '&vr=1';
+      }
+      arcadeFrame.src = url;
+      setTimeout(applyVrFilterState, 50); // Apply style when loaded
     }
   } else if (name === 'serverlist') {
     fetchCommunityServers();
   } else if (name === 'turnlist') {
     fetchCommunityTurnServers();
+  } else if (name === 'containers') {
+    // Scanning libraryfolders.vdf + every appmanifest_*.acf takes a moment —
+    // only do it when the user actually opens Auto-Hosts.
+    loadAutoHostSteamGames();
   }
+}
+
+window.isVrFilterEnabled = false; // Forced false until ready: localStorage.getItem('ns_vr_filter') === 'true';
+
+function applyVrFilterState() {
+  const btn = document.getElementById('vrFilterBtn');
+  if (!btn) return;
+  const icon = btn.querySelector('i');
+  const text = btn.querySelector('span');
+  
+  if (window.isVrFilterEnabled) {
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.boxShadow = '0 0 15px var(--accent-glow)';
+    if (icon) icon.style.color = 'var(--accent)';
+    if (text) text.style.color = 'var(--accent)';
+  } else {
+    btn.style.borderColor = 'var(--border)';
+    btn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+    if (icon) icon.style.color = 'var(--muted)';
+    if (text) text.style.color = 'var(--muted)';
+  }
+}
+
+window.toggleVrFilter = function() {
+  // Disabled until VR integration is finalized.
+  console.log("VR filter is temporarily disabled, just opening arcade.");
+  switchTab('arcade');
+  return;
+  /*
+  window.isVrFilterEnabled = !window.isVrFilterEnabled;
+  localStorage.setItem('ns_vr_filter', window.isVrFilterEnabled ? 'true' : 'false');
+  applyVrFilterState();
+
+  const arcadeFrame = document.querySelector('#panel-arcade iframe');
+  if (arcadeFrame) {
+    const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
+    const currentPort = _getServerPort();
+    let url = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+    if (window.isVrFilterEnabled) {
+      url += '&vr=1';
+    }
+    arcadeFrame.src = url;
+  }
+  */
 }
 
 let appConfig = {};
@@ -178,16 +368,33 @@ const DEFAULT_ACCENT_DIM = 'rgba(192,132,252,0.15)';
 const DEFAULT_ACCENT_GLOW = 'rgba(192,132,252,0.35)';
 
 async function applySystemAccent() {
-  const useAccent = appConfig.useSystemAccent === true;
-  localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
   const indicator = document.getElementById('sysAccentIndicator');
+  if (appConfig.useNativeTheme) {
+    if (indicator) indicator.style.display = 'none';
+    return;
+  }
+
+  const useAccent = appConfig.useSystemAccent !== undefined ? appConfig.useSystemAccent : (localStorage.getItem('ns_use_system_accent') === 'true');
+  localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
   const root = document.documentElement;
 
   const applyDefault = () => {
-    root.style.removeProperty('--accent');
-    root.style.removeProperty('--accent2');
-    root.style.removeProperty('--accent-dim');
-    root.style.removeProperty('--accent-glow');
+    // If native theme is active, let it govern the accent color instead of falling back to purple
+    if (appConfig.useNativeTheme) {
+      const stored = localStorage.getItem('ns_native_theme_payload');
+      if (stored) {
+        try {
+          const t = JSON.parse(stored);
+          if (t.accent) return; // Native theme has an accent, do not overwrite it
+        } catch (_) {}
+      }
+    }
+
+    root.style.setProperty('--accent', DEFAULT_ACCENT);
+    root.style.setProperty('--accent-rgb', '192, 132, 252');
+    root.style.setProperty('--accent2', DEFAULT_ACCENT2);
+    root.style.setProperty('--accent-dim', DEFAULT_ACCENT_DIM);
+    root.style.setProperty('--accent-glow', DEFAULT_ACCENT_GLOW);
     if (indicator) indicator.style.display = 'none';
 
     if (appConfig.hostColor !== '#c084fc') {
@@ -203,7 +410,7 @@ async function applySystemAccent() {
   }
   try {
     const accent = await window.electronAPI.getAccentColor();
-    if (!accent || accent === '#8b5cf6') {
+    if (!accent) {
       applyDefault();
       return;
     }
@@ -211,9 +418,11 @@ async function applySystemAccent() {
     const g = parseInt(accent.slice(3, 5), 16);
     const b = parseInt(accent.slice(5, 7), 16);
     root.style.setProperty('--accent', accent);
+    root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
     root.style.setProperty('--accent2', accent);
     root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
     root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+    root.style.setProperty('--accent-ink', ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) > 0.45 ? '#111116' : '#ffffff');
     if (indicator) indicator.style.display = 'inline-flex';
 
     if (appConfig.hostColor !== accent) {
@@ -236,16 +445,17 @@ async function applyNativeTheme() {
     root.style.removeProperty('--bg');
     root.style.removeProperty('--sidebar');
     root.style.removeProperty('--surface');
+    root.style.removeProperty('--surface-rgb');
     root.style.removeProperty('--surface-hover');
+    root.style.removeProperty('--card');
+    root.style.removeProperty('--card2');
     root.style.removeProperty('--text');
     root.style.removeProperty('--muted');
     root.style.removeProperty('--muted2');
     root.style.removeProperty('--border');
-    if (appConfig.useSystemAccent) {
-      applySystemAccent();
-    } else {
-      root.style.removeProperty('--accent');
-    }
+    root.style.removeProperty('--bg-rgb');
+    // Always sync the accent color state whether we apply a native theme or not
+    applySystemAccent();
     if (indicator) indicator.style.display = 'none';
     return;
   }
@@ -254,21 +464,70 @@ async function applyNativeTheme() {
     const theme = await window.electronAPI.getNativeTheme();
     if (theme) {
       root.style.setProperty('--bg', theme.bg);
-      root.style.setProperty('--sidebar', theme.sidebar);
+      root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
       root.style.setProperty('--surface', theme.surface);
       root.style.setProperty('--surface-hover', theme.surfaceHover);
       root.style.setProperty('--text', theme.text);
       root.style.setProperty('--muted', theme.muted);
       root.style.setProperty('--muted2', theme.muted2);
       root.style.setProperty('--border', theme.border);
-      root.style.setProperty('--accent', theme.accent);
 
-      appConfig.hostColor = theme.accent;
-      localStorage.setItem('ns_chat_color', theme.accent);
+      const hexToRgb = (hex) => {
+        if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
+        return {
+          r: parseInt(hex.slice(1,3), 16),
+          g: parseInt(hex.slice(3,5), 16),
+          b: parseInt(hex.slice(5,7), 16)
+        };
+      };
+
+      const surf = hexToRgb(theme.surface);
+      if (surf) {
+        root.style.setProperty('--surface-rgb', `${surf.r}, ${surf.g}, ${surf.b}`);
+        root.style.setProperty('--card', `rgba(${surf.r},${surf.g},${surf.b},0.92)`);
+        root.style.setProperty('--card2', `rgba(${surf.r},${surf.g},${surf.b},0.95)`);
+      }
+
+      const bgRgb = hexToRgb(theme.bg);
+      if (bgRgb) {
+        root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
+      }
+
+      if (theme.accent) {
+        root.style.setProperty('--accent', theme.accent);
+        root.style.setProperty('--accent2', theme.accent);
+        const r = parseInt(theme.accent.slice(1, 3), 16);
+        const g = parseInt(theme.accent.slice(3, 5), 16);
+        const b = parseInt(theme.accent.slice(5, 7), 16);
+        root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+        root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+        root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
+        root.style.setProperty('--accent-ink', ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) > 0.45 ? '#111116' : '#ffffff');
+        
+        if (appConfig.hostColor !== theme.accent) {
+          appConfig.hostColor = theme.accent;
+          localStorage.setItem('ns_chat_color', theme.accent);
+        }
+      }
+
       localStorage.setItem('ns_native_theme_payload', JSON.stringify(theme));
       syncToNode();
-
       if (indicator) indicator.style.display = 'inline-block';
+    } else {
+      localStorage.removeItem('ns_native_theme_payload');
+      root.style.removeProperty('--bg');
+      root.style.removeProperty('--sidebar');
+      root.style.removeProperty('--surface');
+      root.style.removeProperty('--surface-rgb');
+      root.style.removeProperty('--surface-hover');
+      root.style.removeProperty('--card');
+      root.style.removeProperty('--card2');
+      root.style.removeProperty('--text');
+      root.style.removeProperty('--muted');
+      root.style.removeProperty('--muted2');
+      root.style.removeProperty('--border');
+      root.style.removeProperty('--bg-rgb');
+      if (indicator) indicator.style.display = 'none';
     }
   } catch (e) {
     console.error('Failed to get native theme:', e);
@@ -382,6 +641,7 @@ async function loadAndSyncSettings() {
 function syncSettingsUI() {
   if (appConfig) {
     document.getElementById('settingHostName').value = appConfig.hostName || localStorage.getItem('ns_name') || '';
+    if (document.getElementById('settingCustomUrl')) document.getElementById('settingCustomUrl').value = appConfig.customUrl || '';
 
     let savedHostAvatar = appConfig.hostAvatar || localStorage.getItem('ns_host_avatar') || localStorage.getItem('ns_avatar');
     let needsSave = false;
@@ -428,6 +688,7 @@ function syncSettingsUI() {
   }
 
   document.getElementById('settingTrackRumble')?.classList.toggle('on', appConfig.rumble !== false);
+  document.getElementById('settingTrackVrMode')?.classList.toggle('on', !!appConfig.vrMode);
   document.getElementById('settingTrackHidMaestro')?.classList.toggle('on', !!appConfig.hidmaestro);
   document.getElementById('settingTrackTray')?.classList.toggle('on', appConfig.tray !== false);
   document.getElementById('settingTrackCheckForUpdates')?.classList.toggle('on', appConfig.checkForUpdates !== false);
@@ -441,6 +702,34 @@ function syncSettingsUI() {
   document.getElementById('settingTrackVsyncOff')?.classList.toggle('on', !!appConfig.vsyncOff);
   document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
   document.getElementById('settingTrackWindowsExperimental')?.classList.toggle('on', !!appConfig.windowsExperimental);
+  document.getElementById('settingTrackAndroidExperimental')?.classList.toggle('on', !!appConfig.androidExperimental);
+
+  const brandText = document.querySelector('.brand-text');
+  if (brandText) {
+    brandText.textContent = appConfig.vrMode ? 'NEARCADE VR' : 'NEARCADE';
+  }
+  
+  const brandLogo = document.querySelector('.brand-logo');
+  if (brandLogo) {
+    let use3D = !!appConfig.vrMode;
+    if (appConfig.overrideLogo === '3d') use3D = true;
+    if (appConfig.overrideLogo === '2d') use3D = false;
+    brandLogo.src = use3D ? '../../assets/NearcadeIcon3D.png' : '../../assets/NearcadeLogo.png';
+  }
+  const gamesTabSpan = document.getElementById('gamesTab');
+  if (gamesTabSpan) {
+    gamesTabSpan.innerHTML = appConfig.vrMode ? 'V<br>R<br><br>G<br>A<br>M<br>E<br>S' : 'G<br>A<br>M<br>E<br>S';
+  }
+  const gamesLibBtn = document.querySelector('#gamesLibraryBtn span');
+  if (gamesLibBtn) {
+    gamesLibBtn.textContent = appConfig.vrMode ? 'VR Library' : 'Library';
+  }
+
+  // Expose Linux Advanced Setup on Linux regardless of vrMode
+  const linuxSetupRow = document.getElementById('settingRowLinuxSetup');
+  if (linuxSetupRow) {
+    linuxSetupRow.style.display = (window.electronAPI && navigator.platform.toLowerCase().includes('linux')) ? 'flex' : 'none';
+  }
 
   renderAutoHosts();
 
@@ -465,12 +754,25 @@ function saveLangAndReload(val) {
 }
 
 function saveHostName(val) {
+function saveCustomUrl(val) {
+  appConfig.customUrl = val.trim();
+  saveAppConfigToElectron();
+  syncToNode();
+}
   appConfig.hostName = val.trim();
   // Sync to standard local storage so Arcade and Viewer immediately see it
   localStorage.setItem('ns_name', appConfig.hostName);
 
   saveAppConfigToElectron();
   syncToNode();
+}
+
+function toggleBrandLogo() {
+  const isCurrently3D = document.querySelector('.brand-logo').src.includes('NearcadeIcon3D');
+  appConfig.overrideLogo = isCurrently3D ? '2d' : '3d';
+  saveAppConfigToElectron();
+  syncToNode();
+  syncSettingsUI();
 }
 
 let _tunnelProviders = null;
@@ -553,7 +855,7 @@ function tunnelCardClick(id) {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 50000);
-  fetch('/api/tunnels/start', {
+  fetch(`http://localhost:${_getServerPort()}/api/tunnels/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider: id }),
@@ -773,7 +1075,7 @@ async function executeUnban(ip) {
 }
 
 function toggleAppSetting(key) {
-  if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent', 'useNativeTheme', 'windowsExperimental'].includes(key)) {
+  if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent', 'useNativeTheme', 'windowsExperimental', 'vrMode'].includes(key)) {
     appConfig[key] = !appConfig[key];
     const tk = key === 'hwDecode' ? 'HWDecode' :
       key === 'discordRPC' ? 'DiscordRPC' :
@@ -786,8 +1088,39 @@ function toggleAppSetting(key) {
     if (tr) tr.classList.toggle('on', appConfig[key]);
     if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
 
-    if (key === 'useSystemAccent' && !appConfig.useNativeTheme) applySystemAccent();
+    if (key === 'useSystemAccent') applySystemAccent();
     if (key === 'useNativeTheme') applyNativeTheme();
+    if (key === 'vrMode' && appConfig.vrMode && window.electronAPI && window.electronAPI.startWivrn) {
+      window.electronAPI.startWivrn().then(res => {
+        const modal = document.getElementById('wivrnModal');
+        const title = document.getElementById('wivrnModalTitle');
+        const body = document.getElementById('wivrnModalBody');
+        const actions = document.getElementById('wivrnModalActions');
+        if (modal && title && body && actions) {
+          if (res.success) {
+            title.innerHTML = '<span style="color:var(--green)">WiVRn Started</span>';
+            body.innerHTML = 'WiVRn server successfully started in the background.<br><br>Ready for headset connections!';
+            actions.innerHTML = `<button class="btn-confirm" onclick="document.getElementById('wivrnModal').classList.add('gone');">Dismiss</button>`;
+          } else {
+            title.innerHTML = '<span style="color:var(--danger)">WiVRn Failed to Start</span>';
+            body.innerHTML = `Failed to start WiVRn server.<br><br><span style="color:var(--danger)">Error: ${res.error || 'Unknown error'}</span><br><br>Did you run the Linux Advanced Installer script? It is required to install WiVRn dependencies.`;
+            actions.innerHTML = `
+              <button class="btn-skip" onclick="document.getElementById('wivrnModal').classList.add('gone'); toggleAppSetting('vrMode');" style="margin-right:8px;">Dismiss</button>
+              <button class="btn-confirm" onclick="document.getElementById('wivrnModal').classList.add('gone'); toggleAppSetting('vrMode'); if(window.electronAPI) window.electronAPI.runAdvancedLinuxSetup();">Run Installer</button>
+            `;
+          }
+          modal.classList.remove('gone');
+        }
+      }).catch(e => {
+        const modal = document.getElementById('wivrnModal');
+        if (modal) {
+          document.getElementById('wivrnModalTitle').innerHTML = '<span style="color:var(--danger)">Error</span>';
+          document.getElementById('wivrnModalBody').textContent = e.message;
+          document.getElementById('wivrnModalActions').innerHTML = `<button class="btn-confirm" onclick="document.getElementById('wivrnModal').classList.add('gone');">Dismiss</button>`;
+          modal.classList.remove('gone');
+        }
+      });
+    }
   } else {
     appConfig[key] = !appConfig[key];
   }
@@ -859,47 +1192,6 @@ window.addEventListener('message', (event) => {
   }
 });
 
-const cursor = document.getElementById('virtual-cursor');
-let cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-let lastTime = performance.now();
-
-function updateGamepad(time) {
-  const dt = Math.min((time - lastTime) / 1000, 0.1); // Cap delta time at 100ms
-  lastTime = time;
-
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  for (const p of pads) {
-    if (!p) continue;
-    cursor.style.display = 'block';
-    const dx = p.axes[0], dy = p.axes[1];
-
-    // At 60hz, we moved 14 pixels per frame (840px per second)
-    const speed = 840;
-
-    if (Math.abs(dx) > 0.15) cx += dx * speed * dt;
-    if (Math.abs(dy) > 0.15) cy += dy * speed * dt;
-
-    cx = Math.max(0, Math.min(window.innerWidth, cx));
-    cy = Math.max(0, Math.min(window.innerHeight, cy));
-    cursor.style.left = cx + 'px';
-    cursor.style.top = cy + 'px';
-
-    if (p.buttons[0].pressed && !p._wasPressed) {
-      cursor.classList.add('clicking');
-      const el = document.elementFromPoint(cx, cy);
-      if (el && typeof el.click === 'function') el.click();
-      p._wasPressed = true;
-    } else if (!p.buttons[0].pressed) {
-      cursor.classList.remove('clicking');
-      p._wasPressed = false;
-    }
-  }
-  requestAnimationFrame(updateGamepad);
-}
-window.addEventListener('gamepadconnected', () => {
-  lastTime = performance.now();
-  requestAnimationFrame(updateGamepad);
-});
 
 async function checkFirstRun() {
   if (window.Capacitor || window.IS_CLIENT_ONLY) {
@@ -986,6 +1278,84 @@ function saveAutoHostConfig() {
   }
 }
 
+// ── Installed Steam game detection ──────────────────────────────────────────
+// Auto-hosts launch a shell command, so the hard part for the user is knowing
+// their Steam AppID. /api/games already parses every libraryfolders.vdf +
+// appmanifest_*.acf on disk; we only need the Steam subset of it.
+let _autoSteamByLabel = new Map();
+let _autoSteamLoaded = false;
+let _autoSteamLoading = false;
+let _autoSteamLastPickedName = '';
+
+function loadAutoHostSteamGames(force) {
+  if (_autoSteamLoading || (_autoSteamLoaded && !force)) return Promise.resolve();
+  _autoSteamLoading = true;
+  const meta = document.getElementById('autoGamePickMeta');
+  if (meta) meta.textContent = 'Scanning installed Steam libraries…';
+
+  const port = _getServerPort();
+  return fetch(`http://localhost:${port}/api/games`)
+    .then(r => r.json())
+    .then(d => {
+      const games = (d.games || []).filter(g => g.launcher === 'steam');
+      games.sort((a, b) => (b.lastPlayed - a.lastPlayed) || String(a.name).localeCompare(String(b.name)));
+
+      _autoSteamByLabel = new Map();
+      const dl = document.getElementById('autoSteamGames');
+      if (dl) dl.textContent = '';
+
+      games.forEach(g => {
+        const label = String(g.name);
+        // Two installs can share a display name — disambiguate with the AppID.
+        const key = _autoSteamByLabel.has(label) ? `${label} (${g.id})` : label;
+        _autoSteamByLabel.set(key, g);
+        if (!dl) return;
+        const opt = document.createElement('option');
+        opt.value = key;
+        dl.appendChild(opt);
+      });
+
+      _autoSteamLoaded = true;
+      if (meta) {
+        meta.textContent = games.length
+          ? `${games.length} Steam games detected — pick one to auto-fill its launch command.`
+          : 'No installed Steam games found. Type a launch command manually below.';
+      }
+    })
+    .catch(() => {
+      if (meta) meta.textContent = 'Could not scan installed games — type a launch command manually below.';
+    })
+    .finally(() => { _autoSteamLoading = false; });
+}
+
+// `quiet` is set by the input event, which fires on every keystroke — only the
+// change event (a picked suggestion or a blur) is allowed to complain.
+function onAutoGamePicked(quiet) {
+  const input = document.getElementById('autoGamePick');
+  if (!input) return;
+  const meta = document.getElementById('autoGamePickMeta');
+  const game = _autoSteamByLabel.get(input.value.trim());
+  if (!game) {
+    if (meta && !quiet) meta.textContent = 'Unknown entry — pick a suggested game, or type a command below.';
+    return;
+  }
+
+  const cmd = `steam steam://rungameid/${game.id}`;
+  const cmdInput = document.getElementById('autoCmd');
+  if (cmdInput) cmdInput.value = cmd;
+
+  const nameInput = document.getElementById('autoName');
+  const currentName = nameInput ? nameInput.value.trim() : '';
+  // Only touch the name when it is empty or was filled by a previous pick,
+  // so a hand-typed lobby name is never clobbered.
+  if (nameInput && (!currentName || currentName === _autoSteamLastPickedName)) {
+    nameInput.value = game.name;
+    _autoSteamLastPickedName = game.name;
+  }
+
+  if (meta) meta.textContent = `Steam AppID ${game.id} → ${cmd}`;
+}
+
 function saveAutoHost() {
   const name = document.getElementById('autoName').value.trim();
   const cmd = document.getElementById('autoCmd').value.trim();
@@ -993,13 +1363,37 @@ function saveAutoHost() {
 
   if (!name || !cmd) return;
   if (!appConfig.autoHosts) appConfig.autoHosts = [];
-  appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
+  // host.js resolves an auto-host by NAME, so a duplicate name silently shadows
+  // the older entry and makes "Save" look like it did nothing. Update in place.
+  const existing = appConfig.autoHosts.find(h => h.name === name);
+  if (existing) {
+    existing.cmd = cmd;
+    existing.tunnel = tunnel;
+    existing.status = 'offline';
+  } else {
+    appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
+  }
 
   saveAppConfigToElectron();
   syncToNode();
   renderAutoHosts();
   document.getElementById('autoName').value = '';
   document.getElementById('autoCmd').value = '';
+}
+
+// Double-quote style: keeps titles readable (`"JoJo's Bizarre Adventure"`)
+// instead of the `'x'"'"'y'` mess single-quoting produces. Characters that are
+// special inside double quotes are backslash-escaped, so it stays safe to type.
+function shellQuote(s) {
+  return '"' + String(s).replace(/[\\"`$]/g, (m) => '\\' + m) + '"';
+}
+
+// The arcade worker is bin/start-arcade.sh (xvfb + `npx electron . --arcade-worker`).
+// electron-main.js reads --game-name / --game-tunnel, and host.js?auto=1 then looks
+// the config entry up by name to get its `cmd` — so the name must match exactly.
+function buildAutoHostCommand(h) {
+  const tunnel = h.tunnel ? ` --game-tunnel ${h.tunnel}` : '';
+  return `./bin/start-arcade.sh --game-name ${shellQuote(h.name || 'Auto-Host')}${tunnel}`;
 }
 
 function renderAutoHosts() {
@@ -1021,10 +1415,12 @@ function renderAutoHosts() {
     const isRunning = currentGameStatus.running && currentGameStatus.command === h.cmd;
 
     let logDisplay = '';
+    const launchCmd = buildAutoHostCommand(h)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     if (isRunning) {
-      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #333; border-radius:4px; font-family:monospace; font-size:10px; color:#eab308;">> Game loop active inside Display :99</div>`;
+      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #333; border-radius:4px; font-family:monospace; font-size:10px; color:#eab308;">&gt; Game loop active inside an isolated virtual display</div>`;
     } else {
-      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #222; border-radius:4px; font-family:monospace; font-size:10px; color:#555;">To launch, run: ./bin/headless-host.cmd in a terminal</div>`;
+      logDisplay = `<div style="margin-top:8px; padding:6px; background:#000; border:1px solid #222; border-radius:4px; font-family:monospace; font-size:10px; color:#555;">To launch: ${launchCmd}</div>`;
     }
 
     let activeUrl = '';
@@ -1087,7 +1483,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const linuxSetupRow = document.getElementById('settingRowLinuxSetup');
   if (linuxSetupRow) {
-    linuxSetupRow.style.display = (window.electronAPI && navigator.platform.toLowerCase().includes('linux')) ? 'flex' : 'none';
+    // Only expose the Advanced Setup (Linux) row if Nearcade VR Mode is actually enabled
+    linuxSetupRow.style.display = (window.electronAPI && navigator.platform.toLowerCase().includes('linux') && appConfig.vrMode) ? 'flex' : 'none';
   }
 
   // 2. Restore UI version toggle
@@ -1103,10 +1500,13 @@ document.addEventListener('DOMContentLoaded', () => {
     || appConfig.bootToHost
     || localStorage.getItem('ns_auto_host') === 'true';
 
-  if (autoStartEnabled) {
+  const pendingJump = localStorage.getItem('ns_pending_host_jump') === 'true';
+
+  if (autoStartEnabled || pendingJump) {
+    if (pendingJump) localStorage.removeItem('ns_pending_host_jump');
     document.getElementById('settingTrackAutoHost')?.classList.add('on');
-    if (!noAutoHost) {
-      setTimeout(launchHostSession, 500);
+    if (!noAutoHost || pendingJump) {
+      setTimeout(() => launchHostSession({ isAuto: !pendingJump }), 500);
     }
   }
 
@@ -1411,7 +1811,34 @@ async function fetchCommunityTurnServers() {
   }
 }
 
-function launchHostSession() {
+let _ignoredAdminPrompt = false;
+async function launchHostSession(opts = {}) {
+  // Ask for elevation once per app session (reloads dashboard)
+  if (!appConfig.hidmaestro && window.electronAPI && window.electronAPI.checkElevation && navigator.userAgent.includes('Windows')) {
+    const isElevated = await window.electronAPI.checkElevation();
+    if (!isElevated) {
+      const wantsElevate = await showAppConfirm(
+        'Elevation Required',
+        `Nearcade requires Administrator privileges on Windows for Keyboard/Mouse emulation (UIPI) and ViGEmBus virtual gamepad drivers.\n\nPlease click OK to elevate Nearcade's permissions.`,
+        'OK',
+        'Cancel'
+      );
+      if (wantsElevate) {
+        localStorage.setItem('ns_pending_host_jump', 'true');
+        const success = await window.electronAPI.elevateApp();
+        if (success) {
+          // The app will now relaunch. We wait for it to exit.
+          await new Promise(r => setTimeout(r, 2000));
+          return;
+        } else {
+          // Clean up if it failed (e.g. UAC cancelled)
+          localStorage.removeItem('ns_pending_host_jump');
+        }
+      }
+      // If cancelled or failed, close the prompt and stop the host launch
+      return;
+    }
+  }
   // Force direct storage read to prevent race condition with appConfig caching
   let uiVer = localStorage.getItem('ns_ui_version') || 'default';
   // Migrate old setting format if present
@@ -1477,24 +1904,48 @@ function toggleAutoHost() {
   }).catch(() => { });
 }
 
+// Launching the raw game command from a terminal only ever gives you a window on
+// your own desktop — no Nearcade session, no capture, no tunnel. The visible
+// terminal action boots the real auto-host worker (bin/start-arcade.sh, the same
+// entry bin/start.cmd uses) with a console left open so you can watch it.
+//
+// The worker resolves the GAME command by looking up this exact name in
+// appConfig.autoHosts, so we must (a) have that entry saved and (b) have it on
+// disk *before* the terminal is spawned — syncToNode() alone is debounced up to
+// 3s after boot and would race the worker's config read.
 function openAutoHostTerminal() {
   const cmd = document.getElementById('autoCmd').value.trim();
-  const name = document.getElementById('autoName').value.trim() || 'Auto-Host';
+  const name = document.getElementById('autoName').value.trim();
+  const tunnelSel = document.getElementById('autoTunnel');
+  const tunnel = tunnelSel ? (tunnelSel.value || '') : 'default';
   if (!cmd) { alert('Enter a launch command first.'); return; }
+  if (!name) { alert('Give this configuration a Game/Lobby Name first — the worker looks it up by name.'); return; }
+
+  if (!appConfig.autoHosts) appConfig.autoHosts = [];
+  const existing = appConfig.autoHosts.find(h => h.name === name);
+  if (existing) { existing.cmd = cmd; existing.tunnel = tunnel; }
+  else appConfig.autoHosts.push({ id: Date.now(), name, cmd, tunnel, status: 'offline' });
+  saveAppConfigToElectron();
+  renderAutoHosts();
+
   const port = _getServerPort();
-  fetch('http://localhost:' + port + '/api/open-terminal', {
+  fetch('http://localhost:' + port + '/api/config', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cmd, name })
-  }).then(r => r.json()).then(d => { if (!d.ok) alert('Terminal failed: ' + (d.reason || '')); })
-    .catch(() => alert('Terminal launch failed.'));
+    body: JSON.stringify(_cfgWithoutTunnel())
+  }).catch(() => { }).then(() => fetch('http://localhost:' + port + '/api/open-terminal', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd: buildAutoHostCommand({ name, tunnel }), name })
+  })).then(r => r.json()).then(d => { if (!d.ok) alert('Launch failed: ' + (d.reason || '')); })
+    .catch(() => alert('Launch failed.'));
 }
 (function () {
   const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
   if (isLinux) { const b = document.getElementById('btnOpenTerminal'); if (b) b.style.display = 'block'; }
+  if (!isLinux) { const v = document.getElementById('settingRowVrMode'); if (v) v.style.display = 'none'; }
 })();
 
-function killGame() {
-  if (confirm("Stop the running game?")) {
+async function killGame() {
+  if (await showAppConfirm("Stop Game", "Stop the running game?", "Stop", "Cancel")) {
     const port = _getServerPort();
     fetch(`http://localhost:${port}/api/restart-game`, {
       method: 'POST',
@@ -1761,14 +2212,23 @@ function showPairNotice(uuid, secret) {
     '<div style="font-weight:600; margin-bottom:4px;">' + I18N.t('Send this pairing code to your friend (along with your Friend ID):') + '</div>' +
     '<code style="display:block; user-select:all; word-break:break-all; background:#211f28; border:1px solid var(--border,#2a2833); border-radius:6px; padding:8px; font-size:12px; color:var(--accent,#c084fc);">' + secret + '</code>' +
     '<button onclick="copyPairCode(\'' + secret + '\')" style="margin-top:8px; background:#fff; border:none; border-radius:6px; padding:6px 12px; color:#111; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit;">' + I18N.t('Copy Pairing Code') + '</button>' +
-    '<div style="margin-top:6px; color:var(--muted,#888);">' + I18N.t('They enter it in their Dashboard → Enter Pairing Code. Without it, their pings and invites to you are rejected.') + '</div>';
+    '<div style="margin-top:6px; color:var(--muted,#888);">' + I18N.t('Tell your friend: this code proves their pings and invites really come from them. They paste it in their own app — Dashboard → Enter Pairing Code, or their profile → Pairing Code — along with your Friend ID. Until they do, their pings to you are rejected.') + '</div>';
 }
 
 async function copyPairCode(secret) {
   try {
     await navigator.clipboard.writeText(secret);
     const btn = document.querySelector('#friendPairNotice button');
+    if (btn && btn.dataset.copyBusy === '1') return;
+    if (btn) btn.dataset.copyBusy = '1';
     if (btn) btn.textContent = I18N.t('Copied!');
+    setTimeout(() => {
+      const b2 = document.querySelector('#friendPairNotice button');
+      if (b2 && b2.dataset.copyBusy === '1') {
+        b2.textContent = I18N.t('Copy Pairing Code');
+        b2.dataset.copyBusy = '0';
+      }
+    }, 1500);
   } catch (_) { }
 }
 
@@ -1957,3 +2417,33 @@ function timeAgo(at) {
 }
 
 setInterval(loadFriends, 8000);
+
+document.addEventListener('DOMContentLoaded', () => {
+    fetch('/api/game-profiles').then(r => r.json()).then(titles => {
+        const dl = document.getElementById('arcadeGameTitles');
+        if (dl && Array.isArray(titles)) {
+            titles.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                dl.appendChild(opt);
+            });
+        }
+    }).catch(e => console.error('[dashboard] failed to load game profiles:', e));
+});
+async function exitNearcadeApp() {
+  const confirmed = await showAppConfirm(
+    "Exit Nearcade",
+    "Are you sure you want to completely shut down and exit Nearcade?",
+    "Exit",
+    "Cancel"
+  );
+  if (confirmed) {
+    if (window.electronAPI && typeof window.electronAPI.closeApp === 'function') {
+      window.electronAPI.closeApp();
+    } else {
+      fetch('/api/shutdown', { method: 'POST' }).then(() => {
+        window.close();
+      }).catch(() => { window.close(); });
+    }
+  }
+}

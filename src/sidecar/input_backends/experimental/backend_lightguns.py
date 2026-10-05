@@ -47,6 +47,7 @@
 
 import sys
 import json
+import signal
 
 DEFAULT_HOST_W = 1920
 DEFAULT_HOST_H = 1080
@@ -83,47 +84,61 @@ def start_lightguns_backend():
                 device.device.set_absinfo(e.ABS_X, AbsInfo(value=0, min=0, max=w - 1, fuzz=0, flat=0, resolution=0))
                 return device
 
-            for line in sys.stdin:
-                try:
-                    data = json.loads(line)
+            def sigterm_handler(_signo, _stack_frame):
+                print("[backend_lightguns] Caught SIGTERM, shutting down...", flush=True)
+                sys.exit(0)
+            
+            signal.signal(signal.SIGTERM, sigterm_handler)
 
-                    # Config packet — (re)initialise with correct resolution
-                    if data.get("type") == "config":
-                        host_w = int(data.get("hostW", DEFAULT_HOST_W))
-                        host_h = int(data.get("hostH", DEFAULT_HOST_H))
-                        if ui:
-                            ui.close()
-                        ui = _create_ui(host_w, host_h)
-                        print(
-                            f"[backend_lightguns] Reconfigured for {host_w}x{host_h} host resolution.",
-                            flush=True,
-                        )
+            try:
+                for line in sys.stdin:
+                    try:
+                        data = json.loads(line)
+
+                        # Config packet — (re)initialise with correct resolution
+                        if data.get("type") == "config":
+                            host_w = int(data.get("hostW", DEFAULT_HOST_W))
+                            host_h = int(data.get("hostH", DEFAULT_HOST_H))
+                            if ui:
+                                ui.close()
+                            ui = _create_ui(host_w, host_h)
+                            print(
+                                f"[backend_lightguns] Reconfigured for {host_w}x{host_h} host resolution.",
+                                flush=True,
+                            )
+                            continue
+
+                        # Lazily create UInput on first real input if no config was sent
+                        if ui is None:
+                            ui = _create_ui(host_w, host_h)
+                            print(
+                                f"[backend_lightguns] Virtual light gun created at /dev/uinput "
+                                f"({host_w}x{host_h}).",
+                                flush=True,
+                            )
+
+                        if "x" in data and "y" in data:
+                            px = max(0, min(host_w - 1, int(float(data["x"]) * host_w)))
+                            py = max(0, min(host_h - 1, int(float(data["y"]) * host_h)))
+                            ui.write(e.EV_ABS, e.ABS_X, px)
+                            ui.write(e.EV_ABS, e.ABS_Y, py)
+
+                        if "trigger" in data:
+                            ui.write(e.EV_KEY, e.BTN_LEFT, 1 if data["trigger"] else 0)
+                        if "btn2" in data:
+                            ui.write(e.EV_KEY, e.BTN_RIGHT, 1 if data["btn2"] else 0)
+
+                        ui.syn()
+
+                    except (json.JSONDecodeError, KeyError, ValueError):
                         continue
-
-                    # Lazily create UInput on first real input if no config was sent
-                    if ui is None:
-                        ui = _create_ui(host_w, host_h)
-                        print(
-                            f"[backend_lightguns] Virtual light gun created at /dev/uinput "
-                            f"({host_w}x{host_h}).",
-                            flush=True,
-                        )
-
-                    if "x" in data and "y" in data:
-                        px = max(0, min(host_w - 1, int(float(data["x"]) * host_w)))
-                        py = max(0, min(host_h - 1, int(float(data["y"]) * host_h)))
-                        ui.write(e.EV_ABS, e.ABS_X, px)
-                        ui.write(e.EV_ABS, e.ABS_Y, py)
-
-                    if "trigger" in data:
-                        ui.write(e.EV_KEY, e.BTN_LEFT, 1 if data["trigger"] else 0)
-                    if "btn2" in data:
-                        ui.write(e.EV_KEY, e.BTN_RIGHT, 1 if data["btn2"] else 0)
-
-                    ui.syn()
-
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    continue
+            finally:
+                if ui:
+                    try:
+                        ui.close()
+                    except:
+                        pass
+                print("[backend_lightguns] Closed virtual light gun.", flush=True)
 
         except ImportError:
             print("[backend_lightguns] Error: 'evdev' module not installed.", file=sys.stderr)

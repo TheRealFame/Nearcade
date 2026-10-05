@@ -1,3 +1,5 @@
+!include "LogicLib.nsh"
+
 ; This runs the moment the user opens the Setup / Installer .exe
 !macro customInit
   ; Silently kill all instances of the app and its child processes
@@ -10,7 +12,16 @@
   nsExec::Exec "taskkill /F /IM Nearcade.exe /T"
 !macroend
 
-!include "LogicLib.nsh"
+!macro customUnInstall
+  MessageBox MB_YESNO|MB_DEFBUTTON2|MB_ICONQUESTION "Would you like to remove the ViGEmBus virtual controller driver?$\n$\n(Select 'No' if you use it for other apps like DS4Windows)" IDNO keep_vigem
+    DetailPrint "Uninstalling ViGEmBus..."
+    ${If} ${FileExists} "$INSTDIR\ViGEmBus_Setup.exe"
+      ExecWait '"$INSTDIR\ViGEmBus_Setup.exe" /uninstall /quiet'
+    ${ElseIf} ${FileExists} "$INSTDIR\resources\bin\setup\ViGEmBus_Setup.exe"
+      ExecWait '"$INSTDIR\resources\bin\setup\ViGEmBus_Setup.exe" /uninstall /quiet'
+    ${EndIf}
+  keep_vigem:
+!macroend
 
 !macro customInstall
   ; Check if ViGEmBus is already installed
@@ -30,4 +41,6 @@
       ${EndIf}
     skipVigem:
   ${EndIf}
+  WriteRegStr HKCU "Software\Nearcade" "InstallDir" "$INSTDIR"
+  WriteUninstaller "$INSTDIR\Uninstall.exe"
 !macroend

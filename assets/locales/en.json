@@ -1109,6 +1109,7 @@
   "ui_friends_pair_send": "Send this pairing code to your friend (along with your Friend ID):",
   "ui_friends_pair_copy": "Copy Pairing Code",
   "ui_friends_pair_how": "They enter it in their Dashboard → Enter Pairing Code. Without it, their pings and invites to you are rejected.",
+  "ui_friends_pair_how2": "Tell your friend: this code proves their pings and invites really come from them. They paste it in their own app — Dashboard → Enter Pairing Code, or their profile → Pairing Code — along with your Friend ID. Until they do, their pings to you are rejected.",
   "ui_friends_pair_show": "Show Pairing Code",
   "ui_friends_pair_bad_uuid": "Enter a valid friend ID.",
   "ui_friends_pair_bad_secret": "Enter a valid 48-character pairing code.",

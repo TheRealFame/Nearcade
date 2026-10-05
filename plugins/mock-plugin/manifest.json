@@ -1,0 +1,8 @@
+{
+  "id": "mock-plugin-1",
+  "name": "Mock Input Interceptor",
+  "version": "1.1.0",
+  "author": "Antigravity",
+  "entry_script": "main.py",
+  "description": "A functional mock plugin that registers an input intercept hook."
+}

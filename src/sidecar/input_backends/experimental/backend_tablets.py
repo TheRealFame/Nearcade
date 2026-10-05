@@ -1,6 +1,7 @@
 import sys
 import json
 import time
+import signal
 
 def start_tablet_backend():
     print("[backend_tablets] Initializing Tablet Backend...", flush=True)
@@ -29,34 +30,47 @@ def start_tablet_backend():
             ui = UInput(cap, name="Nearcade Virtual Tablet", version=0x3)
             print("[backend_tablets] Virtual tablet created successfully at /dev/uinput.", flush=True)
             
+            def sigterm_handler(_signo, _stack_frame):
+                print("[backend_tablets] Caught SIGTERM, shutting down...", flush=True)
+                sys.exit(0)
+            
+            signal.signal(signal.SIGTERM, sigterm_handler)
+
             # Read streaming JSON data from Node.js standard input
-            for line in sys.stdin:
+            try:
+                for line in sys.stdin:
+                    try:
+                        data = json.loads(line)
+                        
+                        if 'x' in data and 'y' in data:
+                            # Convert normalized 0.0-1.0 coordinate from the web browser to the 10000 grid
+                            ui.write(e.EV_ABS, e.ABS_X, int(data['x'] * 10000))
+                            ui.write(e.EV_ABS, e.ABS_Y, int(data['y'] * 10000))
+                            
+                        if 'pressure' in data:
+                            # Normalize 0.0-1.0 pressure to 1000 levels
+                            pressure_val = int(data['pressure'] * 1000)
+                            ui.write(e.EV_ABS, e.ABS_PRESSURE, pressure_val)
+                            
+                            # Tell the OS the pen is physically touching the screen if pressure > 0
+                            ui.write(e.EV_KEY, e.BTN_TOUCH, 1 if pressure_val > 0 else 0)
+                            
+                        if 'tiltX' in data:
+                            ui.write(e.EV_ABS, e.ABS_TILT_X, int(data['tiltX']))
+                        if 'tiltY' in data:
+                            ui.write(e.EV_ABS, e.ABS_TILT_Y, int(data['tiltY']))
+                            
+                        # Sync the event frame to the kernel
+                        ui.syn()
+                        
+                    except json.JSONDecodeError:
+                        continue
+            finally:
                 try:
-                    data = json.loads(line)
-                    
-                    if 'x' in data and 'y' in data:
-                        # Convert normalized 0.0-1.0 coordinate from the web browser to the 10000 grid
-                        ui.write(e.EV_ABS, e.ABS_X, int(data['x'] * 10000))
-                        ui.write(e.EV_ABS, e.ABS_Y, int(data['y'] * 10000))
-                        
-                    if 'pressure' in data:
-                        # Normalize 0.0-1.0 pressure to 1000 levels
-                        pressure_val = int(data['pressure'] * 1000)
-                        ui.write(e.EV_ABS, e.ABS_PRESSURE, pressure_val)
-                        
-                        # Tell the OS the pen is physically touching the screen if pressure > 0
-                        ui.write(e.EV_KEY, e.BTN_TOUCH, 1 if pressure_val > 0 else 0)
-                        
-                    if 'tiltX' in data:
-                        ui.write(e.EV_ABS, e.ABS_TILT_X, int(data['tiltX']))
-                    if 'tiltY' in data:
-                        ui.write(e.EV_ABS, e.ABS_TILT_Y, int(data['tiltY']))
-                        
-                    # Sync the event frame to the kernel
-                    ui.syn()
-                    
-                except json.JSONDecodeError:
-                    continue
+                    ui.close()
+                except:
+                    pass
+                print("[backend_tablets] Closed virtual tablet.", flush=True)
 
         except ImportError:
             print("[backend_tablets] Error: 'evdev' module is not installed.", file=sys.stderr)

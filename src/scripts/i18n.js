@@ -20,7 +20,7 @@ const I18N = {
             if (rawCache) cachedLangs = JSON.parse(rawCache);
 
             // If the cache is corrupted or empty, force it to fail so we use the fallback
-            if (typeof cachedLangs !== 'object' || Object.keys(cachedLangs).length === 0) {
+            if (!cachedLangs || typeof cachedLangs !== 'object' || Object.keys(cachedLangs).length === 0) {
                 cachedLangs = null;
             }
         } catch (e) {

@@ -3,6 +3,8 @@ const http = require("http");
 const https = require("https");
 const WebSocket = require("ws");
 const crypto = require('crypto');
+const { z } = require('zod');
+const rateLimitMiddleware = require('express-rate-limit');
 require('dotenv').config();
 const si = require('systeminformation');
 
@@ -18,8 +20,8 @@ console.log = function (...args) {
     try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
   }).join(' ');
 
-  // Blur IPv4 addresses (except localhost)
-  msg = msg.replace(/\b(?!127\.0\.0\.1)(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  // Blur IPv4 addresses (except localhost and local LAN IPs)
+  msg = msg.replace(/\b(?!127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
 
   // Blur Cloudflare tunnel URLs
   msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
@@ -44,6 +46,42 @@ console.log = function (...args) {
   _origLog.call(console, msg);
 };
 
+const _origErr = console.error;
+console.error = function (...args) {
+  let callerInfo = '';
+  try {
+    const stack = new Error().stack.split('\\n');
+    const caller = stack[2] || '';
+    const match = caller.match(/\\((.*):(\\d+):(\\d+)\\)/) || caller.match(/at (.*):(\\d+):(\\d+)/);
+    if (match) {
+      const file = require('path').basename(match[1]);
+      callerInfo = `[${file}:${match[2]}] `;
+    }
+  } catch (e) {}
+
+  let msg = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a, null, 2); } catch (_) { return String(a); }
+  }).join(' ');
+
+  // Blur sensitive data exactly like console.log
+  msg = msg.replace(/\b(?!127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})(?:\d{1,3}\.){3}\d{1,3}\b/g, '***.***.***.***');
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g, 'https://********.trycloudflare.com');
+  msg = msg.replace(/https:\/\/[a-zA-Z0-9-]+\.(share\.zrok\.io|playit\.gg|lhr\.life|serveo\.net|serveousercontent\.com)/g, 'https://********.$1');
+  msg = msg.replace(/([a-zA-Z0-9_-]+@\*\*\*\.\*\*\*\.\*\*\*\.\*\*\*)/g, '********@***.***.***.***');
+  msg = msg.replace(/("?vpsMasterKey"?\s*:\s*['"]?)[a-fA-F0-9]{64}(['"]?)/g, '$1********$2');
+  msg = msg.replace(/("?sessionPassword"?\s*:\s*['"]?)[^'"\s,]+(['"]?)/g, '$1********$2');
+  if (typeof PIN !== 'undefined' && PIN) {
+    msg = msg.replace(new RegExp(PIN, 'g'), '****');
+  }
+
+  if (callerInfo) {
+    _origErr.call(console, callerInfo + msg);
+  } else {
+    _origErr.call(console, msg);
+  }
+};
+
 const net = require("net");
 const fs = require("fs");
 const path = require('path');
@@ -53,9 +91,9 @@ const sidecarPath = __dirname.includes('app.asar')
 const { exec, spawn } = require("child_process");
 const open = (...args) => import('open').then(({ default: open }) => open(...args));
 const which = require("which");
-const tunnels = require('./tunnels.js');
-const killPort = require("kill-port");
-const captureManager = require('../sidecar/CaptureManager.js');
+const tunnels = require('./core/network/tunnels.js');
+
+const captureManager = require('../sidecar/capture/CaptureManager.js');
 let activePort = 3000;
 let hostWS = null;
 let hostRegion = '';
@@ -74,13 +112,26 @@ function wivrnBumpVrActivity() {
 }
 
 async function wivrnEnsureRunning() {
-  if (wivrnInt._isServerOnBus()) return true;
-  const result = await wivrnInt.startServer();
-  if (!result.ok) {
-    console.log('[WiVRn] Failed to start:', result.message);
+  console.log('[WiVRn Trace] wivrnEnsureRunning called');
+  
+  // Check if the host has VR mode enabled. If not, don't spawn WiVRn.
+  const cfg = loadConfig();
+  if (!cfg.vrMode) {
+    console.log('[WiVRn Trace] Aborting: Host vrMode is OFF in settings');
     return false;
   }
-  console.log('[WiVRn] Server started on D-Bus');
+  
+  if (wivrnInt._isServerOnBus()) {
+    console.log('[WiVRn Trace] Server already on D-Bus');
+    return true;
+  }
+  console.log('[WiVRn Trace] Starting server...');
+  const result = await wivrnInt.startServer();
+  if (!result.ok) {
+    console.log('[WiVRn Trace] Failed to start:', result.message);
+    return false;
+  }
+  console.log('[WiVRn Trace] Server started on D-Bus successfully');
   return true;
 }
 const MAX_VIEWER_CONTROLLERS = 1;
@@ -88,9 +139,11 @@ let uinputProc = null;
 let audioProc = null;
 const viewers = new Map();
 const viewerNames = new Map();
+const viewerTokens = new Map();
 const viewerColors = new Map();
 const viewerAvatars = new Map();
 const viewerPlatforms = new Map();
+const viewerWcSupport = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
 const urlSpam = new Map();
@@ -154,10 +207,26 @@ function saveFriendsConfig(updates) {
 }
 
 let _gstOfferStr = null;
+let _lastWcConfig = null;
 let _gstIceCandidates = [];
 
 // Route GStreamer WebRTC outputs (Offers/ICE) back to viewers
+// NEARCADE_DIAG=1 (bin/diag-run.js): census sidecar message types + a 60 s
+// summary so a 5-minute run shows exactly what the backend produced.
+const _diagOn = process.env.NEARCADE_DIAG === '1';
+const _diagSidecar = { sdp: 0, ice: 0, thumbnail: 0, info: 0, error: 0, 'h264-chunk': 0, other: 0 };
+if (_diagOn) {
+  setInterval(() => {
+    const parts = Object.entries(_diagSidecar).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ');
+    console.log(`[diag] sidecar msgs/60s: ${parts || 'none'}`);
+    for (const k of Object.keys(_diagSidecar)) _diagSidecar[k] = 0;
+  }, 60000).unref();
+}
 captureManager.setGstSignalingCallback((msg) => {
+  if (_diagOn && msg && typeof msg.type === 'string') {
+    if (Object.prototype.hasOwnProperty.call(_diagSidecar, msg.type)) _diagSidecar[msg.type]++;
+    else _diagSidecar.other++;
+  }
   if (msg.type === 'sdp') {
     _gstOfferStr = msg.sdp;
     _gstIceCandidates = [];
@@ -168,6 +237,10 @@ captureManager.setGstSignalingCallback((msg) => {
     const candidateObj = { candidate: msg.candidate, sdpMLineIndex: msg.sdpMLineIndex };
     _gstIceCandidates.push(candidateObj);
     broadcast(JSON.stringify({ type: 'ice-host', candidate: candidateObj }));
+  } else if (msg.type === 'thumbnail' || msg.type === 'info' || msg.type === 'error' || msg.type === 'h264-chunk') {
+    if (typeof hostWS !== 'undefined' && hostWS) {
+        hostWS.send(JSON.stringify(msg));
+    }
   }
 });
 
@@ -178,7 +251,7 @@ const PusherRaw = require('pusher-js');
 const isPackaged = __dirname.includes('app.asar');
 const inputDriver = require('../sidecar/input_backends/InputOrchestrator.js');
 const experimentalDriver = require('../sidecar/input_backends/experimental/ExperimentalOrchestrator.js');
-const wivrnInt = require('../sidecar/wivrn-integration.js');
+const wivrnInt = require('../sidecar/capture/wivrn-integration.js');
 // ══════════════════════════════════════════════════════════════════════════════
 // VIRTUAL AUDIO — delegated to audio_worker.js via worker_threads IPC
 // The main event loop never calls pactl directly; all blocking OS shell work
@@ -199,9 +272,9 @@ let _audioWorker = null;
 function spawnAudioWorker() {
   if (process.platform !== 'linux') return;
 
-  const daemonPath = path.join(__dirname, '..', 'sidecar', 'audio_blacklist_daemon.js');
+  const daemonPath = path.join(__dirname, '..', 'sidecar', 'audio', 'audio_blacklist_daemon.js');
 
-  _audioWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'audio_worker.js'), {
+  _audioWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'audio', 'audio_worker.js'), {
     workerData: {
       isPackaged,
       daemonPath: fs.existsSync(daemonPath) ? daemonPath : null,
@@ -335,7 +408,7 @@ function initPusher(cfg) {
 let _arcadeWorker = null;
 
 function spawnArcadeHeartbeatWorker() {
-  _arcadeWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'arcade_heartbeat_worker.js'), {
+  _arcadeWorker = new Worker(path.join(__dirname, '..', 'sidecar', 'workers', 'arcade_heartbeat_worker.js'), {
     workerData: { syncIntervalMs: 30_000, pingIntervalMs: 25_000 }
   });
 
@@ -396,18 +469,20 @@ function toUinput(msg) {
 //
 // If msg already has named fields (Python path) it is returned as-is.
 function normalizeGamepadMsg(msg) {
+  if (!msg || typeof msg !== 'object') return null;
+
   // Already normalized — named axes present, nothing to do
   if (msg.lx !== undefined || !Array.isArray(msg.axes)) return msg;
 
-  const axes = msg.axes || [];
-  const btns = msg.buttons || [];
+  const axes = Array.isArray(msg.axes) ? msg.axes : [];
+  const btns = Array.isArray(msg.buttons) ? msg.buttons : [];
 
   // ── STRICT DATA VALIDATION REWRITE ──
   // Actively drop malformed or maliciously large data chunks.
   // NOTE: We do NOT reject empty arrays — an all-zero/rest state is
   // still valid and MUST be processed so that _claimSlot runs for new viewers.
-  if (axes.length > 20 || btns.length > 40) {
-    console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes.length}, Buttons: ${btns.length}`);
+  if (axes && axes.length > 20 || btns && btns.length > 40) {
+    console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes ? axes.length : 0}, Buttons: ${btns ? btns.length : 0}`);
     return null;
   }
 
@@ -529,12 +604,13 @@ function shouldRequirePin(ip, hasTunnelHeader = false) {
   if (process.argv.includes('--arcade-worker')) return false;
 
   if (!ip) return true;
-  if (ip.startsWith('192.168.') || ip.startsWith('::ffff:192.168.')) return false;
+  // Localhost (host's own machine) bypasses PIN only if not tunneled
   if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') {
     if (hasTunnelHeader || process.env.USING_TUNNEL === 'true') return true;
     return false;
   }
-  if (ip.startsWith('100.')) return false;
+  
+  // All other clients (including LAN) must provide a PIN
   return true;
 }
 function findFreePort(start) {
@@ -612,7 +688,7 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_VERSION = 2;
+const CONFIG_VERSION = 3;
 const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
 const FRIENDS_FILE = path.join(dataDir, 'friends.json');
 const DEFAULT_ARCADE_URL = 'https://nearcade.cutefame.net';
@@ -631,6 +707,12 @@ function migrateConfig(cfg) {
   if (v < 2) {
     if (!cfg.arcadeUrl) cfg.arcadeUrl = DEFAULT_ARCADE_URL;
     v = 2;
+  }
+  // v2 → v3: seed useNativeTheme and useSystemAccent
+  if (v < 3) {
+    if (cfg.useNativeTheme === undefined) cfg.useNativeTheme = true;
+    if (cfg.useSystemAccent === undefined) cfg.useSystemAccent = true;
+    v = 3;
   }
   cfg.configVersion = CONFIG_VERSION;
   return cfg;
@@ -670,7 +752,7 @@ function saveConfig(updates) {
     const configDir = path.dirname(CONFIG_FILE);
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), { encoding: 'utf8', flag: 'w' });
-    console.log("[config] Saved:", cfg);
+    console.log("[config] Configuration saved to disk.");
     return cfg;
   } catch (e) {
     console.error("[config] Error saving config:", e.message);
@@ -688,7 +770,7 @@ async function main() {
     console.log("  GAMEPAD:  Requires ViGEmBus driver");
     console.log("            https://github.com/nefarius/ViGEmBus/releases");
     console.log("  INPUT:    KBM (keyboard/mouse) working");
-    console.log("  AUDIO:    No loopback capture available natively");
+    console.log("  AUDIO:    WASAPI loopback fallback (Rust sidecar)");
     console.log("  NOTES:    Process priority may be limited without admin");
     console.log("============================================================");
   } else if (process.platform === 'darwin') {
@@ -715,6 +797,7 @@ async function main() {
   const LAN_IP = getLanIP();
   getPublicIP().then(ip => { if (ip) console.log("  Public IP : http://" + ip + ":" + PORT + "/ (needs port forward)"); });
   const initialCfg = loadConfig();
+  console.log("[config] Loaded initial configuration:", initialCfg);
   initArcadeHeartbeat(initialCfg);
   let sessionPassword = initialCfg.persistentPassword || '';
   let PIN = sessionPassword ? sessionPassword : makePin();
@@ -722,8 +805,8 @@ async function main() {
 
   console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
-  console.log("  LAN URL   : http://***.***.***.***:" + PORT + "/");
-  console.log("  PIN       : \x1b[1;32m****\x1b[0m\n");
+  console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
+  console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
 
   const app = express();
   const server = http.createServer(app);
@@ -765,7 +848,7 @@ async function main() {
     return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
   }
   const VIEWER_SAFE_EXACT = ['/', '/favicon.ico', '/index.html', '/gamepad-popup.html', '/keyboard-popup.html', '/display-color-tweaks.html'];
-  const VIEWER_SAFE_PREFIX = ['/assets/', '/js/', '/css/', '/api/info', '/api/pin', '/api/pin-required', '/api/turn', '/api/fe-log', '/api/ping', '/api/p2p-invite', '/ws'];
+  const VIEWER_SAFE_PREFIX = ['/assets/', '/js/', '/css/', '/api/info', '/api/pin', '/api/pin-required', '/api/turn', '/api/community-turn-servers', '/api/fe-log', '/api/ping', '/api/p2p-invite', '/ws'];
   app.use((req, res, next) => {
     if (isLocal(req)) return next();
     const p = req.path;
@@ -796,6 +879,11 @@ async function main() {
     const arcadeUrl = cfg.arcadeUrl || 'https://nearcade.cutefame.net';
     res.send(`window.NEARCADE_VERSION = "${APP_VERSION}";\nwindow.NEARCADE_COMMIT = "${COMMIT_HASH}";\nwindow.NEARCADE_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.NEARCADE_VERSION + (window.NEARCADE_COMMIT ? " ("+window.NEARCADE_COMMIT+")" : ""));`);
   });
+  
+  // Fix 404 error from legacy paths loading native-theme.js
+  app.get('/js/native-theme.js', (req, res) => {
+    res.redirect('/js/extended/ui/native-theme.js');
+  });
 
   app.use("/js", express.static(path.join(__dirname, "..", "..", "src", "scripts"), { setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); res.setHeader('Pragma', 'no-cache'); res.setHeader('Expires', '0'); } }));
   app.use("/assets", express.static(path.join(__dirname, "..", "..", "assets")));
@@ -814,13 +902,17 @@ async function main() {
     const sess = arcadeSessions.size > 0 ? [...arcadeSessions.values()][0] : null;
 
     // Grab the host name from the URL query, fallback to "A player"
-    const hostName = req.query.host || "A player";
+    // Grab the host name from the URL query, fallback to "A player"
+    let hostName = req.query.hostName || req.query.name || req.query.host || "A player";
+    if (hostName.startsWith('p2p://')) hostName = "A player";
+
+    const activeGame = sess ? sess.game : hostStreamTitle;
+    const gameText = activeGame ? activeGame : 'remote play';
+    const displayHost = hostName === "A player" ? "this" : `${hostName}'s`;
 
     // Inject the host name dynamically into the Discord tags
-    const ogTitle = sess ? sess.game : (hostStreamTitle ? hostStreamTitle : `${hostName} is looking to play!`);
-    const ogDesc = sess ? `Join the live ${sess.game} session on Nearcade.` : 
-                   (hostStreamTitle ? `Connect instantly to play ${hostStreamTitle} via Nearcade.` : 
-                   (hostName === "A player" ? `Connect instantly to this remote play session via Nearcade.` : `Connect instantly to ${hostName}'s remote play session via Nearcade.`));
+    const ogTitle = activeGame ? activeGame : `${hostName} is looking to play!`;
+    const ogDesc = `Connect instantly to ${displayHost} ${gameText} session via Nearcade.`;
     const cfgOg = loadConfig();
     const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : (cfgOg.arcadeUrl || 'https://nearcade.cutefame.net') + '/assets/NearcadeLogo.png';
 
@@ -833,15 +925,19 @@ async function main() {
   // ── SECURITY MIDDLEWARE ──
   // Prevents remote viewers from accessing the Host UI or privileged APIs 
   // via reverse tunnels (Cloudflare, zrok) by checking for proxy headers.
+  // Also strictly enforces that the UI is only accessible from within the Electron App.
   const adminMiddleware = (req, res, next) => {
     const remoteAddr = req.socket.remoteAddress || '';
-    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1' || remoteAddr.startsWith('127.') || remoteAddr.startsWith('::ffff:127.');
     const isForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+    const userAgent = req.headers['user-agent'] || '';
+    const isApp = userAgent.includes('Nearcade/');
+    const isArcade = process.argv.includes('--arcade-worker');
 
-    if (isLocal && !isForwarded) {
+    if (isLocal && !isForwarded && (isApp || isArcade)) {
       next();
     } else {
-      res.status(403).json({ ok: false, error: "Forbidden: Host actions cannot be performed remotely over a tunnel." });
+      res.status(403).json({ ok: false, error: "Forbidden: Host actions cannot be performed remotely or outside the Nearcade app." });
     }
   };
 
@@ -864,7 +960,7 @@ async function main() {
   app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
   app.get("/keyboard-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "keyboard-popup.html")); });
   app.get("/display-color-tweaks.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "display-color-tweaks.html")); });
-  app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(__dirname, '..', '..', 'packages', 'launcher-detect', 'games-picker.html')); });
+  app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(path.dirname(require.resolve('@nearcade/launcher-detect')), 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
 
@@ -884,7 +980,7 @@ async function main() {
 
   app.get("/api/info", (req, res) => {
     const remoteAddr = req.socket.remoteAddress || '';
-    const isLocal = remoteAddr === '127.0.0.1' || remoteAddr === '::1' || remoteAddr === '::ffff:127.0.0.1';
+    const isLocal = remoteAddr.includes('127.') || remoteAddr === '::1';
     const infoCfg = loadConfig();
     res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
@@ -916,7 +1012,7 @@ async function main() {
     if (fs.existsSync(file)) res.sendFile(file);
     else res.json([]);
   });
-  app.get("/api/config", (req, res) => {
+  app.get("/api/config", adminMiddleware, (req, res) => {
     const cfg = loadConfig();
     if (process.env.CUSTOM_URL) cfg.customUrl = process.env.CUSTOM_URL.trim();
     // Friends-enabled lives in friends.json (its dedicated config file); mirror
@@ -924,9 +1020,30 @@ async function main() {
     if (typeof cfg.friendsEnabled !== 'boolean') cfg.friendsEnabled = getFriendsConfig().enabled === true;
     res.json(cfg);
   });
+app.post("/api/shutdown", adminMiddleware, (req, res) => {
+    res.json({ success: true });
+    console.log('[server] Shutdown requested via API.');
+    try { cleanup(false); } catch (e) { }
+    setTimeout(() => process.exit(0), 1000);
+  });
+
   app.post("/api/config", adminMiddleware, express.json(), (req, res) => {
     const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
+
+    if (req.body && req.body.customUrl !== undefined) {
+      const cleanUrl = req.body.customUrl ? 'https://' + req.body.customUrl.replace(/^https?:\/\//, '') : '';
+      process.env.CUSTOM_URL = cleanUrl;
+      try {
+        if (fs.existsSync(envFile)) {
+          let envContent = fs.readFileSync(envFile, 'utf8');
+          if (envContent.includes('CUSTOM_URL=')) envContent = envContent.replace(/CUSTOM_URL=.*/g, `CUSTOM_URL=${cleanUrl}`);
+          else envContent += `\nCUSTOM_URL=${cleanUrl}\n`;
+          fs.writeFileSync(envFile, envContent);
+        }
+      } catch(e) { console.warn("[env] Could not update CUSTOM_URL in .env", e); }
+    }
+
     if (newCfg.tournamentMode && pusher) {
       try { pusher.disconnect(); } catch (_) { }
       pusher = null;
@@ -940,6 +1057,8 @@ async function main() {
     if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode }));
     inputDriver.send({ type: 'tournament-mode', enabled: !!newCfg.tournamentMode });
     _tournamentMode = !!newCfg.tournamentMode;
+
+
 
     // Broadcast roster if host identity changed
     if (oldCfg.hostColor !== newCfg.hostColor || oldCfg.hostAvatar !== newCfg.hostAvatar || oldCfg.hostName !== newCfg.hostName) {
@@ -1110,22 +1229,31 @@ async function main() {
   // come along for the dashboard. The friend also sends their CURRENT session
   // link so the host can join them. The ping is one-way — the pinger (viewer)
   // NEVER receives invites or popups here; joining happens host-side.
-  app.post("/api/ping", express.json(), (req, res) => {
-    const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
-    if (!rateLimit('ping:' + clientIp, 5, 60000)) {
-      return res.status(429).json({ ok: false, error: 'rate limited' });
+  const pingLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 5,
+    message: { ok: false, error: 'rate limited' }
+  });
+
+  const pingSchema = z.object({
+    uuid: z.string().uuid(),
+    name: z.string().max(32).optional().default(''),
+    avatar: z.coerce.number().optional().default(0),
+    url: z.string().url().max(500).optional().default(''),
+    ts: z.number().optional(),
+    sig: z.string().optional()
+  });
+
+  app.post("/api/ping", pingLimiter, express.json(), (req, res) => {
+    const parsed = pingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: 'invalid payload schema' });
     }
-    const uuid = String((req.body && req.body.uuid) || '').trim().toLowerCase();
-    if (!uuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) {
-      return res.status(400).json({ ok: false, error: 'invalid friend id' });
-    }
+    const { uuid, name, avatar, url, ts, sig } = parsed.data;
     const { enabled, friends } = getFriendsConfig();
     if (!enabled) return res.status(403).json({ ok: false, error: 'pings disabled' });
     const friendIdx = friends.findIndex(f => f.uuid === uuid);
     if (friendIdx === -1) return res.status(403).json({ ok: false, error: 'not on friend list' });
-    const name = String((req.body && req.body.name) || '').trim().slice(0, 32);
-    const avatar = parseInt(req.body && req.body.avatar, 10) || 0;
-    const url = String((req.body && req.body.url) || '').trim().slice(0, 500);
     // Signature check: only the real friend holding the pairing secret can
     // ping as this UUID. The url is part of the signed payload, so a spoofed
     // ping cannot swap in an attacker's session link.
@@ -1133,8 +1261,7 @@ async function main() {
     if (!friend.secret) {
       return res.status(403).json({ ok: false, error: 'pairing required', needsPairing: true });
     }
-    const ts = req.body && req.body.ts;
-    const sig = req.body && req.body.sig;
+
     if (!_verifyFriendSig('ping:' + uuid, friend.secret, [uuid, ts, url], ts, sig)) {
       return res.status(403).json({ ok: false, error: 'bad signature' });
     }
@@ -1161,22 +1288,33 @@ async function main() {
   // friend-gated: the inviter's UUID must be on OUR friend list, otherwise
   // strangers could spam invites. The invite is held in memory and surfaced
   // to the dashboard via GET /api/friends → invites[].
-  app.post("/api/p2p-invite", express.json(), (req, res) => {
-    const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
-    if (!rateLimit('p2p-invite:' + clientIp, 10, 60000)) {
-      return res.status(429).json({ ok: false, error: 'rate limited' });
+  const inviteLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { ok: false, error: 'rate limited' }
+  });
+
+  const inviteSchema = z.object({
+    fromUuid: z.string().uuid(),
+    roomCode: z.string().regex(/^[0-9a-z]{6}-[0-9a-z]{6}$/),
+    ts: z.number().optional(),
+    sig: z.string().optional()
+  });
+
+  app.post("/api/p2p-invite", inviteLimiter, express.json(), (req, res) => {
+    const parsed = inviteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      console.warn('[P2P] Rejected invite: invalid payload schema');
+      return res.status(400).json({ ok: false, error: 'invalid payload schema' });
     }
-    const fromUuid = String((req.body && req.body.fromUuid) || '').trim().toLowerCase();
-    if (!fromUuid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(fromUuid)) {
-      return res.status(400).json({ ok: false, error: 'invalid friend id' });
-    }
-    const roomCode = String((req.body && req.body.roomCode) || '').trim();
-    if (!/^[0-9a-z]{6}-[0-9a-z]{6}$/.test(roomCode)) {
-      return res.status(400).json({ ok: false, error: 'invalid room code' });
-    }
+    const { fromUuid, roomCode, ts, sig } = parsed.data;
     const { enabled, friends } = getFriendsConfig();
-    if (!enabled) return res.status(403).json({ ok: false, error: 'invites disabled' });
+    if (!enabled) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: invites disabled`);
+      return res.status(403).json({ ok: false, error: 'invites disabled' });
+    }
     if (!friends.some(f => f.uuid === fromUuid)) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: not on friend list`);
       return res.status(403).json({ ok: false, error: 'not on friend list' });
     }
     // Signature check: verify the inviter holds the pairing secret we stored
@@ -1184,14 +1322,17 @@ async function main() {
     const cfg = getFriendsConfig();
     const pairKey = (cfg.pairKeys || {})[fromUuid];
     if (!pairKey) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: not paired (needs pairing)`);
       return res.status(403).json({ ok: false, error: 'not paired', needsPairing: true });
     }
-    const ts = req.body && req.body.ts;
-    const sig = req.body && req.body.sig;
     if (!_verifyFriendSig('invite:' + fromUuid, pairKey, [fromUuid, ts, roomCode], ts, sig)) {
+      console.warn(`[P2P] Rejected invite from ${fromUuid}: bad signature`);
       return res.status(403).json({ ok: false, error: 'bad signature' });
     }
     const fromName = String((req.body && req.body.fromName) || '').trim().slice(0, 32);
+    
+    console.log(`[P2P] Successfully queued P2P invite from ${fromName} (${fromUuid}) for room ${roomCode}`);
+    
     pendingP2PInvites.set(fromUuid, { fromUuid, fromName, roomCode, at: Date.now() });
     if (pendingP2PInvites.size > MAX_PENDING_INVITES) {
       const oldest = [...pendingP2PInvites.entries()].sort((a, b) => a[1].at - b[1].at)[0];
@@ -1253,7 +1394,7 @@ async function main() {
     }
   });
 
-  app.get("/api/sysinfo", async (req, res) => {
+  app.get("/api/sysinfo", adminMiddleware, async (req, res) => {
     try {
       const [cpu, mem, net] = await Promise.all([
         si.currentLoad(),
@@ -1273,54 +1414,25 @@ async function main() {
     }
   });
 
-  app.get("/api/turn", (req, res) => {
-    const iceServers = [];
-
-    // ── Custom STUN server (optional) ───────────────────────────────────────
-    if (process.env.STUN_URL) {
-      iceServers.push({ urls: process.env.STUN_URL });
-    }
-
-    // ── Custom TURN server (optional) ───────────────────────────────────────
-    if (process.env.TURN_URL) {
-      const entry = { urls: [] };
-      entry.urls.push(process.env.TURN_URL);
-      if (process.env.TURN_URL_TLS) entry.urls.push(process.env.TURN_URL_TLS);
-      
-      if (process.env.TURN_SECRET) {
-        // Use TURN REST API to generate time-limited (24 hour) credentials
-        const crypto = require('crypto');
-        const unixTimeStamp = Math.floor(Date.now() / 1000) + 24 * 3600;
-        const usernameBase = process.env.TURN_USERNAME || 'nearcade';
-        entry.username = `${unixTimeStamp}:${usernameBase}`;
-        
-        const hmac = crypto.createHmac('sha1', process.env.TURN_SECRET);
-        hmac.update(entry.username);
-        entry.credential = hmac.digest('base64');
-      } else {
-        // Fallback to static credentials if secret is not provided
-        if (process.env.TURN_USERNAME) entry.username = process.env.TURN_USERNAME;
-        if (process.env.TURN_CREDENTIAL) entry.credential = process.env.TURN_CREDENTIAL;
+  app.get("/api/game-profiles", (req, res) => {
+    const csvPath = path.join(projectRoot, 'config', 'game_profiles.csv');
+    if (!fs.existsSync(csvPath)) return res.json([]);
+    try {
+      const lines = fs.readFileSync(csvPath, 'utf8').split('\n');
+      const titles = [];
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t || t.startsWith('#')) continue;
+        const cols = t.split(',');
+        if (cols[0]) titles.push(cols[0].trim());
       }
-      iceServers.push(entry);
+      res.json(titles);
+    } catch (e) {
+      res.json([]);
     }
-
-    // ── Legacy Metered.ca env vars (backward compat) ────────────────────────
-    if (!process.env.TURN_URL && process.env.METERED_TURN_URL) {
-      iceServers.push({
-        urls: [
-          process.env.METERED_TURN_URL,
-          process.env.METERED_TURN_URL_SECURE || ''
-        ].filter(Boolean),
-        username: process.env.METERED_TURN_USERNAME || 'openrelayproject',
-        credential: process.env.METERED_TURN_CREDENTIAL || 'openrelayproject'
-      });
-    }
-
-    // Return null if nothing is configured — clients will use their built-in STUN pool
-    if (iceServers.length === 0) return res.json(null);
-    res.json(iceServers.length === 1 ? iceServers[0] : iceServers);
   });
+
+  require('./core/server/turn-auth.js')(app);
 
   function freshLauncherDetect() {
     const modPath = require.resolve('@nearcade/launcher-detect');
@@ -1340,19 +1452,19 @@ async function main() {
     }
 
     const { Worker } = require('worker_threads');
+    const modPath = require.resolve('@nearcade/launcher-detect');
     const worker = new Worker(`
-      const { parentPort } = require('worker_threads');
+      const { parentPort, workerData } = require('worker_threads');
       try {
-        const modPath = require.resolve('@nearcade/launcher-detect');
-        delete require.cache[modPath];
-        const { detectGames } = require('@nearcade/launcher-detect');
+        delete require.cache[workerData.modPath];
+        const { detectGames } = require(workerData.modPath);
         
         const games = detectGames();
         parentPort.postMessage({ games });
       } catch(e) {
         parentPort.postMessage({ error: e.message, stack: e.stack });
       }
-    `, { eval: true });
+    `, { eval: true, workerData: { modPath } });
 
     worker.on('message', (msg) => {
       if (msg.error) {
@@ -1370,56 +1482,7 @@ async function main() {
     });
   });
 
-  const gameArtCacheDir = path.join(os.homedir(), '.cache', 'Nearcade', 'game-art');
-  const GAME_ART_MAX_MB = 200;
-  function evictGameArtCache() {
-    try {
-      const files = fs.readdirSync(gameArtCacheDir).map(f => {
-        const fp = path.join(gameArtCacheDir, f);
-        const s = fs.statSync(fp);
-        return { fp, mtime: s.mtimeMs, size: s.size };
-      }).sort((a, b) => a.mtime - b.mtime); // oldest first
-      let totalBytes = files.reduce((s, f) => s + f.size, 0);
-      const limitBytes = GAME_ART_MAX_MB * 1024 * 1024;
-      for (const f of files) {
-        if (totalBytes <= limitBytes) break;
-        try { fs.unlinkSync(f.fp); totalBytes -= f.size; } catch (_) {}
-      }
-    } catch (_) {}
-  }
-  app.get("/api/game-art/:appId", (req, res) => {
-    const { appId } = req.params;
-    if (!/^\d+$/.test(appId)) return res.status(400).end();
-    fs.mkdirSync(gameArtCacheDir, { recursive: true });
-    const cachePath = path.join(gameArtCacheDir, appId + '.jpg');
-    if (fs.existsSync(cachePath)) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.sendFile(cachePath);
-    }
-    const urls = [
-      `https://shared.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
-      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
-      `https://steamcdn-a.akamaihd.net/steam/apps/${appId}/header.jpg`,
-    ];
-    let idx = 0;
-    function tryFetch() {
-      if (idx >= urls.length) return res.status(404).end();
-      const url = urls[idx++];
-      https.get(url, (resp) => {
-        if (resp.statusCode !== 200) { resp.resume(); return tryFetch(); }
-        const chunks = [];
-        resp.on('data', c => chunks.push(c));
-        resp.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          fs.writeFileSync(cachePath, buf);
-          evictGameArtCache(); // trim oldest files if over 200MB
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          res.sendFile(cachePath);
-        });
-      }).on('error', tryFetch);
-    }
-    tryFetch();
-  });
+  require('./core/server/game-art.js')(app);
 
   app.post("/api/launch-game", adminMiddleware, express.json(), (req, res) => {
     const { launch } = freshLauncherDetect();
@@ -1434,6 +1497,17 @@ async function main() {
   });
 
 
+
+  app.get("/api/local-image", adminMiddleware, (req, res) => {
+    const filePath = req.query.path;
+    if (!filePath || typeof filePath !== 'string') return res.status(400).end();
+    // Allow reading image files for launcher covers
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.sendFile(filePath);
+    }
+    res.status(404).end();
+  });
 
   app.get("/api/status", (req, res) => {
     res.json({
@@ -1505,6 +1579,108 @@ async function main() {
     console.log(`[report] Session ${sessionId || '?'} reported from ${anonHash.slice(0, 8)} reason: ${reason || 'unspecified'} (${list.length} total reports for this IP)`);
     res.json({ ok: true });
   });
+  // Sidecapture Devices API for native video picker integration
+  app.get("/api/adb-devices", adminMiddleware, (req, res) => {
+    try {
+      const { execSync } = require('child_process');
+      const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture');
+      const fs = require('fs');
+      if (!fs.existsSync(binPath)) {
+        return res.json({ devices: [] });
+      }
+      
+      const output = execSync(`${binPath} list --json`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const rawDevices = JSON.parse(output);
+      
+      const devices = [];
+      const seenNames = new Set();
+      for (const d of rawDevices) {
+          if (seenNames.has(d.name)) continue;
+          
+          if (d.id.startsWith('android:')) {
+              seenNames.add(d.name);
+              devices.push({ id: d.id, name: d.name });
+          } else {
+              seenNames.add(d.name);
+              devices.push({ id: 'v4l2:' + d.id, name: d.name });
+          }
+      }
+      return res.json({ devices });
+    } catch (e) {
+      console.error('[ADB] Failed to list devices:', e);
+      return res.json({ devices: [] });
+    }
+  });
+
+  // Launch scrcpy GUI for native window capture
+  app.post("/api/adb-launch", adminMiddleware, express.json(), (req, res) => {
+    try {
+      const { spawn } = require('child_process');
+      const { sourceId } = req.body;
+      if (!sourceId || !sourceId.startsWith('android:')) return res.status(400).json({ error: 'invalid source' });
+      
+      const rawId = sourceId.replace('android:', '');
+      
+      const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'capture-gui', 'src-tauri', 'bin', 'scrcpy', process.platform === 'win32' ? 'win64' : 'linux', process.platform === 'win32' ? 'scrcpy.exe' : 'scrcpy');
+      
+      const binDir = path.dirname(binPath);
+      const env = Object.assign({}, process.env);
+      env.PATH = `${binDir}${path.delimiter}${env.PATH || ''}`;
+
+      // We spawn scrcpy in windowed mode (no --no-window flag)
+      const p = spawn(binPath, ['-s', rawId, '--max-fps=60', '--video-codec=h264'], { env, stdio: 'ignore', detached: false });
+      
+      if (!global.scrcpyInstances) global.scrcpyInstances = [];
+      global.scrcpyInstances.push(p);
+      
+      res.json({ ok: true });
+    } catch(e) {
+      console.error('Failed to launch scrcpy gui:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/sidecapture/controls", adminMiddleware, express.json(), (req, res) => {
+    const { target, control, value } = req.body;
+    try {
+        if (target && target.startsWith('v4l2:')) {
+            const dev = target.replace('v4l2:', '');
+            const { execSync } = require('child_process');
+            
+            // Helper to get min/max/default and map -100..100 correctly
+            const mapValue = (ctrl, uiVal) => {
+                try {
+                    const out = execSync(`v4l2-ctl -d ${dev} -l`).toString();
+                    const match = out.match(new RegExp(`${ctrl}.*min=(-?\\d+)\\s+max=(-?\\d+).*default=(-?\\d+)`));
+                    if (match) {
+                        const min = parseInt(match[1]);
+                        const max = parseInt(match[2]);
+                        const def = parseInt(match[3]);
+                        const v = parseInt(uiVal);
+                        if (v === 0) return def;
+                        if (v < 0) return def + (def - min) * (v / 100);
+                        if (v > 0) return def + (max - def) * (v / 100);
+                    }
+                } catch (e) {}
+                return uiVal; // Fallback
+            };
+
+            if (control === 'brightness') {
+                execSync(`v4l2-ctl -d ${dev} -c brightness=${Math.round(mapValue('brightness', value))}`);
+            } else if (control === 'contrast') {
+                execSync(`v4l2-ctl -d ${dev} -c contrast=${Math.round(mapValue('contrast', value))}`);
+            } else if (control === 'mirror') {
+                const val = value ? '1' : '0';
+                execSync(`v4l2-ctl -d ${dev} -c hflip=${val}`);
+            }
+        }
+        res.json({ ok: true });
+    } catch (e) {
+        console.error("Failed to set v4l2-ctl:", e);
+        res.status(500).json({ error: e.message });
+    }
+  });
+
 
   app.post("/api/open-terminal", adminMiddleware, express.json(), (req, res) => {
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
@@ -1551,6 +1727,12 @@ async function main() {
     const { method, options } = req.body || {};
     if (!method) return res.status(400).json({ ok: false, reason: 'method is required (webcodecs | ffmpeg | webrtc)' });
     try {
+      // Leaving GStreamer mode invalidates the cached native offer/ICE —
+      // never let it leak into another pipeline's joins/retries.
+      if (method !== 'gstreamer_webrtc') {
+        _gstOfferStr = null;
+        _gstIceCandidates = [];
+      }
       const result = await captureManager.start(method, options || {});
       res.json({ ok: true, ...result });
     } catch (e) {
@@ -1562,6 +1744,8 @@ async function main() {
   app.post('/api/capture/stop', adminMiddleware, async (req, res) => {
     try {
       await captureManager.stop();
+      _gstOfferStr = null;
+      _gstIceCandidates = [];
       res.json({ ok: true });
     } catch (e) {
       console.error('[capture] stop failed:', e.message);
@@ -1646,7 +1830,10 @@ async function main() {
       : (tunnels.readEnv('VPS_HOST') || '').trim();
 
     // Let tunnels.startTunnel handle stopping the previous process and returning the result
-    const tunnelOptions = { zrokToken: req.body && req.body.zrokToken };
+    const tunnelOptions = { zrokToken: req.body && req.body.zrokToken, cfToken: req.body && req.body.cfToken };
+    if (req.body && req.body.cfToken && req.body.cfToken.domain) {
+      saveConfig({ customUrl: 'https://' + req.body.cfToken.domain.replace(/^https?:\/\//, '') });
+    }
     const startPromise = (provider === 'portforward') ? Promise.resolve(null) : tunnels.startTunnel(PORT, provider, tunnelOptions);
 
     if (provider === 'vps' && resolvedVpsHost) {
@@ -1683,16 +1870,26 @@ async function main() {
     res.json({ ok: true });
   });
 
-  app.get("/api/tunnels/providers", async (_req, res) => {
+  // Provider detection cache: each detect() can spawn binaries and wait on
+  // subprocess timeouts (seconds). Without caching, every dashboard visit
+  // freezes the shared server event loop — and the Electron UI with it.
+  let _providersCache = { at: 0, data: null };
+  app.get("/api/tunnels/providers", adminMiddleware, async (_req, res) => {
+    try {
+      if (_providersCache.data && Date.now() - _providersCache.at < 60000) {
+        return res.json({ providers: _providersCache.data });
+      }
+    } catch (_) {}
     const results = await Promise.all(tunnels.PROVIDERS.map(async (p) => {
       let status;
       try { status = await p.detect(); } catch (e) { status = { found: false, error: e.message }; }
       return { id: p.id, name: p.name, type: p.type, pricing: p.pricing, difficulty: p.difficulty, description: p.description, tags: p.tags, requiresBinary: p.requiresBinary !== false, integrated: !!p.integrated, status };
     }));
+    _providersCache = { at: Date.now(), data: results };
     res.json({ providers: results });
   });
 
-  app.post("/api/tunnels/start", express.json(), async (req, res) => {
+  app.post("/api/tunnels/start", adminMiddleware, express.json(), async (req, res) => {
     const { provider } = req.body;
     if (!provider) { return res.status(400).json({ error: 'provider required' }); }
     saveConfig({ tunnelProvider: provider });
@@ -1700,6 +1897,10 @@ async function main() {
     try {
       const result = await tunnels.startTunnel(port, provider);
       if (result && result.url) {
+        tunnelUrl = result.url;
+        tunnels.saveLastProvider(provider);
+        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl });
+        if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
         res.json({ success: true, url: result.url });
       } else if (result && result.error) {
         res.json({ success: false, error: result.error, details: result.details || '' });
@@ -1721,6 +1922,11 @@ async function main() {
     inputDriver.setHidMaestroEnabled(true);
     console.log('[input] HIDMaestro backend enabled by config');
   }
+  if (_cfg.androidExperimental) {
+    inputDriver.setAndroidExperimentalEnabled(true);
+    console.log('[input] Android Shizuku Host Mode enabled by config');
+  }
+
   if (_cfg.windowsExperimental) {
     inputDriver.setWindowsExperimentalEnabled(true);
     console.log('[input] Windows Experimental Features enabled by config');
@@ -1729,15 +1935,20 @@ async function main() {
   // This will try C++ first, and automatically fall back to Python if the .node file is missing
   const inputReady = inputDriver.init(screenW, screenH);
 
+  // Track the last fatal input error to send it when the frontend connects
+  let lastFatalInputError = null;
+
   // Forward input driver errors (e.g. ViGEmBus missing on Windows) to the host UI
   inputDriver.events.on('input-error', (err) => {
     console.error('[InputOrchestrator] input-error:', err.message, '(code:', err.code + ')');
+    lastFatalInputError = err;
     if (hostWS && hostWS.readyState === 1) {
       hostWS.send(JSON.stringify({ type: 'input-error', message: err.message, code: err.code || '' }));
     }
   });
   inputDriver.events.on('input-ready', (info) => {
     console.log('[InputOrchestrator] input-ready:', info.message || '');
+    lastFatalInputError = null; // Clear if it recovered
     if (hostWS && hostWS.readyState === 1) {
       hostWS.send(JSON.stringify({ type: 'input-ready', message: info.message || '' }));
     }
@@ -1832,7 +2043,7 @@ async function main() {
     ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'leavesound.wav')
     : path.join(__dirname, '../../assets/leavesound.wav');
 
-  const { playSound: playSoundUtil } = require('./audio-util');
+  const { playSound: playSoundUtil } = require('./core/audio/audio-util.js');
 
   function playSound(file) {
     if (!fs.existsSync(file)) return;
@@ -1880,7 +2091,7 @@ async function main() {
     const roster = [];
     const hCfgAtConnect = loadConfig();
     const hostAvatar = hCfgAtConnect.hostAvatar || '';
-    const hostColor = hCfgAtConnect.hostColor || '#8b5cf6';
+    const hostColor = hCfgAtConnect.hostColor || '#c084fc';
     roster.push({ id: 'host_0', name: _hostDisplayName, avatar: hostAvatar, color: hostColor, isHost: true, gp: false, kb: false, slot: 0, locked: true, inputMode: 'host' });
     let autoSlot = 1;
     viewers.forEach((vws, id) => {
@@ -1929,8 +2140,24 @@ async function main() {
 
     // ── HOST ─────────────────────────────────────────────────────────────────
     if (wsPath === "/ws/host") {
+      const hostAddr = req.socket.remoteAddress || '';
+      const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1' || hostAddr.startsWith('127.') || hostAddr.startsWith('::ffff:127.');
+      const hostIsForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+
+      if (!hostIsLoopback || hostIsForwarded) {
+        console.log(`[host] websocket connection rejected from ${hostAddr} (loopback: ${hostIsLoopback}, forwarded: ${hostIsForwarded})`);
+        ws.close(4403, "HOST_LOCAL_ONLY");
+        return;
+      }
+      
       console.log("[host] connected");
       hostWS = ws;
+      
+      // If the input driver failed during boot, surface the error banner immediately
+      if (typeof lastFatalInputError !== 'undefined' && lastFatalInputError) {
+        hostWS.send(JSON.stringify({ type: 'input-error', message: lastFatalInputError.message, code: lastFatalInputError.code || '' }));
+      }
+
       const hostClientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
       const hostAnonHash = hashIp(hostClientIp);
       const hCfgAtConnect = loadConfig();
@@ -1942,7 +2169,7 @@ async function main() {
 
       // Start audio routing as soon as the host session opens
       if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
-      viewers.forEach((_, id) => hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id })));
+      viewers.forEach((_, id) => hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false })));
 
       if (tunnelUrl) ws.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
 
@@ -1973,7 +2200,8 @@ async function main() {
           let msg = JSON.parse(raw);
 
           if (msg.type === "webcodecs-config") {
-            broadcast(raw);
+            _lastWcConfig = raw.toString();
+            broadcast(_lastWcConfig);
             return;
           }
 
@@ -1983,11 +2211,42 @@ async function main() {
               audioProc.kill();
               audioProc = null;
             }
+
+            // Windows has no pactl/PipeWire — audio_driver.py cannot run there.
+            // Use the WASAPI loopback sidecar (Rust) instead. Falls back to
+            // the dev-build target/ path when running from source rather than
+            // a packaged release build.
+            if (process.platform === "win32") {
+              console.log("  [host] Engaging Windows WASAPI Loopback Audio Fallback...");
+              const base = __dirname.includes('app.asar')
+                ? path.join(process.resourcesPath, 'app.asar.unpacked', 'src', 'sidecar', 'audio', 'rust_windows_audio')
+                : path.join(__dirname, '..', 'sidecar', 'audio', 'rust_windows_audio');
+              const releaseBin = path.join(base, 'target', 'release', 'windows_audio_loopback.exe');
+              const audioBin = fs.existsSync(releaseBin)
+                ? releaseBin
+                : path.join(base, 'windows_audio_loopback.exe'); // packaged/CI artifact location
+
+              if (!fs.existsSync(audioBin)) {
+                console.error("  [host] windows_audio_loopback.exe not found at", audioBin);
+                return;
+              }
+
+              audioProc = spawn(audioBin, [], { stdio: ['ignore', 'pipe', 'inherit'] });
+              audioProc.on('error', (e) => console.error("  [host] Windows audio sidecar failed to start:", e.message));
+
+              audioProc.stdout.on('data', (chunk) => {
+                viewers.forEach(v => {
+                  if (v.readyState === WebSocket.OPEN) v.send(chunk);
+                });
+              });
+              return;
+            }
+
             console.log("  [host] Engaging Python OS-Level Audio Fallback...");
-            const audioScript = path.join(__dirname, "..", "sidecar", "audio_driver.py");
+            const audioScript = path.join(__dirname, "..", "sidecar", "audio", "audio_driver.py");
 
             // FIX: Added "-u" to bypass buffer lock, and "inherit" to expose Python crashes!
-            audioProc = spawn(process.platform === "win32" ? "python" : "python3", ["-u", audioScript], { stdio: ['ignore', 'pipe', 'inherit'] });
+            audioProc = spawn("python3", ["-u", audioScript], { stdio: ['ignore', 'pipe', 'inherit'] });
 
             audioProc.stdout.on('data', (chunk) => {
               viewers.forEach(v => {
@@ -2011,14 +2270,41 @@ async function main() {
           }
 
           if (msg.type === "request-offer" && msg.viewerId) {
+            if (_diagOn) console.log(`[diag] re-offer requested by viewer ${msg.viewerId} (reason=${msg.reason || 'n/a'} pc=${msg.pcState || 'n/a'})`);
             if (hostWS && hostWS.readyState === 1) {
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId }));
+              // Pass through the viewer's reason + PC state so the host can
+              // tell a dead-viewer retry (rebuild) from a mid-flight duplicate
+              // (ignore) instead of murdering connecting PCs.
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId, reoffer: true, reason: msg.reason || null, viewerPcState: msg.pcState || null, supportsWebCodecs: viewerWcSupport.get(msg.viewerId) !== false }));
+            }
+            // GStreamer native path: the browser host ignores re-offers (its
+            // comment says the daemon owns signaling), so a retrying viewer
+            // would wait forever. Replay the cached native offer + ICE
+            // directly — same as the join path below. Fresh viewer PC +
+            // re-gathering is exactly what unsticks NAT warmup.
+            // Guarded on active method: a stale cached offer from an earlier
+            // GStreamer session must never leak into a WebCodecs session.
+            let _gstActiveNow = false;
+            try { _gstActiveNow = captureManager.getStatus().method === 'gstreamer_webrtc'; } catch (_) {}
+            if (_gstOfferStr && _gstActiveNow) {
+              const vws = viewers.get(msg.viewerId);
+              if (vws && vws.readyState === 1) {
+                if (_diagOn) console.log(`[diag] replaying cached native offer+ICE to viewer ${msg.viewerId} (retry)`);
+                try {
+                  vws.send(JSON.stringify({ type: 'host-stream-ready' }));
+                  vws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
+                  for (const c of _gstIceCandidates) {
+                    vws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
+                  }
+                } catch (_) {}
+              }
             }
             return;
           }
 
           // ── STANDARD SIGNALING ──
           if ((msg.type === "offer" || msg.type === "ice-host" || msg.type === "answer") && msg._viewerId) {
+            if (_diagOn && (msg.type === "offer" || msg.type === "answer")) console.log(`[diag] relay ${msg.type} ↔ viewer ${msg._viewerId}`);
             const vws = viewers.get(msg._viewerId);
             if (vws && vws.readyState === 1) {
               vws.send(JSON.stringify(msg));
@@ -2233,6 +2519,10 @@ async function main() {
             global.enableMotion = !!msg.enableMotion;
             global.expDevices = msg.expDevices || [];
 
+            // Kill any experimental sidecars (e.g. guitar) that were just disabled.
+            // This prevents stale uinput devices from ghosting the roster.
+            experimentalDriver.syncEnabled(global.expDevices);
+
             // Update the orchestrator's global default FIRST (no viewerId = set global default),
             // then update each connected viewer's per-viewer entry.
             toUinput({ type: 'set-ctrl-type', viewerId: null, ctrlType: global.currentCtrlType });
@@ -2353,6 +2643,7 @@ async function main() {
                   name: viewerNames.get(id),
                   viewerRegion: msg.viewerRegion || null,
                   isDesktopApp: !!msg.isDesktopApp,
+                  supportsWebCodecs: viewerWcSupport.get(id) !== false
                 }));
               }
               broadcastRoster();
@@ -2469,6 +2760,9 @@ async function main() {
           broadcastToArcade({ type: 'arcade-session-stopped', id });
         }
         broadcast(JSON.stringify({ type: "host-disconnected" }));
+        // Clear experimental devices and terminate sidecars to prevent ghosting before next session's ctrl-settings arrive
+        global.expDevices = [];
+        experimentalDriver.destroy();
         // Stop routing daemon — no session active, audio should return to normal
         if (_audioWorker) _audioWorker.postMessage({ type: 'route-stop' });
       });
@@ -2498,36 +2792,39 @@ async function main() {
       }
 
       if (pinEnabled && requirePin) {
-        const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
-        if (Date.now() < attempt.lockedUntil) {
-          try { ws.send(JSON.stringify({ type: "pin-rejected", reason: "rate-limited" })); } catch { }
-          ws.close(4001, "PIN_RATE_LIMITED");
-          console.log(`[viewer] rejected — an anonymous user is rate-limited`);
-          return;
-        }
-        if (pin !== PIN) {
-          attempt.count++;
-          if (attempt.count >= 6) {
-            attempt.lockedUntil = Date.now() + 2 * 60 * 1000;
-            console.log(`[viewer] anonymous user locked out for 2 minutes (PIN brute-force)`);
+        const url = new URL("http://localhost" + req.url);
+        if (global.obsDirectEnabled && url.searchParams.get('obs') === 'true') {
+          console.log(`[viewer] bypassing PIN check due to OBS Direct Mode`);
+        } else {
+          const attempt = pinAttempts.get(anonHash) || { count: 0, lockedUntil: 0 };
+          if (Date.now() < attempt.lockedUntil) {
+            try { ws.send(JSON.stringify({ type: "pin-rejected", reason: "rate-limited" })); } catch { }
+            ws.close(4001, "PIN_RATE_LIMITED");
+            console.log(`[viewer] rejected — an anonymous user is rate-limited`);
+            return;
           }
-          pinAttempts.set(anonHash, attempt);
-          try { ws.send(JSON.stringify({ type: "pin-rejected" })); } catch { }
-          ws.close(4002, "PIN_REJECTED");
-          console.log("[viewer] rejected — wrong PIN");
-          return;
+          if (pin !== PIN) {
+            attempt.count++;
+            if (attempt.count >= 6) {
+              attempt.lockedUntil = Date.now() + 2 * 60 * 1000;
+              console.log(`[viewer] anonymous user locked out for 2 minutes (PIN brute-force)`);
+            }
+            pinAttempts.set(anonHash, attempt);
+            try { ws.send(JSON.stringify({ type: "pin-rejected" })); } catch { }
+            ws.close(4002, "PIN_REJECTED");
+            console.log("[viewer] rejected — wrong PIN");
+            return;
+          }
+          pinAttempts.delete(anonHash);
         }
-        pinAttempts.delete(anonHash);
       } else {
         console.log(`[viewer] anonymous user (requirePin=${requirePin}) bypassing PIN check`);
       }
 
-      // ── Session password check ────────────────────────────────────────────
-      // Only run when there is NO active pin gate. When pinEnabled && requirePin
-      // is true AND sessionPassword is set, PIN === sessionPassword, so the PIN
-      // check above already validated the credential — checking again here causes
-      // spurious session-password-required rejections for correctly authenticated viewers.
-      if (sessionPassword && !(pinEnabled && requirePin)) {
+      // Only run when there is NO active pin gate, BUT only if pin is actually enabled.
+      // If the user explicitly disabled the PIN in the UI (pinEnabled = false),
+      // they intend for the stream to be fully open, so we must also bypass the persistent session password.
+      if (pinEnabled && sessionPassword && !requirePin) {
         const provided = url.searchParams.get('password') || url.searchParams.get('pin') || '';
         if (provided !== sessionPassword) {
           try { ws.send(JSON.stringify({ type: 'session-password-required', reason: 'Session password incorrect.' })); } catch { }
@@ -2590,10 +2887,16 @@ async function main() {
               const cryptoLib = require('crypto');
               const expected = cryptoLib.createHash('sha256').update(challengeNonce + "nearcade_client_v3").digest('hex');
               
+              const isLanIp = clientIp.includes('192.168.') || clientIp.includes('10.') || clientIp.includes('100.') || clientIp.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || clientIp.includes('127.0.0.1') || clientIp === '::1' || clientIp.includes('::ffff:192.168.') || clientIp.includes('::ffff:10.') || clientIp.includes('::ffff:100.') || clientIp.includes('::ffff:127.0.0.1');
+
               if (msg.hash !== expected) {
-                console.log(`[viewer] rejected — crypto challenge failed`);
-                ws.close(4008, "CRYPTO_FAILED");
-                return;
+                if (isLanIp && msg.hash === "LAN_INSECURE_BYPASS") {
+                  console.log(`[viewer] accepted LAN insecure bypass from ${clientIp}`);
+                } else {
+                  console.log(`[viewer] rejected — crypto challenge failed`);
+                  ws.close(4008, "CRYPTO_FAILED");
+                  return;
+                }
               }
               
               // Behavioral Heuristics Check (Option 3)
@@ -2653,7 +2956,9 @@ async function main() {
               }
 
               // Now send your-id so the viewer knows its assigned ID.
-              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: defaultName }));
+              const vToken = require('crypto').randomBytes(16).toString('hex');
+              viewerTokens.set(id, vToken);
+              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: defaultName, inputToken: vToken }));
               ws.send(JSON.stringify({ type: "input-state", gp: true, kb: startKb, mode: startKb ? 'hybrid' : 'gamepad' }));
 
               // Replay messages buffered during the auth handshake (the onopen
@@ -2706,6 +3011,7 @@ async function main() {
             if (viewerColor) viewerColors.set(id, viewerColor);
             if (viewerAvatar) viewerAvatars.set(id, viewerAvatar);
             if (viewerPlatform) viewerPlatforms.set(id, viewerPlatform);
+            viewerWcSupport.set(id, typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true);
             // Script version check — warn host if viewer script is outdated
             const viewerScriptVer = msg.scriptVersion || null;
             const SERVER_SCRIPT_VER = APP_VERSION;
@@ -2727,7 +3033,8 @@ async function main() {
                 isDesktopApp: !!msg.isDesktopApp,
                 platform: viewerPlatform,
                 color: viewerColor,
-                avatar: viewerAvatar
+                avatar: viewerAvatar,
+                supportsWebCodecs: typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true
               }));
             }
 
@@ -2739,13 +3046,22 @@ async function main() {
             ws.send(JSON.stringify({ type: "host-connected", hostName: _hostDisplayName, hostRegion }));
 
             // If GStreamer is running, replay the cached offer to this new viewer.
-            if (_gstOfferStr) {
+            // Guarded on active method: a stale cached offer from an earlier
+            // GStreamer session must never hijack a WebCodecs session's joins.
+            let _gstJoinActive = false;
+            try { _gstJoinActive = captureManager.getStatus().method === 'gstreamer_webrtc'; } catch (_) {}
+            if (_gstOfferStr && _gstJoinActive) {
               // host-stream-ready signals the viewer to show "Host found, connecting..."
+              if (_diagOn) console.log(`[diag] replaying cached native offer+ICE to joining viewer`);
               ws.send(JSON.stringify({ type: 'host-stream-ready' }));
               ws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
               for (const c of _gstIceCandidates) {
                 ws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
               }
+            } else if (_lastWcConfig) {
+              // Replay WebCodecs configuration state for late joiners
+              ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+              try { ws.send(_lastWcConfig); } catch (_) {}
             }
 
             // ctrl-settings and host-stream-ready for non-GStreamer mode
@@ -2762,7 +3078,8 @@ async function main() {
             }
 
             // In non-GStreamer mode, host-stream-ready is sent if already streaming
-            if (hostStreaming && !_gstOfferStr) {
+            // (Fallback for WebRTC-only pipelines without WebCodecs metadata)
+            if (hostStreaming && !_gstOfferStr && !_lastWcConfig) {
               ws.send(JSON.stringify({ type: "host-stream-ready" }));
             }
 
@@ -2783,6 +3100,7 @@ async function main() {
           if (msg.type === "answer" || msg.type === "ice-viewer" || msg.type === "viewer-mic-ready" || msg.type === "offer" || msg.type === "set-viewer-volume") {
             msg._viewerId = id;
             if (captureManager.getStatus().method === 'gstreamer_webrtc') {
+              if (_diagOn && msg.type === 'answer') console.log(`[diag] forwarding answer from viewer ${id} to native backend`);
               captureManager.sendGstSignaling(msg);
             } else if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify(msg));
@@ -2812,9 +3130,9 @@ async function main() {
               id = claimedId;
               if (hostWS && hostWS.readyState === 1) {
                 hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: tempId }));
-                hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) }));
+                hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id), supportsWebCodecs: viewerWcSupport.get(id) !== false }));
               }
-              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: viewerNames.get(id) }));
+              ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: viewerNames.get(id), inputToken: viewerTokens.get(id) }));
               broadcastRoster();
             }
             return;
@@ -2822,7 +3140,7 @@ async function main() {
 
           if (msg.type === "request-offer") {
             if (hostWS && hostWS.readyState === 1)
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id }));
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false }));
             return;
           }
 
@@ -2915,7 +3233,7 @@ async function main() {
           }
 
           if (msg.type === "viewer-vr-active") {
-            console.log('[WiVRn] Viewer', id, 'entered VR mode');
+            console.log('[WiVRn Trace] Viewer', id, 'entered VR mode - triggering lifecycle');
             wivrnEnsureRunning();
             if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify(msg));
             return;
@@ -3052,6 +3370,14 @@ async function main() {
 
       // ── AUDIO ─────────────────────────────────────────────────────────────────
     } else if (wsPath === "/ws/audio-host") {
+      const hostAddr = req.socket.remoteAddress || '';
+      const hostIsLoopback = hostAddr === '127.0.0.1' || hostAddr === '::1' || hostAddr === '::ffff:127.0.0.1' || hostAddr.startsWith('127.') || hostAddr.startsWith('::ffff:127.');
+      const hostIsForwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['cf-connecting-ip'];
+      if (!hostIsLoopback || hostIsForwarded) {
+        console.log(`[audio-host] websocket connection rejected from ${hostAddr}`);
+        ws.close(4403, "HOST_LOCAL_ONLY");
+        return;
+      }
       ws.on("message", raw => { audioViewers.forEach(v => { if (v.readyState === 1) v.send(raw); }); });
 
     } else if (wsPath === "/ws/audio") {
@@ -3060,6 +3386,13 @@ async function main() {
 
       // ── DEDICATED INPUT CHANNEL ───────────────────────────────────────────────
     } else if (wsPath === "/ws/input") {
+      const clientIp = req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+      const hasTunnelHeader = !!req.headers['cf-connecting-ip'] || !!req.headers['x-forwarded-for'];
+      const requirePin = shouldRequirePin(clientIp, hasTunnelHeader);
+      if (requirePin && pinEnabled && pin !== PIN) {
+        ws.close(4001, "INVALID_PIN");
+        return;
+      }
       let myId = null;
       // Track input sequence per viewer for ack-based loss detection
       let _inputSeq = 0;
@@ -3082,7 +3415,14 @@ async function main() {
         const _handleJson = () => {
           try {
             const msg = JSON.parse(raw);
-            if (msg.type === "identify") { myId = msg.viewerId; console.log("[input] identified as", myId); return; }
+            if (msg.type === "identify") {
+              if (viewerTokens.get(msg.viewerId) !== msg.token) {
+                console.warn(`[input] token mismatch for ${msg.viewerId}`);
+                ws.close(4003, "INVALID_TOKEN");
+                return;
+              }
+              myId = msg.viewerId; console.log("[input] identified as", myId); return;
+            }
             if (msg.type === "gpid") {
               if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: myId, id: msg.id }));
               return;
@@ -3142,10 +3482,9 @@ async function main() {
   }, 30000);
   wss.on('close', () => clearInterval(interval));
 
-  server.listen(PORT, async () => {
+  const onListening = async () => {
     console.log("Listening on port " + PORT);
     try { require('fs').writeFileSync('/tmp/nearcade_port.txt', String(PORT), 'utf8'); } catch(e){}
-    if (!process.env.ELECTRON_MODE) openBrowser("http://localhost:" + PORT + "/host");
 
     const cfg = loadConfig();
 
@@ -3222,12 +3561,6 @@ async function main() {
       }
     }
 
-    // Auto-start WiVRn server on boot
-    console.log("[WiVRn] Auto-starting WiVRn server...");
-    wivrnEnsureRunning().then(running => {
-      if (running) console.log("[WiVRn] WiVRn server ready");
-    });
-
     // Periodically fetch the global ban list from the arcade directory
     if (cfg.modEndpoint) {
       async function syncBans() {
@@ -3272,7 +3605,20 @@ async function main() {
       syncBans();
       setInterval(syncBans, 300000); // every 5 minutes
     }
+  }; // End of onListening function
+
+  // Update error handler to pass onListening
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`Port ${PORT} is in use, trying ${PORT + 1}...`);
+      PORT++;
+      server.listen(PORT, onListening);
+    } else {
+      console.error('[server] Listener error:', err);
+    }
   });
+
+  server.listen(PORT, onListening);
 }
 
 main();
@@ -3290,6 +3636,17 @@ function cleanup(isElectron = false) {
     }
   } catch (e) {
     console.error('[server] Error broadcasting session end:', e);
+  }
+
+  // ── Terminate external tools ──────────────────────────────────
+  if (global.sidecaptureGui) {
+    try { global.sidecaptureGui.kill(); } catch (e) {}
+  }
+  
+  if (global.scrcpyInstances) {
+    for (const p of global.scrcpyInstances) {
+      try { p.kill(); } catch (e) {}
+    }
   }
 
   // ── Terminate worker threads gracefully ──────────────────────────────────
@@ -3313,6 +3670,14 @@ function cleanup(isElectron = false) {
   // Stop WiVRn
   if (wivrnVrActivityTimer) clearTimeout(wivrnVrActivityTimer);
   try { wivrnInt.stopServer(); } catch { }
+
+  // Stop active capture pipelines (GStreamer, FFmpeg, etc)
+  try {
+    const captureManager = require('../sidecar/capture/CaptureManager');
+    captureManager.stop();
+  } catch (e) {
+    console.error("[Server] Capture manager cleanup error:", e);
+  }
 
   // Cleanly destroy the input driver (whether it's using C++ or Python)
   try {
@@ -3360,11 +3725,7 @@ function cleanup(isElectron = false) {
 
   if (!isElectron) {
     setTimeout(() => {
-      killPort(activePort).catch(() => { }).finally(() => process.exit(0));
-    }, 800);
-  } else {
-    setTimeout(() => {
-      killPort(activePort).catch(() => { });
+      process.exit(0);
     }, 800);
   }
 }

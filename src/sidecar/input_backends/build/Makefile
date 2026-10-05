@@ -343,13 +343,18 @@ ifeq ($(strip $(foreach prefix,$(NO_LOAD),\
 endif
 ifeq ($(strip $(foreach prefix,$(NO_LOAD),\
     $(findstring $(join ^,$(prefix)),\
+                 $(join ^,rawinput_win.target.mk)))),)
+  include rawinput_win.target.mk
+endif
+ifeq ($(strip $(foreach prefix,$(NO_LOAD),\
+    $(findstring $(join ^,$(prefix)),\
                  $(join ^,uinputBridge.target.mk)))),)
   include uinputBridge.target.mk
 endif
 
 quiet_cmd_regen_makefile = ACTION Regenerating $@
-cmd_regen_makefile = cd $(srcdir); /home/fame/.npm/_npx/c463d28440264a05/node_modules/node-gyp/gyp/gyp_main.py -fmake --ignore-environment "-Dlibrary=shared_library" "-Dvisibility=default" "-Dnode_root_dir=/home/fame/.cache/node-gyp/33.0.0" "-Dnode_gyp_dir=/home/fame/.npm/_npx/c463d28440264a05/node_modules/node-gyp" "-Dnode_lib_file=/home/fame/.cache/node-gyp/33.0.0/<(target_arch)/node.lib" "-Dmodule_root_dir=/home/fame/Documents/NearsecTogether/src/sidecar/input_backends" "-Dnode_engine=v8" "--depth=." "-Goutput_dir=." "--generator-output=build" -I/home/fame/Documents/NearsecTogether/src/sidecar/input_backends/build/config.gypi -I/home/fame/.npm/_npx/c463d28440264a05/node_modules/node-gyp/addon.gypi -I/home/fame/.cache/node-gyp/33.0.0/include/node/common.gypi "--toplevel-dir=." binding.gyp
-Makefile: $(srcdir)/../../../../../.cache/node-gyp/33.0.0/include/node/common.gypi $(srcdir)/../../../../../.npm/_npx/c463d28440264a05/node_modules/node-gyp/addon.gypi $(srcdir)/../../../node_modules/node-addon-api/src/node_api.gyp $(srcdir)/binding.gyp $(srcdir)/build/config.gypi
+cmd_regen_makefile = cd $(srcdir); /usr/lib/node_modules/node-gyp/gyp/gyp_main.py -fmake --ignore-environment "-Dlibrary=shared_library" "-Dvisibility=default" "-Dnode_root_dir=/home/fame/.cache/node-gyp/22.23.2" "-Dnode_gyp_dir=/usr/lib/node_modules/node-gyp" "-Dnode_lib_file=/home/fame/.cache/node-gyp/22.23.2/<(target_arch)/node.lib" "-Dmodule_root_dir=/home/fame/Documents/Nearcade/src/sidecar/input_backends" "-Dnode_engine=v8" "--depth=." "-Goutput_dir=." "--generator-output=build" -I/home/fame/Documents/Nearcade/src/sidecar/input_backends/build/config.gypi -I/usr/lib/node_modules/node-gyp/addon.gypi -I/home/fame/.cache/node-gyp/22.23.2/include/node/common.gypi "--toplevel-dir=." binding.gyp
+Makefile: $(srcdir)/../../../../../../../usr/lib/node_modules/node-gyp/addon.gypi $(srcdir)/../../../../../.cache/node-gyp/22.23.2/include/node/common.gypi $(srcdir)/../../../node_modules/node-addon-api/src/node_api.gyp $(srcdir)/binding.gyp $(srcdir)/build/config.gypi
 	$(call do_cmd,regen_makefile)
 
 # "all" is a concatenation of the "all" targets from all the included

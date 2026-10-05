@@ -55,6 +55,7 @@
 import sys
 import json
 import time
+import signal
 
 # Default accessibility config
 _cfg = {
@@ -120,50 +121,63 @@ def start_adaptive_backend():
             ui = UInput(cap, name="Nearcade Virtual Adaptive Controller", version=0x3)
             print("[backend_adaptive] Virtual adaptive controller created at /dev/uinput.", flush=True)
 
-            for line in sys.stdin:
+            def sigterm_handler(_signo, _stack_frame):
+                print("[backend_adaptive] Caught SIGTERM, shutting down...", flush=True)
+                sys.exit(0)
+            
+            signal.signal(signal.SIGTERM, sigterm_handler)
+
+            try:
+                for line in sys.stdin:
+                    try:
+                        data = json.loads(line)
+
+                        if data.get("type") == "adaptive-config":
+                            _cfg["invertAxes"] = data.get("invertAxes", [])
+                            _cfg["holdDelay"]  = int(data.get("holdDelay", 0))
+                            _cfg["scanMode"]   = bool(data.get("scanMode", False))
+                            print(f"[backend_adaptive] Config updated: {_cfg}", flush=True)
+                            continue
+
+                        if data.get("type") != "gamepad":
+                            continue
+
+                        # Axes (with optional inversion)
+                        raw_axes = data.get("axes", [0, 0, 0, 0])
+                        axis_codes = [e.ABS_X, e.ABS_Y, e.ABS_RX, e.ABS_RY]
+                        for i, code in enumerate(axis_codes):
+                            v = float(raw_axes[i]) if i < len(raw_axes) else 0.0
+                            if i in _cfg["invertAxes"]:
+                                v = -v
+                            ui.write(e.EV_ABS, code, _norm_axis(v))
+
+                        # Triggers
+                        ui.write(e.EV_ABS, e.ABS_Z,  _norm_trig(data.get("lt", 0)))
+                        ui.write(e.EV_ABS, e.ABS_RZ, _norm_trig(data.get("rt", 0)))
+
+                        # Buttons (bitmask)
+                        buttons = int(data.get("buttons", 0))
+                        hat_x, hat_y = 0, 0
+                        for i, code in enumerate(BUTTON_CODES):
+                            if i in DPAD_BITMASKS:
+                                if buttons & (1 << i):
+                                    hat_x, hat_y = DPAD_BITMASKS[i]
+                            else:
+                                ui.write(e.EV_KEY, code, 1 if (buttons & (1 << i)) else 0)
+
+                        ui.write(e.EV_ABS, e.ABS_HAT0X, hat_x)
+                        ui.write(e.EV_ABS, e.ABS_HAT0Y, hat_y)
+
+                        ui.syn()
+
+                    except (json.JSONDecodeError, KeyError, ValueError, IndexError):
+                        continue
+            finally:
                 try:
-                    data = json.loads(line)
-
-                    if data.get("type") == "adaptive-config":
-                        _cfg["invertAxes"] = data.get("invertAxes", [])
-                        _cfg["holdDelay"]  = int(data.get("holdDelay", 0))
-                        _cfg["scanMode"]   = bool(data.get("scanMode", False))
-                        print(f"[backend_adaptive] Config updated: {_cfg}", flush=True)
-                        continue
-
-                    if data.get("type") != "gamepad":
-                        continue
-
-                    # Axes (with optional inversion)
-                    raw_axes = data.get("axes", [0, 0, 0, 0])
-                    axis_codes = [e.ABS_X, e.ABS_Y, e.ABS_RX, e.ABS_RY]
-                    for i, code in enumerate(axis_codes):
-                        v = float(raw_axes[i]) if i < len(raw_axes) else 0.0
-                        if i in _cfg["invertAxes"]:
-                            v = -v
-                        ui.write(e.EV_ABS, code, _norm_axis(v))
-
-                    # Triggers
-                    ui.write(e.EV_ABS, e.ABS_Z,  _norm_trig(data.get("lt", 0)))
-                    ui.write(e.EV_ABS, e.ABS_RZ, _norm_trig(data.get("rt", 0)))
-
-                    # Buttons (bitmask)
-                    buttons = int(data.get("buttons", 0))
-                    hat_x, hat_y = 0, 0
-                    for i, code in enumerate(BUTTON_CODES):
-                        if i in DPAD_BITMASKS:
-                            if buttons & (1 << i):
-                                hat_x, hat_y = DPAD_BITMASKS[i]
-                        else:
-                            ui.write(e.EV_KEY, code, 1 if (buttons & (1 << i)) else 0)
-
-                    ui.write(e.EV_ABS, e.ABS_HAT0X, hat_x)
-                    ui.write(e.EV_ABS, e.ABS_HAT0Y, hat_y)
-
-                    ui.syn()
-
-                except (json.JSONDecodeError, KeyError, ValueError, IndexError):
-                    continue
+                    ui.close()
+                except:
+                    pass
+                print("[backend_adaptive] Closed virtual adaptive controller.", flush=True)
 
         except ImportError:
             print("[backend_adaptive] Error: 'evdev' module not installed.", file=sys.stderr)

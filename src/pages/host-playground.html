@@ -4,19 +4,22 @@
   <meta charset="utf-8">
   <meta name="robots" content="noindex, nofollow">
   <title>Host Concept - Stadia Inspired</title>
-  <script src="/js/native-theme.js"></script>
+  <script src="/js/extended/ui/native-theme.js"></script>
   <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/host.css">
+  <link rel="stylesheet" href="/css/scrollbars.css">
 
   <style>
     :root {
-      --bg: #050505;
-      --surface: rgba(20, 20, 25, 0.65);
-      --surface-hover: rgba(30, 30, 40, 0.85);
+      --bg-rgb: 5, 5, 5;
+      --surface-rgb: 20, 20, 25;
+      --bg: rgb(var(--bg-rgb));
+      --pg-surface: rgba(var(--surface-rgb), 0.65);
+      --pg-surface-hover: rgba(var(--surface-rgb), 0.85);
       --text: #ffffff;
       --muted: #a1a1aa;
       --border: rgba(255, 255, 255, 0.08);
@@ -152,14 +155,14 @@
 
     .action-row {
       display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr;
+      grid-template-columns: 2fr 1fr 1fr 1fr 1.5fr;
       gap: 16px;
-      height: 100px;
+      min-height: 100px;
       flex-shrink: 0;
     }
 
     .action-tile {
-      background: var(--surface);
+      background: var(--pg-surface);
       backdrop-filter: blur(20px);
       border-radius: var(--radius-md);
       border: 1px solid var(--border);
@@ -176,7 +179,7 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     }
     .action-tile:hover {
-      background: var(--surface-hover);
+      background: var(--pg-surface-hover);
       transform: translateY(-3px);
       box-shadow: 0 12px 32px rgba(0,0,0,0.4);
       border-color: rgba(255,255,255,0.2);
@@ -261,7 +264,7 @@
 
     .feed-panel {
       flex: 1;
-      background: var(--surface);
+      background: var(--pg-surface);
       backdrop-filter: blur(20px);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -355,7 +358,7 @@
 
   <!-- DASHBOARD BACK BUTTON -->
   <button onclick="if(window.electronAPI) window.electronAPI.backToDashboard(); else window.location.href='/dashboard';" 
-    style="position:fixed; top:24px; left:24px; z-index:9999; padding:10px 16px; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:8px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s;"
+    style="position:fixed; top:24px; left:24px; z-index:9999; padding:10px 16px; background:var(--pg-surface); border:1px solid var(--border); color:var(--text); border-radius:8px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s;"
     onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
     onmouseleave="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
     ← Dashboard
@@ -396,7 +399,7 @@
 
       <!-- Quick Action Tiles (Stadia Style OS Tiles) -->
       <div class="action-row">
-        <button class="action-tile primary" id="btnStart" onclick="showSourceSelectionModal()" style="background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%); color:#fff; box-shadow: 0 18px 30px rgba(139,92,246,0.18); border: 1px solid rgba(255,255,255,0.12);">
+        <button class="action-tile primary" id="btnStart" onclick="showSourceSelectionModal()" style="background: linear-gradient(135deg, #c084fc 0%, #a855f7 100%); color:#fff; box-shadow: 0 18px 30px rgba(139,92,246,0.18); border: 1px solid rgba(255,255,255,0.12);">
           <span class="tile-title">Start Stream</span>
           <span class="tile-subtitle">Broadcast your gameplay</span>
         </button>
@@ -474,7 +477,7 @@
   </div>
 
   <!-- INJECT SCRIPTS -->
-  <script src="/js/version.js"></script>
+  <script src="/js/extended/misc/version.js"></script>
   <script src="/js/i18n.js"></script>
   <script>
     var xhr = new XMLHttpRequest();
@@ -482,9 +485,9 @@
     xhr.send(null);
     if (xhr.status === 200) document.body.insertAdjacentHTML("beforeend", xhr.responseText);
   </script>
-  <script type="module" src="/js/p2p-signaler.js"></script>
-  <script src="/js/emoji-data.js"></script>
-  <script src="/js/signaling.js"></script>
+  <script type="module" src="/js/core/network/p2p-signaler.js"></script>
+  <script src="/js/extended/ui/emoji-data.js"></script>
+  <script src="/js/core/network/signaling.js"></script>
   <script src="/js/gamepad-nav.js"></script>
   <script src="/js/host-engine.js"></script>
   <script src="/js/host.js"></script>

@@ -237,6 +237,8 @@ function addSessionToGrid(session) {
             url: session.url || session.tunnelUrl,
             viewers: session.viewers || session.viewerCount || 0,
             category: session.category || '',
+            themePayload: session.themePayload || null,
+            accentColor: session.accentColor || null,
             lastSeen: Date.now()
         };
 
@@ -409,6 +411,33 @@ function buildCard(s, index) {
     card.dataset.id = s.id;
     card.style.animationDelay = Math.min(index * 40, 200) + 'ms';
     card.onclick = () => openJoin(s);
+
+    if (s.themePayload) {
+        try {
+            const theme = JSON.parse(s.themePayload);
+            if (theme.accent) {
+                card.style.setProperty('--accent', theme.accent);
+                const r = parseInt(theme.accent.slice(1,3), 16);
+                const g = parseInt(theme.accent.slice(3,5), 16);
+                const b = parseInt(theme.accent.slice(5,7), 16);
+                if (!isNaN(r)) {
+                    card.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+                    card.style.setProperty('--accent2', theme.accent);
+                }
+            }
+            if (theme.surface) card.style.setProperty('--surface', theme.surface);
+            if (theme.border) card.style.setProperty('--border', theme.border);
+        } catch (e) {}
+    } else if (s.accentColor) {
+        card.style.setProperty('--accent', s.accentColor);
+        card.style.setProperty('--accent2', s.accentColor);
+        if (s.accentColor.startsWith('#') && s.accentColor.length === 7) {
+            const r = parseInt(s.accentColor.slice(1,3), 16);
+            const g = parseInt(s.accentColor.slice(3,5), 16);
+            const b = parseInt(s.accentColor.slice(5,7), 16);
+            if (!isNaN(r)) card.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
+        }
+    }
 
     const latency = latencyMap[s.id];
     const latClass = latency ? latency.color : 'pending';

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nearcade Gamepad Probe</title>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: #131316; color: #ddd; font-family: system-ui, sans-serif; overflow: hidden; display: flex; flex-direction: column; }
+  #stage { flex: 1; display: flex; align-items: stretch; justify-content: center; gap: 32px; padding: 12px 24px 8px; box-sizing: border-box; min-height: 0; }
+  .pad { flex: 1 1 0; min-width: 0; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .pad svg { display: block; width: auto; height: auto; aspect-ratio: 440 / 300; max-width: 100%; max-height: calc(100% - 36px); margin: auto; }
+  .pad .pname { color: #6a6a72; font: 10px monospace; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .badge { color: #4caf50; font: 10px monospace; margin-top: 3px; min-height: 13px; }
+  #empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 10px; }
+  #empty.visible { display: flex; }
+  #empty .big { color: #888; font-size: 22px; font-weight: 700; }
+  #empty .sub { color: #555; font-size: 13px; }
+  .shell { fill: #1d1d22; stroke: #33333b; stroke-width: 2; }
+  .btn { fill: #232329; stroke: #3a3a44; stroke-width: 1.5; }
+  .btn.on { fill: #2f7d32; stroke: #55cc5a; }
+  .tl { fill: #202027; stroke: #3a3a44; stroke-width: 1.5; }
+  .tl.on { fill: #2f7d32; stroke: #55cc5a; }
+  .well { fill: #19191d; stroke: #2a2a31; }
+  .knob { fill: #33333c; stroke: #4a4a55; }
+  .pad.sel .shell { stroke: #55cc5a; stroke-width: 3; }
+  .pad.main { flex: 2 1 0; }
+  .pad.ignored { opacity: .4; }
+  .pad.backend .shell { stroke: #4a77c4; }
+  #divider { width: 3px; align-self: stretch; background: #4a4a55; border-radius: 2px; margin: 6px 0; box-shadow: 0 0 10px rgba(0, 0, 0, .65); }
+  #padspr { flex: 1 1 0; min-width: 24px; }
+  #tasks { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 10px 0; min-height: 12px; }
+  .tchip { font: 10.5px/1.6 ui-monospace, monospace; padding: 1px 10px; border-radius: 11px; background: #1a1a1f; color: #777; border: 1px solid #2a2a31; }
+  .tchip.done { background: #12241a; color: #5ccc66; border-color: #2f7d32; }
+  .tchip.active { background: #241d12; color: #ffd966; border-color: #8a6d2f; box-shadow: 0 0 6px rgba(255, 217, 102, .25); }
+  #chkhint { font: 11px/1.4 ui-monospace, monospace; color: #ffd966; padding: 4px 10px 2px; min-height: 15px; }
+  #logwrap { height: 200px; margin: 6px 10px 10px; border: 1px solid #2a2a2a; border-radius: 8px; background: #0a0a0a; display: flex; flex-direction: column; overflow: hidden; }
+  #log { flex: 1; overflow: auto; color: #0f0; font: 10.5px/1.5 ui-monospace, monospace; padding: 6px 10px; white-space: pre-wrap; word-break: break-all; }
+  #bar { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-top: 1px solid #232323; background: #121214; }
+  #bar button { padding: 5px 12px; border-radius: 6px; border: 0; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+  #btnStop { background: #5c1c1c; color: #f99; }
+  #btnStop.finalized { background: #333; color: #888; }
+  #btnReset { background: #2c2c14; color: #cc9; }
+  #btnCopy { background: #1c3c5c; color: #9cf; }
+  #btnCopy:disabled { opacity: .35; cursor: default; }
+  #hint { color: #555; font: 10px monospace; margin-left: auto; }
+  #copied { color: #7cff7c; font: 10.5px monospace; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+  <div id="tasks"></div>
+  <div id="chkhint">move a stick or press a button — nothing is recorded until you do a check</div>
+  <div id="empty" class="visible">
+    <div class="big">No controller detected</div>
+    <div class="sub">Plug in a controller and press any button once.</div>
+  </div>
+  <div id="logwrap">
+    <div id="log"></div>
+    <div id="bar">
+      <button id="btnStop">STOP &amp; REPORT</button>
+      <button id="btnReset">RESET</button>
+      <button id="btnCopy" disabled>COPY LOG</button>
+      <span id="copied"></span>
+      <span id="hint">nothing is recorded until you do a check — every input counts</span>
+    </div>
+  </div>
+<script src="viewer-sim.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>

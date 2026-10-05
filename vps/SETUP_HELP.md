@@ -116,3 +116,67 @@ The Rust router reads its configuration from environment variables or from `/etc
 | PORT | No | Port for the Rust router, defaults to 9000 if omitted |
 
 The Node.js server reads its configuration from the `.env` file in the project root. The version number it reports to clients is always read live from `package.json` at startup, so no manual version updates are needed after a `git pull`.
+
+---
+
+## Docker Deployment (Recommended for Simplicity)
+
+For a no-hassle deployment with zero configuration prompts, use Docker:
+
+### Prerequisites
+
+- Docker installed on your VPS
+- Docker Compose (bundled with Docker Desktop, or install separately)
+
+### Quick Start
+
+1. Clone the Nearcade repo to your VPS
+2. Navigate to the `vps/` directory
+3. Set your MASTER_KEY in a `.env` file:
+
+```bash
+cd /path/to/Nearcade/vps
+echo "MASTER_KEY=$(openssl rand -hex 32)" > .env
+echo "PORT=9000" >> .env
+```
+
+4. Start the container:
+
+```bash
+docker compose up -d
+```
+
+5. View logs:
+
+```bash
+docker compose logs -f
+```
+
+6. Stop the container:
+
+```bash
+docker compose down
+```
+
+### Caddy Integration
+
+If using Caddy as a reverse proxy, update your `Caddyfile` to route to `localhost:9000`:
+
+```
+reverse_proxy @vpsWs localhost:9000
+```
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MASTER_KEY` | Yes | (empty) | Shared secret between host and VPS (64-char hex) |
+| `PORT` | No | 9000 | Port the router listens on |
+| `LOG_LEVEL` | No | info | Log verbosity: `info`, `warn`, `error`, `debug` |
+
+### Benefits of Docker Deployment
+
+- **Zero prompts**: No interactive setup, no manual builds
+- **Reproducible**: Same binary regardless of host system
+- **Isolated**: Runs in its own container with minimal dependencies
+- **Self-updating**: Can integrate with watchtower or similar tools

@@ -121,6 +121,8 @@ export default {
           session.codecType = sanitizeString(session.codecType, 30);
           session.category = sanitizeString(session.category, 50);
           session.version = sanitizeString(session.version, 20);
+          if (session.themePayload) session.themePayload = sanitizeString(session.themePayload, 500);
+          if (session.accentColor) session.accentColor = sanitizeString(session.accentColor, 20);
           if (session.thumbnail && !isUrl(session.thumbnail)) session.thumbnail = undefined;
 
           // Whitelist tunnel domains to prevent webhook spam from arbitrary URLs
@@ -246,7 +248,7 @@ if (env.BANS_KV) {
                       const embed = {
                         title: ping.gameTitle || "🎮 Game",
                         url: ping.url,
-                        color: 0x8b5cf6,
+                        color: 0xc084fc,
                         description: `**Host:** ${ping.hostName || "Unknown"}\n**Region:** ${ping.hostRegion || "?"}\n**Players:** ${ping.region || "?"}\n\n⏰ *Session has been running for over 15 minutes!*`,
                         fields: [
                           { name: "OS", value: ping.os || "?", inline: true },

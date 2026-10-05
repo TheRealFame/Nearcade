@@ -1,0 +1,21 @@
+{
+  "name": "nearcade-gamepad-probe",
+  "productName": "Nearcade Gamepad Probe",
+  "version": "1.0.0",
+  "description": "Standalone Nearcade gamepad diagnostic probe: records exactly what a web browser's Gamepad API reports and what Nearcade's real calibration config would transmit. No server, no install.",
+  "author": "Nearcade",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "node extract-sim.js && electron .",
+    "dev:test": "electron dev-harness.js",
+    "extract": "node extract-sim.js",
+    "dist": "node extract-sim.js && electron-builder --config builder.yml",
+    "dist:linux": "node extract-sim.js && electron-builder --config builder.yml --linux",
+    "dist:win": "node extract-sim.js && electron-builder --config builder.yml --win"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

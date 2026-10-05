@@ -7,6 +7,19 @@ const dgram = require('dgram');
 // ── Visualizer event bus — host.js listens on inputDriver.events ──────────────
 const events = new EventEmitter();
 
+// Input Diagnostics (host-side)
+let _hostDiag = null;
+function _maybeStartHostDiag() {
+    // Enable via env var NEARCADE_HOST_DIAG=1
+    if (process.env.NEARCADE_HOST_DIAG !== '1') return;
+    try {
+        const InputDiag = require('./input-diag.js');
+        _hostDiag = new InputDiag({ role: 'host', maxEvents: 5000 });
+        _hostDiag.start();
+        console.log('[HostDiag] Started');
+    } catch (e) { console.warn('[HostDiag] Failed to load:', e.message); }
+}
+
 // ── Shared Buffers for Zero-Copy Native C++ Submission ──
 // Buffer layout MUST match uinputBridge.cpp exactly.
 // GAMEPAD packet (16 bytes):
@@ -25,10 +38,12 @@ const _gpBuf = Buffer.alloc(16);
 const _alBuf = Buffer.alloc(104);
 const _flBuf = Buffer.alloc(2);
 const _frBuf = Buffer.alloc(2);
+const _vrBuf = Buffer.alloc(203);
 
 _alBuf[0] = 0x10; // PKT::ALLOC_GP
 _flBuf[0] = 0x20; // PKT::FLUSH
 _frBuf[0] = 0x11; // PKT::FREE_GP
+_vrBuf[0] = 0x30; // PKT::VR
 
 // ── Button Bitmask Converter ───────────────────────────────────────────────────
 // The viewer.js uses the KBM_BTN_MAP bit layout. The C++ bridge uses a different
@@ -51,10 +66,27 @@ _frBuf[0] = 0x11; // PKT::FREE_GP
 //   bit 12 = START → C++ bit 9
 //   bit 13 = SELECT → C++ bit 8
 //   bit 14 = GUIDE (C++ reads uint16 so bit16 unreachable — skip)
-function _jsBtnsToCpp(jsBtns) {
+//   isSwitchProfile: when true, swaps A<->B and X<->Y before conversion.
+//   Nintendo's physical face-button layout is rotated relative to Xbox —
+//   the button in the Xbox "A" position is physically "B" on a real Switch
+//   Pro Controller, and the Xbox "X" position is physically "Y". Swapping
+//   here (once, at the JS bit level) makes the emitted uinput device match
+//   what a real Switch Pro Controller would report for the same physical
+//   button, so touch controls feel correct when a session is emulating one.
+function _isSwitchProfile(profileKey) {
+    return profileKey === 'switchpro' || profileKey === 'switch' || profileKey === 'nintendo';
+}
+
+function _jsBtnsToCpp(jsBtns, profileKey) {
     let cpp = 0;
+    let faceBits = jsBtns & 0x000F;
+    if (_isSwitchProfile(profileKey)) {
+        const a = faceBits & 0x0001, b = faceBits & 0x0002;
+        const x = faceBits & 0x0004, y = faceBits & 0x0008;
+        faceBits = (b ? 0x0001 : 0) | (a ? 0x0002 : 0) | (y ? 0x0004 : 0) | (x ? 0x0008 : 0);
+    }
     // A, B, X, Y — bits 0-3 pass through (C++ X/Y label swap is intentional, emits correctly)
-    cpp |= (jsBtns & 0x000F);
+    cpp |= faceBits;
     // LB: JS bit8 → C++ bit4
     if (jsBtns & 0x0100) cpp |= 0x0010;
     // RB: JS bit9 → C++ bit5
@@ -99,6 +131,11 @@ function setHidMaestroEnabled(enabled) {
 }
 
 let _windowsExperimentalEnabled = false;
+let _androidExperimentalEnabled = false;
+function setAndroidExperimentalEnabled(enabled) {
+    _androidExperimentalEnabled = !!enabled;
+}
+
 function setWindowsExperimentalEnabled(enabled) {
     _windowsExperimentalEnabled = !!enabled;
 }
@@ -111,6 +148,7 @@ let KBM_BINDINGS = { keys: {}, mouse: { sensitivity: 1.5, deadzone: 0.1 } };
 // rather than always falling back to xbox360.
 let _defaultProfileKey = 'xbox360';
 let _hybridInputEnabled = false;
+let _disableAutoMap = false;
 
 // ── Window-title CSV detection (cross-platform) ────────────────────────────────
 let _csvKbmEntries = [];        // [{frag, binds}] — loaded from game_profiles.csv 17-col format
@@ -194,6 +232,7 @@ function _resolveWindowTitle(title) {
 }
 
 function _handleWindowFocus(title) {
+    if (_disableAutoMap) return;
     if (isWin && !_windowsExperimentalEnabled) return;
     
     if (title === _lastWindowTitle) return;
@@ -253,12 +292,34 @@ let tournamentMode = false;
 let lastPacketTime = new Map();
 let lastPacketSequence = new Map();
 let lastGamepadVars = new Map();
+let activeInputStreams = new Set();
 
 function init(screenWidth, screenHeight) {
     _loadProfiles();
     _loadKbmCSV();
+    _maybeStartHostDiag();
 
-    // On Windows and macOS the uinputBridge C++ addon is Linux-only.
+    // 0. Try Native Rust NAPI-RS Orchestrator (Cross-Platform)
+    try {
+        const napiPathRaw = path.join(__dirname, 'rust_orchestrator', 'rust_orchestrator.node');
+        const napiPath = napiPathRaw.replace('app.asar', 'app.asar.unpacked');
+        if (require('fs').existsSync(napiPath)) {
+            const rustMod = require(napiPath);
+            _bridge = {
+                initializeDevice: () => rustMod.init(),
+                destroyDevice: () => rustMod.destroy(),
+                submitInputPacket: (buf) => rustMod.submitInputPacket(buf),
+                getGamepadEventPath: () => 'NAPI-RS Virtual Gamepad'
+            };
+            _bridge.initializeDevice(screenWidth || 1920, screenHeight || 1080);
+            console.log(`[input] Native Rust NAPI orchestrator loaded: ${napiPath}`);
+            return true;
+        }
+    } catch (e) {
+        console.warn(`[input] Rust NAPI orchestrator failed to load (${e.message}). Falling back to legacy sidecars.`);
+    }
+
+    // 1. On Windows and macOS the uinputBridge C++ addon is Linux-only.
     // Skip it entirely and go straight to the Python sidecar.
     if (!isWin && !isMac) {
         // 1. Try Native C++ Fast Lane (Linux only)
@@ -286,23 +347,96 @@ function init(screenWidth, screenHeight) {
         _udpSocket.close();
     });
 
-    // 2. Python Sidecar — platform-aware script selection
-    let scriptName;
-    if (isWin) scriptName = _hidmaestroEnabled ? 'windows_hidmaestro.py' : 'windows_vigem.py';
-    else if (isMac) scriptName = 'mac_gamepad_bridge.py';
-    else scriptName = 'linux_uinput.py';
-    // __dirname is already .../input_backends
-    const pythonScriptRaw = path.join(__dirname, scriptName);
-    const pythonScript = pythonScriptRaw.replace('app.asar', 'app.asar.unpacked');
-    if (!fs.existsSync(pythonScript)) {
-        console.error(`[input] FATAL: Python fallback not found at ${pythonScript}`);
-        return false;
+    // 2. Rust/Python Native Sidecar — platform-aware script selection
+    let scriptBase;
+    let pythonScriptBase;
+    let isRustCore = true; // All core platforms have been migrated to Rust
+    
+    if (_androidExperimentalEnabled) {
+        scriptBase = 'backend_android'; // Not made yet
+        pythonScriptBase = 'experimental/backend_android';
+        isRustCore = false; // Force Python
+        console.log('[input] Android Shizuku experimental mode enabled.');
+    } else if (isWin) {
+        scriptBase = _hidmaestroEnabled ? 'rust_hidmaestro' : 'rust_vigem';
+        pythonScriptBase = _hidmaestroEnabled ? 'hidmaestro' : 'windows_vigem';
+    }
+    else if (isMac) {
+        scriptBase = 'rust_mac_bridge';
+        pythonScriptBase = 'mac_pynput';
+    }
+    else {
+        scriptBase = 'rust_uinput';
+        pythonScriptBase = 'linux_uinput';
     }
 
-    const pythonCmd = isWin ? 'python' : 'python3';
-    const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
-    if (isWin) spawnOpts.windowsHide = true;
-    _pythonProc = spawn(pythonCmd, [pythonScript], spawnOpts);
+    const binExt = isWin ? '.exe' : (isMac ? '.bin' : '.bin');
+    
+    // Check multiple potential locations for the Rust/Native binaries
+    const binPaths = [
+        // 1. Packaged location (e.g. Nuitka output or release build)
+        path.join(__dirname, 'bin', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
+        // 2. Local Rust dev environment target directory
+        path.join(__dirname, scriptBase, 'target', 'release', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
+        // 3. Fallback name check (e.g. windows_vigem.exe)
+        path.join(__dirname, 'bin', pythonScriptBase + binExt).replace('app.asar', 'app.asar.unpacked')
+    ].filter(Boolean);
+
+    let foundBinary = null;
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    
+    if (isARM && !isWin) {
+        console.warn(`[input] Running on ARM Linux. Skipping precompiled x64 binaries, falling back to pure Python.`);
+    } else {
+        for (const bp of binPaths) {
+            if (fs.existsSync(bp)) {
+                foundBinary = bp;
+                break;
+            }
+        }
+    }
+
+    const pythonScriptRaw = path.join(__dirname, pythonScriptBase + '.py');
+    const pythonScript = pythonScriptRaw.replace('app.asar', 'app.asar.unpacked');
+
+    if (foundBinary) {
+        console.log(`[input] Native binary detected! Spawning: ${foundBinary}`);
+        _pythonProc = spawn(foundBinary, [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PYTHONUNBUFFERED: '1' } });
+    } else {
+        console.warn(`[input] Native sidecar binary not found. Falling back to Python backend: ${pythonScriptBase}.py`);
+        
+        if (!fs.existsSync(pythonScript)) {
+            console.error(`[input] FATAL: Sidecar not found at ${pythonScript}`);
+            return false;
+        }
+        let pythonCmd = isWin ? 'python' : 'python3';
+        let extraArgs = [];
+        if (isWin) {
+            const bundledPython = path.join(__dirname, '..', '..', '..', 'bin', 'python', 'python.exe').replace('app.asar', 'app.asar.unpacked');
+            if (fs.existsSync(bundledPython)) {
+                pythonCmd = bundledPython;
+            } else {
+                const { execSync } = require('child_process');
+                const candidates = [ {c: 'py', a: ['-3']}, {c: 'python', a: []}, {c: 'python3', a: []} ];
+                let found = false;
+                for (const cand of candidates) {
+                    try {
+                        execSync(`"${cand.c}" ${cand.a.join(' ')} -c "import sys; sys.exit(0)"`, { stdio: 'ignore', windowsHide: true });
+                        pythonCmd = cand.c;
+                        extraArgs = cand.a;
+                        found = true;
+                        break;
+                    } catch (e) { }
+                }
+                if (!found && !fs.existsSync(bundledPython)) {
+                    console.error("[InputOrchestrator] CRITICAL: Valid Python installation not found.");
+                }
+            }
+        }
+        const spawnOpts = { stdio: ['pipe', 'pipe', 'pipe'] };
+        if (isWin) spawnOpts.windowsHide = true;
+        _pythonProc = spawn(pythonCmd, [...extraArgs, '-u', pythonScript], spawnOpts);
+    }
 
     _pythonProc.stderr.on('data', (chunk) => {
         const s = chunk.toString('utf8').trim();
@@ -481,15 +615,47 @@ function _freeSlot(viewerId) {
         _bridge.submitInputPacket(_flBuf);
         _frBuf[1] = slot;
         _bridge.submitInputPacket(_frBuf);
+        
+        // Update active controllers JSON
+        const pth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
+        try {
+            if (fs.existsSync(pth)) {
+                let active = JSON.parse(fs.readFileSync(pth, 'utf8'));
+                delete active[viewerId];
+                fs.writeFileSync(pth, JSON.stringify(active, null, 2));
+            }
+        } catch (e) {
+            console.error("Failed to write active_controllers.json:", e);
+        }
     }
 
     viewerSlots.delete(viewerId);
     slotViewers.delete(slot);
     slotLastUsed.delete(slot);
     kbmStates.delete(viewerId);
+    
+    if (typeof viewerModes !== 'undefined') viewerModes.delete(viewerId);
+    if (typeof viewerCtrlType !== 'undefined') viewerCtrlType.delete(viewerId);
+    
+    const padPrefix = viewerId + '_';
+    [viewerHostSlots, lastPacketTime, lastPacketSequence, lastGamepadVars, viewerSeq].forEach(map => {
+        for (const key of map.keys()) {
+            if (key.startsWith(padPrefix)) map.delete(key);
+        }
+    });
+    activeInputStreams.delete(viewerId);
+    activeInputStreams.delete(padPrefix + '0');
 }
 
-// ── Emulation Handlers ─────────────────────────────────────────────────────────
+// ── Clear active controllers on startup ───────────────────────────────────────
+try {
+    const activePth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
+    fs.writeFileSync(activePth, JSON.stringify({}));
+} catch (e) {
+    console.error("Failed to clear active_controllers.json on startup", e);
+}
+
+// ── Native Addon Loading ─────────────────────────────────────────────────────────
 function _handleGamepad(msg) {
     const viewerId = msg.pad_id;
     if (!viewerId) return;
@@ -504,13 +670,29 @@ function _handleGamepad(msg) {
 
     const profileKey = viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
     const slotIndex = _allocateSlot(viewerId, profileKey);
-    console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex}`);
     if (slotIndex < 0) return;
 
     if (!_bridge) return;
+    
+    setTimeout(() => {
+        const eventPath = _bridge ? _bridge.getGamepadEventPath(slotIndex) : 'N/A';
+        console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex} at ${eventPath}`);
+        
+        // Update active controllers JSON
+        const pth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
+        try {
+            let active = {};
+            if (fs.existsSync(pth)) active = JSON.parse(fs.readFileSync(pth, 'utf8'));
+            active[viewerId] = { slot: slotIndex, path: eventPath, profile: profileKey };
+            fs.writeFileSync(pth, JSON.stringify(active, null, 2));
+        } catch (e) {
+            console.error("Failed to write active_controllers.json:", e);
+        }
+    }, 300);
 
     // Convert JS viewer bitmask to C++ W3C_BTN format and extract dpad as hx/hy
-    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(msg.buttons || 0);
+    // (profileKey enables the Switch Pro A/B, X/Y swap for this viewer's session)
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(msg.buttons || 0, profileKey);
 
     // Write packet in the EXACT layout uinputBridge.cpp expects.
     // axes arrive as int16 (-32767..+32767) from the normalizer — write directly.
@@ -528,6 +710,7 @@ function _handleGamepad(msg) {
     _gpBuf[15] = slotIndex;
 
     _bridge.submitInputPacket(_gpBuf);
+    if (_hostDiag) _hostDiag.logEmit(viewerId, slotIndex, cppBtns, [msg.lx||0, msg.ly||0, msg.rx||0, msg.ry||0], { backend: 'native' });
     events.emit('input-packet', {
         source: 'gamepad', viewerId, slotIndex,
         buttons: msg.buttons || 0,
@@ -783,6 +966,7 @@ function _sendKbmStateToBuffer(slotIndex, state) {
     } else if (_pythonUdpPort > 0 && _udpSocket) {
         _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
     }
+    if (_hostDiag) _hostDiag.logEmit(viewerSlots.get(padId) || '', slotIndex, cppBtns, [state.lx||0, state.ly||0, state.rx||0, state.ry||0], { backend: _bridge ? 'native' : 'python' });
     events.emit('input-packet', {
         source: 'kbm', slotIndex,
         buttons: state.buttons,
@@ -790,6 +974,52 @@ function _sendKbmStateToBuffer(slotIndex, state) {
         lx: state.lx, ly: state.ly,
         rx: state.rx, ry: state.ry,
     });
+}
+
+function _handleVr(msg) {
+    if (!_udpSocket) return;
+    const h = msg.head || {};
+    const l = msg.left || {};
+    const r = msg.right || {};
+
+    _vrBuf[0] = 0x30;
+    
+    // Head pose
+    _vrBuf.writeDoubleLE(h.qx || 0, 1);
+    _vrBuf.writeDoubleLE(h.qy || 0, 9);
+    _vrBuf.writeDoubleLE(h.qz || 0, 17);
+    _vrBuf.writeDoubleLE(h.qw || 1, 25);
+    _vrBuf.writeDoubleLE(h.px || 0, 33);
+    _vrBuf.writeDoubleLE(h.py || 0, 41);
+    _vrBuf.writeDoubleLE(h.pz || 0, 49);
+    
+    // Left pose
+    _vrBuf.writeDoubleLE(l.qx || 0, 57);
+    _vrBuf.writeDoubleLE(l.qy || 0, 65);
+    _vrBuf.writeDoubleLE(l.qz || 0, 73);
+    _vrBuf.writeDoubleLE(l.qw || 1, 81);
+    _vrBuf.writeDoubleLE(l.px || 0, 89);
+    _vrBuf.writeDoubleLE(l.py || 0, 97);
+    _vrBuf.writeDoubleLE(l.pz || 0, 105);
+    
+    // Right pose
+    _vrBuf.writeDoubleLE(r.qx || 0, 113);
+    _vrBuf.writeDoubleLE(r.qy || 0, 121);
+    _vrBuf.writeDoubleLE(r.qz || 0, 129);
+    _vrBuf.writeDoubleLE(r.qw || 1, 137);
+    _vrBuf.writeDoubleLE(r.px || 0, 145);
+    _vrBuf.writeDoubleLE(r.py || 0, 153);
+    _vrBuf.writeDoubleLE(r.pz || 0, 161);
+    
+    _vrBuf.writeDoubleLE(Number(l.trigger) || 0, 169);
+    _vrBuf.writeDoubleLE(Number(l.grip) || 0, 177);
+    _vrBuf.writeDoubleLE(Number(r.trigger) || 0, 185);
+    _vrBuf.writeDoubleLE(Number(r.grip) || 0, 193);
+    
+    _vrBuf.writeUInt8(Number(l.buttons) || 0, 201);
+    _vrBuf.writeUInt8(Number(r.buttons) || 0, 202);
+    
+    _udpSocket.send(_vrBuf, 0, 203, 9758, '127.0.0.1');
 }
 
 // ── Dispatcher & Exports ──────────────────────────────────────────────────────
@@ -880,6 +1110,18 @@ function send(msg) {
     } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
         validated = _validateKbmMsg(msg);
         if (!validated) return; // drop
+    } else if (msg.type === 'vr') {
+        validated = msg;
+    }
+
+    if (_hostDiag && validated?.type === 'gamepad') {
+        _hostDiag.logRecv(validated, { viewerId: validated.viewerId, path: _bridge ? 'native' : (_pythonProc ? 'python' : 'unknown') });
+    }
+
+    const vid = msg.pad_id || msg.viewerId || msg.viewer_id;
+    if (vid && !activeInputStreams.has(vid)) {
+        activeInputStreams.add(vid);
+        console.log(`[Input] Active input stream established from viewer ${String(vid).substring(0, 8)}`);
     }
 
     // Handle window-focus / game detection BEFORE routing to any backend
@@ -935,6 +1177,8 @@ function send(msg) {
     } else if (validated.type === 'kbm' || validated.type === 'keyboard') {
         console.log(`[DEBUG KBM] Orchestrator send() routing to _handleKbm`);
         _handleKbm(validated);
+    } else if (validated.type === 'vr') {
+        _handleVr(validated);
     } else if (msg.type === 'set-ctrl-type') {
         // Update per-viewer map AND the global default so new connections inherit the type
         if (msg.viewerId) viewerCtrlType.set(msg.viewerId, msg.ctrlType || 'xbox360');
@@ -942,6 +1186,9 @@ function send(msg) {
     } else if (msg.type === 'ctrl-settings-hybrid') {
         _hybridInputEnabled = !!msg.enabled;
         console.log(`[input] Hybrid mode ${msg.enabled ? 'ENABLED: Routing via Python' : 'DISABLED: Restoring C++ bridge'}`);
+    } else if (msg.type === 'ctrl-settings-automap') {
+        _disableAutoMap = !msg.enabled;
+        console.log(`[input] Auto-mapping CSV ${msg.enabled ? 'ENABLED' : 'DISABLED'}`);
     } else if (msg.type === 'force-slot') {
         const padId = msg.pad_id || (msg.viewerId + '_0');
         if (msg.slot == null || msg.slot === -1) {
@@ -972,7 +1219,8 @@ const viewerSeq = new Map();
 
 function _processBinaryFrame(viewerId, padId, slotIndex, buf, offset) {
     const jsBtns = buf.readUInt16LE(offset + 2);
-    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(jsBtns);
+    const profileKey = viewerCtrlType.get(padId) || viewerCtrlType.get(viewerId) || _defaultProfileKey || 'xbox360';
+    const { cpp: cppBtns, hx, hy } = _jsBtnsToCpp(jsBtns, profileKey);
     
     // Confidence Decay tracking
     lastPacketTime.set(padId, Date.now());
@@ -996,6 +1244,7 @@ function _processBinaryFrame(viewerId, padId, slotIndex, buf, offset) {
     } else if (_pythonUdpPort > 0 && _udpSocket) {
         _udpSocket.send(_gpBuf, 0, 16, _pythonUdpPort, '127.0.0.1');
     }
+    if (_hostDiag) _hostDiag.logEmit(viewerId, slotIndex, cppBtns, [buf.readInt16LE(offset+4), buf.readInt16LE(offset+6), buf.readInt16LE(offset+8), buf.readInt16LE(offset+10)], { backend: _bridge ? 'native' : 'python' });
 }
 
 function sendBinary(viewerId, buf) {
@@ -1075,7 +1324,7 @@ setInterval(() => {
     const now = Date.now();
     for (const padId of viewerSlots.keys()) {
         const lastT = lastPacketTime.get(padId) || 0;
-        if (now - lastT > 60 && lastT !== 0) {
+        if (now - lastT > 150 && lastT !== 0) {
             const lastVars = lastGamepadVars.get(padId) || { buttons: 0, lt: 0, rt: 0 };
             const lastMask = typeof lastVars === 'number' ? lastVars : (lastVars.buttons || 0); 
             _handleGamepad({
@@ -1091,4 +1340,4 @@ setInterval(() => {
     }
 }, 16);
 
-module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, setWindowsExperimentalEnabled, get _bridge() { return _bridge; } };
+module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, setWindowsExperimentalEnabled, setAndroidExperimentalEnabled, get _bridge() { return _bridge; } };

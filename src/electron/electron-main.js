@@ -1,0 +1,825 @@
+const {
+  app, BrowserWindow, ipcMain, shell, Tray, Menu,
+  nativeImage, dialog, desktopCapturer, clipboard, systemPreferences,
+} = require('electron');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+const { powerSaveBlocker } = require('electron');
+const { loadSettings, saveSettings, CONFIG_DIR, LOG_FILE } = require('./config');
+const { registerIpcHandlers } = require('./ipc');
+const { checkSystemDependencies, probeGPUAcceleration } = require('./checkDependencies');
+
+// Enable Chromium logging BEFORE any other initialization
+app.commandLine.appendSwitch('enable-logging');
+app.commandLine.appendSwitch('v', '1');
+app.commandLine.appendSwitch('vmodule', 'gpu*=1,render*=1,web_content*=1');
+app.commandLine.appendSwitch('log-file', path.join(CONFIG_DIR, 'nearcade.log'));
+
+powerSaveBlocker.start('prevent-app-suspension');
+process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
+app.setName('Nearcade');
+app.setAppUserModelId('Nearcade');
+process.title = 'Nearcade';
+app.userAgentFallback = app.userAgentFallback + ' Nearcade/' + app.getVersion();
+
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('openremoteplay', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('openremoteplay');
+}
+const isArcadeWorker = process.argv.includes('--arcade-worker');
+const isFFmpegExperimental = process.argv.includes('--ffmpeg-experimental');
+let isWebCodecs = process.argv.includes('--webcodecs');
+let isFFmpegCapture = process.argv.includes('--ffmpeg');
+let isGstWebRTC = process.argv.includes('--webrtc');
+const gotTheLock = isArcadeWorker ? true : app.requestSingleInstanceLock();
+
+function registerDiscordProtocol(clientId) {
+  try {
+    const protocol = 'discord-' + clientId;
+    const home = os.homedir();
+    const appsDir = path.join(home, '.local', 'share', 'applications');
+    const desktopFile = path.join(appsDir, protocol + '.desktop');
+    const mimeType = 'x-scheme-handler/' + protocol;
+
+    const args = process.argv.slice(1).join(' ');
+    const execLine = process.execPath + ' ' + args + ' %u';
+
+    if (!fs.existsSync(appsDir)) fs.mkdirSync(appsDir, { recursive: true });
+
+    fs.writeFileSync(desktopFile, [
+      '[Desktop Entry]',
+      'Type=Application',
+      'Name=Nearcade (Discord Join)',
+      'Exec=' + execLine,
+      'MimeType=' + mimeType + ';',
+      'StartupNotify=true',
+      'Categories=Network;',
+      'NoDisplay=true',
+    ].join('\n'), 'utf-8');
+
+    const mimeAppsPath = path.join(home, '.config', 'mimeapps.list');
+    let mimeContent = '';
+    if (fs.existsSync(mimeAppsPath)) {
+      mimeContent = fs.readFileSync(mimeAppsPath, 'latin1')
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .filter(l => {
+          if (l.startsWith(mimeType + '=')) return false;
+          if (l.startsWith('x-scheme-handler/openremoteplay=')) return false;
+          if (l.includes(mimeType) && !l.startsWith('[') && !l.startsWith('#')) return false;
+          return true;
+        })
+        .join('\n');
+    }
+
+    // Also register openremoteplay:// protocol for Linux
+    const openremoteDesktopFile = path.join(appsDir, 'openremoteplay-protocol.desktop');
+    fs.writeFileSync(openremoteDesktopFile, [
+      '[Desktop Entry]',
+      'Type=Application',
+      'Name=Nearcade Deep Link Handler',
+      'Exec=' + execLine,
+      'MimeType=x-scheme-handler/openremoteplay;',
+      'StartupNotify=true',
+      'Categories=Network;',
+      'NoDisplay=true',
+    ].join('\n'), 'utf-8');
+
+    const marker = '[Default Applications]';
+    const newLines = [
+      mimeType + '=' + protocol + '.desktop',
+      'x-scheme-handler/openremoteplay=openremoteplay-protocol.desktop'
+    ].join('\n');
+    
+    if (mimeContent.includes(marker)) {
+      mimeContent = mimeContent.replace(marker, marker + '\n' + newLines);
+    } else {
+      mimeContent += (mimeContent ? '\n' : '') + marker + '\n' + newLines + '\n';
+    }
+
+    fs.writeFileSync(mimeAppsPath, mimeContent, 'utf-8');
+    console.log('[Discord] Protocol ' + protocol + ' registered (desktop file + mimeapps.list)');
+    return true;
+  } catch (e) {
+    console.log('[Discord] Protocol registration failed:', e.message);
+    return false;
+  }
+}
+
+function getConfigDir() {
+  const home = require('os').homedir();
+  if (process.platform === 'win32')
+    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+  if (process.platform === 'darwin')
+    return path.join(home, 'Library', 'Application Support', 'Nearcade');
+  return path.join(home, '.config', 'Nearcade');
+}
+
+var _discordClientId = null;
+try {
+  const _earlySettings = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(getConfigDir(), 'nearcade.config.json'), 'utf8')); } catch { return {}; }
+  })();
+  _discordClientId = _earlySettings.discordClientId || '1522864642953711776';
+  if (!isArcadeWorker) registerDiscordProtocol(_discordClientId);
+} catch (_) { }
+
+try {
+  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(LOG_FILE, `--- Nearcade Session Log (${new Date().toISOString()}) | Version: ${app.getVersion()} ---\n`);
+} catch (e) { }
+
+function appendLog(msg) {
+  try { fs.appendFileSync(LOG_FILE, msg + '\n'); } catch (e) { }
+}
+
+const _nativeLog = console.log.bind(console);
+const _nativeErr = console.error.bind(console);
+
+console.log = function (...args) {
+  _nativeLog(...args);
+  const s = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a); } catch (_) { return String(a); }
+  }).join(' ');
+  appendLog(`[LOG] ${s}`);
+};
+
+console.error = function (...args) {
+  let callerInfo = '';
+  try {
+    const stack = new Error().stack.split('\\n');
+    const caller = stack[2] || '';
+    const match = caller.match(/\\((.*):(\\d+):(\\d+)\\)/) || caller.match(/at (.*):(\\d+):(\\d+)/);
+    if (match) {
+      const file = require('path').basename(match[1]);
+      callerInfo = `[${file}:${match[2]}] `;
+    }
+  } catch (e) {}
+
+  if (callerInfo) {
+    _nativeErr(callerInfo, ...args);
+  } else {
+    _nativeErr(...args);
+  }
+
+  const s = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a); } catch (_) { return String(a); }
+  }).join(' ');
+  appendLog(`[ERR] ${callerInfo}${s}`);
+};
+
+try {
+  if (fs.existsSync(CONFIG_DIR)) {
+    const configFile = path.join(CONFIG_DIR, 'nearcade.config.json');
+    if (fs.existsSync(configFile)) {
+      const rawConfig = fs.readFileSync(configFile, 'utf8');
+      const parsedConfig = JSON.parse(rawConfig);
+      if (!process.argv.includes('--webcodecs') && !process.argv.includes('--ffmpeg') && !process.argv.includes('--webrtc')) {
+        let method = parsedConfig.captureMethod || 'webcodecs';
+
+        if (method === 'webcodecs' || method === 'custom_webcodecs') isWebCodecs = true;
+        if (method === 'ffmpeg') isFFmpegCapture = true;
+        if (method === 'gstreamer_webrtc') isGstWebRTC = true;
+        console.log(`[Main] Loaded capture method from config: ${method}`);
+      } else {
+        console.log(`[Main] Capture method forced by CLI arguments.`);
+      }
+    }
+  }
+} catch (err) {
+  console.warn('[Main] Could not read nearcade.config.json, falling back to defaults.');
+}
+
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
+process.on('uncaughtException', (e) => {
+  const msg = e?.message || String(e);
+  console.error('\n[electron] ⚠ Uncaught Exception:', msg);
+  try {
+    if (win && !win.isDestroyed()) {
+      win.webContents.executeJavaScript(`
+        (function showErrorBanner() {
+          if (document.getElementById('ns-crash-banner')) return;
+          var b = document.createElement('div');
+          b.id = 'ns-crash-banner';
+          b.style.cssText = 'animation:nsCrashIn 0.3s ease-out;@keyframes nsCrashIn{from{opacity:0;transform:translateX(-50%) translateY(-20px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}';
+          b.innerHTML = '<div style="padding:12px 20px;background:rgba(211,47,47,0.9);color:#fff;font-family:monospace;font-size:12px;text-align:center;border-radius:0 0 6px 6px;position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:999999;max-width:90vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⚠ Nearcade Error: ' + ${JSON.stringify(msg.replace(/"/g,'\\"').substring(0,120))} + '</div>';
+          document.body.appendChild(b);
+        })();
+      `).catch(() => {});
+    }
+  } catch (_) {}
+});
+process.on('unhandledRejection', (e) => {
+  const msg = e?.message || String(e);
+  if (msg.includes('could not be cloned') || msg.includes('no video stream')) return;
+  console.error('\n[electron] ⚠ Unhandled Rejection:', msg);
+});
+
+function _electronSignalCleanup(signal) {
+  console.log(`\n[electron] Received ${signal} — triggering cleanup...`);
+  if (serverCore && serverCore.cleanup) {
+    serverCore.cleanup(false);
+  } else {
+    const { execSync } = require('child_process');
+    if (process.platform === 'linux') {
+      try {
+        execSync(
+          "pactl list short modules | awk '/NearsecVirtual|NearsecVirtualCapture/{print $1}' | xargs -r pactl unload-module",
+          { stdio: 'ignore' }
+        );
+      } catch (_) { }
+    }
+  }
+  setTimeout(() => {
+    try { process.stderr.destroy(); } catch(e){}
+    process.exit(0);
+  }, 250);
+}
+process.on('SIGINT', () => _electronSignalCleanup('SIGINT'));
+process.on('SIGTERM', () => _electronSignalCleanup('SIGTERM'));
+
+if (process.platform === 'linux') {
+  try {
+    const { execSync } = require('child_process');
+    const moduleList = execSync('pactl list short modules 2>/dev/null', {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const staleIds = [];
+    for (const line of moduleList.split('\n')) {
+      if (
+        line.includes('NearsecVirtual') || line.includes('NearsecVirtualCapture') ||
+        line.includes('NearsecAppAudio') || line.includes('NearsecAppMic')
+      ) {
+        const id = line.trim().split(/\s+/)[0];
+        if (id && /^\d+$/.test(id)) staleIds.push(id);
+      }
+    }
+    if (staleIds.length > 0) {
+      console.log(`[electron] Startup purge: removing ${staleIds.length} stale PA module(s)`);
+      for (const id of staleIds) {
+        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
+      }
+    }
+  } catch (_) { }
+}
+
+if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'));
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('log-level', '3'); // Suppress STUN timeouts & VSync C++ spam
+// app.commandLine.appendSwitch('disable-logging');
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+
+// Never touch the desktop keyring: on mixed gnome-keyring/KWallet boxes
+// Chromium's backend autodetect lands on the wrong store and begs for
+// unlock on every launch and at shutdown (even when the app never uses
+// safeStorage — Chromium encrypts its own cookies). 'basic' keeps an
+// obfuscated local store instead. This app's own secrets already live in
+// its plaintext config file, so no real secret protection is lost.
+// Override with NEARCADE_PASSWORD_STORE=gnome-libsecret|kwallet* if wanted.
+app.commandLine.appendSwitch('password-store', process.env.NEARCADE_PASSWORD_STORE || 'basic');
+
+// Check for missing system dependencies before proceeding
+if (!checkSystemDependencies()) {
+  console.error('[electron] Dependency check failed - exiting gracefully');
+  app.quit();
+  process.exit(1);
+}
+
+// Probe GPU acceleration capabilities
+probeGPUAcceleration();
+
+// Chromium FATAL-crashes the renderer when /dev/shm is unusable (bad perms,
+// tiny/prohibited mount, container quirks) and the whole app tears itself
+// down with no explanation — blank dashboard, instant exit. A startup probe is
+// NOT sufficient: Node can write /dev/shm fine while Chromium's own access()
+// still fails, so gate nothing and always use the /tmp-backed shared memory
+// path (Chromium's blessed container mode). Permanent machine-side fix for
+// users who want shm back: sudo chmod 1777 /dev/shm
+if (process.platform === 'linux') {
+    console.log('[electron] Using --disable-dev-shm-usage (shared memory via /tmp) so broken /dev/shm mounts cannot kill the renderer. Machine fix if wanted: sudo chmod 1777 /dev/shm');
+    app.commandLine.appendSwitch('disable-dev-shm-usage');
+}
+
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
+}
+
+if (isArcadeWorker && process.platform === 'linux') {
+  app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
+  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+} else if (process.platform === 'linux') {
+  const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+    process.env.SteamDeck === '1' ||
+    process.env.SteamGamepadUI === '1';
+
+  if (isGamescope) {
+    // Prevent Steam Deck virtual keyboard from constantly popping up and crashing the app
+    process.env.GTK_IM_MODULE = 'None';
+    
+    // Force native Wayland instead of X11/XWayland to prevent Gamescope scaling/compositing issues
+    app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
+    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
+    
+    // Gamescope often struggles with Chromium's sandbox, so these are kept disabled
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-gpu-sandbox');
+  } else {
+    // Never force a platform: respect the desktop session (Wayland stays
+    // Wayland). Override for testing with NEARCADE_OZONE=x11|wayland|auto.
+    // NOTE: if the GPU process cannot initialize GL here, the compositor
+    // fallback below (SwiftShader) is what keeps the dashboard painting.
+    app.commandLine.appendSwitch('ozone-platform-hint', process.env.NEARCADE_OZONE || 'auto');
+    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
+    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
+  }
+  app.commandLine.appendSwitch('enable-zero-copy');
+
+  // Auto-detect if OS restricts unprivileged namespaces (e.g. Ubuntu 24.04 AppArmor) or running as root
+  let autoNoSandbox = false;
+  if (process.getuid && process.getuid() === 0) autoNoSandbox = true;
+  else {
+    try {
+      if (fs.existsSync('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')) {
+        if (fs.readFileSync('/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 'utf8').trim() === '1') autoNoSandbox = true;
+      }
+      if (fs.existsSync('/proc/sys/kernel/unprivileged_userns_clone')) {
+        if (fs.readFileSync('/proc/sys/kernel/unprivileged_userns_clone', 'utf8').trim() === '0') autoNoSandbox = true;
+      }
+    } catch (_) { }
+  }
+
+  if (autoNoSandbox) {
+    console.log('[electron] OS restricts user namespaces or running as root. Auto-applying --no-sandbox.');
+    app.commandLine.appendSwitch('no-sandbox');
+    app.commandLine.appendSwitch('disable-gpu-sandbox');
+  }
+}
+
+// NOTE: --no-sandbox must stay CONDITIONAL (autoNoSandbox above). Forcing it
+// unconditionally turns recoverable shm hiccups into FATAL renderer hangs on
+// healthy-namespace systems (proven: sandboxed 0 FATALs + painted dashboard
+// vs unsandboxed FATAL + hang on the same box). Only userns-restricted, root,
+// or Gamescope sessions get it, where boot is impossible otherwise.
+
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// app.commandLine.appendSwitch('use-gl', 'desktop'); // causes GL init failure on some drivers
+app.commandLine.appendSwitch('enable-features', 'VaapiVideoEncoder,VaapiVideoDecoder,PlatformHEVCDecoderSupport');
+// Uncapped compositing is gated behind the user's explicit settings —
+// forcing it always made the shell burn CPU/GPU presenting a mostly-static
+// dashboard at hundreds of fps. Background flags below stay unconditional:
+// the host must keep encoding while minimized. Both take effect on restart.
+let _bootFlags = {};
+try { _bootFlags = loadSettings(); } catch (_) {}
+if (_bootFlags.vsyncOff) app.commandLine.appendSwitch('disable-gpu-vsync');
+if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit');
+// NOTE: no 'disable-software-rasterizer' — when native GL fails (broken
+// Mesa/driver combos), SwiftShader software rasterization is the only thing
+// standing between a working dashboard and a permanently blank window.
+// Forcing it off turns every GPU hiccup into a black screen.
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
+app.commandLine.appendSwitch('force-high-performance-gpu');
+app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
+app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
+app.commandLine.appendSwitch('disable-hardware-cursors');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
+let serverPort = null;
+let serverCore = null;
+
+function startServer() {
+  return new Promise((resolve) => {
+    process.env.ELECTRON_MODE = '1';
+
+    serverCore = require('../scripts/server.js');
+    const _appLog = console.log.bind(console);
+
+    const _serverLog = console.log;
+    console.log = function (...args) {
+      _serverLog(...args);
+      const s = args.join(' ');
+      const m = s.match(/Listening on port (\d+)/);
+      if (m && !serverPort) {
+        serverPort = parseInt(m[1]);
+        console.log = _serverLog;
+        resolve(serverPort);
+      }
+    };
+    setTimeout(() => { if (!serverPort) { serverPort = 3000; console.log = _serverLog; resolve(3000); } }, 2000);
+  });
+}
+
+let settings = loadSettings();
+let win = null;
+let tray = null;
+const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+  (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+  process.env.SteamDeck === '1' ||
+  process.env.SteamGamepadUI === '1';
+
+async function createWindow() {
+  settings = loadSettings();
+
+  const port = await startServer();
+  console.log('[electron] server ready on port', port);
+
+  const safeW = (typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280;
+  const safeH = (typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800;
+
+  win = new BrowserWindow({
+    width: Math.max(safeW, 600),
+    height: Math.max(safeH, 500),
+    minWidth: 600,
+    minHeight: 500,
+    title: 'Nearcade',
+    icon: path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'),
+    backgroundColor: require('electron').nativeTheme.shouldUseDarkColors ? '#111111' : '#e2e8f0',
+    alwaysOnTop: settings.alwaysOnTop,
+    show: isGamescopeEnv ? true : false,
+    fullscreen: isGamescopeEnv ? true : false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'electron-preload.js'),
+    },
+    autoHideMenuBar: true,
+  });
+
+  if (!isGamescopeEnv) {
+    win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
+  }
+  // Blank-screen detection: Monitor for 3 seconds after ready-to-show
+  let blankScreenDetected = false;
+  const blankScreenTimeout = setTimeout(() => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.executeJavaScript(`
+        document.body.offsetWidth === 0 || 
+        document.body.offsetHeight === 0 ||
+        document.documentElement.innerHTML.trim() === ''
+      `).then(isBlank => {
+        if (isBlank) {
+          blankScreenDetected = true;
+          console.error('[electron] Blank screen detected - renderer output is empty');
+          
+          // If --debug flag, open devtools
+          if (process.argv.includes('--debug')) {
+            win.webContents.openDevTools({ mode: 'detach' });
+            console.log('[electron] DevTools opened automatically due to --debug flag and blank screen detection');
+          }
+        }
+      }).catch(() => {
+        // Renderer may have crashed
+        blankScreenDetected = true;
+      });
+    }
+  }, 3000); // 3 second timeout
+
+  // If content loads normally, clear the timeout
+  win.webContents.on('did-finish-load', () => {
+    clearTimeout(blankScreenTimeout);
+  });
+
+
+  const PAGES_DIR = path.join(__dirname, 'src', 'pages');
+
+  if (isArcadeWorker) {
+    function getCliArg(flag) {
+      const idx = process.argv.indexOf(flag);
+      return idx > -1 ? process.argv[idx + 1] : null;
+    }
+    const gameName = getCliArg('--game-name') || 'Arcade Game';
+    const tunnelProv = getCliArg('--game-tunnel') || 'cloudflared';
+    win.loadURL(`http://localhost:${port}/host?auto=1&title=${encodeURIComponent(gameName)}&tunnel=${encodeURIComponent(tunnelProv)}`);
+  } else {
+    // Show setup wizard on first run instead of dashboard
+    if (!settings.firstRunComplete && !settings.neverBotherSetup) {
+      win.loadURL(`http://localhost:${port}/setup`);
+    } else {
+      win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
+    }
+  }
+
+  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    if (message && message.includes('Trystero: relay failure')) return; // Suppress harmless tracker downtime spam
+
+    let prefix = '[FrontEnd]';
+    if (level === 2) prefix = '[FrontEnd WARN]';
+    if (level === 3) prefix = '[FrontEnd ERR]';
+    appendLog(`${prefix} ${message}`);
+  });
+
+  win.webContents.on('did-fail-load', (e, code, desc) => {
+    if (code === -3) return;
+    console.error('[electron] failed to load:', code, desc);
+    setTimeout(() => {
+      if (isArcadeWorker) win.loadURL(`http://localhost:${port}/host?auto=1`);
+      else if (!settings.firstRunComplete && !settings.neverBotherSetup) win.loadURL(`http://localhost:${port}/setup`);
+      else win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
+    }, 1000);
+  });
+
+  win.webContents.on('did-navigate', (e, url) => {
+    if (url.includes('/host')) {
+      win.webContents.insertCSS(`
+        body { animation: nsFadeIn 1.5s ease both; }
+        @keyframes nsFadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `);
+    } else if (url.includes('/dashboard')) {
+      win.webContents.insertCSS(`
+        body { animation: nsDashFade 0.6s ease both; }
+        @keyframes nsDashFade { from { background: #e2e8f0; opacity: 0; } to { opacity: 1; } }
+      `);
+    }
+  });
+
+  win.webContents.on('did-finish-load', () => {
+    const currentURL = win.webContents.getURL();
+    if (currentURL.includes('/old_host') || currentURL.includes('client=1')) {
+      win.webContents.executeJavaScript(`
+      if (!document.getElementById('ns-dash-btn') && window.electronAPI) {
+        const btn = document.createElement('button');
+        btn.id = 'ns-dash-btn';
+        btn.innerHTML = '← Dashboard';
+        btn.style.cssText = 'position:fixed;bottom:24px;left:0;opacity:0;pointer-events:none;z-index:999999;padding:12px 20px;background:var(--accent, #c084fc);color:var(--accent-ink, #000);border:none;border-radius:0 8px 8px 0;font-family:monospace;font-weight:bold;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 12px rgba(0,0,0,0.4);';
+        btn.onmouseover = () => { btn.style.filter='brightness(1.2)'; };
+        btn.onmouseleave = () => { btn.style.filter='none'; };
+        btn.onclick = () => {
+          window.electronAPI.backToDashboard();
+        };
+        document.body.appendChild(btn);
+        let hideTimer = null;
+        function showBtn() {
+            const isConnected = document.body.getAttribute('data-connected') === 'true';
+            if (isConnected) {
+                btn.style.opacity = '0';
+                btn.style.pointerEvents = 'none';
+                return;
+            }
+            btn.style.opacity = '0.9';
+            btn.style.pointerEvents = 'auto';
+            clearTimeout(hideTimer);
+            const pinScreen = document.getElementById('pinScreen');
+            if (pinScreen && !pinScreen.classList.contains('gone')) return;
+            hideTimer = setTimeout(() => { btn.style.opacity = '0'; btn.style.pointerEvents = 'none'; }, 2700);
+        }
+        document.addEventListener('mousemove', showBtn, { passive: true });
+        showBtn();
+      }
+      `);
+    }
+  });
+
+  if (process.argv.includes('--show-warning')) {
+    win.webContents.on('did-finish-load', () => {
+      win.webContents.executeJavaScript(`
+        if (location.pathname.includes('/host') && !document.getElementById('ns-test-warning')) {
+          const el = document.createElement('div');
+          el.id = 'ns-test-warning';
+          el.style.cssText = 'width:100%;background:#fbbf24;color:#000;text-align:center;padding:12px 16px;font-weight:600;font-size:14px;font-family:sans-serif;border-bottom:2px solid #f59e0b;flex-shrink:0;';
+          el.textContent = '⚠ --show-warning was used — host warning banner is working. Restart without the flag to dismiss.';
+          document.body.prepend(el);
+          requestAnimationFrame(function() {
+            var el2 = document.getElementById('ns-test-warning');
+            var h = el2 ? el2.offsetHeight : 0;
+            var c = document.querySelector('.app-layout') || document.querySelector('.app-shell') || document.body;
+            if (c) c.style.height = 'calc(100vh - ' + h + 'px)';
+          });
+        }
+      `);
+    });
+  }
+
+  win.webContents.session.setPermissionCheckHandler(() => true);
+  win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
+
+  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC };
+  registerIpcHandlers(ctx);
+
+  win.on('resize', () => {
+    const [w, h] = win.getSize();
+    settings.w = w; settings.h = h;
+    saveSettings({ w, h });
+  });
+
+  win.on('closed', () => { win = null; ctx.win = null; });
+
+  if (!isGamescopeEnv) {
+    const trayIcon = nativeImage.createFromPath(path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png')).resize({ height: 22 });
+    tray = new Tray(trayIcon);
+    ctx.tray = tray;
+    tray.setToolTip('Nearcade');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Show Dashboard', click: () => { if (win) { win.show(); win.focus(); } else createWindow(); } },
+      { type: 'separator' },
+      { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } },
+    ]));
+    tray.on('click', () => { if (win) { win.isVisible() ? win.hide() : win.show(); } });
+  }
+
+  win.on('close', (e) => {
+    if (!app.isQuiting) {
+      if (isGamescopeEnv || !settings.tray) {
+        app.isQuiting = true;
+        app.quit();
+      } else {
+        e.preventDefault();
+        win.hide();
+        if (tray && tray.displayBalloon) tray.displayBalloon({ title: 'Nearcade', content: 'Running in background.' });
+      }
+    }
+  });
+
+  try { os.setPriority(process.pid, os.constants.priority.PRIORITY_HIGH); } catch (_) { }
+
+  win.webContents.setWindowOpenHandler(({ url, features }) => {
+    if (url.includes('localhost:') || url.includes('127.0.0.1:') || url === 'about:blank') {
+      let width = 600, height = 500;
+      if (features) {
+        const wMatch = features.match(/width=(\d+)/);
+        const hMatch = features.match(/height=(\d+)/);
+        if (wMatch) width = parseInt(wMatch[1]);
+        if (hMatch) height = parseInt(hMatch[1]);
+      }
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width, height,
+          autoHideMenuBar: true,
+          frame: !features?.includes('frame=no'),
+          backgroundColor: '#000000',
+          webPreferences: {
+            nodeIntegration: features?.includes('nodeIntegration=yes') || false,
+            contextIsolation: !features?.includes('contextIsolation=no')
+          }
+        }
+      };
+    }
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  win.webContents.on('before-input-event', (event, input) => {
+    if ((input.control && input.shift && input.key.toLowerCase() === 'i') || input.key === 'F12') {
+      if (win.webContents.isDevToolsOpened()) win.webContents.closeDevTools();
+      else win.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.warn('[electron] Renderer process gone:', details.reason);
+    if (details.reason !== 'clean-exit' && serverCore && serverCore.cleanup) {
+      serverCore.cleanup(true);
+    }
+  });
+
+  // Monitor GPU process health
+  app.on('gpu-process-crashed', (_event, killed) => {
+    console.error('\n[electron] ⚠ GPU process crashed!');
+    console.error('  Reason: ' + (killed ? 'killed by OS' : 'crashed'));
+    console.error('  This may be due to:');
+    console.error('    - Outdated GPU drivers');
+    console.error('    - Missing GPU libraries (libgbm1, libxshmfence1)');
+    console.error('    - Hardware acceleration disabled by OS');
+    console.error('\n[electron] Attempting to continue with software rendering...');
+  });
+}
+
+
+app.whenReady().then(() => {
+  const { session } = require('electron');
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders['Bypass-Tunnel-Reminder'] = 'true'; // Cloudflare / Localtunnel
+    details.requestHeaders['ngrok-skip-browser-warning'] = 'true'; // Ngrok
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
+  createWindow();
+
+  const { dialog, globalShortcut } = require('electron');
+  let isPanicActive = false;
+
+  globalShortcut.register('CommandOrControl+Shift+Backspace', () => {
+    isPanicActive = !isPanicActive;
+    console.log(`\n[electron] PANIC MODE ${isPanicActive ? 'ACTIVATED' : 'DEACTIVATED'}`);
+    if (serverCore && serverCore.toUinput) {
+      serverCore.toUinput({ type: 'panic_toggle', enabled: isPanicActive });
+    }
+  });
+
+  if (settings.checkForUpdates !== false) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+
+      autoUpdater.on('update-downloaded', (info) => {
+        console.log('[electron] Update downloaded:', info.version);
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('update-ready', info.version);
+
+          win.webContents.executeJavaScript(`
+            if (!document.getElementById('ns-update-btn') && window.electronAPI) {
+              const btn = document.createElement('button');
+              btn.id = 'ns-update-btn';
+              btn.innerHTML = 'Update Required (' + '${info.version}' + ')';
+              btn.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:999999;padding:12px 24px;background:#d32f2f;color:#fff;border:none;border-radius:8px;font-family:monospace;font-weight:bold;cursor:pointer;box-shadow:0 8px 16px rgba(0,0,0,0.5);';
+              btn.onclick = () => window.electronAPI.installUpdate();
+              document.body.appendChild(btn);
+            }
+          `).catch(() => { });
+        }
+      });
+
+      autoUpdater.checkForUpdatesAndNotify().catch(e => console.error('[electron] Auto-update check failed:', e));
+    } catch (e) {
+      console.error('[electron] autoUpdater error:', e);
+    }
+  }
+});
+
+app.on('will-quit', () => {
+  if (app.isReady()) {
+    const { globalShortcut } = require('electron');
+    globalShortcut.unregisterAll();
+  }
+  if (serverCore && serverCore.cleanup) serverCore.cleanup(true);
+});
+
+let _isCleanupDelayDone = false;
+app.on('before-quit', (e) => {
+  if (!_isCleanupDelayDone) {
+    e.preventDefault();
+    if (serverCore && serverCore.cleanup) serverCore.cleanup(true);
+    setTimeout(() => {
+      _isCleanupDelayDone = true;
+      app.quit();
+    }, 250);
+  }
+});
+
+app.on('window-all-closed', () => app.quit());
+
+app.on('second-instance', (_event, argv) => {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
+    win.focus();
+  }
+
+  if (!win || !serverPort) return;
+  
+// 1. Handle custom 'openremoteplay://' protocol links
+  const nearcadeArg = argv.find(a => a.startsWith('openremoteplay://'));
+  if (nearcadeArg) {
+    try {
+      const urlObj = new URL(nearcadeArg);
+      if (urlObj.hostname === 'join' || urlObj.pathname.includes('join')) {
+        const targetUrl = urlObj.searchParams.get('url');
+        if (targetUrl) {
+          console.log('[Protocol] Deep link join received:', targetUrl);
+          const isUrl = targetUrl.startsWith('http://') || targetUrl.startsWith('https://');
+          const viewerUrl = isUrl
+            ? `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(targetUrl)}`
+            : `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + targetUrl)}`;
+          win.loadURL(viewerUrl);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('[Protocol] Failed to parse openremoteplay:// URI:', e.message);
+    }
+  }
+
+  // 2. Handle legacy Discord 'Ask to Join' protocol
+  const joinArg = argv.find(a => a.startsWith('discord-'));
+  if (!joinArg) return;
+
+  try {
+    const url = new URL(joinArg);
+    const secret = url.searchParams.get('secret');
+    if (!secret || secret === 'none') return;
+
+    console.log('[Discord] Ask-to-Join received, secret:', secret);
+
+    const isUrl = secret.startsWith('http://') || secret.startsWith('https://');
+    const viewerUrl = isUrl
+      ? `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent(secret)}`
+      : `http://localhost:${serverPort}/?client=1&compat=1&host=${encodeURIComponent('p2p://' + secret)}`;
+
+    win.loadURL(viewerUrl);
+  } catch (e) {
+    console.error('[Discord] Failed to parse join URI:', e.message);
+  }
+});
