@@ -69,3 +69,4 @@ logs/
 # Rust capture/TURN sidecar build artifacts
 src/sidecar/capture/gst-nearcade/target/
 tools/nearcade-turn/target/
+.tmp-wine
