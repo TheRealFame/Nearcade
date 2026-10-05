@@ -80,8 +80,18 @@ A plataforma inclui um sistema opcional de lobby público. Os anfitriões podem 
 
 ## Userscript do navegador (persistência de identidade)
 
-Seu nome de exibição e cor do bate-papo são salvos apenas por site por padrão. Instale este script de usuário com[Macaco Tamper](https://www.tampermonkey.net/)ou qualquer bifurcação e sua identidade segue você em todas as sessões do Nearcade — túneis Cloudflare, zrok, localhost, em qualquer lugar.
+Seu nome de exibição e cor do bate-papo são salvos apenas por site por padrão. O script de usuário de persistência de identidade foi migrado para o[AbrirRemotePlay](https://github.com/TheRealFame/OpenRemotePlay)repositório para atuar como um gerenciador de identidade universal para qualquer plataforma usando o protocolo OpenRemotePlay.
 
-[Instale o Nearcade Identity Persist](https://github.com/TheRealFame/OpenRemotePlay/raw/master/openremoteplay-identity-persist.user.js)
+Instale este userscript universal com[Macaco Tamper](https://www.tampermonkey.net/)ou qualquer bifurcação e sua identidade o seguirá perfeitamente em todas as sessões do Nearcade — túneis Cloudflare, zrok, localhost, em qualquer lugar.
 
-Este projeto usa modelos de linguagem de inteligência artificial para geração de código e planejamento de estrutura.
+[Instalar Persistência de Identidade OpenRemotePlay](https://github.com/TheRealFame/OpenRemotePlay/raw/main/openremoteplay-identity-persist.user.js)
+
+## Abra o protocolo de reprodução remota (ORP)
+
+A camada de conexão ponto a ponto do Nearcade é a base para[Abra o jogo remoto](https://github.com/TheRealFame/OpenRemotePlay), uma especificação de protocolo aberta licenciada pelo MIT para interoperabilidade de reprodução remota entre clientes e hosts desenvolvidos de forma independente. O script de usuário de persistência de identidade acima já é executado no protocolo ORP hoje.
+
+A especificação v2 mais ampla - sinalização sem servidor, um orçamento de conexão definido em menos de 2 segundos, passagem NAT somente STUN com um nível de repetição de perfuração forçada e um modelo de confiança construído em torno da posse de PIN em vez de qualquer segredo compartilhado estático - é atualmente um rascunho, ainda não adotado no próprio código de conexão do Nearcade. Sinalização existente do Nearcade (rastreadores Trystero sobre BitTorrent, consulte[Documentação lógica avançada](src/docs/ADVANCED_LOGIC.md)) é uma das duas estratégias de sinalização que a especificação v2 formaliza; a estratégia de corrida primária Nostr e o restante da v2 ainda não foram implementados neste repositório. Veja o[Especificação ORP](https://github.com/TheRealFame/OpenRemotePlay/blob/main/spec/ORP_SPEC.md)para o que está coberto e o que ainda está aberto.
+
+ORP não está vinculado ao pipeline WebCodecs/WebRTC específico do Nearcade. Qualquer projeto pode usar a camada de conexão e sinalização do ORP com seu próprio pipeline de mídia, e o[Repositório ORP](https://github.com/TheRealFame/OpenRemotePlay#using-orp-with-your-own-pipeline)documenta como, inclusive quando uma solicitação pull contra o próprio protocolo é o caminho certo para um pipeline que precisa de algo que a especificação atual ainda não fornece.
+
+Este projeto utiliza modelos de linguagem de inteligência artificial para geração de código e planejamento de estrutura.
