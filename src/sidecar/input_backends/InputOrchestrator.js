@@ -383,10 +383,16 @@ function init(screenWidth, screenHeight) {
     ].filter(Boolean);
 
     let foundBinary = null;
-    for (const bp of binPaths) {
-        if (fs.existsSync(bp)) {
-            foundBinary = bp;
-            break;
+    const isARM = process.arch === 'arm' || process.arch === 'arm64';
+    
+    if (isARM && !isWin) {
+        console.warn(`[input] Running on ARM Linux. Skipping precompiled x64 binaries, falling back to pure Python.`);
+    } else {
+        for (const bp of binPaths) {
+            if (fs.existsSync(bp)) {
+                foundBinary = bp;
+                break;
+            }
         }
     }
 
