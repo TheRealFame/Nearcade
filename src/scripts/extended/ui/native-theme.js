@@ -16,9 +16,9 @@
         } catch (_) {}
         const r = document.documentElement;
         
-        // Host UI is always dark glassmorphism. Never override its base colors.
-        const isHost = location.pathname.includes('/host');
-        if (!isHost) {
+        // Host and Viewer UIs have their own theme logic/glassmorphism. Never override their base colors.
+        const isProtectedUI = location.pathname.includes('/host') || location.pathname.includes('index.html') || location.pathname === '/';
+        if (!isProtectedUI) {
           r.style.setProperty('--bg', theme.bg);
           r.style.setProperty('--sidebar', theme.sidebar);
           r.style.setProperty('--surface', theme.surface);
@@ -69,14 +69,14 @@
 
         // Compute rgba for surfaces (needed for glassmorphism / host.css)
         const surf = hexToRgb(theme.surface);
-        if (surf && !isHost) {
+        if (surf && !isProtectedUI) {
           r.style.setProperty('--surface-rgb', `${surf.r}, ${surf.g}, ${surf.b}`);
           r.style.setProperty('--card', `rgba(${surf.r},${surf.g},${surf.b},0.92)`);
           r.style.setProperty('--card2', `rgba(${surf.r},${surf.g},${surf.b},0.95)`);
         }
         
         const bgRgb = hexToRgb(theme.bg);
-        if (bgRgb && !isHost) {
+        if (bgRgb && !isProtectedUI) {
           r.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
         }
       }

@@ -912,6 +912,16 @@
           </select>
         </div>
 
+        <div class="ctrl-modal-row" id="smRowRichAudio" onclick="toggleAppSetting('richAudio');" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+          <div class="ctrl-toggle-track" id="smTrackRichAudio">
+            <div class="ctrl-toggle-thumb"></div>
+          </div>
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Rich Audio (512kbps Stereo + FEC)</div>
+            <div class="ctrl-row-desc">Forces 512kbps Constant Bitrate, True Stereo, and Error Correction (FEC) for dropped packets. Disable if viewers have severe stuttering.</div>
+          </div>
+        </div>
+
         <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
           <div class="ctrl-row-label" style="margin-bottom:4px;">Audio Capture Method</div>
           <div class="ctrl-row-desc" style="margin-bottom:10px;">Native PipeWire offers lower latency. Legacy

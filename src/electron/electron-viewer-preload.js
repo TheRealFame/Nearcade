@@ -49,7 +49,7 @@ function injectBackOutOverlay() {
       font-family: monospace;
     }
     #ns-backout-btn svg { width: 16px; height: 16px; }
-    body:hover #ns-backout-btn,
+    #ns-backout-btn.show,
     #ns-backout-btn:hover { opacity: 1; pointer-events: auto; }
     #ns-backout-btn:hover {
       background: rgba(192,132,252,0.85);
@@ -143,8 +143,17 @@ function injectBackOutOverlay() {
   toast.innerHTML = `
     RETURNING TO ARCADE
     <div id="ns-escape-progress"><div id="ns-escape-fill"></div></div>
-  `;
   document.body.appendChild(toast);
+
+  // Auto-hide back button when mouse is idle
+  let hideTimer = null;
+  function showBtn() {
+    btn.classList.add('show');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => btn.classList.remove('show'), 2700);
+  }
+  document.addEventListener('mousemove', showBtn, { passive: true });
+  showBtn();
 }
 
 // ── Gamepad watcher: Start + Select held for 1.5s = exit ─────────────────────

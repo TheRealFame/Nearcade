@@ -433,7 +433,7 @@ function registerIpcHandlers(ctx) {
       const theme = getThemeColors();
 
       // Force Electron to synchronize the titlebar and dialog colors with the OS as dark
-      nativeTheme.themeSource = 'dark';
+      // nativeTheme.themeSource = 'dark';
       
       if (theme) {
           // Removed the forced luma > 180 fallback based on user feedback.
@@ -494,15 +494,15 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.on('back-to-dashboard-from-host', (_, tab) => {
     if (ctx.win && !ctx.win.isDestroyed()) {
-      const t = tab || 'connect';
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1&tab=${t}`);
+      const t = tab ? `&tab=${tab}` : '';
+      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1${t}`);
     }
   });
 
   ipcMain.on('back-to-dashboard', (_, tab) => {
     if (ctx.win && !ctx.win.isDestroyed()) {
-      const t = tab || 'connect';
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1&tab=${t}`);
+      const t = tab ? `&tab=${tab}` : '';
+      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1${t}`);
     }
   });
 

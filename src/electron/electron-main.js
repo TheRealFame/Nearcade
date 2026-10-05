@@ -553,11 +553,30 @@ async function createWindow() {
         const btn = document.createElement('button');
         btn.id = 'ns-dash-btn';
         btn.innerHTML = '← Dashboard';
-        btn.style.cssText = 'position:fixed;bottom:24px;left:0;opacity:0.8;z-index:999999;padding:12px 20px;background:#141414;color:#aaa;border:1px solid #252525;border-left:none;border-radius:0 8px 8px 0;font-family:monospace;font-weight:bold;cursor:pointer;transition:all 0.2s;';
-        btn.onmouseover = () => { btn.style.opacity='1'; btn.style.color='#c084fc'; btn.style.borderColor='#c084fc'; };
-        btn.onmouseleave = () => { btn.style.opacity='0.8'; btn.style.color='#aaa'; btn.style.borderColor='#252525'; };
-        btn.onclick = () => window.electronAPI.backToDashboard();
+        btn.style.cssText = 'position:fixed;bottom:24px;left:0;opacity:0;pointer-events:none;z-index:999999;padding:12px 20px;background:var(--accent, #c084fc);color:var(--accent-ink, #000);border:none;border-radius:0 8px 8px 0;font-family:monospace;font-weight:bold;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 12px rgba(0,0,0,0.4);';
+        btn.onmouseover = () => { btn.style.filter='brightness(1.2)'; };
+        btn.onmouseleave = () => { btn.style.filter='none'; };
+        btn.onclick = () => {
+          window.electronAPI.backToDashboard();
+        };
         document.body.appendChild(btn);
+        let hideTimer = null;
+        function showBtn() {
+            const isConnected = document.body.getAttribute('data-connected') === 'true';
+            if (isConnected) {
+                btn.style.opacity = '0';
+                btn.style.pointerEvents = 'none';
+                return;
+            }
+            btn.style.opacity = '0.9';
+            btn.style.pointerEvents = 'auto';
+            clearTimeout(hideTimer);
+            const pinScreen = document.getElementById('pinScreen');
+            if (pinScreen && !pinScreen.classList.contains('gone')) return;
+            hideTimer = setTimeout(() => { btn.style.opacity = '0'; btn.style.pointerEvents = 'none'; }, 2700);
+        }
+        document.addEventListener('mousemove', showBtn, { passive: true });
+        showBtn();
       }
       `);
     }
@@ -679,6 +698,13 @@ async function createWindow() {
 
 
 app.whenReady().then(() => {
+  const { session } = require('electron');
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders['Bypass-Tunnel-Reminder'] = 'true'; // Cloudflare / Localtunnel
+    details.requestHeaders['ngrok-skip-browser-warning'] = 'true'; // Ngrok
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
   createWindow();
 
   const { dialog, globalShortcut } = require('electron');

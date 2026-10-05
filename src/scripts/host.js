@@ -32,7 +32,8 @@ const appSettings = {
     captureMic: localStorage.getItem('ns_app_captureMic') === 'true',
     tournamentMode: localStorage.getItem('ns_app_tournamentMode') === 'true',
     hostDelay: localStorage.getItem('ns_ctrl_hostDelay') !== 'false',
-    vcOverlayPreview: localStorage.getItem('ns_app_vcOverlayPreview') === 'true'
+    vcOverlayPreview: localStorage.getItem('ns_app_vcOverlayPreview') === 'true',
+    richAudio: localStorage.getItem('ns_app_richAudio') === 'true'
 };
 let selectedMicDeviceId = localStorage.getItem('ns_audio_input') || 'default';
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
@@ -44,6 +45,14 @@ const CHAT_DEDUP_WINDOW_MS = 1200;
 
 function makeChatFingerprint(name, text) {
     return `${String(name).trim()}|${String(text).trim()}`;
+}
+
+function _mungeAudioSdp(sdp) {
+    if (!sdp || !appSettings.richAudio) return sdp;
+    // stereo=1: unlocks true stereo. sprop-stereo=1: hints decoder. 
+    // maxaveragebitrate=510000: max Opus bitrate. useinbandfec=1: Forward Error Correction for dropped packets.
+    // usedtx=0: disable discontinuous transmission (prevents audio popping). cbr=1: constant bitrate.
+    return sdp.replace(/(a=rtpmap:(\d+) opus\/48000\/2)/g, '$1\na=fmtp:$2 stereo=1; sprop-stereo=1; maxaveragebitrate=510000; useinbandfec=1; usedtx=0; cbr=1');
 }
 
 
@@ -974,9 +983,10 @@ async function renderUrls(d) {
             div.style.width = '100%';
             div.textContent = r.url;
             if (!r.noclick) div.onclick = () => {
+                if (div.textContent === '✓ Copied!') return;
                 navigator.clipboard.writeText(r.url).catch(() => { });
-                const tmp = div.textContent; div.textContent = '✓ copied!';
-                setTimeout(() => div.textContent = tmp, 1500);
+                div.textContent = '✓ Copied!';
+                setTimeout(() => div.textContent = r.url, 1500);
             };
             const sub = document.createElement('div');
             sub.className = 'url-label'; sub.textContent = '↑ ' + r.label;
@@ -1630,8 +1640,10 @@ function connectWS() {
                         peerConnections[msg.viewerId] = orpViewer.pc;
                         
                         // 2. Setup WebCodecs UDP Tunnel if active
-                        if (forceWc) {
+                        let needsRenegotiation = false;
+                        if (forceWc && !orpViewer.pc.wcChannel) {
                             orpViewer.pc.wcChannel = orpViewer.pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0, priority: 'low' });
+                            needsRenegotiation = true;
                             orpViewer.pc.wcChannel.onopen = () => {
                                 console.log(`[WebCodecs][P2P] wcChannel open for ${msg.viewerId}`);
                                 if (_lastWcConfig && orpViewer.pc.wcChannel.readyState === 'open') {
@@ -1646,11 +1658,11 @@ function connectWS() {
                         // 3. Inject standard tracks (Audio always, Video only if not WebCodecs)
                         currentStream.getTracks().forEach(track => {
                             if (track.kind === 'video' && forceWc) {
-                                console.log(`[P2P] Skipping WebRTC video track for ${msg.viewerId} (WebCodecs active)`);
                                 return;
                             }
                             if (!orpViewer.pc.getSenders().some(s => s.track === track)) {
                                 const sender = orpViewer.pc.addTrack(track, currentStream);
+                                needsRenegotiation = true;
                                 if (track.kind === 'video' && sender.setParameters) {
                                     const params = sender.getParameters();
                                     if (params.encodings && params.encodings.length > 0) {
@@ -1660,8 +1672,11 @@ function connectWS() {
                                 }
                             }
                         });
-                        console.log(`[P2P] Injected standard WebRTC media tracks into ORP SDK for ${msg.viewerId}`);
-                        if (typeof window.P2PManager.hostSession.renegotiate === 'function') window.P2PManager.hostSession.renegotiate(msg.viewerId);
+                        
+                        if (needsRenegotiation) {
+                            console.log(`[P2P] Negotiating injected tracks for ${msg.viewerId}`);
+                            if (typeof window.P2PManager.hostSession.renegotiate === 'function') window.P2PManager.hostSession.renegotiate(msg.viewerId);
+                        }
                     }
 
                     // Immediately inject config for late joiners
@@ -1736,7 +1751,8 @@ function connectWS() {
             if (pc && pc.signalingState === 'stable') {
                 try {
                     const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-                    await pc.setLocalDescription(offer);
+                    offer.sdp = _mungeAudioSdp(offer.sdp);
+                    await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
                     ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: msg._viewerId }));
                     log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone.', 'ok');
                 } catch (e) { log(I18N.t('Renegotiation err:') + ' ' + e.message, 'err'); }
@@ -1885,10 +1901,11 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
         if (pcs === 'connected') {
             try {
                 const reOffer = await prevPc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-                await prevPc.setLocalDescription(reOffer);
+                reOffer.sdp = _mungeAudioSdp(reOffer.sdp);
+                await prevPc.setLocalDescription({ type: reOffer.type, sdp: reOffer.sdp });
                 await _waitIceGatheringDone(prevPc, 1500);
                 const reMsg = { type: 'offer', sdp: prevPc.localDescription, _viewerId: viewerId };
-                if (window.P2PManager && window.P2PManager.isPeer(viewerId)) window.P2PManager.sendToPeer(viewerId, reMsg);
+                if (window.P2PManager && (window.P2PManager.isPeer(viewerId) || (window._handledP2PJoins && window._handledP2PJoins.has(viewerId)))) window.P2PManager.sendToPeer(viewerId, reMsg);
                 else if (ws && ws.readyState === 1) ws.send(JSON.stringify(reMsg));
                 log(I18N.t('Re-offer (renegotiation, same PC) → viewer') + ' ' + viewerId, 'ok');
             } catch (e) {
@@ -2087,7 +2104,7 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
     pc.onicecandidate = (e) => {
         if (e.candidate && e.candidate.candidate) {
             const msg = { type: 'ice-host', candidate: e.candidate, _viewerId: viewerId };
-            if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
+            if (window.P2PManager && (window.P2PManager.isPeer(viewerId) || (window._handledP2PJoins && window._handledP2PJoins.has(viewerId)))) {
                 window.P2PManager.sendToPeer(viewerId, msg);
             } else {
                 ws.send(JSON.stringify(msg));
@@ -2188,11 +2205,12 @@ function _waitIceGatheringDone(pc, timeoutMs) {
 
     try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+        offer.sdp = _mungeAudioSdp(offer.sdp);
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
         await _waitIceGatheringDone(pc, 1500);
         const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
         const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: viewerId, codec: rawCodecName };
-        if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
+        if (window.P2PManager && (window.P2PManager.isPeer(viewerId) || (window._handledP2PJoins && window._handledP2PJoins.has(viewerId)))) {
             window.P2PManager.sendToPeer(viewerId, msg);
         } else {
             ws.send(JSON.stringify(msg));
@@ -3608,6 +3626,15 @@ function stopCapture() {
         }
         ws.send(JSON.stringify({ type: 'host-stream-stopped' }));
     }
+    
+    if (window.P2PManager && window.P2PManager.hostSession) {
+        window.P2PManager.hostSession.viewers.forEach(viewer => {
+            window.P2PManager.sendToPeer(viewer.id, { type: 'host-stream-stopped' });
+        });
+        setTimeout(() => {
+            window.P2PManager.closeAll();
+        }, 200);
+    }
 
     if (arcadePingInterval) {
         clearInterval(arcadePingInterval);
@@ -4129,18 +4156,6 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     // WebCodecs codec strings differ from WebRTC mimeTypes — map them explicitly.
     let _wcCodecSel = (document.getElementById('codecSelect')?.value || 'VP8').toUpperCase();
 
-    // 3.0.4-proven: Linux + H264 is forced to VP9. The Linux WebCodecs H264
-    // path (hardware AND software OpenH264) has repeatedly wedged to zero
-    // output on real boxes, while VP9 runs flawlessly under identical load.
-    // This override predates every regression and stays until H264-on-Linux
-    // proves itself again — the AVCC polyfill below remains for other OSes.
-    let _wcLinuxVp9 = false;
-    if (_wcCodecSel === 'H264' && navigator.userAgent.toLowerCase().includes('linux')) {
-        console.warn('[WebCodecs] Linux H264 encoding is unreliable (missing AVCC / SW stalls). Forcing VP9 fallback (3.0.4 behavior).');
-        _wcCodecSel = 'VP9';
-        _wcLinuxVp9 = true;
-    }
-
     const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.10.08', 'VP8': 'vp8', 'H264': 'avc1.4d002a', 'H265': 'hvc1.1.6.L93.B0' };
     const _wcCodecStr = _wcCodecMap[_wcCodecSel] || 'vp8';
 
@@ -4392,7 +4407,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                 Object.values(peerConnections).forEach(pc => {
                     if (pc && pc.connectionState === 'connected') {
                         pc.createOffer().then(offer => {
-                            pc.setLocalDescription(offer).catch(() => {});
+                            offer.sdp = _mungeAudioSdp(offer.sdp);
+                            pc.setLocalDescription({ type: offer.type, sdp: offer.sdp }).catch(() => {});
                         }).catch(() => {});
                     }});
                 
@@ -4621,7 +4637,21 @@ function broadcastToViewers(data) {
     }
 
     // Tunnel fallback: Send WebCodecs stream over standard signaling WS to the local Node.js server
-    if (ws && ws.readyState === 1) {
+    // Only send over WS if there is at least one viewer who hasn't opened their DataChannel yet,
+    // otherwise we double the bandwidth and cause massive congestion drops!
+    let needsWsFallback = false;
+    if (typeof peerConnections !== 'undefined') {
+        const pcs = Object.values(peerConnections);
+        if (pcs.length === 0) needsWsFallback = true; // no pcs yet, maybe early stages
+        for (const pc of pcs) {
+            if (!pc.wcChannel || pc.wcChannel.readyState !== 'open') {
+                needsWsFallback = true;
+                break;
+            }
+        }
+    }
+    
+    if (needsWsFallback && ws && ws.readyState === 1) {
         if (typeof data !== 'string' && !isKeyframe && ws.bufferedAmount > vpsThreshold) {
             if (data.byteLength > 10) _wcForceKeyframe = true;
         } else {
@@ -4773,10 +4803,10 @@ function connectVps(cfg) {
                             div.style.color = 'var(--accent)';
                             div.textContent = viewerUrl;
                             div.onclick = () => {
+                                if (div.textContent === '✓ Copied!') return;
                                 navigator.clipboard.writeText(viewerUrl).catch(() => { });
-                                const tmp = div.textContent;
-                                div.textContent = 'copied!';
-                                setTimeout(() => { div.textContent = tmp; }, 1500);
+                                div.textContent = '✓ Copied!';
+                                setTimeout(() => { div.textContent = viewerUrl; }, 1500);
                             };
                             const sub = document.createElement('div');
                             sub.className = 'url-label';
@@ -5044,10 +5074,11 @@ window.saveCodecUI = async function (val) {
 
         try {
             const offer = await pc.createOffer({ iceRestart: false });
-            await pc.setLocalDescription(offer);
+            offer.sdp = _mungeAudioSdp(offer.sdp);
+            await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
             const rawName = codec.split('/')[1].toLowerCase();
             const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: vid, codec: rawName };
-            if (window.P2PManager && window.P2PManager.isPeer(vid)) {
+            if (window.P2PManager && (window.P2PManager.isPeer(vid) || (window._handledP2PJoins && window._handledP2PJoins.has(vid)))) {
                 window.P2PManager.sendToPeer(vid, msg);
             } else if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify(msg));
@@ -5485,13 +5516,24 @@ async function initP2PHostRoom(code) {
         }
 
         // Check PIN locally since there's no server.js
+        window._handledP2PJoins = window._handledP2PJoins || new Set();
+        if (msg.type === 'request-offer') {
+            msg.type = 'viewer-joined';
+            msg.reoffer = true;
+            msg.name = msg.name || peerId;
+            // Fall through to let ws.onmessage handle it
+        }
+
         if (msg.type === 'join') {
+            const isDuplicateJoin = window._handledP2PJoins.has(peerId);
+            window._handledP2PJoins.add(peerId);
             if (pinEnabled && msg.pin !== currentPin) {
                 window.P2PManager.sendToPeer(peerId, { type: 'pin-rejected' });
                 return;
             }
             // Translate join to viewer-joined for host.js
             msg.type = 'viewer-joined';
+            if (isDuplicateJoin) return;
             window._p2pPeerCount = (window._p2pPeerCount || 0) + 1;
 
             // Emulate server initialization packets so the Viewer hides the PIN screen
@@ -5499,10 +5541,11 @@ async function initP2PHostRoom(code) {
                 type: 'your-id',
                 viewerId: peerId
             });
+            const actualHostName = (document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'P2P Host').trim();
             window.P2PManager.sendToPeer(peerId, {
-                type: 'host-connected',
-                hostName: 'P2P Host'
-            });
+                    type: 'host-connected',
+                    hostName: actualHostName
+                });
 
             // Emulate server sending host-stream-ready if streaming
             if (currentStream) {
@@ -5522,10 +5565,11 @@ async function initP2PHostRoom(code) {
                     isDesktopApp: msg.isDesktopApp,
                 }));
             }
-            return;
+            // Fall through: ws.onmessage handles viewer-joined -> sendOfferToViewer
         }
 
         if (msg.type === 'viewer-left') {
+            window._handledP2PJoins?.delete(peerId);
             window._p2pPeerCount = Math.max(0, (window._p2pPeerCount || 0) - 1);
             if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify({
@@ -5533,7 +5577,7 @@ async function initP2PHostRoom(code) {
                     viewerId: peerId,
                 }));
             }
-            return;
+            // Fall through: ws.onmessage handles viewer-left cleanup
         }
 
         // Let the existing websocket logic handle it
@@ -6763,6 +6807,7 @@ function applyAppSettingsUI() {
         ['tournamentMode', 'settingTrackTournamentMode', 'settingRowTournamentMode'],
         ['captureMic', 'settingTrackMic', 'settingRowMic'],
         ['vcOverlayPreview', 'smTrackVcOverlay', 'smRowVcOverlay'],
+        ['richAudio', 'smTrackRichAudio', 'smRowRichAudio'],
     ];
     pairs.forEach(([key, trackId, rowId]) => {
         const track = document.getElementById(trackId);
@@ -7722,3 +7767,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }).catch(e => console.error('[host] failed to load game profiles:', e));
 });
+
+// ── Screen Sleep Prevention (WakeLock API) ────────────────────────────────────
+let _hostWakeLock = null;
+async function acquireHostWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+        _hostWakeLock = await navigator.wakeLock.request('screen');
+        _hostWakeLock.addEventListener('release', () => {
+            if (document.visibilityState === 'visible') acquireHostWakeLock();
+        });
+    } catch (err) {}
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') acquireHostWakeLock();
+});
+acquireHostWakeLock();

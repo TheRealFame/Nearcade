@@ -162,6 +162,10 @@ function _requestOffer(reason) {
     // ignored legit retries.
     let pcState = 'none';
     try { pcState = pc ? pc.connectionState : 'none'; } catch (_) {}
+    if (window.P2PManager && window.P2PManager.clientSession) {
+        console.log('[WebRTC] Skipping request-offer (Managed by ORP SDK)');
+        return true;
+    }
     try { ws.send(JSON.stringify({ type: 'request-offer', reason: reason || 'retry', pcState })); } catch (_) { return false; }
     return true;
 }
@@ -652,8 +656,7 @@ function maybeShowControllerGuide() {
 // -- PEER CONNECTION -----------------------------------------------------------
 async function createPC() {
     if (pc) {
-        if (window._isP2P && window.P2PManager && window.P2PManager.clientSession && pc === window.P2PManager.clientSession.pc) {
-            console.log('[P2P] createPC: Skipping close() because pc is owned by ORPClient');
+        if (false) {
         } else {
             try { pc.close(); } catch (e) { }
         }
@@ -706,12 +709,7 @@ async function createPC() {
         });
     }
 
-    if (window._isP2P && window.P2PManager && window.P2PManager.clientSession && window.P2PManager.clientSession.pc) {
-        console.log('[P2P] Taking over ORPClient WebRTC connection...');
-        pc = window.P2PManager.clientSession.pc;
-        
-        // ORPClient already connected and established ICE
-        _iceFailCount = 0;
+    if (false) {
     } else {
         pc = new RTCPeerConnection({
             iceServers: iceServers,
@@ -723,21 +721,48 @@ async function createPC() {
         let _iceFailCount = 0;
         pc.onconnectionstatechange = () => {
             console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
-            if (pc.connectionState === 'failed') {
-                _iceFailCount++;
-                const delay = _iceFailCount === 1 ? 500 : _iceFailCount === 2 ? 1500 : 3000;
-                console.warn(`[WebRTC] Connection failed (attempt ${_iceFailCount}) — retrying in ${delay}ms...`);
-                setStatus('Connection failed. Retrying...');
-                clearTimeout(_reconnectTimer);
-                _reconnectTimer = setTimeout(() => {
-                    if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
-                        _requestOffer('connection-failed');
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                if (pc.connectionState === 'failed') {
+                    _iceFailCount++;
+                    const delay = _iceFailCount === 1 ? 500 : _iceFailCount === 2 ? 1500 : 3000;
+                    console.warn(`[WebRTC] Connection failed (attempt ${_iceFailCount}) — retrying in ${delay}ms...`);
+                    setStatus('Connection failed. Retrying...');
+                    clearTimeout(_reconnectTimer);
+                    _reconnectTimer = setTimeout(() => {
+                        if (ws?.readyState === 1 && (!pc || pc.connectionState !== 'connected')) {
+                            _requestOffer('connection-failed');
+                        }
+                    }, delay);
+                }
+
+                // If P2P mode, we rely on ORP to reconnect. If it doesn't in 10s, host is dead.
+                if (window.P2PManager && window.P2PManager.clientSession) {
+                    if (!window._p2pDeadTimer) {
+                        window._p2pDeadTimer = setTimeout(() => {
+                            if (pc && pc.connectionState !== 'connected') {
+                                console.warn('[P2P] Host failed to recover. Tearing down.');
+                                const overlay = document.getElementById('overlay');
+                                if (overlay) {
+                                    overlay.style.backgroundColor = 'rgba(8, 8, 8, 0.9)';
+                                    overlay.style.display = 'flex';
+                                    let actionBtn = '';
+                                    if (window.electronAPI) {
+                                        actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
+                                        setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                                    } else {
+                                        actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'/\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
+                                    }
+                                    overlay.innerHTML = '<div class="brand-wrap" style="flex-direction:column; gap:16px;"><span style="font-size:24px;font-weight:700;">Connection Lost</span><span style="font-size:14px;color:var(--muted);max-width:300px;text-align:center;">The connection to the host was dropped. Returning to dashboard...</span>' + actionBtn + '</div>';
+                                }
+                            }
+                        }, 10000);
                     }
-                }, delay);
+                }
             }
             if (pc.connectionState === 'connected') {
                 _iceFailCount = 0;
                 _resetOfferBudget();
+                if (window._p2pDeadTimer) { clearTimeout(window._p2pDeadTimer); window._p2pDeadTimer = null; }
                 if (window._quietP2PTimer) { clearInterval(window._quietP2PTimer); window._quietP2PTimer = null; }
             }
             if (pc.connectionState === 'disconnected') console.warn('[WebRTC] Disconnected.');
@@ -759,7 +784,7 @@ async function createPC() {
         pc.onicecandidateerror = (e) => console.error('[WebRTC] ICE Error:', e);
     }
 
-    if (!(window._isP2P && window.P2PManager && window.P2PManager.clientSession && window.P2PManager.clientSession.pc)) {
+    if (true) {
         pc.onicecandidate = (e) => {
             if (e.candidate && e.candidate.candidate) {
                 console.log(`[WebRTC] ICE Candidate (Viewer): ${redactIp(e.candidate.candidate)}`);
@@ -879,118 +904,8 @@ async function createPC() {
         };
     }
     // -- EXPERIMENTAL WEBCODECS DATA CHANNEL RECEIVER --
-    let waitingForKeyframe = true;
-
     pc.ondatachannel = (event) => {
-        const channel = event.channel;
-
-        // --- WEBCODECS VIDEO PIPELINE ---
-        if (channel.label === 'webcodecs' || channel.label === 'video' || channel.label === 'orp-video') {
-            console.log(`[WebRTC] DataChannel opened for WebCodecs payload: ${channel.label}`);
-
-            const askForSync = () => {
-                window._wcDcOpen = true; // DataChannel video live: WS binary path stands down (no double decode)
-                console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
-                requestKeyframeFromHost();
-            };
-
-            if (channel.readyState === 'open') {
-                askForSync();
-            } else {
-                channel.onopen = askForSync;
-            }
-
-            channel.onmessage = async (e) => {
-                // 1. Process String Configuration Messages
-                if (typeof e.data === 'string') {
-                    try {
-                        const msg = JSON.parse(e.data);
-                        if (msg.type === 'webcodecs-config') {
-                            initWebCodecsViewer(msg);
-                        }
-                    } catch (err) {
-                        console.warn('[WebCodecs] Failed to parse string message:', err);
-                    }
-                    return;
-                }
-
-                // 2. Process Binary Video Frames
-                if (e.data instanceof ArrayBuffer) {
-                    // Prevent double-decoding if we are receiving frames from the VPS SFU
-                    if (ws && ws.url.includes('/vps')) return;
-
-                    try {
-                        const ns = window._wcNetStats || (window._wcNetStats = { ws: 0, dc: 0, dec: 0 });
-                        ns.dc++;
-                    } catch (_) {}
-
-                    if (!wcDecoder || wcDecoder.state !== 'configured') return;
-
-                    const view = new DataView(e.data);
-                    if (e.data.byteLength <= 9) return;
-
-                    const isKey = view.getUint8(0) === 1;
-                    const timestamp = view.getFloat64(1, true);
-                    const chunkData = new Uint8Array(e.data, 9);
-
-                    // --- RESILIENCY LAYER ---
-                    // Honor the global gate too: after a decoder rebuild both
-                    // recoverWebCodecsDecoder() and initWebCodecsViewer() set
-                    // nsWaitKey, so pre-keyframe deltas drop silently instead
-                    // of erroring on the fresh decoder (rebuild thrash).
-                    if (waitingForKeyframe || window.nsWaitKey) {
-                        if (!isKey) return;
-                        waitingForKeyframe = false;
-                        window.nsWaitKey = false;
-                        console.log('[WebCodecs] Locked onto keyframe stream.');
-                    }
-
-                    try {
-                        const chunk = new EncodedVideoChunk({
-                            type: isKey ? 'key' : 'delta',
-                            timestamp: timestamp,
-                            data: chunkData
-                        });
-                        
-                        // Backpressure: drop this frame instead of queuing latency.
-                        // Only nuke + rebuild the decoder after SUSTAINED overload
-                        // (~90 consecutive drops). Previously a single burst over
-                        // the (lossy) DataChannel destroyed the decoder, and the
-                        // one-shot init flag meant it never came back (black screen).
-                        if (wcDecoder.decodeQueueSize > 8) {
-                            window._wcDropStreak = (window._wcDropStreak || 0) + 1;
-                            if (window._wcDropStreak > 90) {
-                                console.warn(`[WebCodecs] Decoder persistently overwhelmed (${window._wcDropStreak} drops). Rebuilding...`);
-                                window._wcDropStreak = 0;
-                                recoverWebCodecsDecoder();
-                            }
-                            return;
-                        }
-                        
-                        try { if (!window._wcRecvTimes) window._wcRecvTimes = new Map(); window._wcRecvTimes.set(timestamp, performance.now()); } catch (_) {}
-                        wcDecoder.decode(chunk);
-                    } catch (err) {
-                        _noteChunkError('');
-                        return;
-                    }                }
-            };
-            return; // Stop here so it doesn't fall through to the input block
-        }
-
-        // --- STANDARD FAST-LANE INPUT PIPELINE ---
-        if (channel.label === 'input') {
-            console.log('[Input] Dedicated 250Hz Fast Lane connected.');
-
-            // This ensures your mouse/keyboard coordinates are actually processed
-            channel.onmessage = (e) => {
-                if (typeof e.data === 'string') {
-                    try { const m = JSON.parse(e.data); if (m.type === 'pong') onPong(); } catch {}
-                }
-            };
-
-            // Bind the fast-lane channel to your input dispatcher
-            window._fastLaneChannel = channel;
-        }
+        if (typeof window.handleNativeDataChannel === 'function') window.handleNativeDataChannel(event.channel);
     };
     // Re-attach mic on reconnect
     if (localMicStream) {
@@ -2339,6 +2254,7 @@ function onFaceMeshResults(results) {
 }
 
 function pollGamepad() {
+    if (window._disableNativeGamepads) return;
     if (!gpPolling) return;
     let pads = navigator.getGamepads ? navigator.getGamepads() : [];
     
@@ -2802,36 +2718,36 @@ async function connect() {
                 if (typeof setStatus === 'function') setStatus('Host found, connecting...');
                 
                 // For ORP v2, the WebRTC PC is already created and connected inside ORPClient.
-                // We just extract the PC and bind the video/audio streams.
-                if (window.P2PManager.clientSession && window.P2PManager.clientSession.pc) {
-                    // Create the PC (which will take over the ORP PC and attach listeners)
-                    createPC().then(() => {
-                        // After listeners are attached, emulate existing tracks/datachannels
-                        pc.getReceivers().forEach(receiver => {
-                            if (receiver.track && typeof pc.ontrack === 'function') {
-                                pc.ontrack({ track: receiver.track, streams: [new MediaStream([receiver.track])], receiver });
-                            }
-                        });
-                        
-                        // Emulate the datachannel being received for existing channels
-                        if (window.P2PManager.clientSession.dc && typeof pc.ondatachannel === 'function') {
-                            pc.ondatachannel({ channel: window.P2PManager.clientSession.dc });
+                // Bridge its secure streams and data channels into the native UI pipeline.
+                if (window.P2PManager.clientSession) {
+                    // Disable native gamepad polling since ORPClient handles it
+                    window._disableNativeGamepads = true;
+                    
+                    window.P2PManager.clientSession.on('stream', (stream) => {
+                        console.log('[ORP] Bridging secure audio/video stream to UI');
+                        let audioEl = document.getElementById('remote-audio');
+                        if (!audioEl) {
+                            audioEl = document.createElement('audio');
+                            audioEl.id = 'remote-audio';
+                            audioEl.autoplay = true;
+                            document.body.appendChild(audioEl);
                         }
-                        
-                        // Listen for incoming channels from ORPClient
-                        window.P2PManager.clientSession.on('datachannel', (channel) => {
-                            console.log(`[P2P] Received remote channel from ORPClient: ${channel.label}`);
-                            if (channel.label === 'orp-input' || channel.label === 'input') {
-                                window.P2PManager.clientSession.dc = channel;
-                            }
-                            if (typeof pc.ondatachannel === 'function') {
-                                pc.ondatachannel({ channel });
-                            }
-                        });
-                        
-                        if (typeof ws.onopen === 'function') ws.onopen();
+                        audioEl.srcObject = stream;
+                        audioEl.play().catch(err => console.warn('[ORP] Audio blocked:', err));
+                        audioEl.muted = (typeof audioMuted !== 'undefined' ? audioMuted : false);
+                        audioEl.volume = (typeof _audioPrefs !== 'undefined' && _audioPrefs.streamVol !== undefined) ? _audioPrefs.streamVol : 1.0;
                     });
-                } else {
+
+                    window.P2PManager.clientSession.on('datachannel', (channel) => {
+                        console.log('[ORP] Bridging secure data channel:', channel.label);
+                        if (typeof window.handleNativeDataChannel === 'function') {
+                            window.handleNativeDataChannel(channel);
+                        } else {
+                            console.warn('[ORP] window.handleNativeDataChannel not found. Data channel bridging dropped.');
+                        }
+                    });
+                }
+                {
                     if (typeof ws.onopen === 'function') ws.onopen();
                 }
             });
@@ -3121,6 +3037,7 @@ async function connect() {
                 return;
             }
             _nsHostConnected = true;
+            window._nsHostConnected = true; document.body.setAttribute('data-connected', 'true');
             window.sessionEndedByHost = false; // Reset session ended state
             _resetOfferBudget(); // new host session = new offer budget
             if (pc) { try { pc.close(); } catch { } pc = null; }
@@ -3241,8 +3158,10 @@ async function connect() {
                     }
                 });
 
-                for (const c of (pc._iceBuf || [])) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { } }
+                const allBuf = (pc._iceBuf || []).concat(window._iceBuf || []);
+                for (const c of allBuf) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch { } }
                 pc._iceBuf = [];
+                window._iceBuf = [];
                 const answer = await pc.createAnswer();
                 // -- LOW-LATENCY SDP MUNGING (answer side) --
                 let ansSdp = answer.sdp;
@@ -3263,7 +3182,11 @@ async function connect() {
             return;
         }
         if (msg.type === 'ice-host' && msg.candidate) {
-            if (!pc) return;
+            if (!pc) {
+                window._iceBuf = window._iceBuf || [];
+                window._iceBuf.push(msg.candidate);
+                return;
+            }
             if (pc._remoteSet) { try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch { } }
             else { pc._iceBuf = pc._iceBuf || []; pc._iceBuf.push(msg.candidate); }
             return;
@@ -3325,6 +3248,7 @@ async function connect() {
         }
         if (msg.type === 'host-stream-ready') {
             _nsHostConnected = true;
+            window._nsHostConnected = true; document.body.setAttribute('data-connected', 'true');
             const sf = document.getElementById('_nsStandbyFrame');
             if (sf) sf.style.display = 'none';
             window.nsWaitKey = true;
@@ -3394,13 +3318,21 @@ async function connect() {
         }
         if (msg.type === 'host-disconnected') {
             _nsHostConnected = false;
+            window._nsHostConnected = false; document.body.setAttribute('data-connected', 'false');
             window.sessionEndedByHost = true;
             _freezeFrameForSwap();
 
             const overlay = document.getElementById('overlay');
             if (overlay) {
                 overlay.style.backgroundColor = 'rgba(10, 10, 12, 0.85)';
-                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session. You may now close this tab.</div><button class="pin-submit-btn" onclick="if(window.electronAPI){window.electronAPI.backToDashboard(\'arcade\')}else{window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'about:blank\'; }, 50);}" style="margin-top:8px;">Leave Session</button>';
+                let actionBtn = '';
+                if (window.electronAPI) {
+                    actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
+                    setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                } else {
+                    actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'about:blank\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
+                }
+                overlay.innerHTML = '<div class="brand-wrap"><img src="/assets/NearcadeLogo.png" alt="" class="brand-img" style="height:52px;"><div class="brand-name" style="font-size:11px;">Nearcade</div></div><div style="font-size:22px;font-weight:700;color:var(--accent);margin:16px 0 4px;">Session Ended</div><div style="font-size:13px;color:var(--muted);margin-bottom:20px;">The host has stopped the session. Returning to dashboard...</div>' + actionBtn;
             }
             
             showOverlay(true);
@@ -3428,6 +3360,7 @@ async function connect() {
 
         if (msg.type === 'host-stream-stopped') {
             _nsHostConnected = false;
+            window._nsHostConnected = false; document.body.setAttribute('data-connected', 'false');
             _freezeFrameForSwap();
 
             if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
@@ -3446,6 +3379,20 @@ async function connect() {
             if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             const sp = document.getElementById('spinner');
             if (sp) sp.style.display = 'none';
+
+            const overlay = document.getElementById('overlay');
+            if (overlay) {
+                overlay.style.backgroundColor = 'rgba(8, 8, 8, 0.9)';
+                overlay.style.display = 'flex';
+                let actionBtn = '';
+                if (window.electronAPI) {
+                    actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
+                    setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                } else {
+                    actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'/\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
+                }
+                overlay.innerHTML = '<div class="brand-wrap" style="flex-direction:column; gap:16px;"><span style="font-size:24px;font-weight:700;">Session Ended</span><span style="font-size:14px;color:var(--muted);max-width:300px;text-align:center;">The host has stopped the session. Returning to dashboard...</span>' + actionBtn + '</div>';
+            }
 
             if (pc) { pc.close(); pc = null; }
             if (video) video.srcObject = null;
@@ -3538,7 +3485,9 @@ async function connect() {
                 }
                 
                 const isKbm = window.currentInputMode === 'kbm' || window.currentInputMode === 'kbm_emulated';
-                if (!window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid' && !isKbm) {
+                const isNearcadeClient = !!window.electronAPI;
+                
+                if (!isNearcadeClient && !window._webhidPrompted && 'hid' in navigator && window.currentInputMode !== 'webhid' && !isKbm) {
                     window._webhidPrompted = true;
                     if (!document.getElementById('webhidAutoPrompt')) {
                         const p = document.createElement('div');
@@ -4394,12 +4343,16 @@ function initLatencyOverlay() {
         if (dc && dc.readyState === 'open') {
             pingPath = 'P2P';
             pingSent = performance.now();
-            try { dc.send(JSON.stringify({ type: 'ping' })); return; } catch {}
-        }
-        if (ws && ws.readyState === 1) {
+            try { dc.send(JSON.stringify({ type: 'ping' })); } catch {}
+        } else if (ws && ws.readyState === 1) {
             pingPath = 'Relay';
             pingSent = performance.now();
-            ws.send(JSON.stringify({ type: 'ping' }));
+        }
+        
+        // ALWAYS keep the signaling socket alive for remote domains!
+        // Tunnel proxies (Cloudflare/ngrok/zrok) forcefully close WebSockets that sit idle for 15-30s.
+        if (ws && ws.readyState === 1) {
+            try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
         }
     }
 
@@ -4717,9 +4670,9 @@ function _wcRenderLoop() {
             if (_wcWebGPUContext && _wcWebGPUDevice) {
                 _wcWebGPUContext.configure({ device: _wcWebGPUDevice, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: 'opaque' });
             } else if (wcCtx && wcGlTexture) {
-                wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
-                if (!wcCtx) wcCtx = wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
-                wcGlTexture = _setupWebGL(wcCtx);
+                wcCtx = wcCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true }) || 
+                        wcCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
+                if (wcCtx) wcCtx.viewport(0, 0, wcCanvas.width, wcCanvas.height);
             }
         }
         
@@ -5817,3 +5770,98 @@ window.addEventListener('keydown', e => {
     }
 });
 window.InputDiag = { export: () => _inputDiag?.exportText(500) };
+
+// --- GLOBAL WEBRTC DATACHANNEL HANDLER ---
+let _globalWcWaitingForKeyframe = true;
+window.handleNativeDataChannel = (channel) => {
+    // --- WEBCODECS VIDEO PIPELINE ---
+    if (channel.label === 'webcodecs' || channel.label === 'video' || channel.label === 'orp-video') {
+        console.log(`[WebRTC] DataChannel opened for WebCodecs payload: ${channel.label}`);
+
+        const askForSync = () => {
+            window._wcDcOpen = true;
+            console.log('[WebCodecs] Channel ready. Requesting initial keyframe and config sync.');
+            if (typeof requestKeyframeFromHost === 'function') requestKeyframeFromHost();
+        };
+
+        if (channel.readyState === 'open') {
+            askForSync();
+        } else {
+            channel.onopen = askForSync;
+        }
+
+        channel.onmessage = async (e) => {
+            if (typeof e.data === 'string') {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'webcodecs-config') {
+                        if (typeof initWebCodecsViewer === 'function') initWebCodecsViewer(msg);
+                    }
+                } catch (err) {
+                    console.warn('[WebCodecs] Failed to parse string message:', err);
+                }
+                return;
+            }
+
+            if (e.data instanceof ArrayBuffer) {
+                if (typeof ws !== 'undefined' && ws && ws.url && ws.url.includes('/vps')) return;
+                try {
+                    const ns = window._wcNetStats || (window._wcNetStats = { ws: 0, dc: 0, dec: 0 });
+                    ns.dc++;
+                } catch (_) {}
+
+                if (typeof wcDecoder === 'undefined' || !wcDecoder || wcDecoder.state !== 'configured') return;
+
+                const view = new DataView(e.data);
+                if (e.data.byteLength <= 9) return;
+
+                const isKey = view.getUint8(0) === 1;
+                const timestamp = view.getFloat64(1, true);
+                const chunkData = new Uint8Array(e.data, 9);
+
+                if (_globalWcWaitingForKeyframe || window.nsWaitKey) {
+                    if (!isKey) return;
+                    _globalWcWaitingForKeyframe = false;
+                    window.nsWaitKey = false;
+                    console.log('[WebCodecs] Locked onto keyframe stream.');
+                }
+
+                try {
+                    const chunk = new EncodedVideoChunk({
+                        type: isKey ? 'key' : 'delta',
+                        timestamp: timestamp,
+                        data: chunkData
+                    });
+                    
+                    if (wcDecoder.decodeQueueSize > 8) {
+                        window._wcDropStreak = (window._wcDropStreak || 0) + 1;
+                        if (window._wcDropStreak > 90) {
+                            console.warn(`[WebCodecs] Decoder persistently overwhelmed (${window._wcDropStreak} drops). Rebuilding...`);
+                            window._wcDropStreak = 0;
+                            if (typeof recoverWebCodecsDecoder === 'function') recoverWebCodecsDecoder();
+                        }
+                        return;
+                    }
+                    
+                    try { if (!window._wcRecvTimes) window._wcRecvTimes = new Map(); window._wcRecvTimes.set(timestamp, performance.now()); } catch (_) {}
+                    wcDecoder.decode(chunk);
+                } catch (err) {
+                    if (typeof _noteChunkError === 'function') _noteChunkError('');
+                    return;
+                }
+            }
+        };
+        return;
+    }
+
+    // --- STANDARD FAST-LANE INPUT PIPELINE ---
+    if (channel.label === 'input' || channel.label === 'orp-input') {
+        console.log('[Input] Dedicated 250Hz Fast Lane connected.');
+        channel.onmessage = (e) => {
+            if (typeof e.data === 'string') {
+                try { const m = JSON.parse(e.data); if (m.type === 'pong' && typeof onPong === 'function') onPong(); } catch {}
+            }
+        };
+        window._fastLaneChannel = channel;
+    }
+};
