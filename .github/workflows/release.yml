@@ -213,7 +213,7 @@ jobs:
           for f in Nearcade-Portable.exe;    do rename "$f" Nearcade-Portable.exe;   done
           for f in Nearcade-*-universal.dmg; do rename "$f" Nearcade-Mac.dmg;        done
           for f in Nearcade-*.AppImage;      do [[ "$f" != *latest* ]] && rename "$f" Nearcade-Linux.AppImage; done
-          for f in Nearcade_*.deb;           do rename "$f" Nearcade-Debian.deb;      done
+          for f in Nearcade-*.deb;           do rename "$f" Nearcade-Debian.deb;      done
           for f in Nearcade-*.rpm;           do rename "$f" Nearcade-RedHat.rpm;      done
           for f in Nearcade-*.apk;           do rename "$f" Nearcade-Android.apk;     done
 

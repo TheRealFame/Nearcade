@@ -70,3 +70,6 @@ logs/
 src/sidecar/capture/gst-nearcade/target/
 tools/nearcade-turn/target/
 .tmp-wine
+# Nested checkouts with no submodule URL (local-only; CI fetches its own)
+tools/always-online-stun/
+tools/nearcade-vr/src/WiVRn-src/
