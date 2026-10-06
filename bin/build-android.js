@@ -9,7 +9,7 @@ const root = path.join(__dirname, '..');
 if (fs.existsSync(dist)) {
     fs.rmSync(dist, { recursive: true, force: true });
 }
-fs.mkdirSync(dist);
+fs.mkdirSync(dist, { recursive: true });
 
 // Helper to process HTML files
 function processHtml(srcPath, destPath, extraHead = '') {

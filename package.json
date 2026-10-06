@@ -130,7 +130,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
-      "include": "build/installer.nsh",
+      "include": "packaging/electron/installer.nsh",
       "deleteAppDataOnUninstall": true,
       "artifactName": "Nearcade-Setup-${version}.exe"
     },
@@ -165,12 +165,12 @@
       "artifactName": "Nearcade-Linux.${ext}"
     },
     "deb": {
-      "afterInstall": "build/deb-after-install.sh",
-      "afterRemove": "build/deb-after-remove.sh"
+      "afterInstall": "packaging/electron/deb-after-install.sh",
+      "afterRemove": "packaging/electron/deb-after-remove.sh"
     },
     "rpm": {
-      "afterInstall": "build/deb-after-install.sh",
-      "afterRemove": "build/deb-after-remove.sh"
+      "afterInstall": "packaging/electron/deb-after-install.sh",
+      "afterRemove": "packaging/electron/deb-after-remove.sh"
     }
   }
 }
