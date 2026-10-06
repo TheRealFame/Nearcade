@@ -6,6 +6,7 @@ const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
+let _pinExplicit = false; // set once the user toggles: local intent beats server echo on reconnect
 let kbmPanicActive = false;
 const viewerAudioStates = {}; // Tracks { volume: 100, state: 0 } per viewer
 
@@ -31,7 +32,8 @@ const appSettings = {
     captureMic: localStorage.getItem('ns_app_captureMic') === 'true',
     tournamentMode: localStorage.getItem('ns_app_tournamentMode') === 'true',
     hostDelay: localStorage.getItem('ns_ctrl_hostDelay') !== 'false',
-    vcOverlayPreview: localStorage.getItem('ns_app_vcOverlayPreview') === 'true'
+    vcOverlayPreview: localStorage.getItem('ns_app_vcOverlayPreview') === 'true',
+    richAudio: localStorage.getItem('ns_app_richAudio') === 'true'
 };
 let selectedMicDeviceId = localStorage.getItem('ns_audio_input') || 'default';
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
@@ -45,6 +47,14 @@ function makeChatFingerprint(name, text) {
     return `${String(name).trim()}|${String(text).trim()}`;
 }
 
+function _mungeAudioSdp(sdp) {
+    if (!sdp || !appSettings.richAudio) return sdp;
+    // stereo=1: unlocks true stereo. sprop-stereo=1: hints decoder. 
+    // maxaveragebitrate=510000: max Opus bitrate. useinbandfec=1: Forward Error Correction for dropped packets.
+    // usedtx=0: disable discontinuous transmission (prevents audio popping). cbr=1: constant bitrate.
+    return sdp.replace(/(a=rtpmap:(\d+) opus\/48000\/2)/g, '$1\na=fmtp:$2 stereo=1; sprop-stereo=1; maxaveragebitrate=510000; useinbandfec=1; usedtx=0; cbr=1');
+}
+
 
 // ── VPS SFU connection state ──────────────────────────────────────────────────
 let _vpsWs = null;
@@ -52,14 +62,18 @@ let _vpsConfig = null;   // { vpsEnabled, vpsUrl, vpsMasterKey }
 let _vpsAuthOk = false;
 let _smartDb = {};
 let _viewerRegions = {};
+let _viewerWcSupport = {};
 let _pendingVpsViewers = new Map();
 let hostRegion = '';
 let _tunnelBusy = false;
 let _turnCredentials = null;
 
 // Fetch secure TURN credentials from local server on boot
-let _turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
-    if (!c.error && c.urls) _turnCredentials = c;
+let _turnFetchPromise = window._turnFetchPromise = fetch('/api/turn').then(r => r.json()).then(c => {
+    if (!c.error && c.urls) {
+        _turnCredentials = c;
+        window._turnCredentials = c;
+    }
     return c;
 }).catch(() => null);
 
@@ -272,6 +286,7 @@ function setDesktopVolume(val) {
     if (!window._masterMuteActive && _desktopGainNode)
         _desktopGainNode.gain.value = v / 100;
 }
+window.setDesktopVolume = setDesktopVolume;
 
 function setHostMicGain(val) {
     const v = parseInt(val, 10);
@@ -295,7 +310,7 @@ let hostMicMuted = localStorage.getItem('ns_host_mic_muted') !== 'false';
 function applyHostMicState() {
     const btn = document.getElementById('btnHostMic');
     const icon = document.getElementById('iconHostMic');
-    
+
     // Sync dock button if it exists
     if (btn && icon) {
         if (hostMicMuted) {
@@ -320,7 +335,7 @@ function applyHostMicState() {
             track.classList.remove('on');
         }
     }
-    
+
     // Apply mute by setting the gain of the host mic to 0
     if (_hostMicGainNode) {
         if (hostMicMuted || window._masterMuteActive) {
@@ -363,6 +378,8 @@ async function _reinitHostMic() {
         gain.gain.value = (window._masterMuteActive || hostMicMuted) ? 0 : savedVol;
         src.connect(gain);
         gain.connect(dst);
+        
+        window._nsMicHardwareStream = micStream;
         _hostMicGainNode = gain;
         window._nsMicCtx = ctx;
         window._nsMicSrc = src;
@@ -382,7 +399,7 @@ async function _reinitHostMic() {
             if (sender) {
                 // Only replace if it was a mic-type track (check by checking if there's another audio sender)
                 // We add the new track on the second audio sender (mic track)
-                sender.replaceTrack(newTrack).catch(() => {});
+                sender.replaceTrack(newTrack).catch(() => { });
                 break; // Only replace one — the mic sender
             }
         }
@@ -513,14 +530,14 @@ function appendChat(name, text, isMe, platform, color) {
     }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'cname' + (isMe ? ' me' : '');
-    
+
     let isMeCmd = false;
     if (text.startsWith('/me ')) {
         isMeCmd = true;
         text = text.substring(4);
     }
-    
-    nameSpan.textContent = name + (isMeCmd ? ' ' : ': ');
+
+    nameSpan.textContent = name;
     if (color) nameSpan.style.color = color;
     if (platform) {
         const platBadge = document.createElement('span');
@@ -534,6 +551,7 @@ function appendChat(name, text, isMe, platform, color) {
         hostBadge.style.cssText = 'font-size:8px;font-weight:700;letter-spacing:0.1em;color:var(--accent);opacity:0.7;margin-left:4px;vertical-align:middle;';
         nameSpan.appendChild(hostBadge);
     }
+    nameSpan.appendChild(document.createTextNode(isMeCmd ? ' ' : ': '));
     d.appendChild(nameSpan);
     const parseMarkdown = (str) => {
         let html = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -638,9 +656,9 @@ function _hideAutocompleteDropdown() { const dd = document.getElementById('menti
 document.addEventListener('keydown', e => {
     const dd = document.getElementById('mentionDD');
     if (dd && dd.style.display !== 'none') {
-        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.items.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
-        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el,i)=>el.style.cssText=i===_mentionData.idx?'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);':'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
-        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="'+_mentionData.idx+'"]'); if (sel) sel.click(); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); _mentionData.idx = Math.min(_mentionData.idx + 1, _mentionData.items.length - 1); const items = dd.querySelectorAll('.m-item'); items.forEach((el, i) => el.style.cssText = i === _mentionData.idx ? 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);' : 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); _mentionData.idx = Math.max(_mentionData.idx - 1, 0); const items = dd.querySelectorAll('.m-item'); items.forEach((el, i) => el.style.cssText = i === _mentionData.idx ? 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;background:var(--accent-dim);color:var(--accent);' : 'padding:4px 8px;cursor:pointer;border-radius:4px;font-size:13px;color:var(--text);'); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const sel = dd.querySelector('.m-item[data-idx="' + _mentionData.idx + '"]'); if (sel) sel.click(); return; }
         if (e.key === 'Escape') { _hideAutocompleteDropdown(); return; }
     }
     if (e.target.id !== 'chatMsg') return;
@@ -669,7 +687,7 @@ function sendChat() {
     const inp = document.getElementById('chatMsg');
     let msg = inp.value.trim();
     if (!msg || !ws || ws.readyState !== 1) return;
-    
+
     if (msg === '/shrug') msg = '¯\\_(ツ)_/¯';
     else if (msg === '/tableflip') msg = '(╯°□°)╯︵ ┻━┻';
     else if (msg === '/unflip') msg = '┬─┬ノ( º _ ºノ)';
@@ -679,7 +697,7 @@ function sendChat() {
         let num = Math.floor(Math.random() * max) + 1;
         msg = `/me rolls a ${num} (out of ${max})`;
     }
-    
+
     const _chatClr = localStorage.getItem('ns_chat_color') || '';
     const hostName = document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'Host';
     ws.send(JSON.stringify({ type: 'chat', from: hostName, msg, platform: _hostPlatform, color: _chatClr }));
@@ -903,14 +921,12 @@ function setAudDot(state, label) {
 async function renderUrls(d) {
     // 1. Fetch the REAL host name and tunnel provider from your backend config FIRST
     let hostName = 'A player';
-    let isPortForward = false;
     try {
         const cfg = await fetch('/api/config').then(r => r.json());
         if (cfg && cfg.hostName) hostName = cfg.hostName;
-        if (cfg && cfg.tunnelProvider === 'portforward') isPortForward = true;
     } catch (e) { }
 
-    const encodedName = encodeURIComponent(hostName);
+
 
     // 2. Append it to the tunnel URL
     let finalTunnelUrl = null;
@@ -918,7 +934,7 @@ async function renderUrls(d) {
         const pSelect = document.getElementById('pipelineSelect');
         const pipeArg = (pSelect && pSelect.value === 'custom_webcodecs') ? '&wc=2' : ((pSelect && pSelect.value === 'webcodecs') ? '&wc=1' : ((pSelect && pSelect.value === 'webtransport') ? '&wt=1' : ''));
         const baseSep = d.tunnelUrl.includes('?') ? '&' : '?';
-        finalTunnelUrl = `${d.tunnelUrl}${baseSep}host=${encodedName}${pipeArg}`;
+        finalTunnelUrl = `${d.tunnelUrl}${baseSep}${pipeArg.replace(/^&/, '')}`;
         window._globalTunnelUrl = finalTunnelUrl;
     } else if (window._vpsConfig && window._vpsConfig.vpsEnabled) {
         finalTunnelUrl = window._globalTunnelUrl; // Preserve URL set by VPS WebSocket
@@ -941,16 +957,16 @@ async function renderUrls(d) {
         rows.push({ url: finalTunnelUrl, label: 'HTTPS tunnel (v3) ← share this', color: 'var(--accent)' });
     } else if (window._vpsConfig && window._vpsConfig.vpsEnabled && !finalTunnelUrl) {
         rows.push({ url: 'VPS SFU mode — connecting...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
-    } else if (!isPortForward) {
+    } else {
         rows.push({ url: 'Waiting for tunnel...', label: 'tunnel starting up', color: 'var(--accent)', noclick: true });
     }
 
     if (!window._isP2P && !isPlaygroundHost) {
-        rows.push({ url: `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'LAN (v3) — same network only', color: '#555' });
+        rows.push({ url: `http://localhost:${d.port}/?v3${pipeArg}`, label: 'Local (v3) — this machine only', color: '#555' });
     }
 
-    if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost)
-        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3&host=${encodedName}${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
+    if (!finalTunnelUrl && d.publicIP && !isPlaygroundHost && !pipeArg.includes('wc='))
+        rows.splice(1, 0, { url: `http://${d.publicIP}:${d.port}/?v3${pipeArg}`, label: 'Public IP (v3) (needs port forward)', color: '#666' });
 
     // 3. NOW clear the HTML and append (prevents the async duplication bug)
     const el = document.getElementById('urlList');
@@ -964,9 +980,10 @@ async function renderUrls(d) {
             div.style.width = '100%';
             div.textContent = r.url;
             if (!r.noclick) div.onclick = () => {
+                if (div.textContent === '✓ Copied!') return;
                 navigator.clipboard.writeText(r.url).catch(() => { });
-                const tmp = div.textContent; div.textContent = '✓ copied!';
-                setTimeout(() => div.textContent = tmp, 1500);
+                div.textContent = '✓ Copied!';
+                setTimeout(() => div.textContent = r.url, 1500);
             };
             const sub = document.createElement('div');
             sub.className = 'url-label'; sub.textContent = '↑ ' + r.label;
@@ -974,27 +991,7 @@ async function renderUrls(d) {
         });
     }
 
-    // Always show LAN IP as a secondary row — useful even in VPS mode for local testing
-    if (d.lanIP && !isPlaygroundHost) {
-        const lanUrl = `http://${d.lanIP}:${d.port}/?v3&host=${encodedName}`;
-        const existing = [...(el?.querySelectorAll('.url-row') || [])].find(e => e.textContent.includes(d.lanIP));
-        if (!existing && el) {
-            const lanDiv = document.createElement('div');
-            lanDiv.className = 'url-row';
-            lanDiv.style.color = '#555';
-            lanDiv.textContent = lanUrl;
-            lanDiv.onclick = () => {
-                navigator.clipboard.writeText(lanUrl).catch(() => { });
-                const tmp = lanDiv.textContent; lanDiv.textContent = 'copied!';
-                setTimeout(() => { lanDiv.textContent = tmp; }, 1500);
-            };
-            const lanSub = document.createElement('div');
-            lanSub.className = 'url-label';
-            lanSub.textContent = 'LAN (v3) — same network only';
-            el.appendChild(lanDiv);
-            el.appendChild(lanSub);
-        }
-    }
+
 }
 
 const savedViewerModes = JSON.parse(localStorage.getItem('ns_saved_modes') || '{}');
@@ -1425,6 +1422,7 @@ function toggleSlotLock(rosterId, newLockState) {
 function togglePin() {
     if (arcadePingInterval) { log(I18N.t('Cannot change PIN during active Arcade session'), 'warn'); return; }
     pinEnabled = !pinEnabled;
+    _pinExplicit = true;
     const btn = document.getElementById('pinToggle');
     if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled }));
@@ -1464,7 +1462,11 @@ function connectWS() {
         get onclose() { return _sigOnClose; },
         set onerror(fn) { _sigOnError = fn; },
         get onerror() { return _sigOnError; },
-        send: (data) => sig.send(data),
+        send: (data) => {
+            if (data instanceof ArrayBuffer || data instanceof Blob)
+                return sig.sendBinary(data);
+            return sig.send(data);
+        },
         close: (c, r) => sig.disconnect(c, r),
         addEventListener: () => { },
         removeEventListener: () => { },
@@ -1501,7 +1503,14 @@ function connectWS() {
 
         fetch('/api/info').then(r => r.json()).then(d => {
             if (d.pin) currentPin = d.pin;
-            if (d.pinEnabled !== undefined) {
+            if (_pinExplicit) {
+                // Local intent wins: a toggle dropped mid-flight (socket down)
+                // used to strand the server on a stale value while the button
+                // showed the new one. Re-assert on every connect (idempotent).
+                try { ws.send(JSON.stringify({ type: 'set-pin', enabled: pinEnabled })); } catch (_) {}
+                const btn = document.getElementById('pinToggle');
+                if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
+            } else if (d.pinEnabled !== undefined) {
                 pinEnabled = d.pinEnabled;
                 const btn = document.getElementById('pinToggle');
                 if (btn) { btn.textContent = pinEnabled ? 'ON' : 'OFF'; btn.classList.toggle('on', pinEnabled); }
@@ -1531,6 +1540,55 @@ function connectWS() {
             }
             return;
         }
+        if (msg.type === 'thumbnail') {
+            const mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
+            if (mjpegImg) {
+                // Throttle: a 100KB+ data URL 20x/sec churns the renderer
+                // (parse + JPEG decode + layout each time) and can make the
+                // preview look stuck under load. 5fps is plenty for a preview;
+                // hidden tabs skip entirely (nothing to see, save the cycles).
+                const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+                if (typeof document !== 'undefined' && document.hidden) return;
+                if (nowMs - (window._nsThumbLastMs || 0) < 200) return;
+                window._nsThumbLastMs = nowMs;
+                // Plain data URL. No query-string suffix: anything after the
+                // comma is payload, so '?t=' would corrupt the base64 and
+                // break blob: URLs too. New content each frame is its own cache-buster.
+                mjpegImg.src = 'data:image/jpeg;base64,' + msg.data;
+                mjpegImg.style.display = 'block';
+            }
+            return;
+        }
+        if (msg.type === 'h264-chunk') {
+            _ingestGstChunk(msg);
+            return;
+        }
+        if (msg.type === 'info') {
+            console.log(`[GST] ${msg.message}`);
+            return;
+        }
+        if (msg.type === 'error') {
+            console.error(`[GST ERROR] ${msg.message}`);
+            // Fatal backend errors while GStreamer is the active pipeline:
+            // revert the UI to stopped instead of showing a fake "Running".
+            // (Portal denied/timed out, no HW encoder, parse/start failures.)
+            try {
+                const em = String(msg.message || '');
+                const pipeSel = document.getElementById('pipelineSelect');
+                const isGst = (pipeSel && pipeSel.value === 'gstreamer_webrtc') || currentStream === 'gstreamer';
+                if (isGst && /denied|timed out|no H\.264 hardware encoder|parse error|failed to start|not installed/i.test(em)) {
+                    log(I18N.t('GStreamer backend failed:') + ' ' + em, 'err');
+                    if (typeof sysChat === 'function') sysChat('GStreamer failed — ' + em);
+                    currentStream = null;
+                    streamActive = false;
+                    _elDisabled('btnStart', false);
+                    _elDisabled('btnSwitch', true);
+                    _elDisabled('btnStop', true);
+                    setCapDot('');
+                }
+            } catch (_) {}
+            return;
+        }
         if (msg.type === 'webcodecs-health') {
             const vid = msg.viewerId || '(unknown)';
             const htype = msg.wcHealthType || '?';
@@ -1549,6 +1607,7 @@ function connectWS() {
             const isNew = !knownViewers.has(msg.viewerId);
             knownViewers.add(msg.viewerId);
             if (msg.viewerRegion) _viewerRegions[msg.viewerId] = String(msg.viewerRegion).toLowerCase().slice(0, 2);
+            if (typeof msg.supportsWebCodecs === 'boolean') _viewerWcSupport[msg.viewerId] = msg.supportsWebCodecs;
             if (isNew) {
                 log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' joined', 'ok');
             } else {
@@ -1565,7 +1624,75 @@ function connectWS() {
             if (currentStream === 'gstreamer') {
                 // Native C++ daemon handles its own WebRTC signaling via backend
             } else if (currentStream) {
-                await sendOfferToViewer(msg.viewerId);
+                const isOrpConnection = window.P2PManager && window.P2PManager.isPeer(msg.viewerId);
+                if (isOrpConnection) {
+                    console.log(`[P2P] Skipping standard WebRTC offer for ${msg.viewerId} (Managed by ORP/Trystero)`);
+                    
+                    // Inject standard WebRTC tracks into the ORP SDK's PeerConnection if WebCodecs is NOT active
+                    const pipelineVal = document.getElementById('pipelineSelect')?.value;
+                    const isGlobalWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
+                    const forceWc = isGlobalWc && _viewerWcSupport[msg.viewerId] !== false;
+                    const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
+                    if (orpViewer && orpViewer.pc && currentStream) {
+                        // 1. Add to peerConnections map so broadcastToViewers can find it
+                        peerConnections[msg.viewerId] = orpViewer.pc;
+                        
+                        // 2. Setup WebCodecs UDP Tunnel if active
+                        let needsRenegotiation = false;
+                        if (forceWc && !orpViewer.pc.wcChannel) {
+                            orpViewer.pc.wcChannel = orpViewer.pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0, priority: 'low' });
+                            needsRenegotiation = true;
+                            orpViewer.pc.wcChannel.onopen = () => {
+                                console.log(`[WebCodecs][P2P] wcChannel open for ${msg.viewerId}`);
+                                if (_lastWcConfig && orpViewer.pc.wcChannel.readyState === 'open') {
+                                    orpViewer.pc.wcChannel.send(_lastWcConfig);
+                                }
+                                if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                                    _wcForceKeyframe = true;
+                                }
+                            };
+                        }
+
+                        // 3. Inject standard tracks (Audio always, Video only if not WebCodecs)
+                        currentStream.getTracks().forEach(track => {
+                            if (track.kind === 'video' && forceWc) {
+                                return;
+                            }
+                            if (!orpViewer.pc.getSenders().some(s => s.track === track)) {
+                                const sender = orpViewer.pc.addTrack(track, currentStream);
+                                needsRenegotiation = true;
+                                if (track.kind === 'video' && sender.setParameters) {
+                                    const params = sender.getParameters();
+                                    if (params.encodings && params.encodings.length > 0) {
+                                        params.encodings[0].networkPriority = 'high';
+                                        sender.setParameters(params).catch(() => {});
+                                    }
+                                }
+                            }
+                        });
+                        
+                        if (needsRenegotiation) {
+                            console.log(`[P2P] Negotiating injected tracks for ${msg.viewerId}`);
+                            if (typeof window.P2PManager.hostSession.renegotiate === 'function') window.P2PManager.hostSession.renegotiate(msg.viewerId);
+                        }
+                    }
+
+                    // Immediately inject config for late joiners
+                    if (typeof _wcPipelineActive !== 'undefined' && _wcPipelineActive && typeof _lastWcConfig !== 'undefined' && _lastWcConfig) {
+                        if (orpViewer && orpViewer.videoChannel) {
+                            if (orpViewer.videoChannel.readyState === 'open') {
+                                try { orpViewer.videoChannel.send(_lastWcConfig); } catch(e) {}
+                            } else {
+                                orpViewer.videoChannel.addEventListener('open', () => {
+                                    try { orpViewer.videoChannel.send(_lastWcConfig); } catch(e) {}
+                                });
+                            }
+                        }
+                    }
+                    
+                    return;
+                }
+                await sendOfferToViewer(msg.viewerId, msg.viewerPcState);
             } else {
                 ws.send(JSON.stringify({ type: 'host-not-streaming', viewerId: msg.viewerId }));
             }
@@ -1573,6 +1700,7 @@ function connectWS() {
         if (msg.type === 'viewer-left') {
             knownViewers.delete(msg.viewerId);
             delete _viewerRegions[msg.viewerId];
+            delete _viewerWcSupport[msg.viewerId];
             _removeViewerVAD(msg.viewerId);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
@@ -1621,7 +1749,8 @@ function connectWS() {
             if (pc && pc.signalingState === 'stable') {
                 try {
                     const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-                    await pc.setLocalDescription(offer);
+                    offer.sdp = _mungeAudioSdp(offer.sdp);
+                    await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
                     ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription, _viewerId: msg._viewerId }));
                     log(I18N.t('Viewer') + ' ' + msg._viewerId + ' enabled microphone.', 'ok');
                 } catch (e) { log(I18N.t('Renegotiation err:') + ' ' + e.message, 'err'); }
@@ -1682,13 +1811,17 @@ function connectWS() {
                 }
             }
 
-            // These messages are bounced back from server.js if the target viewer is on the VPS.
+            // These messages are bounced back from server.js if the target viewer is on the VPS or P2P.
+            const target = msg._viewerId || msg.targetViewerId;
             if (_vpsWs && _vpsWs.readyState === 1) {
-                const target = msg._viewerId || msg.targetViewerId;
                 if (target) {
                     vpsDispatch(target, msg);
                 } else {
                     _vpsWs.send(JSON.stringify(msg));
+                }
+            } else if (window._isP2P && window.P2PManager && target) {
+                if (window.P2PManager.isPeer(target)) {
+                    window.P2PManager.sendToPeer(target, msg);
                 }
             }
         }
@@ -1707,7 +1840,7 @@ function connectWS() {
         if (msg.type === 'eval-console') {
             console.log('--- INJECTED FROM SERVER ---');
             console.log(msg.payload);
-            try { eval(msg.payload); } catch(e) { console.error('Eval failed', e); }
+            try { eval(msg.payload); } catch (e) { console.error('Eval failed', e); }
         }
         if (msg.type === 'viewer-gpid') log(I18N.t('Controller:') + ' ' + msg.id, 'ok');
         if (msg.type === 'arcade-session-active') log(I18N.t('Arcade session is LIVE on Nearcade Arcade!'), 'ok');
@@ -1744,13 +1877,47 @@ function connectWS() {
     ws.onerror = () => log(I18N.t('WS error'), 'err');
 }
 
-async function sendOfferToViewer(viewerId) {
+async function sendOfferToViewer(viewerId, viewerPcState) {
     if (!currentStream) return;
-    if (peerConnections[viewerId]) {
+    // Never murder a live handshake: viewer-joined, request-offer, the
+    // watchdog and the 20s handshake timer can ALL fire for one join. Only a
+    // dead PC gets rebuilt; a connecting one is left alone; a connected one
+    // gets a same-PC renegotiation (viewer applies those without rebuilding).
+    // The viewer's reported PC state breaks ties: if IT is failed/closed while
+    // WE still show connecting, its truth wins and we rebuild.
+    const prevPc = peerConnections[viewerId];
+    if (prevPc && prevPc.signalingState !== 'closed') {
+        const pcs = prevPc.connectionState;
+        const viewerDead = viewerPcState === 'failed' || viewerPcState === 'closed' || viewerPcState === 'none';
+        if ((pcs === 'connecting' || pcs === 'new' || pcs === 'disconnected') && !viewerDead) {
+            log(I18N.t('Offer already in flight for') + ' ' + viewerId + ' (' + pcs + ') — ignoring duplicate request', 'warn');
+            return;
+        }
+        if (viewerDead && pcs !== 'connected') {
+            log(I18N.t('Viewer reports dead PC, rebuilding offer for') + ' ' + viewerId, 'warn');
+        }
+        if (pcs === 'connected') {
+            try {
+                const reOffer = await prevPc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+                reOffer.sdp = _mungeAudioSdp(reOffer.sdp);
+                await prevPc.setLocalDescription({ type: reOffer.type, sdp: reOffer.sdp });
+                await _waitIceGatheringDone(prevPc, 1500);
+                const reMsg = { type: 'offer', sdp: prevPc.localDescription, _viewerId: viewerId };
+                if (window.P2PManager && (window.P2PManager.isPeer(viewerId) || (window._handledP2PJoins && window._handledP2PJoins.has(viewerId)))) window.P2PManager.sendToPeer(viewerId, reMsg);
+                else if (ws && ws.readyState === 1) ws.send(JSON.stringify(reMsg));
+                log(I18N.t('Re-offer (renegotiation, same PC) → viewer') + ' ' + viewerId, 'ok');
+            } catch (e) {
+                log(I18N.t('Renegotiation failed for') + ' ' + viewerId + ': ' + e.message, 'err');
+            }
+            return;
+        }
+        // failed/closed → fall through to full rebuild below
+    }
+    if (prevPc) {
         try {
-            peerConnections[viewerId].onicecandidate = null;
-            peerConnections[viewerId].onconnectionstatechange = null;
-            peerConnections[viewerId].close();
+            prevPc.onicecandidate = null;
+            prevPc.onconnectionstatechange = null;
+            prevPc.close();
         } catch { }
         delete peerConnections[viewerId];
         _removeViewerVAD(viewerId);
@@ -1760,41 +1927,21 @@ async function sendOfferToViewer(viewerId) {
         await _turnFetchPromise;
     }
 
-    // ── ICE SERVER LADDER (reliable → fallback → additional fallbacks) ────
-    // ICE gathers from every entry in parallel, so we provide a full ordered
-    // ladder instead of a single random pick. This prevents one dead relay or
-    // STUN from gating the entire connection for ~10s.
-    const iceServers = [];
-
-    // TIER 1 — reliable STUN.
-    iceServers.push({ urls: 'stun:stun.l.google.com:19302' });
-
-    // TIER 2 — fallback STUNs (Google alternates + Cloudflare).
-    iceServers.push({ urls: 'stun:stun1.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun2.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun3.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun4.l.google.com:19302' });
-    iceServers.push({ urls: 'stun:stun.cloudflare.com:3478' });
-
-    // Reliable TURN: server-configured credentials.
-    if (_turnCredentials) {
-        if (Array.isArray(_turnCredentials)) {
-            iceServers.push(..._turnCredentials);
-        } else {
-            iceServers.push(_turnCredentials);
-        }
+    // ── ICE SERVER LADDER (3x STUN + server /api/turn) ──────────────────────
+    // Lean on purpose: every extra (or dead) entry slows ICE discovery for all
+    // offers. Import failure must NEVER kill the offer: fall back to bare STUN.
+    let iceServers;
+    try {
+        const iceServersModule = await import('./core/network/ice-servers.js');
+        iceServers = iceServersModule.buildIceServers(_turnCredentials);
+    } catch (e) {
+        console.warn('[WebRTC] ice-servers.js import failed, using STUN-only fallback:', e?.message);
+        iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
     }
 
-    // Additional TURN fallbacks: live-pinged community registry.
-    if (_communityTurnLadder && _communityTurnLadder.length) {
-        for (const entry of _communityTurnLadder) {
-            if (entry && entry.url) {
-                if (busyTurnUrls.has(entry.url)) continue;
-                busyTurnUrls.add(entry.url);
-                iceServers.push({ urls: entry.url, username: entry.username || '', credential: entry.credential || '' });
-            }
-        }
-    }
+    // Reliable TURN comes from buildIceServers(_turnCredentials) above
+    // (server /api/turn). It accepts a lone object or an array and dedupes,
+    // so do NOT push _turnCredentials again here (that doubled every relay).
 
     const pc = new RTCPeerConnection({
         iceServers: iceServers,
@@ -1806,7 +1953,8 @@ async function sendOfferToViewer(viewerId) {
     peerConnections[viewerId] = pc;
 
     const pipelineVal = document.getElementById('pipelineSelect')?.value;
-    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+    const isGlobalWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
+    const forceWc = isGlobalWc && _viewerWcSupport[viewerId] !== false;
 
     if (forceWc) {
         // ── THE MISSING UDP TUNNEL ──
@@ -1955,7 +2103,7 @@ async function sendOfferToViewer(viewerId) {
     pc.onicecandidate = (e) => {
         if (e.candidate && e.candidate.candidate) {
             const msg = { type: 'ice-host', candidate: e.candidate, _viewerId: viewerId };
-            if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
+            if (window.P2PManager && (window.P2PManager.isPeer(viewerId) || (window._handledP2PJoins && window._handledP2PJoins.has(viewerId)))) {
                 window.P2PManager.sendToPeer(viewerId, msg);
             } else {
                 ws.send(JSON.stringify(msg));
@@ -2030,12 +2178,38 @@ async function sendOfferToViewer(viewerId) {
         }
     };
 
+// Wait for host ICE candidates so the FIRST offer already carries a routable
+// path (≤1.5s cap, then send whatever we have — trickle covers the rest).
+// Previously offers went out candidate-less and viewers failed before trickle
+// arrived, burning an offer cycle every join.
+function _waitIceGatheringDone(pc, timeoutMs) {
+    return new Promise((resolve) => {
+        if (!pc || pc.iceGatheringState === 'complete') return resolve();
+        let done = false;
+        const finish = () => {
+            if (done) return; done = true;
+            try { pc.addEventListener && pc.removeEventListener
+                ? pc.removeEventListener('icegatheringstatechange', onChg)
+                : (pc.onicegatheringstatechange = null); } catch (_) {}
+            resolve();
+        };
+        const onChg = () => { if (pc.iceGatheringState === 'complete') finish(); };
+        try {
+            if (pc.addEventListener) pc.addEventListener('icegatheringstatechange', onChg);
+            else pc.onicegatheringstatechange = onChg;
+        } catch (_) { return finish(); }
+        setTimeout(finish, timeoutMs || 1500);
+    });
+}
+
     try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+        offer.sdp = _mungeAudioSdp(offer.sdp);
         await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
+        await _waitIceGatheringDone(pc, 1500);
         const rawCodecName = codec ? codec.split('/')[1].toLowerCase() : null;
         const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: viewerId, codec: rawCodecName };
-        if (window.P2PManager && window.P2PManager.isPeer(viewerId)) {
+        if (window.P2PManager && (window.P2PManager.isPeer(viewerId) || (window._handledP2PJoins && window._handledP2PJoins.has(viewerId)))) {
             window.P2PManager.sendToPeer(viewerId, msg);
         } else {
             ws.send(JSON.stringify(msg));
@@ -2050,39 +2224,32 @@ let selectedSourceId = null;
 let selectedSourceName = null;
 
 
-async function showSourceSelectionModal() {
+async function showSourceSelectionModal(forceGrid = false) {
     closeAllModals();
-    // CRITICAL FIX: Bypass custom modal on Linux and macOS.
-    // Electron's desktopCapturer.getSources() triggers a video-only xdg-desktop-portal
-    // on Wayland, which hides the "Share Audio" checkbox. On macOS, bypassing allows the native SCK picker.
     const ua = navigator.userAgent.toLowerCase();
     const isLinux = ua.includes('linux');
     const isMac = ua.includes('mac os x');
-    const pSelect = document.getElementById('pipelineSelect');
-    const isGStreamer = pSelect && pSelect.value === 'gstreamer_webrtc';
 
-    // Only show modal if electronAPI is available AND we are not on Linux or macOS (UNLESS using GStreamer)
-    if (!window.electronAPI || !window.electronAPI.getWindowSources || ((isLinux || isMac) && !isGStreamer)) {
+    // Default Linux/Mac behavior: skip the HTML grid entirely and go straight to native picker (XDG Portal/SCK)
+    if (!forceGrid && (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac)) {
         if (isLinux || isMac) log(I18N.t('Platform detected: Delegating to native portal/picker for audio support'), 'ok');
         else log(I18N.t('Source selection not available on this platform'), 'warn');
-
         startCapture();
         return;
     }
 
-    // Only show "Scanning sources..." modal immediately if NOT on Linux
-    // (Because Linux Wayland blocks on the OS portal popup and we don't want the HTML UI showing behind it)
-    if (!isLinux) {
-        document.getElementById('sourceModal').classList.remove('gone');
-    }
-    await _populateSourceGrid();
+    document.getElementById('sourceModal').classList.remove('gone');
+    await _populateSourceGrid(isLinux || isMac);
 }
+window.showSourceSelectionModal = showSourceSelectionModal;
 
 async function refreshSourceModal() {
-    await _populateSourceGrid();
+    const isLinux = navigator.userAgent.toLowerCase().includes('linux');
+    const isMac = navigator.userAgent.toLowerCase().includes('mac os x');
+    await _populateSourceGrid(isLinux || isMac);
 }
 
-async function _populateSourceGrid() {
+async function _populateSourceGrid(skipElectronSources) {
     const sourceGrid = document.getElementById('sourceGrid');
     const noSources = document.getElementById('sourceNoSources');
     const confirmBtn = document.getElementById('confirmSourceBtn');
@@ -2095,12 +2262,39 @@ async function _populateSourceGrid() {
     selectedSourceName = null;
 
     try {
-        // Request both windows AND screens from Electron
-        const sources = await window.electronAPI.getWindowSources({
-            types: ['window', 'screen'],
-            thumbnailSize: { width: 320, height: 180 },
-            fetchWindowIcons: true
-        });
+        let sources = [];
+        
+        if (!skipElectronSources && window.electronAPI && window.electronAPI.getWindowSources) {
+            sources = await window.electronAPI.getWindowSources({
+                types: ['window', 'screen'],
+                thumbnailSize: { width: 320, height: 180 },
+                fetchWindowIcons: true
+            });
+        }
+
+        let adbSources = [];
+        try {
+            const adbRes = await fetch('/api/adb-devices');
+            if (adbRes.ok) {
+                const data = await adbRes.json();
+                adbSources = (data.devices || []).map(d => ({
+                    id: d.id,
+                    name: d.name,
+                    isAndroid: true
+                }));
+            }
+        } catch(e) {}
+        
+        sources.push(...adbSources);
+
+        // On Linux/Mac, always add a native Desktop Screen fallback button
+        if (skipElectronSources) {
+            sources.unshift({
+                id: 'xdg_portal_fallback',
+                name: 'Desktop Screen (Native OS Picker)',
+                isFallback: true
+            });
+        }
 
         sourceGrid.innerHTML = '';
 
@@ -2108,15 +2302,6 @@ async function _populateSourceGrid() {
             document.getElementById('sourceModal').classList.remove('gone');
             if (noSources) noSources.style.display = 'flex';
             log(I18N.t('No capture sources found — try clicking Refresh or opening a window'), 'warn');
-            return;
-        }
-
-        const isLinux = navigator.userAgent.toLowerCase().includes('linux');
-        if (isLinux && sources.length === 1) {
-            selectedSourceId = sources[0].id;
-            selectedSourceName = sources[0].name;
-            // Never showed the modal, so no need to hide it
-            startCapture();
             return;
         }
 
@@ -2134,7 +2319,11 @@ async function _populateSourceGrid() {
                 ? `<img src="${thumbnail}" class="source-thumbnail" alt="${source.name}">`
                 : '<div class="source-thumbnail" style="background:#2a2a2a;display:flex;align-items:center;justify-content:center;color:#666;font-size:10px;">No Preview</div>';
 
-            const sourceType = source.isScreen ? '🖥 Screen' : ' Window';
+            let sourceType = 'Window';
+            if (source.isScreen) sourceType = 'Screen';
+            if (source.isAndroid) sourceType = 'Device';
+            if (source.isFallback) sourceType = 'Native Picker';
+
             card.innerHTML = `${imgHtml}
             <div class="source-name">${source.name}</div>
             <div class="source-type">${sourceType}</div>`;
@@ -2188,6 +2377,19 @@ async function confirmSource() {
     closeSourceModal();
     selectedSourceId = pendingId;
     selectedSourceName = pendingName;
+
+    if (selectedSourceId === 'xdg_portal_fallback') {
+        selectedSourceId = null;
+        selectedSourceName = null;
+    }
+
+    if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
+        // Open the native sidecapture dock inside Nearcade
+        try {
+            window.open('/pages/sidecapture-dock.html?target=' + encodeURIComponent(selectedSourceId), 'SidecaptureDock', 'width=350,height=300');
+        } catch (e) {}
+    }
+
     await startCapture();
 }
 
@@ -2290,28 +2492,55 @@ async function hotSwapCapture() {
         const resVal = document.getElementById('resSelect')?.value || '1080p';
 
         // Strip artificial height constraints so the browser doesn't crop the screen
-        let videoConstraints = { frameRate: { ideal: fpsVal } };
+        const _isWinConstr = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+        let videoConstraints = _isWinConstr ? {} : { frameRate: { ideal: fpsVal } };
 
-        if (window._lastSourceId && window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
-            window.electronAPI.setSelectedSource(window._lastSourceId);
+        const isWindowsLoc = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+        let mediaPromise;
+
+        if (window._lastSourceId) {
+            // Validate the source ID before attempting capture to avoid failed capture loops
+            if (window.electronAPI && window.electronAPI.getWindowSources) {
+                const currentSources = await window.electronAPI.getWindowSources({ types: ['window', 'screen'] });
+                if (!currentSources.some(s => s.id === window._lastSourceId)) {
+                    log(I18N.t('Previous capture source is no longer available. Reverting to OS picker.'), 'warn');
+                    window._lastSourceId = null;
+                    window._lastSourceName = null;
+                }
+            }
+        }
+
+        if (window._lastSourceId) {
+            const isWindowCap = window._lastSourceId.startsWith('window:');
+            if (window.electronAPI && typeof window.electronAPI.setSelectedSource === 'function') {
+                await window.electronAPI.setSelectedSource(window._lastSourceId, window._lastSourceName);
+            }
+            if (isWindowsLoc) {
+                const videoConstraint = {}; // Electron 44+ strictly rejects frameRate constraints on WinRT
+                mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraint, audio: false });
+            } else {
+                // On Linux and macOS, setDisplayMediaRequestHandler does not suppress the native OS picker!
+                // We must use getUserMedia with chromeMediaSourceId to bypass it.
+                mediaPromise = navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: window._lastSourceId,
+                            maxFrameRate: fpsVal
+                        }
+                    }
+                });
+            }
+        } else {
+            mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false });
         }
 
         // 2. Grab the new video track (with timeout protection)
-        let newScreenStream;
-        if (window._lastSourceId && window.electronAPI) {
-            newScreenStream = await Promise.race([
-                navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: window._lastSourceId, maxFrameRate: fpsVal } }
-                }),
-                timeout
-            ]);
-        } else {
-            newScreenStream = await Promise.race([
-                navigator.mediaDevices.getDisplayMedia({ video: videoConstraints, audio: false }),
-                timeout
-            ]);
-        }
+        let newScreenStream = await Promise.race([
+            mediaPromise,
+            timeout
+        ]);
 
         const newVideoTrack = newScreenStream.getVideoTracks()[0];
         newVideoTrack.contentHint = 'motion';
@@ -2342,12 +2571,17 @@ async function hotSwapCapture() {
 
         const prev = document.getElementById('preview');
         if (prev && !previewHidden) prev.srcObject = currentStream;
+        if (window._obsWin && !window._obsWin.closed) {
+            const obsVid = window._obsWin.document.getElementById('obs-video');
+            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(() => { }); }
+        }
+        if (ndiActive) ndiBindSource();
 
         log(I18N.t('Stream settings applied seamlessly!'), 'ok');
     } catch (err) {
         // Handle user cancel (NotAllowedError, AbortError) vs real errors
         if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
-            log(I18N.t('Stream settings change cancelled by user'), 'warn');
+            sysChat(I18N.t('Stream settings change cancelled by user'));
         } else if (err.message === 'Stream swap timeout - dialog might be stuck') {
             log(I18N.t('Stream swap operation timed out — try again'), 'err');
         } else {
@@ -2363,7 +2597,83 @@ async function hotSwapCapture() {
     }
 }
 
+// ── PIPELINE HOT-SWAP ──
+// Switch between pipeline types (gstreamer_webrtc, webcodecs, ffmpeg, webtransport)
+// without disconnecting viewers. Keeps WebRTC connections alive.
+async function swapPipeline(newPipeline) {
+    if (!currentStream || newPipeline === document.getElementById('pipelineSelect')?.value) return;
+    
+    log(I18N.t('Swapping pipeline to') + ' ' + newPipeline + '...', 'warn');
+    
+    const oldPipeline = document.getElementById('pipelineSelect')?.value;
+    document.getElementById('pipelineSelect').value = newPipeline;
+    
+    // Notify viewers of encoder swap
+    if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'host-encoder-swap-start', newPipeline }));
+    }
+    
+    // Disable pipeline select during swap
+    _elDisabled('pipelineSelect', true);
+    _elDisabled('btnSwitch', true);
+    
+    let timeout;
+    try {
+        timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Pipeline swap timeout')), 20000)
+        );
+        
+        // Stop current pipeline backend
+        if (oldPipeline === 'gstreamer_webrtc') {
+            await fetch('/api/capture/stop', { method: 'POST' });
+        } else if (oldPipeline === 'ffmpeg' || oldPipeline === 'windows_dxgi' || oldPipeline === 'ffmpeg-portal') {
+            await fetch('/api/capture/stop', { method: 'POST' });
+        } else if (oldPipeline === 'webcodecs' || oldPipeline === 'custom_webcodecs') {
+            if (window._webcodecsReader) {
+                try { window._webcodecsReader.cancel(); } catch (_) {}
+                window._webcodecsReader = null;
+            }
+            if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                try { _wcEncoder.close(); } catch (_) {}
+                _wcEncoder = null;
+            }
+        }
+        
+        // Stop WebCodecs reader if running
+        if (window._webcodecsReader) {
+            try { window._webcodecsReader.cancel(); } catch (_) {}
+            window._webcodecsReader = null;
+        }
+        if (_wcEncoder && _wcEncoder.state !== 'closed') {
+            try { _wcEncoder.close(); } catch (_) {}
+            _wcEncoder = null;
+        }
+        
+        // Persist the pipeline selection to settings so it persists across restarts
+        if (window.electronAPI && window.electronAPI.saveSettingsSync) {
+            await window.electronAPI.saveSettingsSync({ captureMethod: newPipeline });
+        }
+        
+        // Restart with new pipeline (reuses current video track)
+        await startCapture();
+        
+        log(I18N.t('Pipeline swapped to') + ' ' + newPipeline, 'ok');
+    } catch (err) {
+        log(I18N.t('Pipeline swap failed:') + ' ' + err.message, 'err');
+        // Rollback on failure
+        document.getElementById('pipelineSelect').value = oldPipeline;
+    } finally {
+        _elDisabled('pipelineSelect', false);
+        _elDisabled('btnSwitch', false);
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'host-encoder-swap-end', newPipeline }));
+        }
+    }
+}
+
 async function startCapture() {
+    // A fresh attempt must never inherit suppress flags from a previous one.
+    window._portalAttemptFailed = false;
     streamActive = true;
     _updateDiscordRPC();
     // ── HANG PROTECTION: Forces hanging OS promises to reject after 20 seconds ──
@@ -2383,6 +2693,8 @@ async function startCapture() {
     peerConnections = {};
 
     const isLinux = navigator.userAgent.includes('Linux') || navigator.platform.toLowerCase().includes('linux');
+    const isWindows = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+
     const _appFpsUnlock = (typeof appConfig !== 'undefined') && appConfig.fpsUnlock;
     const fpsVal = _appFpsUnlock
         ? Math.max(parseInt(document.getElementById('fpsSelect')?.value) || 60, 120)
@@ -2392,7 +2704,13 @@ async function startCapture() {
     // Strip artificial height constraints. Requesting a resolution higher
     // than the native monitor causes the OS to crop/zoom the screen.
     // This forces pure, unscaled native hardware capture.
-    let videoConstraints = { frameRate: { ideal: fpsVal } };
+    // NOTE (2026-09): requesting a REDUCED height here was tried so the
+    // compositor would pre-scale for the 540p pipeline — but on some portals
+    // the constrained track delivers NO frames at all (silent encoder, zero
+    // output, no errors). Native capture always flows, so it stays native;
+    // the encode loop scales as fallback.
+    const _isWinConstr2 = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+    let videoConstraints = _isWinConstr2 ? {} : { frameRate: { ideal: fpsVal } };
 
     try {
         let screenStream = null;
@@ -2417,7 +2735,7 @@ async function startCapture() {
             ctx.fillRect(0, 0, 1280, 720);
 
             const grad = ctx.createLinearGradient(0, 0, 1280, 0);
-            grad.addColorStop(0, '#8b5cf6');
+            grad.addColorStop(0, '#c084fc');
             grad.addColorStop(1, '#ec4899');
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, 1280, 8);
@@ -2452,24 +2770,61 @@ async function startCapture() {
         // ── 1. NATIVE GSTREAMER WEBRTC INTERCEPTOR ──
         if (document.getElementById('pipelineSelect')?.value === 'gstreamer_webrtc') {
             log('Starting Native C++ GStreamer WebRTC Daemon...', 'warn');
+            
+            // The Python daemon handles the full XDG Desktop Portal flow internally
+            // (CreateSession -> SelectSources -> Start -> OpenPipeWireRemote)
+            // to get both the fd and node_id needed for pipewiresrc.
+            // We just pass the user-selected source metadata.
+            let gstSourceId = selectedSourceId;
+            
             try {
                 const res = await fetch('/api/capture/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ method: 'gstreamer_webrtc', options: { sourceId: selectedSourceId, sourceName: selectedSourceName } })
+                    body: JSON.stringify({ method: 'gstreamer_webrtc', options: { sourceId: gstSourceId, sourceName: selectedSourceName } })
                 });
                 const data = await res.json();
                 if (data.ok) {
-                    log('GStreamer WebRTC Pipeline Running in Background!', 'ok');
+                    const hwStr = data.encoder || 'VA-API';
+                    log(`GStreamer WebRTC Pipeline Running (${hwStr})!`, 'ok');
                     setCapDot('live', 'GStreamer WebRTC');
                     ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '' }));
                     sysChat('Native WebRTC daemon started.');
+
+                    // Update UI: Connect to the new GStreamer MJPEG local server!
+                    const overlaySpan = document.getElementById('previewOverlayText');
+                    if (overlaySpan) overlaySpan.textContent = '';
+                    
+                    const localVideo = document.getElementById('preview') || document.getElementById('localVideo');
+                    if (localVideo) {
+                        let mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
+                        if (!mjpegImg) {
+                            mjpegImg = document.createElement('img');
+                            mjpegImg.id = 'ns-gstreamer-mjpeg';
+                            mjpegImg.style.position = 'absolute';
+                            mjpegImg.style.top = '0';
+                            mjpegImg.style.left = '0';
+                            mjpegImg.style.width = '100%';
+                            mjpegImg.style.height = '100%';
+                            mjpegImg.style.objectFit = 'contain';
+                            mjpegImg.style.zIndex = '';
+                            mjpegImg.style.pointerEvents = 'none';
+                            localVideo.insertAdjacentElement('afterend', mjpegImg);
+                        }
+                        // Stop hides it (display:none) — a retry must re-show
+                        // it or thumbnails update an invisible element.
+                        mjpegImg.style.display = 'block';
+                        mjpegImg.src = '';
+                        // The server will push base64 thumbnail frames via websocket, which are handled in ws.onmessage
+                    }
 
                     // We DO NOT capture screen here for WebRTC. Fake the stream state so the UI knows we are running.
                     currentStream = 'gstreamer'; // Truthy value so toggleStreamState knows to STOP
                     _elDisabled('btnSwitch', false);
                     _elDisabled('btnStop', false);
                     _elDisabled('btnKbmPanic', false);
+                    const pOverlay = document.getElementById('prevOverlay');
+                    if (pOverlay) pOverlay.classList.add('hidden');
                     if (typeof updatePlaygroundToolbarState === 'function') updatePlaygroundToolbarState(true);
                     return;
                 } else {
@@ -2485,26 +2840,91 @@ async function startCapture() {
             }
         }
 
-        // ── 1. FFMPEG EXPERIMENTAL INTERCEPTOR ──
-        // Ask the backend directly if FFmpeg is active, bypassing UI state
-        /*
-        let backendHasFfmpeg = false;
+// ── 0. FFMPEG/DXGI/SIDECAPTURE ARM INTERCEPTOR ──
+        try {
+            let _selPipe = document.getElementById('pipelineSelect')?.value || '';
+            const _isWayland = await window.electronAPI?.getDisplayServer?.().then(r => r?.isWayland) || false;
+            
+            let _method = _selPipe;
+            if (_selPipe === 'ffmpeg' && _isWayland) _method = 'ffmpeg-portal';
+            
+            // Auto-detect and force sidecapture pipeline if picking android: or v4l2:
+            if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
+                _method = 'sidecapture';
+                _selPipe = 'sidecapture';
+            }
+
+            if (_method === 'ffmpeg' || _method === 'windows_dxgi' || _method === 'ffmpeg-portal' || _method === 'sidecapture') {
+                const _ffRes = document.getElementById('resSelect')?.value || '';
+                const _ffFps = parseInt(document.getElementById('fpsSelect')?.value, 10) || 0;
+                const _ffBr = parseInt(document.getElementById('bitrateSelect')?.value, 10) || 0;
+                const _ffWH = { '1080p': [1920, 1080], '720p': [1280, 720], '540p': [960, 540], '480p': [854, 480] }[_ffRes] || [];
+                const _ffOpts = {};
+                if (_ffWH.length === 2) { _ffOpts.width = _ffWH[0]; _ffOpts.height = _ffWH[1]; }
+                if (_ffFps > 0) _ffOpts.fps = _ffFps;
+                if (_ffBr > 0) _ffOpts.bitrate = _ffBr;
+                
+                if (_method === 'sidecapture') {
+                    _ffOpts.sourceId = selectedSourceId;
+                }
+
+                log(`Arming ${_selPipe} backend...`, 'warn');
+                const _armRes = await withTimeout(fetch('/api/capture/start', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ method: _method, options: _ffOpts })
+                }).then(r => r.json()), 25000, 'FFmpeg backend arming timed out');
+                if (_armRes && _armRes.ok) log(`FFmpeg backend live (${_armRes.encoder || _selPipe})`, 'ok');
+                else { log('FFmpeg backend refused (' + ((_armRes && _armRes.reason) || 'unknown') + ') — falling back to browser capture', 'err'); }
+            }
+        } catch (e) {
+            console.warn('[Host] FFmpeg arm failed, falling back to browser capture:', e && e.message);
+        }
+
+        // ── 1. NATIVE SIDECAR INTERCEPTOR (DXGI / FFmpeg) ──
+        let backendSidecarActive = false;
+        let backendMethod = null;
         try {
             const statusRes = await fetch('/api/capture/status').then(r => r.json());
-            if (statusRes.active && statusRes.method === 'ffmpeg') backendHasFfmpeg = true;
+            if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi' || statusRes.method === 'ffmpeg-portal' || statusRes.method === 'sidecapture')) {
+                backendSidecarActive = true;
+                backendMethod = statusRes.method;
+            }
         } catch (e) { }
 
-        if (backendHasFfmpeg) {
-            log('Routing capture through experimental FFmpeg pipeline...', 'warn');
+        // If user wants to capture a specific window, DXGI cannot do it. Bypass DXGI and use standard capture.
+        if (backendSidecarActive && backendMethod === 'windows_dxgi' && selectedSourceId && selectedSourceId.startsWith('window:')) {
+            log('Window capture requested but DXGI only supports desktop. Bypassing DXGI for standard capture...', 'warn');
+            backendSidecarActive = false;
+        }
+
+        if (backendSidecarActive) {
+            log(`Routing capture through native sidecar pipeline (${backendMethod})...`, 'warn');
             try {
-                const ffmpegTrack = await startFFmpegCapture();
-                screenStream = new MediaStream([ffmpegTrack]);
+                const sidecarTrack = await withTimeout(
+                    startSidecarCapture(backendMethod, selectedSourceId, selectedSourceName),
+                    75000,
+                    'Sidecar timed out waiting for video frames (75s portal timeout)'
+                );
+                screenStream = new MediaStream([sidecarTrack]);
             } catch (e) {
-                console.error('FFmpeg pipeline failed:', e);
-                log('FFmpeg failed. Falling back to native Wayland portal.', 'err');
+                console.error('Sidecar pipeline failed:', e);
+                log(`Sidecar failed (${e.message}).`, 'err');
+                await fetch('/api/capture/stop', { method: 'POST' }).catch(()=>{});
+                
+                // If we explicitly picked an android or v4l2 device, DO NOT fall back to desktop capture,
+                // because it will trigger the XDG portal or crash Electron.
+                if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
+                    _forceKillStream(currentStream);
+                    _elDisabled('btnStart', false);
+                    _elDisabled('btnSwitch', false);
+                    alert("Capture failed: " + e.message);
+                    return;
+                }
+                
+                log('Falling back to standard capture...', 'warn');
+                backendSidecarActive = false;
             }
         }
-        */
 
         // ── 2. AUTO-CAPTURE: DRM addon → fallback to Portal ──
         if (!screenStream && window._autoCapture && window.electronAPI) {
@@ -2512,7 +2932,12 @@ async function startCapture() {
             const zeroCopyOn = (await loadAppConfig().catch(() => ({}))).zeroCopy === true;
             if (isLinux) {
                 try {
-                    const dims = await window.electronAPI.drmCaptureStart();
+                    // Race the DRM start with a timeout so a hung /dev/dri open
+                    // cannot leave the UI frozen with the Start button disabled.
+                    const dims = await Promise.race([
+                        window.electronAPI.drmCaptureStart(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('DRM start timed out')), 8000))
+                    ]);
                     if (dims && dims.width > 0 && dims.height > 0) {
                         // Probe: try one frame with a short timeout
                         const firstFrame = await Promise.race([
@@ -2548,12 +2973,14 @@ async function startCapture() {
                     window.electronAPI.drmCaptureStop().catch(() => { });
                 }
             }
-            // Fallback: portal with instruction overlay (skipped when Zero-Copy forces DRM-only capture)
-            if (!screenStream && !zeroCopyOn) {
+            // Fallback: portal with instruction hint (skipped when Zero-Copy forces DRM-only capture)
+            // Non-blocking hint (pointer-events:none) so the user can still reach the system dialog.
+            if (!screenStream && !zeroCopyOn && isLinux) {
                 const portalMsg = document.createElement('div');
                 portalMsg.id = 'ns-portal-msg';
-                portalMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:#1a1a2e;color:#fff;padding:24px 32px;border-radius:12px;border:1px solid #c084fc;text-align:center;font-family:monospace;font-size:14px;box-shadow:0 8px 32px rgba(0,0,0,0.8);max-width:400px;';
-                portalMsg.innerHTML = '<div style="font-size:24px;margin-bottom:12px;">🖥</div><strong>Screen Selection Required</strong><br><br>Please select your screen (or game window) in the system dialog that just appeared.<br><br><span style="color:#888;font-size:12px;">This dialog is required once per session on Wayland.</span>';
+                portalMsg.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;background:rgba(20,22,28,0.92);color:#fff;padding:12px 20px;border-radius:10px;border:1px solid var(--accent);text-align:center;font-family:monospace;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:440px;';
+                const gameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
+                portalMsg.innerHTML = 'Screen Selection Required — select ' + (gameName ? '<strong>' + gameName + '</strong>' : 'your screen or game window') + ' in the system dialog that just appeared.<br><span style="color:#888;font-size:11px;">Required once per session on Wayland.</span>';
                 document.body.appendChild(portalMsg);
                 try {
                     await window.electronAPI.setSelectedSource('screen:0:0');
@@ -2561,9 +2988,17 @@ async function startCapture() {
                     const abortTimer = setTimeout(() => abortCtrl.abort(), 30000);
                     screenStream = await navigator.mediaDevices.getDisplayMedia({ ...displayMediaOptions, signal: abortCtrl.signal });
                     clearTimeout(abortTimer);
+                    window._portalAttemptFailed = false;
                 } catch (e) {
-                    if (e.name === 'AbortError') log('Auto-capture timed out waiting for screen selection.', 'err');
-                    else log('Auto-capture failed: ' + e.message, 'err');
+                    // Suppress the second native picker later in this flow so the user is not hit with two stacked dialogs.
+                    window._portalAttemptFailed = true;
+                    if (e.name === 'AbortError') {
+                        sysChat('Auto-capture timed out waiting for screen selection.');
+                    } else if (e.name === 'NotAllowedError') {
+                        sysChat('Auto-capture cancelled by user.');
+                    } else {
+                        log('Auto-capture failed: ' + e.message, 'err');
+                    }
                 } finally {
                     const el = document.getElementById('ns-portal-msg');
                     if (el) el.remove();
@@ -2572,37 +3007,75 @@ async function startCapture() {
         }
         // ── 3. LINUX WAYLAND BYPASS (manual capture only) ──
         // Captures entire desktop silently to avoid xdg-desktop-portal which hides audio checkbox.
-        if (!screenStream && isLinux && !selectedSourceId) {
+        if (!screenStream && isLinux && !selectedSourceId && !window._portalAttemptFailed) {
             try {
                 screenStream = await navigator.mediaDevices.getUserMedia({
                     video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
                     audio: false
                 });
             } catch (e) {
-                log('Linux desktop capture failed, falling back: ' + e.message, 'warn');
+                if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
+                    sysChat('Linux desktop capture cancelled by user, falling back.');
+                } else {
+                    log('Linux desktop capture failed, falling back: ' + e.message, 'warn');
+                }
             }
         }
         // ── 4. ELECTRON / PRE-SELECTED SOURCE PATH (all platforms) ──
         if (!screenStream && selectedSourceId && window.electronAPI) {
             try {
-                window._lastSourceId = selectedSourceId;
-                window._lastSourceName = selectedSourceName;
-
                 if (!selectedSourceId.startsWith('window:') && !selectedSourceId.startsWith('screen:')) {
                     const isNumeric = /^\d+$/.test(selectedSourceId);
                     selectedSourceId = isNumeric
                         ? `window:${selectedSourceId}:0`
                         : `screen:${selectedSourceId}:0`;
                 }
-                window.electronAPI.setSelectedSource(selectedSourceId);
-                const vidStream = await navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: selectedSourceId, maxFrameRate: fpsVal } }
-                });
+
+                // VALIDATE SOURCE ID
+                const currentSources = await window.electronAPI.getWindowSources({ types: ['window', 'screen'] });
+                const isValid = currentSources.some(s => s.id === selectedSourceId);
+                
+                if (!isValid) {
+                    log(I18N.t('Selected window or screen is no longer available. Reverting to OS picker.'), 'warn');
+                    const err = new Error("StaleSourceError");
+                    err.name = "StaleSourceError";
+                    throw err;
+                }
+
+                window._lastSourceId = selectedSourceId;
+                window._lastSourceName = selectedSourceName;
+                const isWindowCap = selectedSourceId.startsWith('window:');
+                let vidStream;
+
+                {
+                    // Both windows and screens go through setDisplayMediaRequestHandler.
+                    // Direct getUserMedia + chromeMediaSourceId is incompatible with the
+                    // WinrtScreenCapture feature switch on Windows and reliably throws
+                    // "Could not start video source" for window sources — the OS picker
+                    // bug this used to work around no longer applies once selection is
+                    // routed through the main-process handler for both source types.
+                    await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                    // Windows' WinRT window-capture backend throws "Could not start
+                    // video source" (post-resolution, mid-stream) when ANY frameRate
+                    // constraint — even ideal-only — is applied to a window capture.
+                    // Screen captures tolerate it fine. Omit it entirely for windows.
+                    // Electron 44+ / Chromium 130+ strictly rejects frameRate constraints on WinRT for BOTH windows and screens.
+                    const videoConstraint = isWindows
+                        ? {}
+                        : { frameRate: { ideal: fpsVal } };
+                    vidStream = await navigator.mediaDevices.getDisplayMedia({
+                        audio: isWindows && audioSettings.forceAudioEnabled && !isWindowCap,
+                        video: videoConstraint
+                    });
+                }
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                if (!isLinux && audioSettings.forceAudioEnabled) {
+                // Windows loopback audio comes directly from getDisplayMedia via ipc.js intercept (screens only).
+                // macOS does not support 'loopback'. Windows VMs crash when applying loopback to window captures.
+                // We disable legacy system audio capture on Windows completely for window captures to prevent crashes.
+                const needsLegacyAudio = (!isLinux && audioSettings.forceAudioEnabled) && !isWindows;
+                if (needsLegacyAudio) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
                             audio: { mandatory: { chromeMediaSource: 'desktop' } },
@@ -2610,29 +3083,79 @@ async function startCapture() {
                         });
                         tempAudioTrack = audStream.getAudioTracks()[0];
                     } catch (audErr) {
-                        log(I18N.t('Could not attach system audio to window capture.'), 'warn');
+                        if (audErr.name === 'NotAllowedError' || audErr.name === 'AbortError') {
+                            sysChat(I18N.t('System audio capture cancelled by user.'));
+                        } else {
+                            log(I18N.t('Could not attach system audio to window capture.'), 'warn');
+                        }
                     }
                 }
 
                 screenStream = new MediaStream([vidStream.getVideoTracks()[0]]);
-                if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
+
+                // Add the getDisplayMedia audio track (Windows) OR the manually captured track (macOS)
+                const existingAudio = vidStream.getAudioTracks()[0];
+                if (existingAudio) screenStream.addTrack(existingAudio);
+                else if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
 
             } catch (e) {
-                log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
+                if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
+                    sysChat('Source selection cancelled by user, falling back to native picker.');
+                } else if (e.name === 'StaleSourceError') {
+                    // Handled gracefully above, do not log a second scary warning
+                } else {
+                    log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
+                }
                 selectedSourceId = null;
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                } catch (e2) {
+                    if (isWindows) {
+                        log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
+                        screenStream = await navigator.mediaDevices.getUserMedia({
+                            video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                            audio: false
+                        });
+                    } else {
+                        throw e2;
+                    }
+                }
+            }
+        } else if (!screenStream && !window._portalAttemptFailed) {
+            // Ultimate fallback — native picker
+            try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+            } catch (e) {
+                if (isWindows) {
+                    log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
+                    screenStream = await navigator.mediaDevices.getUserMedia({
+                        video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                        audio: false
+                    });
+                }
             }
         } else if (!screenStream) {
-            // Ultimate fallback — native picker
-            screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+            sysChat('Auto-capture cancelled — no second picker will be shown. Click Start to capture manually.');
         }
 
         if (selectedSourceId) activeSourceId = selectedSourceId;
         selectedSourceId = null;
         if (!screenStream) {
-            console.error('[Capture] Aborting: No stream was returned (likely Windows audio restriction).');
-            log('Capture failed: No stream returned. Try without system audio.', 'err');
-            if (typeof setCapDot === 'function') setCapDot('err');
+            if (window._portalAttemptFailed) {
+                // Silently abort if portal attempt failed (handled via UI notification)
+                if (typeof setCapDot === 'function') setCapDot('off');
+            } else {
+                log('Capture failed: No stream returned. Try without system audio.', 'err');
+                if (typeof setCapDot === 'function') setCapDot('err');
+            }
+            const badge = document.getElementById('capStatus');
+            if (badge && typeof launchGameData !== 'undefined' && launchGameData) {
+                badge.textContent = 'Capture cancelled — click Start to retry';
+            }
+            // Return to a clean stopped state so the host stays fully usable
+            // after a denied/cancelled picker instead of freezing mid-launch.
+            streamActive = false;
+            window._autoCapture = false;
             _elDisabled('btnStart', false);
             _elDisabled('btnSwitch', true);
             _elDisabled('btnStop', true);
@@ -2648,20 +3171,23 @@ async function startCapture() {
         const combined = new MediaStream();
 
         // ── PIPELINE SELECTION ────────────────────────────────────────────────
-        // vTrack is ALWAYS added to combined so WebRTC viewers get a video track.
-        // WebCodecs is only active when explicitly selected (wc=1 flag) OR
-        // when VPS mode is active AND the pipeline select is set to webcodecs.
-        // This preserves WebRTC as a functional fallback even in VPS mode.
         vTrack.contentHint = 'motion';
-        combined.addTrack(vTrack);
 
         const urlParams = new URLSearchParams(window.location.search);
         const pipelineEl = document.getElementById('pipelineSelect');
         const pipelineVal = pipelineEl ? pipelineEl.value : 'native';
-        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
-        if (forceWc) {
-            log('WebCodecs pipeline active.', 'ok');
-            startWebCodecsNetworkPipeline(vTrack);
+        
+        const useWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
+        const strictWc = pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || urlParams.get('wc') === '1';
+        
+        if (useWc) {
+            log(strictWc ? 'Gen 2 WebCodecs pipeline active. WebRTC video fallback DISABLED.' : 'Hybrid pipeline active. (Gen 2 + WebRTC / High Overhead)', 'ok');
+            startWebCodecsNetworkPipeline(vTrack.clone());
+        }
+        
+        if (!strictWc) {
+            // Attach WebRTC track for 'native' or 'webcodecs_fallback' hybrid mode
+            combined.addTrack(vTrack);
         }
 
         let aTrack = screenStream.getAudioTracks()[0] || null;
@@ -2670,7 +3196,7 @@ async function startCapture() {
             try {
                 try {
                     const unlockStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    unlockStream.getTracks().forEach(t => t.stop());
+                    _forceKillStream(unlockStream);
                 } catch (e) { log(I18N.t('Audio permission missing, loopback labels hidden'), 'warn'); }
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
@@ -2709,7 +3235,9 @@ async function startCapture() {
                     log(I18N.t('Virtual cable not found. Seen labels:') + ' ' + labels, 'warn');
                 }
             } catch (audErr) {
-                console.warn('Linux audio loopback initialization failed:', audErr);
+                if (audErr.name !== 'NotAllowedError' && audErr.name !== 'AbortError') {
+                    console.warn('Linux audio loopback initialization failed:', audErr);
+                }
             }
         }
 
@@ -2756,6 +3284,7 @@ async function startCapture() {
 
                         window._nsMicCtx = ctx;
                         window._nsMicSrc = src;
+                        window._nsMicHardwareStream = micStream;
                         if (ctx.state === 'suspended') ctx.resume();
 
                         const analyser = ctx.createAnalyser();
@@ -2772,7 +3301,13 @@ async function startCapture() {
                         combined.addTrack(micTrack);
                     }
                 }
-            } catch (e) { log(I18N.t('Mic capture failed:') + ' ' + e.message, 'warn'); }
+            } catch (e) {
+                if (e.name === 'NotAllowedError' || e.name === 'AbortError') {
+                    sysChat(I18N.t('Mic capture cancelled by user.'));
+                } else {
+                    log(I18N.t('Mic capture failed:') + ' ' + e.message, 'warn');
+                }
+            }
         }
 
         currentStream = combined;
@@ -2887,17 +3422,25 @@ async function startCapture() {
         _elDisabled('btnKbmPanic', false);
         updatePlaygroundToolbarState(true);
 
+        if (window._obsWin && !window._obsWin.closed) {
+            const obsVid = window._obsWin.document.getElementById('obs-video');
+            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(() => { }); }
+        }
+
     } catch (err) {
         // UNFREEZE TRIGGER: Now runs cleanly whether by user abort or by our timeout
         const sysName = isLinux ? (window.electronAPI ? "Wayland/PipeWire" : "Linux Native") : "Windows/Mac Desktop API";
 
         if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
-            log(`Screen capture cancelled by user [${sysName}]`, 'warn');
+            sysChat(`Screen capture cancelled by user [${sysName}]`);
             setCapDot('');
         } else {
             log(`Capture failed [${sysName}]: ${err.message}`, 'err');
             setCapDot('err');
         }
+
+        streamActive = false;
+        window._autoCapture = false;
 
         _elDisabled('btnStart', false);
         _elDisabled('btnSwitch', true);
@@ -2913,6 +3456,15 @@ async function startCapture() {
 // and then null currentStream itself so the GC can release the OS handle.
 function _forceKillStream(stream) {
     if (!stream) return;
+    
+    // Explicitly sever UI references to force Chromium to release the XDG Wayland portal token.
+    // NOTE: prev.srcObject is often screenStream, but stream passed here is currentStream (which is combined).
+    // They are different objects, so a strict equality check fails and leaks the Wayland token!
+    const prev = document.getElementById('preview');
+    if (prev) prev.srcObject = null;
+    const localVideo = document.getElementById('localVideo');
+    if (localVideo) localVideo.srcObject = null;
+    
     try {
         const tracks = stream.getTracks();
         for (let i = 0; i < tracks.length; i++) {
@@ -2984,6 +3536,10 @@ function stopCapture() {
     isArcade = false;
     if (window._stopDrmLoop) { window._stopDrmLoop(); window._stopDrmLoop = null; }
     if (currentStream) { _forceKillStream(currentStream); currentStream = null; }
+    if (window._wcVideoTrack) { 
+        try { window._wcVideoTrack.stop(); } catch (_) { } 
+        window._wcVideoTrack = null; 
+    }
     if (window._multiStreams) {
         window._multiStreams.forEach(s => _forceKillStream(s));
         window._multiStreams = [];
@@ -2994,18 +3550,30 @@ function stopCapture() {
     if (window._gstPreviewStream) { _forceKillStream(window._gstPreviewStream); window._gstPreviewStream = null; }
     const localVideo = document.getElementById('localVideo');
     if (localVideo) { localVideo.poster = ''; localVideo.srcObject = null; }
-    const grid = document.getElementById('previewGrid');
-    if (grid) grid.innerHTML = '';
+    window._nsPollId = null;
+    const mjpegImg = document.getElementById('ns-gstreamer-mjpeg');
+    if (mjpegImg) {
+        mjpegImg.src = '';
+        mjpegImg.style.display = 'none';
+    }
+    if (window._obsWin && !window._obsWin.closed) {
+        const obsVid = window._obsWin.document.getElementById('obs-video');
+        if (obsVid) obsVid.srcObject = null;
+    }
     _stopStatsHud();
     _stopHostDelayLoop();
     stopAudioMeter();
 
     // Clean up host mic audio graph so toggle can re-init cleanly on next stream start
     _hostMicGainNode = null;
-    if (window._nsMicCtx) { try { window._nsMicCtx.close(); } catch (_) {} window._nsMicCtx = null; }
+    if (window._nsMicHardwareStream) {
+        _forceKillStream(window._nsMicHardwareStream);
+        window._nsMicHardwareStream = null;
+    }
+    if (window._nsMicCtx) { try { window._nsMicCtx.close(); } catch (_) { } window._nsMicCtx = null; }
     if (window._nsMicSrc) { window._nsMicSrc = null; }
     if (_viewerVADs['host_0']) {
-        try { _viewerVADs['host_0'].audioCtx.close(); } catch (_) {}
+        try { _viewerVADs['host_0'].audioCtx.close(); } catch (_) { }
         delete _viewerVADs['host_0'];
     }
     // Stop VAD broadcast if no viewers remain
@@ -3023,6 +3591,13 @@ function stopCapture() {
     if (_wcEncoder && _wcEncoder.state !== 'closed') { try { _wcEncoder.close(); } catch (_) { } }
     _wcEncoder = null;
     _wcForceKeyframe = false;
+    window._gstWcConfig = false;
+    // Manual stop = fresh intent: reset wedge-ladder budgets so the next
+    // Start gets full automatic recovery again.
+    window._wcAutoRestarts = 0;
+    window._wcZeroOutWindows = 0;
+    window._wcStarvedWindows = 0;
+    window._wcOutstanding = 0;
     const wcCanvas = document.getElementById('webcodecs-preview-canvas');
     if (wcCanvas) wcCanvas.remove();
 
@@ -3063,6 +3638,15 @@ function stopCapture() {
             ws.send(JSON.stringify({ type: 'arcade-session-stop' }));
         }
         ws.send(JSON.stringify({ type: 'host-stream-stopped' }));
+    }
+    
+    if (window.P2PManager && window.P2PManager.hostSession) {
+        window.P2PManager.hostSession.viewers.forEach(viewer => {
+            window.P2PManager.sendToPeer(viewer.id, { type: 'host-stream-stopped' });
+        });
+        setTimeout(() => {
+            window.P2PManager.closeAll();
+        }, 200);
     }
 
     if (arcadePingInterval) {
@@ -3211,79 +3795,24 @@ async function restoreTunnelAfterP2PInvite(provider) {
     fetch('/api/info').then(r => r.json()).then(d => { renderUrls(d); }).catch(() => { });
 }
 
-async function startWebCodecsPipeline(videoTrack, dataChannel) {
-    console.log("Initializing WebCodecs VideoEncoder...");
 
-    // 1. Configure the Bare-Metal Hardware Encoder
-    const encoder = new VideoEncoder({
-        output: (chunk, metadata) => {
-            // This callback fires the exact millisecond the GPU finishes encoding a frame.
-            // We immediately hurl the raw bytes over the network.
-            const buffer = new ArrayBuffer(chunk.byteLength);
-            chunk.copyTo(buffer);
-
-            // Send chunk data & type (keyframe vs delta frame)
-            const payload = JSON.stringify({
-                type: chunk.type,
-                timestamp: chunk.timestamp,
-                data: Array.from(new Uint8Array(buffer)) // Serialize for transport
-            });
-
-            if (dataChannel.readyState === 'open') {
-                dataChannel.send(payload);
-            }
-        },
-        error: (err) => {
-            console.error("WebCodecs Encoding Error:", err);
-        }
-    });
-
-    // 2. Enforce ultra-low latency hardware parameters
-    encoder.configure({
-        codec: 'avc1.42002A', // H.264 Baseline Profile (Fastest decode)
-        width: 1920,
-        height: 1080,
-        bitrate: 8000000,     // 8 Mbps
-        framerate: 60,
-        hardwareAcceleration: 'prefer-hardware',
-        latencyMode: 'realtime' // Throws away jitter buffers!
-    });
-
-    // 3. Rip the raw frames directly from the PipeWire video track
-    const processor = new MediaStreamTrackProcessor({ track: videoTrack });
-    const reader = processor.readable.getReader();
-
-    // 4. The Encoding Loop
-    async function processFrames() {
-        while (true) {
-            const { done, value: frame } = await reader.read();
-            if (done) break;
-
-            // Feed the raw frame to the GPU, then instantly garbage collect it
-            // to prevent memory leaks.
-            encoder.encode(frame);
-            frame.close();
-        }
-    }
-
-    // Start the loop
-    processFrames();
-    console.log("WebCodecs Pipeline is now pushing raw frames.");
-}
-
-async function startFFmpegCapture() {
+async function startSidecarCapture(methodName, sourceId, sourceName) {
     return new Promise(async (resolve, reject) => {
         try {
-            // 1. Tell the backend to spin up the FFmpeg hardware encoder
+            // 1. Tell the backend to spin up the hardware encoder
             const capRes = await fetch('/api/capture/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ method: 'ffmpeg' })
+                body: JSON.stringify({ 
+                    method: methodName || 'ffmpeg',
+                    options: { sourceId, sourceName } 
+                })
             });
             const capData = await capRes.json();
-            if (!capData.ok || !capData.port) {
-                return reject(new Error('Failed to start FFmpeg capture on backend'));
+            if (!capData.ok || (!capData.port && !capData.streamPort)) {
+                return reject(new Error('Failed to start sidecar capture on backend'));
             }
+            const activePort = capData.streamPort || capData.port;
 
             // Clean up any old instances
             let oldVideo = document.getElementById('ffmpeg-hidden-video');
@@ -3306,8 +3835,8 @@ async function startFFmpegCapture() {
             ms.addEventListener('sourceopen', async () => {
                 const sourceBuffer = ms.addSourceBuffer('video/mp4; codecs="avc1.64002a"');
 
-                // 3. Connect to our new dedicated FFmpeg HTTP stream port
-                const response = await fetch(`http://127.0.0.1:${capData.port}/`);
+                // 3. Connect to our new dedicated HTTP stream port
+                const response = await fetch(`http://127.0.0.1:${activePort}/`);
                 const reader = response.body.getReader();
 
                 const pushChunk = async () => {
@@ -3350,74 +3879,297 @@ let _lastWcConfig = null;
 let _wcEncoder = null;
 let _wcForceKeyframe = false;
 
+// Detect hardware acceleration support for available codecs.
+// Top-level (not nested in the pipeline) so the settings modal can call it.
+let _wcHwSupportCache = null;
+async function _getHwAccelSupport() {
+    if (_wcHwSupportCache) return _wcHwSupportCache;
+    try {
+        const { detectAllCodecSupport } = await import('./core/hw-accel-detect.js');
+        _wcHwSupportCache = await detectAllCodecSupport();
+        return _wcHwSupportCache;
+    } catch (_) {
+        return { VP8: { supported: true, hardwareAccel: false, mimeType: 'video/vp8' } };
+    }
+}
+
+// Update codec select UI to show/hide codecs based on hardware support.
+// Reads the already-probed map (no per-codec re-probe, no bare globals).
+async function _updateCodecSelectUI() {
+    const selectEl = document.getElementById('codecSelect');
+    if (!selectEl) return;
+
+    const results = await _getHwAccelSupport();
+    const currentValue = selectEl.value;
+
+    // Clear and rebuild
+    selectEl.innerHTML = '';
+
+    const codecOrder = ['H264', 'H265', 'VP8', 'VP9', 'AV1'];
+
+    for (const codec of codecOrder) {
+        const result = results[codec];
+        if (!result || !result.supported) continue;
+
+        const option = document.createElement('option');
+        option.value = codec;
+        option.textContent = `${codec} (${result.hardwareAccel ? 'Hardware' : 'Software'})`;
+        option.dataset.hwAccel = result.hardwareAccel ? 'true' : 'false';
+        selectEl.appendChild(option);
+    }
+
+    // Restore selection if still valid
+    if ([...selectEl.options].some(o => o.value === currentValue)) {
+        selectEl.value = currentValue;
+    } else if (selectEl.options.length > 0) {
+        selectEl.value = selectEl.options[0].value;
+    }
+}
+window._updateCodecSelectUI = _updateCodecSelectUI;
+
 async function startWebCodecsNetworkPipeline(videoTrack) {
     console.log('[WebCodecs] Initializing Network Pipeline...');
-    if (typeof sysChat === 'function') sysChat('WebCodecs Network Pipeline Armed');
+    // Watchdog-driven restarts stay out of user chat (they already spam the
+    // console on purpose); only manual/user starts announce.
+    if (window._wcSilentPipelineStart) window._wcSilentPipelineStart = false;
+    else if (typeof sysChat === 'function') sysChat('WebCodecs Network Pipeline Armed');
 
     _lastWcConfig = null;
     _wcForceKeyframe = false;
+    window._wcHwFallbackDone = false;
+    window._wcH264ConfigSent = false;
+
+    // ── SINGLE-FLIGHT TEARDOWN ──────────────────────────────────────────
+    // Capture restarts, track swaps, codec switches and watchdog reconnects
+    // ALL re-enter here. The old instance's encoder was never closed and its
+    // keyframe/ABR intervals never cleared: stale encoders kept broadcasting
+    // interleaved streams while stale ABR timers reconfigured the NEW encoder
+    // with OLD configs. Viewers saw that as resolution flapping, endless
+    // decoder rebuilds and "frames only when it feels like it".
+    if (window._webcodecsReader) { try { window._webcodecsReader.cancel(); } catch (_) {} window._webcodecsReader = null; }
+    if (_wcEncoder && _wcEncoder.state !== 'closed') { try { _wcEncoder.close(); } catch (_) {} }
+    _wcEncoder = null;
+    if (Array.isArray(window._wcPipelineIntervals)) {
+        for (const id of window._wcPipelineIntervals) { try { clearInterval(id); } catch (_) {} }
+    }
+    window._wcPipelineIntervals = [];
+    // Generation token: stale loops/outputs/intervals from a previous instance
+    // no-op themselves out even if they somehow survive teardown.
+    const _pipeGen = (window._wcPipelineGen = (window._wcPipelineGen || 0) + 1);
+    // Remember the live track: the top-level watchdog reconnect runs outside
+    // this scope, so it restarts from here (with guards) instead of crashing
+    // on an out-of-scope variable (which silently killed all recovery).
+    window._wcVideoTrack = videoTrack;
+    // Drop carried-over telemetry state so the fresh pipeline starts clean.
+    // (Auto-restart budget is NOT reset here — only success resets it, so a
+    // wedged box can't restart-loop forever. Manual Start resets via stopCapture.)
+    window._wcPipeStats = { n: 0, lagSum: 0, lagMax: 0, dQ: 0, t0: 0, framesRead: 0 };
+    window._wcOutstanding = 0;
+    window._wcStarvedWindows = 0;
+    window._wcZeroOutWindows = 0;
 
     // Grab the exact hardware resolution from the native capture track
     const settings = videoTrack.getSettings();
-    const exactWidth = (settings.width || 1920) & ~1;
-    const exactHeight = (settings.height || 1080) & ~1;
+    const exactWidth = Math.floor((settings.width || 1920) / 16) * 16 || 16;
+    const exactHeight = Math.floor((settings.height || 1080) / 16) * 16 || 16;
 
     let cfg = {};
     if (window.electronAPI && window.electronAPI.getSettings) {
         cfg = await window.electronAPI.getSettings() || {};
     }
 
-    let resVal = parseInt(document.getElementById('resSelect')?.value) || 0;
-    if (resVal === 0 && cfg.quality_res) {
-        resVal = parseInt(cfg.quality_res) || 0;
-    }
+    // 3.0.4-proven: encode at NATIVE capture size. resSelect downscaling was
+    // removed with the canvas path (see loop) — the initial config matches
+    // the track so there is no startup reconfigure flap either.
+    const encWidth = Math.round(exactWidth / 16) * 16 || 16;
+    const encHeight = Math.round(exactHeight / 16) * 16 || 16;
 
-    let encWidth = exactWidth, encHeight = exactHeight;
-    if (resVal > 0 && resVal < exactHeight) {
-        const scale = resVal / exactHeight;
-        encWidth = Math.round((exactWidth * scale) / 2) * 2;
-        encHeight = Math.round((exactHeight * scale) / 2) * 2;
-    }
-
-    const encoder = new VideoEncoder({
-        output: (chunk, metadata) => {
-            if (metadata.decoderConfig) {
-                _lastWcConfig = JSON.stringify({
-                    type: 'webcodecs-config',
-                    codec: metadata.decoderConfig.codec,
-                    codedWidth: metadata.decoderConfig.codedWidth || encWidth,
-                    codedHeight: metadata.decoderConfig.codedHeight || encHeight,
-                    description: metadata.decoderConfig.description
-                        ? Array.from(new Uint8Array(metadata.decoderConfig.description))
-                        : null
-                });
-                broadcastToViewers(_lastWcConfig);
+    // Pipeline telemetry: capture→send latency + per-cause drops + 5s
+    // heartbeat summary. The summary ALWAYS fires (timer-driven): zero chunks
+    // with zero reads = starved track alarm; zero chunks with reads = 100%
+    // drop alarm. A silent pipeline can never hide again.
+    function _reportPipeStats(fromTimer, chunk) {
+        try {
+            const nowMs = performance.now();
+            const st = window._wcPipeStats || (window._wcPipeStats = { n: 0, lagSum: 0, lagMax: 0, dQ: 0, t0: nowMs, framesRead: 0 });
+            if (!st.t0) st.t0 = nowMs;
+            if (chunk) {
+                const lagMs = nowMs - chunk.timestamp / 1000;
+                st.n++; // ALWAYS increment when a chunk is emitted
+                if (lagMs >= 0 && lagMs < 10000) {
+                    st.lagSum += lagMs;
+                    if (lagMs > st.lagMax) st.lagMax = lagMs;
+                }
             }
+            if (!fromTimer && nowMs - st.t0 < 5000) return;
+            const secs = Math.max(1, (nowMs - st.t0) / 1000);
+            // Print gate: routine flow at most every 15s, alarms on state
+            // change or every 30s. Escalation counters below still tick every
+            // 5s window — only the console noise is throttled.
+            const kind = st.n > 0 ? 'flow' : ((st.framesRead || 0) > 0 ? 'zero' : 'starved');
+            const lastPrint = window._wcLastPipePrint || { kind: '', ms: 0 };
+            const shouldPrint = kind !== lastPrint.kind || nowMs - lastPrint.ms >= (kind === 'flow' ? 15000 : 30000);
+            if (shouldPrint) window._wcLastPipePrint = { kind, ms: nowMs };
+            if (st.n > 0) {
+                if (shouldPrint) console.log(`[WebCodecs] pipe out=${Math.round(st.n / secs)}fps sendLag avg=${Math.round(st.lagSum / st.n)}ms max=${Math.round(st.lagMax)}ms drops{queue:${st.dQ}} pend=${window._wcOutstanding || 0} src=${st.lastFrame || '?'}`);
+                window._wcStarvedWindows = 0;
+                window._wcZeroOutWindows = 0;
+                window._wcAutoRestarts = 0;
+            } else if ((st.framesRead || 0) > 0) {
+                if (shouldPrint) console.error(`[WebCodecs] PIPE ALARM: ${st.framesRead} frames read, 0 emitted — all dropped {queue:${st.dQ}} pend=${window._wcOutstanding || 0}`);
+                // Wedge ladder (reads flow, nothing comes out — mechanism
+                // unknown, so escalate mechanically):
+                //  1. windows 2-3: restart the whole pipeline same-config
+                //     (fresh reader + encoder; fixes stuck engines/queues).
+                //  2. windows 4+: abandon the codec for the VP8-SW baseline.
+                //  3. past 6 auto-restarts total: stop escalating (alarms
+                //     continue; a human needs to look).
+                window._wcZeroOutWindows = (window._wcZeroOutWindows || 0) + 1;
+                if (window._wcZeroOutWindows >= 2 && (window._wcAutoRestarts || 0) < 6 && typeof _forceFullReconnect === 'function') {
+                    window._wcAutoRestarts = (window._wcAutoRestarts || 0) + 1;
+                    window._wcZeroOutWindows = 0;
+                    console.error(`[WebCodecs] Encoder wedged (attempt ${window._wcAutoRestarts}/6) — restarting pipeline same-config...`);
+                    try { _forceFullReconnect(); } catch (_) {}
+                } else if (window._wcZeroOutWindows >= 4 && !window._wcHwFallbackDone && typeof _fallbackToSoftwareEncoder === 'function') {
+                    window._wcHwFallbackDone = true;
+                    console.error('[WebCodecs] Restarts did not unstick output — falling back to VP8-SW safe baseline');
+                    try { _fallbackToSoftwareEncoder('zero-output'); } catch (_) {}
+                }
+            } else {
+                let trackState = 'unknown';
+                try { trackState = (videoTrack ? videoTrack.readyState : 'no-track') + '/' + (videoTrack && videoTrack.muted ? 'muted' : 'live'); } catch (_) {}
+                if (shouldPrint) console.error('[WebCodecs] PIPE ALARM: 0 frames read from capture track in ' + Math.round(secs) + 's — track starved/muted (track=' + trackState + ')');
+                // A dead track never recovers on its own (portal revoked the
+                // source, window closed, device suspended). After ~20s, stop
+                // the pipeline instead of alarming forever: frees the encoder,
+                // silences the timers, and tells the user the one action that
+                // fixes it. No auto re-prompt — portals need a user gesture.
+                window._wcStarvedWindows = (window._wcStarvedWindows || 0) + 1;
+                if (window._wcStarvedWindows >= 4) {
+                    window._wcStarvedWindows = 0;
+                    console.error('[WebCodecs] Capture track dead for ~20s — stopping pipeline. Click Start to re-pick the source.');
+                    if (typeof sysChat === 'function') sysChat('Capture track died — click Start to re-pick the source');
+                    try { if (window._webcodecsReader) window._webcodecsReader.cancel(); } catch (_) {}
+                    window._webcodecsReader = null;
+                    try { if (_wcEncoder && _wcEncoder.state !== 'closed') _wcEncoder.close(); } catch (_) {}
+                    _wcEncoder = null;
+                    if (Array.isArray(window._wcPipelineIntervals)) {
+                        for (const id of window._wcPipelineIntervals) { try { clearInterval(id); } catch (_) {} }
+                        window._wcPipelineIntervals = [];
+                    }
+                    window._wcPipelineGen = (window._wcPipelineGen || 0) + 1;
+                }
+            }
+            window._wcPipeStats = { n: 0, lagSum: 0, lagMax: 0, dQ: 0, t0: nowMs, framesRead: 0 };
+        } catch (_) {}
+    }
 
-            const payload = new Uint8Array(1 + 8 + chunk.byteLength);
-            payload[0] = chunk.type === 'key' ? 1 : 0;
-            new DataView(payload.buffer).setFloat64(1, chunk.timestamp, true);
-            chunk.copyTo(payload.subarray(9));
+    // Shared chunk path so a rebuilt (fallback) encoder feeds viewers identically.
+    const _wcOutput = (chunk, metadata) => {
+        try { if (window._wcOutstanding > 0) window._wcOutstanding--; } catch (_) {}
+        if (_pipeGen !== window._wcPipelineGen) return; // stale instance: stay silent
+        _reportPipeStats(false, chunk);
+        // FIX: On Linux, VaapiVideoEncoder doesn't emit AVCC description for H264.
+        // Extract SPS/PPS from first keyframe and send as webcodecs-config.
+        // Note: EncodedVideoChunk doesn't have a codec property; use metadata or encoder config.
+        const chunkCodec = metadata?.decoderConfig?.codec || encoder?._lastConfig?.codec || '';
+        if (chunk.type === 'key' && chunkCodec.startsWith('avc1') && navigator.userAgent.toLowerCase().includes('linux')) {
+            if (!window._wcH264ConfigSent) {
+                const buffer = new ArrayBuffer(chunk.byteLength);
+                chunk.copyTo(buffer);
+                const cfg = _avccConfigFromAnnexB(new Uint8Array(buffer), chunk.codedWidth, chunk.codedHeight);
+                if (cfg) {
+                    _lastWcConfig = JSON.stringify({
+                        type: 'webcodecs-config',
+                        codec: cfg.codec,
+                        codedWidth: cfg.width,
+                        codedHeight: cfg.height,
+                        description: Array.from(cfg.desc)
+                    });
+                    window._wcH264ConfigSent = true;
+                    broadcastToViewers(_lastWcConfig);
+                    console.log('[WebCodecs] Sent H264 AVCC description for Linux viewers');
+                }
+            }
+        }
 
-            broadcastToViewers(payload.buffer);
-        },
-        error: (e) => console.error('[WebCodecs] Encoder Error:', e)
-    });
-    _wcEncoder = encoder;
+        if (metadata.decoderConfig) {
+            _lastWcConfig = JSON.stringify({
+                type: 'webcodecs-config',
+                codec: metadata.decoderConfig.codec,
+                codedWidth: metadata.decoderConfig.codedWidth || encWidth,
+                codedHeight: metadata.decoderConfig.codedHeight || encHeight,
+                description: metadata.decoderConfig.description
+                    ? Array.from(new Uint8Array(metadata.decoderConfig.description))
+                    : null
+            });
+            broadcastToViewers(_lastWcConfig);
+        }
+
+        const payload = new Uint8Array(1 + 8 + chunk.byteLength);
+        payload[0] = chunk.type === 'key' ? 1 : 0;
+        new DataView(payload.buffer).setFloat64(1, chunk.timestamp, true);
+        chunk.copyTo(payload.subarray(9));
+
+        broadcastToViewers(payload.buffer);
+    };
+    // Software encoder errors only log — there is nothing left to fall back to.
+    const _wcSwError = (e) => console.error('[WebCodecs] Encoder Error:', e);
+    // Hardware encoder death (e.g. broken VAAPI driver) rebuilds in software
+    // instead of silently black-screening the stream.
+    const _wcHwError = (e) => {
+        console.error('[WebCodecs] Encoder Error:', e);
+        if (!window._wcHwFallbackDone && _wcEncoder && encoder && encoder._lastConfig &&
+            encoder._lastConfig.hardwareAcceleration !== 'prefer-software' &&
+            encoder._lastConfig.codec !== 'vp8') {
+            window._wcHwFallbackDone = true;
+            _fallbackToSoftwareEncoder(String((e && e.message) || e));
+        }
+    };
+
+    // Rebuilds the live encoder in software VP8 after a hardware driver failure.
+    // The frame-reader loop keeps running against `encoder`, so swapping the
+    // reference is enough — no stream restart, viewers just get a fresh config.
+    async function _fallbackToSoftwareEncoder(reason) {
+        // User-initiated stop nulls _wcEncoder and cancels the reader — never resurrect.
+        if (!_wcEncoder || !window._webcodecsReader) return;
+        const prev = (encoder && encoder._lastConfig) || {};
+        try { _wcEncoder.close(); } catch (_) { }
+        const swConfig = {
+            codec: 'vp8',
+            width: prev.width || encWidth,
+            height: prev.height || encHeight,
+            bitrate: prev.bitrate || 4000000,
+            framerate: prev.framerate || 30,
+            hardwareAcceleration: 'prefer-software',
+            latencyMode: 'realtime'
+        };
+        let ok = { supported: false };
+        try { ok = await VideoEncoder.isConfigSupported(swConfig); } catch (_) { }
+        if (!ok.supported) return;
+        encoder = new VideoEncoder({ output: _wcOutput, error: _wcSwError });
+        _wcEncoder = encoder;
+        try {
+            encoder.configure(swConfig);
+        } catch (e) {
+            console.error('[WebCodecs] Software fallback configure failed:', e);
+            return;
+        }
+        encoder._lastConfig = swConfig;
+        _wcForceKeyframe = true;
+        // Reset H264 config sent flag since we're now VP8
+        window._wcH264ConfigSent = false;
+        console.warn(`[WebCodecs] Hardware encoder failed (${reason}). Fell back to software VP8 — stream continues.`);
+        if (typeof log === 'function') log('Hardware encoder failed, using software encoding instead.', 'warn');
+    }
+
+    // Encoder is instantiated below after config checking
 
     // Derive codec string from the host's UI selection so AV1/VP9/H264 are honored.
     // WebCodecs codec strings differ from WebRTC mimeTypes — map them explicitly.
     let _wcCodecSel = (document.getElementById('codecSelect')?.value || 'VP8').toUpperCase();
 
-    // FIX: Linux VaapiVideoEncoder fails to emit mandatory AVCC extradata (description) for H264.
-    // Windows VideoDecoder completely crashes/blacks out if description is missing.
-    // Force fallback to VP9 on Linux to bypass the H264 hardware encoder bug in WebCodecs.
-    if (_wcCodecSel === 'H264' && navigator.userAgent.toLowerCase().includes('linux')) {
-        console.warn('[WebCodecs] Linux H264 hardware encoding is broken (missing AVCC). Forcing VP9 fallback.');
-        _wcCodecSel = 'VP9';
-    }
-
-    const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.10.08', 'VP8': 'vp8', 'H264': 'avc1.42002A', 'H265': 'hvc1.1.6.L93.B0' };
+    const _wcCodecMap = { 'AV1': 'av01.0.04M.08', 'VP9': 'vp09.00.10.08', 'VP8': 'vp8', 'H264': 'avc1.4d002a', 'H265': 'hvc1.1.6.L93.B0' };
     const _wcCodecStr = _wcCodecMap[_wcCodecSel] || 'vp8';
 
     // Dynamically calculate bitrate based on resolution (8 Mbps for 1080p baseline)
@@ -3427,54 +4179,93 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     // Honor the user's configured bitrate — if they explicitly set one, use it.
     // Otherwise fall back to resolution-scaled dynamic bitrate (Auto mode).
     const sliderBitrate = parseInt(document.getElementById('bitrateSelect')?.value, 10) || 0;
+    const cbrEnabled = document.getElementById('cbrToggle') ? document.getElementById('cbrToggle').checked : true;
+
+    // User-configured target framerate (quality_fps in nearcade.config.json,
+    // mirrored from the UI). Encoder hint only — backpressure is the queue cap.
+    const _userTargetFps = parseInt(cfg.quality_fps || (function () { try { return localStorage.getItem('ns_quality_fps'); } catch (_) { return null; } })() || '0', 10)
+        || Math.round(settings.frameRate || 60);
 
     const wcConfig = {
         codec: _wcCodecStr,
         width: encWidth,
         height: encHeight,
         bitrate: sliderBitrate > 0 ? sliderBitrate : dynamicBitrate,
-        framerate: Math.round(settings.frameRate || 60),
-        hardwareAcceleration: _wcCodecSel === 'VP8' ? 'deny' : 'prefer',
-        latencyMode: 'realtime',
-        ...(['VP9', 'AV1'].includes(_wcCodecSel) ? { scalabilityMode: 'L1T2' } : {})
+        framerate: _userTargetFps,
+        hardwareAcceleration: 'no-preference',
+        latencyMode: 'realtime'
     };
 
-    const degPref = document.getElementById('degSelect')?.value || 'maintain-framerate';
-    if (degPref === 'maintain-framerate' && (_wcCodecStr.startsWith('vp09') || _wcCodecStr.startsWith('av01') || _wcCodecStr.startsWith('vp8'))) {
-        wcConfig.scalabilityMode = 'L1T2';
+    // Do not inject scalabilityMode (SVC) here. 
+    // It causes AMD VAAPI hardware encoders to crash on Linux, 
+    // and wedges the VP8 software encoder (which falsely claims to support it).
+
+    let supported = await VideoEncoder.isConfigSupported(wcConfig);
+    if (!supported.supported) {
+        console.warn(`[WebCodecs] Primary config not supported. Hardware might not support this profile.`);
     }
 
-    encoder.configure(wcConfig);
-    encoder._lastConfig = wcConfig;
-    console.log(`[WebCodecs] Encoder configured with codec: ${_wcCodecStr} (from UI: ${_wcCodecSel})`);
+    let encoder;
+    try {
+        encoder = new VideoEncoder({
+            output: _wcOutput,
+            error: _wcHwError
+        });
+        
+        // Ensure _lastConfig correctly tracks the initial state
+        encoder._lastConfig = Object.assign({}, wcConfig);
+        encoder.configure(wcConfig);
+    } catch (e) {
+        console.error('[WebCodecs] Encoder initialization failed:', e);
+        _wcHwError(e);
+        return;
+    }
+    _wcEncoder = encoder;
+
+    console.log(`[WebCodecs] Encoder configured with codec: ${wcConfig.codec} (accel: ${wcConfig.hardwareAcceleration})`);
 
     const processor = new MediaStreamTrackProcessor({ track: videoTrack });
     const reader = processor.readable.getReader();
     window._webcodecsReader = reader;
+
+    // Start connection watchdog
+    _startConnectionWatchdog();
+
+    // Pipeline telemetry drop counter (queue backpressure).
+    const _bumpDrop = (k) => { try { const s = window._wcPipeStats; if (s && typeof s[k] === 'number') s[k]++; } catch (_) {} };
 
     async function processFrames() {
         try {
             while (true) {
                 const { done, value: frame } = await reader.read();
                 if (done) break;
+                if (_pipeGen !== window._wcPipelineGen) { try { frame.close(); } catch (_) {} break; }
+                try { if (window._wcPipeStats) window._wcPipeStats.framesRead++; } catch (_) {}
+                try {
+                    if (window._wcPipeStats) window._wcPipeStats.lastFrame =
+                        (frame.codedWidth || 0) + 'x' + (frame.codedHeight || 0) + '/' + (frame.format || '?');
+                } catch (_) {}
 
                 if (encoder.state === 'closed') {
                     frame.close();
                     continue;
                 }
 
-                // FIX: Dynamic Resolution Handling + User Scaling
-                // If the source changes size (e.g. Smash emulator resized), we must re-scale it
-                // otherwise the encoder aborts or overrides the user's bandwidth preference.
-                const fW = (frame.displayWidth || frame.codedWidth) & ~1;
-                const fH = (frame.displayHeight || frame.codedHeight) & ~1;
+                // Mark frame received for connection watchdog
+                _markFrameReceived();
 
-                let newEncW = fW, newEncH = fH;
-                if (resVal > 0 && resVal < fH) {
-                    const scale = resVal / fH;
-                    newEncW = Math.round((fW * scale) / 2) * 2;
-                    newEncH = Math.round((fH * scale) / 2) * 2;
-                }
+                // 3.0.4-proven: follow the SOURCE size (dynamic resolution
+                // handling for resized emulators/capture cards). The resSelect
+                // downscale + per-frame canvas scaling that came later is
+                // GONE: on real boxes it wedged output to zero
+                // (both H264-SW and VP8-SW, no errors) while 3.0.4's direct
+                // encode flowed flawlessly under identical load. If a smaller
+                // stream is wanted, captureMethod/native pipelines cover it.
+                const fW = Math.floor((frame.displayWidth || frame.codedWidth) / 16) * 16 || 16;
+                const fH = Math.floor((frame.displayHeight || frame.codedHeight) / 16) * 16 || 16;
+
+                const newEncW = Math.round(fW / 16) * 16;
+                const newEncH = Math.round(fH / 16) * 16;
 
                 if (newEncW > 0 && newEncH > 0 && (newEncW !== encoder._lastConfig.width || newEncH !== encoder._lastConfig.height)) {
                     console.log(`[WebCodecs] Resolution changed from ${encoder._lastConfig.width}x${encoder._lastConfig.height} to ${newEncW}x${newEncH} (Native: ${fW}x${fH})`);
@@ -3482,28 +4273,26 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                     encoder._lastConfig.height = newEncH;
                     try { encoder.configure(encoder._lastConfig); } catch (e) { console.error(e); }
                     _wcForceKeyframe = true;
+                    // Reset H264 config sent flag on resolution change
+                    window._wcH264ConfigSent = false;
                 }
 
+                // Direct encode of the source frame (used by hardware and software)
                 let frameToEncode = frame;
-                if (newEncW !== fW || newEncH !== fH) {
-                    if (!window._wcScaleCanvas || window._wcScaleCanvas.width !== newEncW) {
-                        window._wcScaleCanvas = new OffscreenCanvas(newEncW, newEncH);
-                        window._wcScaleCtx = window._wcScaleCanvas.getContext('2d', { alpha: false, desynchronized: true });
-                    }
-                    window._wcScaleCtx.drawImage(frame, 0, 0, newEncW, newEncH);
-                    frameToEncode = new VideoFrame(window._wcScaleCanvas, { timestamp: frame.timestamp, alpha: 'discard' });
-                    frame.close();
-                }
 
-                // Increased queue tolerance from 2 to 10 to prevent micro-stutters when
-                // the hardware encoder takes slightly longer than 16ms to process a complex frame.
-                if (encoder.encodeQueueSize > 10) {
+                // 3.0.1 backpressure: two queued frames max
+                if (encoder.encodeQueueSize > 2) {
+                    _bumpDrop('dQ');
                     frameToEncode.close();
                 } else {
                     const keyFrame = _wcForceKeyframe;
                     if (keyFrame) _wcForceKeyframe = false;
                     try {
                         encoder.encode(frameToEncode, { keyFrame });
+                        // Our own in-flight count: if this grows while output
+                        // stays zero, the encoder is wedged no matter what
+                        // encodeQueueSize claims. The heartbeat acts on it.
+                        try { window._wcOutstanding = (window._wcOutstanding || 0) + 1; } catch (_) {}
                     } catch (e) {
                         console.error('[WebCodecs] Encode frame error:', e);
                     }
@@ -3516,23 +4305,327 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     }
     processFrames();
 
+    // Forced-IDR cadence (1/sec). Late-joiners and loss recovery use on-demand
+    // keyframes (request-keyframe / wcChannel-open force), so the periodic
+    // cadence only needs to bound worst-case drift — not run at 5Hz.
     const _kfInterval = setInterval(() => {
+        if (_pipeGen !== window._wcPipelineGen) { clearInterval(_kfInterval); return; }
         if (!_wcEncoder || _wcEncoder.state !== 'configured') {
             clearInterval(_kfInterval);
             return;
         }
         _wcForceKeyframe = true;
     }, KEYFRAME_INTERVAL_MS);
+    window._wcPipelineIntervals.push(_kfInterval);
+
+    // Telemetry heartbeat: fires the pipe summary even when zero chunks flow.
+    const _pipeStatTimer = setInterval(() => {
+        if (_pipeGen !== window._wcPipelineGen) { clearInterval(_pipeStatTimer); return; }
+        _reportPipeStats(true);
+    }, 5000);
+    window._wcPipelineIntervals.push(_pipeStatTimer);
+
+    let _abrCurrentBitrate = wcConfig.bitrate;
+    const _abrBaseBitrate = wcConfig.bitrate;
+    
+    // Only run Adaptive Bitrate if the user has Constant Bitrate (CBR) DISABLED.
+    // Otherwise, it directly overrides their forced quality preferences.
+    if (!cbrEnabled) {
+        const _abrInterval = setInterval(() => {
+            if (_pipeGen !== window._wcPipelineGen) { clearInterval(_abrInterval); return; }
+            if (!_wcEncoder || _wcEncoder.state !== 'configured') {
+                clearInterval(_abrInterval);
+                return;
+            }
+
+            const pcList = Object.values(peerConnections);
+            if (!pcList.length) return;
+
+            const rttValues = [];
+            const promises = pcList.map(pc => {
+                if (typeof pc.getStats !== 'function') return Promise.resolve();
+                return pc.getStats().then(stats => {
+                    let bestPair = null;
+                    stats.forEach(r => {
+                        if (r.type === 'candidate-pair' && r.state === 'succeeded') {
+                            if (!bestPair || r.currentRoundTripTime < (bestPair.currentRoundTripTime || 1)) {
+                                bestPair = r;
+                            }
+                        }
+                    });
+                    if (bestPair?.currentRoundTripTime != null) {
+                        rttValues.push(Math.round(bestPair.currentRoundTripTime * 1000));
+                    }
+                }).catch(() => {});
+            });
+
+            Promise.all(promises).then(() => {
+                if (_pipeGen !== window._wcPipelineGen) return; // stale instance won the race: touch nothing
+                if (rttValues.length === 0) return;
+
+                // Sort and find median RTT to prevent one bad connection from dragging down everyone's quality
+                rttValues.sort((a, b) => a - b);
+                const mid = Math.floor(rttValues.length / 2);
+                const medianRttMs = rttValues.length % 2 !== 0 ? rttValues[mid] : (rttValues[mid - 1] + rttValues[mid]) / 2;
+
+                let newBitrate = _abrCurrentBitrate;
+                if (medianRttMs > 150) {
+                    newBitrate = Math.max(1000000, Math.round(_abrCurrentBitrate * 0.5));
+                } else if (medianRttMs > 80) {
+                    newBitrate = Math.max(1000000, Math.round(_abrCurrentBitrate * 0.9));
+                } else if (medianRttMs < 50) {
+                    newBitrate = Math.min(_abrBaseBitrate, Math.round(_abrCurrentBitrate * 1.1 + 250000));
+                }
+
+                if (newBitrate !== _abrCurrentBitrate && _wcEncoder && _wcEncoder.state === 'configured') {
+                    _abrCurrentBitrate = newBitrate;
+                    const nextConfig = { ...encoder._lastConfig, bitrate: newBitrate };
+                    try {
+                        _wcEncoder.configure(nextConfig);
+                        encoder._lastConfig = nextConfig;
+                        console.log(`[ABR] Median RTT: ${medianRttMs}ms | Adjusted Bitrate to ${Math.round(newBitrate/1000)}kbps`);
+                    } catch (e) { }
+                }
+            });
+        }, 2000);
+        window._wcPipelineIntervals.push(_abrInterval);
+}
+    }
+
+    // ── Connection Watchdog ──────────────────────────────────────────────────
+    // Monitors connection health and forces recovery on stalls
+    let _connWatchdogInterval = null;
+    let _lastFrameReceived = 0;
+    let _connectionStallCount = 0;
+    const CONNECTION_STALL_TIMEOUT = 5000; // 5 seconds without frames = stall
+    const MAX_STALL_RECOVERIES = 3;
+
+    function _startConnectionWatchdog() {
+        if (_connWatchdogInterval) return;
+        _lastFrameReceived = performance.now();
+        _connectionStallCount = 0;
+        
+        _connWatchdogInterval = setInterval(() => {
+            if (!_wcEncoder || _wcEncoder.state !== 'configured') return;
+            
+            const elapsed = performance.now() - _lastFrameReceived;
+            if (elapsed > CONNECTION_STALL_TIMEOUT) {
+                _connectionStallCount++;
+                console.warn(`[Watchdog] Connection stall detected (${elapsed}ms), recovery attempt ${_connectionStallCount}/${MAX_STALL_RECOVERIES}`);
+                
+                // Force keyframe to recover
+                _wcForceKeyframe = true;
+                
+                // Request fresh offer from all viewers
+                Object.values(peerConnections).forEach(pc => {
+                    if (pc && pc.connectionState === 'connected') {
+                        pc.createOffer().then(offer => {
+                            offer.sdp = _mungeAudioSdp(offer.sdp);
+                            pc.setLocalDescription({ type: offer.type, sdp: offer.sdp }).catch(() => {});
+                        }).catch(() => {});
+                    }});
+                
+                if (_connectionStallCount >= MAX_STALL_RECOVERIES) {
+                    console.error('[Watchdog] Max stall recoveries exceeded, forcing full reconnect');
+                    _forceFullReconnect();
+                }
+            }
+        }, 2000); // Check every 2 seconds
+    }
+
+function _stopConnectionWatchdog() {
+        if (_connWatchdogInterval) {
+            clearInterval(_connWatchdogInterval);
+            _connWatchdogInterval = null;
+        }
+    }
+
+    function _forceFullReconnect() {
+        console.warn('[Watchdog] Forcing full reconnect...');
+        _stopConnectionWatchdog();
+        // Reset encoder
+        if (_wcEncoder && _wcEncoder.state !== 'closed') {
+            try { _wcEncoder.close(); } catch (_) {}
+        }
+        _wcEncoder = null;
+        if (window._webcodecsReader) {
+            try { window._webcodecsReader.cancel(); } catch (_) {}
+            window._webcodecsReader = null;
+        }
+        // Reset encoder state
+        window._wcH264ConfigSent = false;
+        window._wcHwFallbackDone = false;
+        window._wcForceKeyframe = true;
+
+        // Restart pipeline (track comes from window — this function lives at
+        // top level, outside the pipeline closure, so the parameter is NOT in
+        // scope here; the old direct reference threw ReferenceError and no
+        // recovery ever ran).
+        window._wcSilentPipelineStart = true; // watchdog restarts: no chat spam
+        setTimeout(() => {
+            try {
+                const vt = window._wcVideoTrack;
+                if (!vt || vt.readyState === 'ended') {
+                    console.error('[Watchdog] Cannot restart pipeline — capture track is gone. Click Start to re-pick the source.');
+                    if (typeof sysChat === 'function') sysChat('Stream recovery needs a source — click Start');
+                    return;
+                }
+                startWebCodecsNetworkPipeline(vt).catch(e => {
+                    console.error('[Watchdog] Failed to restart pipeline:', e);
+                });
+            } catch (e) {
+                console.error('[Watchdog] Restart scheduling failed:', e);
+            }
+        }, 1000);
+    }
+
+    // Update last frame received timestamp (call this when frames are processed)
+    function _markFrameReceived() {
+        _lastFrameReceived = performance.now();
+    }
+
+    let _lastKeyframeTime = 0;
+
+// ── GStreamer native chunk ingest ──
+// Feeds Rust-sidecar H264 Annex-B chunks into the exact same viewer transport
+// as the browser WebCodecs pipeline: one decoder-config JSON, then binary
+// frames (1-byte keyflag + 8-byte micros timestamp + payload).
+function _splitNalus(data) {
+    // Split one access unit into raw NAL payloads (no start codes, no
+    // length prefixes), accepting BOTH framings:
+    //  - Annex-B (00 00 01 / 00 00 00 01 delimited; x264 byte-stream output)
+    //  - AVCC (4-byte big-endian lengths; what avc1 decoders actually want
+    //    and what the VA-API chunk pipeline emits)
+    const nalus = [];
+    if (!data || data.length < 5) return nalus;
+    const hasStartCodeAt0 = (data[0] === 0 && data[1] === 0 &&
+        (data[2] === 1 || (data[2] === 0 && data[3] === 1)));
+    if (!hasStartCodeAt0) {
+        // Try AVCC length-walk with strict sanity (lengths must chain
+        // exactly through the buffer); fall through to Annex-B scan below
+        // if it doesn't parse cleanly.
+        let offs = [];
+        let p = 0, ok = false;
+        while (p + 4 <= data.length) {
+            const len = (data[p] * 16777216) + (data[p + 1] << 16) + (data[p + 2] << 8) + data[p + 3];
+            if (len <= 0 || len > 8 * 1024 * 1024 || p + 4 + len > data.length) break;
+            offs.push([p + 4, p + 4 + len]);
+            p += 4 + len;
+            if (p === data.length) { ok = true; break; }
+        }
+        if (ok && offs.length) {
+            for (const [s, e] of offs) nalus.push(data.subarray(s, e));
+            return nalus;
+        }
+    }
+    let i = 0;
+    while (i < data.length - 3) {
+        let sc = 0;
+        if (data[i] === 0 && data[i + 1] === 0) {
+            if (data[i + 2] === 1) sc = 3;
+            else if (data[i + 2] === 0 && data[i + 3] === 1) sc = 4;
+        }
+        if (!sc) { i++; continue; }
+        const start = i + sc;
+        let end = data.length;
+        for (let j = start; j < data.length - 3; j++) {
+            if (data[j] === 0 && data[j + 1] === 0 &&
+                (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+                end = j;
+                break;
+            }
+        }
+        if (end > start) nalus.push(data.subarray(start, end));
+        i = end;
+    }
+    return nalus;
 }
 
-let _lastKeyframeTime = 0;
+function _avccConfigFromAnnexB(data, w, h) {
+    // Builds the AVCC decoder description from the SPS/PPS in a keyframe,
+    // regardless of whether the chunk arrived Annex-B or AVCC framed
+    // (name kept for backward compat).
+    const nalus = _splitNalus(data);
+    const hex = (b) => b.toString(16).padStart(2, '0');
+    let sps = null, pps = null;
+    for (const n of nalus) {
+        if (!n.length) continue;
+        const t = n[0] & 31;
+        if (t === 7 && !sps) sps = n;
+        else if (t === 8 && !pps) pps = n;
+        if (sps && pps) break;
+    }
+    if (!sps || !pps || sps.length < 4) return null;
+    const codec = 'avc1.' + hex(sps[1]) + hex(sps[2]) + hex(sps[3]);
+    const desc = new Uint8Array(11 + sps.length + pps.length);
+    let o = 0;
+    desc[o++] = 1; desc[o++] = sps[1]; desc[o++] = sps[2]; desc[o++] = sps[3];
+    desc[o++] = 0xFF;
+    desc[o++] = 0xE1;
+    desc[o++] = (sps.length >> 8) & 255; desc[o++] = sps.length & 255;
+    desc.set(sps, o); o += sps.length;
+    desc[o++] = 1;
+    desc[o++] = (pps.length >> 8) & 255; desc[o++] = pps.length & 255;
+    desc.set(pps, o);
+    return { codec, width: w || 1280, height: h || 720, desc };
+}
+
+function _ingestGstChunk(msg) {
+    try {
+        const b64 = msg.data;
+        if (!b64 || typeof b64 !== 'string') return;
+        const bin = atob(b64);
+        if (!bin.length) return;
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const isKey = !!msg.keyframe;
+        // First keyframe (or codec change): extract SPS/PPS -> AVCC config.
+        if (isKey && !window._gstWcConfig) {
+            const cfg = _avccConfigFromAnnexB(bytes, msg.width | 0, msg.height | 0);
+            if (cfg) {
+                _lastWcConfig = JSON.stringify({
+                    type: 'webcodecs-config',
+                    codec: cfg.codec,
+                    codedWidth: cfg.width,
+                    codedHeight: cfg.height,
+                    description: Array.from(cfg.desc)
+                });
+                window._gstWcConfig = true;
+                broadcastToViewers(_lastWcConfig);
+            }
+        }
+        if (!window._gstWcConfig) return; // viewers can't decode yet
+        const payload = new Uint8Array(1 + 8 + bytes.length);
+        payload[0] = isKey ? 1 : 0;
+        new DataView(payload.buffer).setFloat64(1, performance.now() * 1000, true);
+        payload.set(bytes, 9);
+        broadcastToViewers(payload.buffer);
+    } catch (e) {
+        console.warn('[GStreamer] chunk ingest failed:', e);
+    }
+}
 
 function broadcastToViewers(data) {
     if (typeof peerConnections === 'undefined') return;
 
-    // Detect if this packet is a keyframe (first byte === 1)
-    if (typeof data !== 'string' && data.byteLength > 0 && data[0] === 1) {
-        _lastKeyframeTime = Date.now();
+    let isKeyframe = false;
+    if (typeof data !== 'string' && data.byteLength > 0) {
+        const view = new Uint8Array(data);
+        if (view[0] === 1) {
+            isKeyframe = true;
+            _lastKeyframeTime = Date.now();
+            // Re-broadcast config on every keyframe to instantly heal late-joining ORP viewers
+            if (typeof _lastWcConfig !== 'undefined' && _lastWcConfig) {
+                if (window.P2PManager && window.P2PManager.hostSession) {
+                    window.P2PManager.hostSession.viewers.forEach(viewer => {
+                        const channel = viewer.videoChannel;
+                        if (channel && channel.readyState === 'open') {
+                            try { channel.send(_lastWcConfig); } catch(e) {}
+                        }
+                    });
+                }
+            }
+        }
     }
 
     // Smart Latency Threshold: 
@@ -3540,33 +4633,47 @@ function broadcastToViewers(data) {
     // from instantly spiking the buffer and triggering a drop-loop.
     // Allow up to 3MB for exactly 1000ms after a keyframe is generated.
     const timeSinceKf = Date.now() - _lastKeyframeTime;
-    const vpsThreshold = timeSinceKf < 1000 ? 3000000 : 1000000;
-    const p2pThreshold = timeSinceKf < 1000 ? 3000000 : 1000000;
+    const vpsThreshold = timeSinceKf < 1000 ? 2000000 : 1000000;
+    const p2pThreshold = timeSinceKf < 1000 ? 1000000 : 500000;
 
     // If VPS mode is active and authenticated, send to VPS instead of individual DataChannels
     if (_vpsWs && _vpsAuthOk && _vpsWs.readyState === 1) {
-        if (typeof data !== 'string' && _vpsWs.bufferedAmount > vpsThreshold) {
+        if (typeof data !== 'string' && !isKeyframe && _vpsWs.bufferedAmount > vpsThreshold) {
             if (data.byteLength > 10) _wcForceKeyframe = true;
             return;
         }
         try { _vpsWs.send(data); } catch (e) {
             console.warn('[VPS] Send failed, falling back to P2P:', e.message);
-            _broadcastP2P(data, p2pThreshold);
+            _broadcastP2P(data, p2pThreshold, isKeyframe);
         }
         return;
     }
 
     // Tunnel fallback: Send WebCodecs stream over standard signaling WS to the local Node.js server
-    if (ws && ws.readyState === 1) {
-        if (typeof data !== 'string' && ws.bufferedAmount > vpsThreshold) {
+    // Only send over WS if there is at least one viewer who hasn't opened their DataChannel yet,
+    // otherwise we double the bandwidth and cause massive congestion drops!
+    let needsWsFallback = false;
+    if (typeof peerConnections !== 'undefined') {
+        const pcs = Object.values(peerConnections);
+        if (pcs.length === 0) needsWsFallback = true; // no pcs yet, maybe early stages
+        for (const pc of pcs) {
+            if (!pc.wcChannel || pc.wcChannel.readyState !== 'open') {
+                needsWsFallback = true;
+                break;
+            }
+        }
+    }
+    
+    if (needsWsFallback && ws && ws.readyState === 1) {
+        if (typeof data !== 'string' && !isKeyframe && ws.bufferedAmount > vpsThreshold) {
             if (data.byteLength > 10) _wcForceKeyframe = true;
         } else {
             try { ws.send(data); } catch (_) { }
         }
     }
 
-    _broadcastP2P(data, p2pThreshold);
-    
+    _broadcastP2P(data, p2pThreshold, isKeyframe);
+
     if (window._hostDelayEnabled) {
         if (typeof _hostDelayFrames !== 'undefined') {
             _hostDelayFrames++;
@@ -3577,23 +4684,43 @@ function broadcastToViewers(data) {
     }
 }
 
-function _broadcastP2P(data, threshold) {
+function _broadcastP2P(data, threshold, isKeyframeAlreadyChecked) {
     // If not called from broadcastToViewers, fallback to standard calculation
     if (!threshold) {
         const timeSinceKf = Date.now() - _lastKeyframeTime;
         threshold = timeSinceKf < 1000 ? 3000000 : 1000000;
     }
+    
+    let isKeyframe = isKeyframeAlreadyChecked || false;
+    if (typeof isKeyframeAlreadyChecked === 'undefined' && typeof data !== 'string' && data.byteLength > 0) {
+        isKeyframe = new Uint8Array(data)[0] === 1;
+    }
 
     Object.values(peerConnections).forEach(pc => {
         const channel = pc.wcChannel;
         if (channel && channel.readyState === 'open') {
-            if (typeof data !== 'string' && channel.bufferedAmount > threshold) {
+            if (typeof data !== 'string' && !isKeyframe && channel.bufferedAmount > threshold) {
                 if (data.byteLength > 10) _wcForceKeyframe = true;
                 return;
             }
             try { channel.send(data); } catch (_) { }
         }
     });
+
+    if (window.P2PManager && window.P2PManager.hostSession) {
+        window.P2PManager.hostSession.viewers.forEach(viewer => {
+            const channel = viewer.videoChannel;
+            if (channel && channel.readyState === 'open') {
+                if (typeof data !== 'string') {
+                    if (!isKeyframe && channel.bufferedAmount > threshold) {
+                        if (data.byteLength > 10) _wcForceKeyframe = true;
+                        return;
+                    }
+                }
+                try { channel.send(data); } catch (e) {}
+            }
+        });
+    }
 }
 
 // ── VPS SFU Connection ────────────────────────────────────────────────────────
@@ -3689,10 +4816,10 @@ function connectVps(cfg) {
                             div.style.color = 'var(--accent)';
                             div.textContent = viewerUrl;
                             div.onclick = () => {
+                                if (div.textContent === '✓ Copied!') return;
                                 navigator.clipboard.writeText(viewerUrl).catch(() => { });
-                                const tmp = div.textContent;
-                                div.textContent = 'copied!';
-                                setTimeout(() => { div.textContent = tmp; }, 1500);
+                                div.textContent = '✓ Copied!';
+                                setTimeout(() => { div.textContent = viewerUrl; }, 1500);
                             };
                             const sub = document.createElement('div');
                             sub.className = 'url-label';
@@ -3821,6 +4948,7 @@ function disconnectVps() {
         _vpsWs = null;
     }
     _vpsAuthOk = false;
+    if (_vpsConfig) _vpsConfig.vpsEnabled = false;
 }
 
 function updateKbmPanicButton() {
@@ -3959,10 +5087,11 @@ window.saveCodecUI = async function (val) {
 
         try {
             const offer = await pc.createOffer({ iceRestart: false });
-            await pc.setLocalDescription(offer);
+            offer.sdp = _mungeAudioSdp(offer.sdp);
+            await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
             const rawName = codec.split('/')[1].toLowerCase();
             const msg = { type: 'offer', sdp: pc.localDescription, _viewerId: vid, codec: rawName };
-            if (window.P2PManager && window.P2PManager.isPeer(vid)) {
+            if (window.P2PManager && (window.P2PManager.isPeer(vid) || (window._handledP2PJoins && window._handledP2PJoins.has(vid)))) {
                 window.P2PManager.sendToPeer(vid, msg);
             } else if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify(msg));
@@ -3993,7 +5122,13 @@ function saveCaptureMethod(method) {
         else if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
         else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
         else if (urlParams.get('gst') === '1') activeMethod = 'gstreamer_webrtc';
-        else activeMethod = 'native';
+        else activeMethod = 'webcodecs';
+    }
+
+    // If a stream is already active, try hot-swap instead of restart
+    if (currentStream && typeof swapPipeline === 'function' && method !== activeMethod) {
+        swapPipeline(method);
+        return;
     }
 
     if (window.electronAPI && window.electronAPI.saveSettingsSync) {
@@ -4012,7 +5147,7 @@ function saveCaptureMethod(method) {
     }
 }
 
-// Ensure the UI matches the loaded URL parameter on boot
+// Ensure the UI matches the loaded config or URL parameter on boot
 function hydratePipelineSelect() {
     const pSelect = document.getElementById('pipelineSelect');
     if (!pSelect) return;
@@ -4031,7 +5166,16 @@ function hydratePipelineSelect() {
     } else if (urlParams.get('gst') === '1') {
         pSelect.value = 'gstreamer_webrtc';
     } else {
-        pSelect.value = 'native';
+        // Fallback to config (not localStorage)
+        loadAppConfig().then(cfg => {
+            if (cfg?.captureMethod) {
+                pSelect.value = cfg.captureMethod;
+            } else {
+                pSelect.value = 'native';
+            }
+        }).catch(() => {
+            pSelect.value = 'native';
+        });
     }
 }
 if (document.readyState === 'loading') {
@@ -4084,16 +5228,22 @@ function showTunnelError(msg) {
 function copyCmdText(e, el) {
     e.preventDefault();
     e.stopPropagation();
-    const cmd = el.innerText;
+    // Re-entry guard: while the "Copied!" feedback is showing, the label IS
+    // the element text — a second click would copy "Copied!" to the clipboard
+    // instead of the command. Ignore feedback-state clicks outright.
+    if (el.dataset.copyBusy === '1') return;
+    const cmd = (el.dataset.orig || el.innerText).trim();
+    if (!el.dataset.orig) el.dataset.orig = cmd;
+    el.dataset.copyBusy = '1';
     navigator.clipboard.writeText(cmd).then(() => {
-        const orig = el.innerText;
         el.innerText = 'Copied!';
         el.style.color = 'var(--accent)';
         setTimeout(() => {
-            el.innerText = orig;
+            el.innerText = el.dataset.orig;
             el.style.color = '';
+            el.dataset.copyBusy = '0';
         }, 1000);
-    });
+    }).catch(() => { el.dataset.copyBusy = '0'; });
 }
 
 function copyCmd(e, cmd, el = null) {
@@ -4105,21 +5255,26 @@ function copyCmd(e, cmd, el = null) {
     }
     navigator.clipboard.writeText(finalCmd).then(() => {
         if (el && el.tagName.toLowerCase() === 'code') {
+            if (el.dataset.copyBusy === '1') return;
+            el.dataset.copyBusy = '1';
             const orig = el.innerText;
             el.innerText = 'Copied!';
             el.style.color = 'var(--accent)';
             setTimeout(() => {
                 el.innerText = orig;
                 el.style.color = 'var(--muted)';
+                el.dataset.copyBusy = '0';
             }, 1000);
         } else {
             const btn = e.target;
+            if (btn && btn.dataset && btn.dataset.copyBusy === '1') return;
+            if (btn && btn.dataset) btn.dataset.copyBusy = '1';
             const orig = btn.textContent;
             btn.textContent = '✓';
             btn.style.borderColor = 'var(--accent)';
-            setTimeout(() => { btn.textContent = orig; btn.style.borderColor = '#4e5058'; }, 1000);
+            setTimeout(() => { btn.textContent = orig; btn.style.borderColor = '#4e5058'; if (btn && btn.dataset) btn.dataset.copyBusy = '0'; }, 1000);
         }
-    });
+    }).catch(() => { try { if (el && el.dataset) el.dataset.copyBusy = '0'; } catch (_) {} });
 }
 
 function confirmTunnel() {
@@ -4130,36 +5285,33 @@ function confirmTunnel() {
     const remember = document.getElementById('rememberCheck').checked;
     setTunnelBusy(true);
 
-    // ── zrok token gate ─────────────────────────────────────────────────────
-    // The token prompt lives in its OWN popup (never the provider list). It
-    // only appears when the user actually intends to start a zrok tunnel AND
-    // no token has been given to this device yet. If the app verifies a token
-    // is already enabled (zrok status authenticated), it never shows.
-    if (provider === 'zrok') {
+    if (provider === 'zrok' || provider === 'cloudflared') {
         fetch('/api/tunnels/providers').then(r => r.json()).then(data => {
-            const zrok = (data.providers || []).find(p => p.id === 'zrok');
+            const zrok = (data.providers || []).find(p => p.id === provider);
             const authed = !!(zrok && zrok.status && zrok.status.authenticated);
             if (authed) {
-                doStartTunnel(provider, remember, '');
+                doStartTunnel(provider, remember, '', '');
             } else {
                 closeTunnelModal();
-                const modal = document.getElementById('zrokTokenModal');
+                const modalId = provider === 'zrok' ? 'zrokTokenModal' : 'cfTokenModal';
+                const inputId = provider === 'zrok' ? 'zrokTokenPasteInput' : 'cfTokenPasteInput';
+                const modal = document.getElementById(modalId);
                 if (modal) {
                     _pendingZrokRemember = remember;
-                    const inp = document.getElementById('zrokTokenPasteInput');
+                    const inp = document.getElementById(inputId);
                     if (inp) { inp.value = ''; inp.focus(); }
                     modal.classList.remove('gone');
                 } else {
-                    doStartTunnel(provider, remember, '');
+                    doStartTunnel(provider, remember, '', '');
                 }
             }
         }).catch(() => {
-            doStartTunnel(provider, remember, '');
+            doStartTunnel(provider, remember, '', '');
         });
         return;
     }
 
-    doStartTunnel(provider, remember, '');
+    doStartTunnel(provider, remember, '', '');
 }
 
 // Resume a zrok tunnel start from the token popup with the pasted token.
@@ -4168,20 +5320,39 @@ function submitZrokToken() {
     if (modal) modal.classList.add('gone');
     const inp = document.getElementById('zrokTokenPasteInput');
     const token = (inp && inp.value || '').trim();
-    doStartTunnel('zrok', _pendingZrokRemember || false, token || 'skip');
+    doStartTunnel('zrok', _pendingZrokRemember || false, token || 'skip', '');
 }
 
-// Resume a zrok tunnel start from the token popup without a token — the user
-// claims zrok is already enabled on this device another way.
+// Resume a zrok tunnel start from the token popup without a token
 function skipZrokToken() {
     const modal = document.getElementById('zrokTokenModal');
     if (modal) modal.classList.add('gone');
-    doStartTunnel('zrok', _pendingZrokRemember || false, 'skip');
+    doStartTunnel('zrok', _pendingZrokRemember || false, 'skip', '');
 }
 
-// Shared tunnel-start path used by confirmTunnel (direct) and the zrok token
-// popup (resume). zrokToken is '' (already authed), a pasted token, or 'skip'.
-function doStartTunnel(provider, remember, zrokToken) {
+function submitCfToken() {
+    const modal = document.getElementById('cfTokenModal');
+    if (modal) modal.classList.add('gone');
+    const inp = document.getElementById('cfTokenPasteInput');
+    const domInp = document.getElementById('cfDomainPasteInput');
+    const token = (inp && inp.value || '').trim();
+    const domain = (domInp && domInp.value || '').trim();
+    
+    // We send domain alongside token, using a compound string or a new field.
+    // Wait, doStartTunnel takes cfToken as a string. Let's send an object if domain is present.
+    // Or just fetch `/api/start-tunnel` with `customUrl`! 
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', token ? { token, domain } : 'skip');
+}
+
+function skipCfToken() {
+    const modal = document.getElementById('cfTokenModal');
+    if (modal) modal.classList.add('gone');
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', 'skip');
+}
+
+// Shared tunnel-start path used by confirmTunnel (direct) and the token
+// popups (resume).
+function doStartTunnel(provider, remember, zrokToken, cfToken) {
 
     if (provider === 'portforward') {
         saveAppConfig({ tunnelProvider: 'portforward', neverAsk: remember });
@@ -4274,7 +5445,7 @@ function doStartTunnel(provider, remember, zrokToken) {
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken })
+        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken, cfToken })
     }).then(() => { clearTimeout(_autoCloseTimer); }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
 }
 
@@ -4343,12 +5514,13 @@ function proceedP2POnly() {
 // (proceedP2POnly) and the friend-invite flow (inviteFriendToP2P). Counts
 // connected peers on window._p2pPeerCount so the stop flow can check whether
 // the invited friend has left the session before restoring the tunnel.
-function initP2PHostRoom(code) {
+async function initP2PHostRoom(code) {
     if (!window.P2PManager) return;
 
     window._p2pPeerCount = 0;
 
     // Initialize Trystero
+    if (window._turnFetchPromise) await window._turnFetchPromise;
     window.P2PManager.initHost(code, (msg, peerId) => {
         // Handle binary inputs sent over Trystero (during handshake before WebRTC channel is open)
         if (msg instanceof Uint8Array || msg instanceof ArrayBuffer) {
@@ -4357,13 +5529,24 @@ function initP2PHostRoom(code) {
         }
 
         // Check PIN locally since there's no server.js
+        window._handledP2PJoins = window._handledP2PJoins || new Set();
+        if (msg.type === 'request-offer') {
+            msg.type = 'viewer-joined';
+            msg.reoffer = true;
+            msg.name = msg.name || peerId;
+            // Fall through to let ws.onmessage handle it
+        }
+
         if (msg.type === 'join') {
+            const isDuplicateJoin = window._handledP2PJoins.has(peerId);
+            window._handledP2PJoins.add(peerId);
             if (pinEnabled && msg.pin !== currentPin) {
                 window.P2PManager.sendToPeer(peerId, { type: 'pin-rejected' });
                 return;
             }
             // Translate join to viewer-joined for host.js
             msg.type = 'viewer-joined';
+            if (isDuplicateJoin) return;
             window._p2pPeerCount = (window._p2pPeerCount || 0) + 1;
 
             // Emulate server initialization packets so the Viewer hides the PIN screen
@@ -4371,10 +5554,11 @@ function initP2PHostRoom(code) {
                 type: 'your-id',
                 viewerId: peerId
             });
+            const actualHostName = (document.getElementById('displayHostName')?.textContent || localStorage.getItem('ns_name') || 'P2P Host').trim();
             window.P2PManager.sendToPeer(peerId, {
-                type: 'host-connected',
-                hostName: 'P2P Host'
-            });
+                    type: 'host-connected',
+                    hostName: actualHostName
+                });
 
             // Emulate server sending host-stream-ready if streaming
             if (currentStream) {
@@ -4394,9 +5578,11 @@ function initP2PHostRoom(code) {
                     isDesktopApp: msg.isDesktopApp,
                 }));
             }
+            // Fall through: ws.onmessage handles viewer-joined -> sendOfferToViewer
         }
 
         if (msg.type === 'viewer-left') {
+            window._handledP2PJoins?.delete(peerId);
             window._p2pPeerCount = Math.max(0, (window._p2pPeerCount || 0) - 1);
             if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify({
@@ -4404,6 +5590,7 @@ function initP2PHostRoom(code) {
                     viewerId: peerId,
                 }));
             }
+            // Fall through: ws.onmessage handles viewer-left cleanup
         }
 
         // Let the existing websocket logic handle it
@@ -4411,7 +5598,7 @@ function initP2PHostRoom(code) {
             // Ensure _viewerId exists for existing routing logic
             if (msg.viewer_id && !msg._viewerId) msg._viewerId = msg.viewer_id;
             if (msg.viewerId && !msg._viewerId) msg._viewerId = msg.viewerId;
-            
+
             // We must unconditionally map the P2P peerId into viewerId so the Host routes the offer correctly!
             msg._viewerId = peerId;
             msg.viewerId = peerId;
@@ -4579,10 +5766,188 @@ document.querySelectorAll('.provider-card').forEach(card => {
     });
 });
 
+// ── NDI / SPOUT EGRESS ─────────────────────────────────────────────────────────
+// Broadcasts the host's display capture to the LAN. NDI (OBS picks it up
+// natively) via the utilityProcess ndi-egress-worker.js (grandi: NDI SDK 6).
+// Spout2 (Windows only) via spout-egress-worker.js (koffi + SpoutLibrary.dll).
+// Frames flow: hidden <video> -> canvas -> RGBA -> utility process.
+let ndiActive = false;
+let spoutActive = false;
+let ndiVideoEl = null;
+let ndiCanvas = null;
+let ndiCtx = null;
+let ndiLastSend = 0;
+
+function ndiResCfg() {
+    const map = { '1080p': [1920, 1080], '720p': [1280, 720], '540p': [960, 540], '360p': [640, 360] };
+    const [w, h] = map[localStorage.getItem('ns_ndi_res') || '720p'] || map['720p'];
+    return { width: w, height: h, fps: 30 };
+}
+
+function ndiBindSource() {
+    const targetStream = ndiOnlyStream || currentStream;
+    if ((!ndiActive && !spoutActive) || !targetStream || typeof targetStream === 'string') return;
+    if (!ndiVideoEl) {
+        ndiVideoEl = document.createElement('video');
+        ndiVideoEl.muted = true;
+        ndiVideoEl.playsInline = true;
+        ndiVideoEl.style.cssText = 'position:absolute;top:0;left:0;width:10px;height:10px;opacity:1;pointer-events:none;z-index:-9999;';
+        document.body.appendChild(ndiVideoEl);
+        ndiCanvas = document.createElement('canvas');
+        ndiCtx = ndiCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    ndiVideoEl.srcObject = targetStream;
+    ndiVideoEl.play().catch(() => { });
+    ndiLastSend = 0;
+}
+
+function ndiTick(now) {
+    if ((!ndiActive && !spoutActive) || !ndiVideoEl || !window.electronAPI) return;
+    const cfg = ndiResCfg();
+    const interval = 1000 / cfg.fps;
+    if (now - ndiLastSend >= interval) {
+        try {
+            if (ndiCanvas.width !== cfg.width) { ndiCanvas.width = cfg.width; ndiCanvas.height = cfg.height; }
+            ndiCtx.drawImage(ndiVideoEl, 0, 0, cfg.width, cfg.height);
+            const img = ndiCtx.getImageData(0, 0, cfg.width, cfg.height);
+
+            // Send raw Uint8ClampedArray directly to avoid ArrayBuffer padding issues over IPC
+            if (ndiActive) window.electronAPI.ndiFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data);
+            if (spoutActive) window.electronAPI.spoutFrame({ width: cfg.width, height: cfg.height, fps: cfg.fps }, img.data);
+            ndiLastSend = now;
+        } catch (e) { console.error('[NDI] Tick error:', e); }
+    }
+    // On Linux Wayland, off-screen video elements get culled, freezing requestVideoFrameCallback
+    setTimeout(() => ndiTick(Date.now()), interval || 16);
+}
+
+let ndiOnlyStream = null;
+
+window.startNdi = async function () {
+    if (!window.electronAPI) {
+        alert('NDI broadcast is only available in the desktop app.');
+        return false;
+    }
+    
+    // If the main capture isn't a valid MediaStream (e.g., stopped or using Native GStreamer), we must get our own.
+    if (!currentStream || typeof currentStream === 'string') {
+        try {
+            ndiOnlyStream = await navigator.mediaDevices.getDisplayMedia({ video: (navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win')) ? {} : { frameRate: { ideal: 60 } } });
+        } catch (e) {
+            console.error('NDI Capture cancelled:', e);
+            return false;
+        }
+    }
+
+    ndiActive = true;
+    ndiBindSource();
+    setTimeout(() => ndiTick(Date.now()), 16);
+    window.electronAPI.ndiStart({ name: 'Nearcade Host' });
+
+    const btn = document.getElementById('ndiToggle');
+    if (btn) {
+        btn.textContent = 'Stop Broadcast';
+        btn.style.borderColor = 'var(--accent)';
+    }
+
+    return true;
+};
+
+window.stopNdi = function () {
+    ndiActive = false;
+    if (ndiOnlyStream) {
+        _forceKillStream(ndiOnlyStream);
+        ndiOnlyStream = null;
+    }
+    if (!ndiVideoEl) return;
+    if (!spoutActive) { ndiVideoEl.srcObject = null; }
+    if (window.electronAPI) window.electronAPI.ndiStop();
+
+    const btn = document.getElementById('ndiToggle');
+    if (btn) {
+        btn.textContent = 'Start Broadcast';
+        btn.style.borderColor = 'var(--border)';
+    }
+};
+
+if (window.electronAPI && typeof window.electronAPI.onNdiStatus === 'function' && !window._ndiStatusHooked) {
+    window._ndiStatusHooked = true;
+    window.electronAPI.onNdiStatus((s) => {
+        const st = document.getElementById('ndiStatus');
+        if (st) {
+            if (s.error) st.textContent = s.error;
+            else if (s.running) st.textContent = 'Broadcasting' + (s.connections != null ? ' \u00b7 ' + s.connections + ' receiver' + (s.connections === 1 ? '' : 's') : '');
+            else st.textContent = '';
+        }
+        const btn = document.getElementById('ndiToggle');
+        if (btn && s.running !== undefined) {
+            btn.textContent = s.running ? 'Stop Broadcast' : 'Start Broadcast';
+            btn.style.borderColor = s.running ? 'var(--accent)' : 'var(--border)';
+            window.ndiStatusActive = !!s.running;
+        }
+    });
+}
+
+window.startSpout = function () {
+    if (!window.electronAPI) {
+        alert('Spout2 broadcast is only available in the desktop app.');
+        return false;
+    }
+    if (!currentStream) {
+        alert('Start the stream first, then enable Spout2 Broadcast.');
+        return false;
+    }
+    spoutActive = true;
+    if (!ndiVideoEl) {
+        ndiBindSource();
+        if (ndiVideoEl.requestVideoFrameCallback) ndiVideoEl.requestVideoFrameCallback(ndiTick);
+        else setTimeout(() => ndiTick(Date.now()), 16);
+    }
+    window.electronAPI.spoutStart({ name: 'Nearcade Host' });
+    return true;
+};
+
+window.stopSpout = function () {
+    spoutActive = false;
+    if (!ndiVideoEl) return;
+    if (!ndiActive) { ndiVideoEl.srcObject = null; }
+    if (window.electronAPI) window.electronAPI.spoutStop();
+};
+
+if (window.electronAPI && typeof window.electronAPI.onSpoutStatus === 'function' && !window._spoutStatusHooked) {
+    window._spoutStatusHooked = true;
+    window.electronAPI.onSpoutStatus((s) => {
+        const st = document.getElementById('spoutStatus');
+        if (st) {
+            if (s.error) { st.textContent = s.error; }
+            else if (s.running) st.textContent = 'Broadcasting';
+            else st.textContent = '';
+        }
+        const btn = document.getElementById('spoutToggle');
+        if (btn && s.running !== undefined) {
+            btn.textContent = s.running ? 'Stop Broadcast' : 'Start Broadcast';
+            btn.style.borderColor = s.running ? 'var(--accent)' : 'var(--border)';
+        }
+    });
+}
+
+// Spout2 is a Windows/DirectX technology — hide its control elsewhere.
+(function hideSpoutRowOnNonWindows() {
+    try {
+        if (!/Windows/i.test(navigator.userAgent)) {
+            const row = document.getElementById('spoutRow');
+            if (row) row.style.display = 'none';
+        }
+    } catch (_) { }
+})();
 // ── OBS EGRESS ─────────────────────────────────────────────────────────────────
 window.spawnOBSWindow = function () {
     if (!currentStream) {
         alert("Please start the stream first before spawning the OBS Target Window.");
+        return;
+    }
+    if (window._obsWin && !window._obsWin.closed) {
+        window._obsWin.focus();
         return;
     }
     const obsWin = window.open('about:blank', 'OBS_Target', 'width=1280,height=720,frame=no');
@@ -4590,6 +5955,7 @@ window.spawnOBSWindow = function () {
         alert("Failed to spawn OBS window. Please check your popup blocker.");
         return;
     }
+    window._obsWin = obsWin;
     obsWin.document.write(`
 <!DOCTYPE html>
 <html>
@@ -4602,6 +5968,11 @@ window.spawnOBSWindow = function () {
 </head>
 <body>
     <video id="obs-video" autoplay playsinline muted></video>
+    <script>
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.close();
+        });
+    </script>
 </body>
 </html>
     `);
@@ -4616,6 +5987,7 @@ window.spawnOBSWindow = function () {
         }
     }, 100);
 };
+
 
 async function checkTunnelOnConnect() {
     if (_vpsConfig && _vpsConfig.vpsEnabled) {
@@ -4818,8 +6190,12 @@ function showSettingsModal(tab) {
     enumerateAudioDevicesSM();
     const abSel = document.getElementById('audioBackendSelect');
     if (abSel) abSel.value = localStorage.getItem('ns_audio_backend') || 'auto';
+    const ndiSel = document.getElementById('ndiRes');
+    if (ndiSel) ndiSel.value = localStorage.getItem('ns_ndi_res') || '720p';
     switchSettingsTab(tab || 'video');
     document.getElementById('settingsModal').classList.remove('gone');
+    // Update codec select UI to show hardware acceleration support
+    _updateCodecSelectUI().catch(() => {});
 }
 
 function closeSettingsModal() {
@@ -4978,10 +6354,10 @@ function _stopHostDelayLoop() {
 
 function _calculateHostDelaySync() {
     if (!window._hostDelayEnabled || !ws || ws.readyState !== 1) return;
-    
+
     let maxBuffer = 0;
     const pcList = Object.values(peerConnections);
-    
+
     pcList.forEach(pc => {
         if (pc.wcChannel && pc.wcChannel.readyState === 'open') {
             if (pc.wcChannel.bufferedAmount > maxBuffer) {
@@ -4989,23 +6365,23 @@ function _calculateHostDelaySync() {
             }
         }
     });
-    
+
     if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) {
         if (_vpsWs.bufferedAmount > maxBuffer) {
             maxBuffer = _vpsWs.bufferedAmount;
         }
     }
-    
+
     // Base 40ms + ~0.005ms delay per byte (assuming 2Mbps stream)
-    let delayMs = 40 + (maxBuffer * 0.005); 
+    let delayMs = 40 + (maxBuffer * 0.005);
     if (delayMs > 1000) delayMs = 1000;
-    
+
     _hostDelaySmoothed = _hostDelaySmoothed * 0.95 + delayMs * 0.05;
-    
+
     const sendVal = Math.round(_hostDelaySmoothed);
     if (Math.abs(sendVal - _lastHostDelaySent) > 3 || _hostDelayFrames % 120 === 0) {
         _lastHostDelaySent = sendVal;
-        try { ws.send(JSON.stringify({ type: 'host_delay', delayMs: sendVal })); } catch (e) {}
+        try { ws.send(JSON.stringify({ type: 'host_delay', delayMs: sendVal })); } catch (e) { }
     }
 }
 
@@ -5092,16 +6468,27 @@ function _refreshViewerPanel() {
         const card = document.createElement('div');
         card.className = 'viewer-panel-card' + (revoked ? ' revoked' : '');
         card.dataset.viewerId = v.id;
+        
+        let slotDisplay = '?';
+        if (v.slot !== undefined && v.slot !== null && v.slot !== -1 && v.slot !== '-1') {
+            slotDisplay = parseInt(v.slot) + 1;
+        } else if (v.slot === -1 || v.slot === '-1') {
+            slotDisplay = 'AUTO';
+        }
+
         card.innerHTML = `
-            <div class="vpc-name">${v.name || v.id}</div>
-            <div class="vpc-profile">${v.inputMode || 'gamepad'} · slot ${v.slot !== undefined ? v.slot : '?'}</div>
+            <div class="vpc-name" style="font-weight:bold;text-transform:capitalize;">${v.name || v.id}</div>
+            <div class="vpc-profile" style="font-weight:bold;text-transform:uppercase;">${v.inputMode || 'GAMEPAD'} - SLOT ${slotDisplay}</div>
             <div class="vpc-row">
-                <span style="font-size:9px;color:${revoked ? 'var(--danger)' : 'var(--green)'};">${revoked ? 'INPUT REVOKED' : 'Input Active'}</span>
+                <span style="font-size:9px;color:${revoked ? 'var(--danger)' : 'var(--green)'};font-weight:bold;">${revoked ? 'INPUT REVOKED' : 'INPUT ACTIVE'}</span>
                 <button class="vpc-revoke-btn${revoked ? ' revoked' : ''}" onclick="toggleViewerInputPerm('${v.id}', this)">${revoked ? 'Restore' : 'Revoke'}</button>
             </div>`;
         list.appendChild(card);
     });
 }
+
+
+
 
 function toggleViewerInputPerm(viewerId, btn) {
     const revoked = !_viewerInputRevoked.has(viewerId);
@@ -5131,16 +6518,20 @@ function saveAudioBackend(val) {
 
 // Populates the sm-prefixed selects in settingsModal Audio tab by mirroring
 // the canonical audioInputSelect / audioOutputSelect from appSettingsModal.
+// Does NOT call getUserMedia - that would freeze the modal. Device list is
+// populated from the already-enumerated devices (or defaults) and updated
+// asynchronously when the user actually needs it.
 function enumerateAudioDevicesSM() {
-    enumerateAudioDevices().then(() => {
-        // Mirror populated options into the sm selects
-        const srcOut = document.getElementById('audioOutputSelect');
-        const dstOut = document.getElementById('smAudioOutputSelect');
-        const srcIn = document.getElementById('audioInputSelect');
-        const dstIn = document.getElementById('smAudioInputSelect');
-        if (srcOut && dstOut) { dstOut.innerHTML = srcOut.innerHTML; dstOut.value = srcOut.value; }
-        if (srcIn && dstIn) { dstIn.innerHTML = srcIn.innerHTML; dstIn.value = srcIn.value; }
-    }).catch(() => { });
+    // Mirror populated options into the sm selects immediately from existing data
+    const srcOut = document.getElementById('audioOutputSelect');
+    const dstOut = document.getElementById('smAudioOutputSelect');
+    const srcIn = document.getElementById('audioInputSelect');
+    const dstIn = document.getElementById('smAudioInputSelect');
+    if (srcOut && dstOut) { dstOut.innerHTML = srcOut.innerHTML; dstOut.value = srcOut.value; }
+    if (srcIn && dstIn) { dstIn.innerHTML = srcIn.innerHTML; dstIn.value = srcIn.value; }
+    
+    // Kick off async device enumeration in background (non-blocking)
+    enumerateAudioDevices().catch(() => { });
 }
 
 // Keeps the smRowCaptureMic / smMicDeviceRow in sync with appSettings.captureMic
@@ -5326,7 +6717,9 @@ function _doArcadeRegister() {
                 category: arcadeConfig.category,
                 players: knownViewers.size + 1,
                 maxPlayers: parseInt(arcadeConfig.maxPlayers) || 4,
-                region: `${knownViewers.size + 1}/${parseInt(arcadeConfig.maxPlayers) || 4} Players`
+                region: `${knownViewers.size + 1}/${parseInt(arcadeConfig.maxPlayers) || 4} Players`,
+                themePayload: localStorage.getItem('ns_native_theme_payload') || null,
+                accentColor: localStorage.getItem('ns_chat_color') || null
             };
         };
 
@@ -5367,10 +6760,18 @@ function togglePreview() {
     const prev = document.getElementById('preview');
     const btn = document.getElementById('btnPreviewToggle');
     const overlay = document.getElementById('prevOverlay');
+    const isGst = currentStream === 'gstreamer';
+    const mjpegImg = isGst ? document.getElementById('ns-gstreamer-mjpeg') : null;
 
     if (previewHidden) {
-        prev.srcObject = null;
-        prev.style.display = 'none';
+        if (isGst) {
+            if (mjpegImg) mjpegImg.style.display = 'none';
+            // Also hide the underlying video element (empty but present)
+            if (prev) prev.style.display = 'none';
+        } else {
+            prev.srcObject = null;
+            prev.style.display = 'none';
+        }
         // Only say "stream still active" if there actually IS a stream
         if (overlay) {
             overlay.classList.remove('hidden');
@@ -5382,10 +6783,16 @@ function togglePreview() {
         if (btn) { btn.innerHTML = SVG_EYE_CLOSED; btn.style.color = 'var(--warn)'; }
         log(I18N.t('Preview hidden — stream unaffected'), 'ok');
     } else {
-        prev.style.display = 'block';
-        if (currentStream) {
-            prev.srcObject = currentStream;
+        if (isGst) {
+            if (mjpegImg) mjpegImg.style.display = 'block';
+            if (prev) prev.style.display = 'none'; // Keep video hidden, only show MJPEG
             if (overlay) overlay.classList.add('hidden');
+        } else {
+            prev.style.display = 'block';
+            if (currentStream && currentStream !== 'gstreamer') {
+                prev.srcObject = currentStream;
+                if (overlay) overlay.classList.add('hidden');
+            }
         }
         if (btn) { btn.innerHTML = SVG_EYE_OPEN; btn.style.color = ''; }
         log(I18N.t('Preview restored'), 'ok');
@@ -5413,6 +6820,7 @@ function applyAppSettingsUI() {
         ['tournamentMode', 'settingTrackTournamentMode', 'settingRowTournamentMode'],
         ['captureMic', 'settingTrackMic', 'settingRowMic'],
         ['vcOverlayPreview', 'smTrackVcOverlay', 'smRowVcOverlay'],
+        ['richAudio', 'smTrackRichAudio', 'smRowRichAudio'],
     ];
     pairs.forEach(([key, trackId, rowId]) => {
         const track = document.getElementById(trackId);
@@ -5422,6 +6830,10 @@ function applyAppSettingsUI() {
     });
     const micRow = document.getElementById('micDeviceRow');
     if (micRow) micRow.style.display = appSettings.captureMic ? 'block' : 'none';
+
+    const vrBadge = document.getElementById('vrBadge');
+    if (vrBadge) vrBadge.style.display = appSettings.vrMode ? 'inline-block' : 'none';
+
     document.querySelector('.app-shell')?.classList.toggle('tournament-mode', !!appSettings.tournamentMode);
 }
 
@@ -5450,6 +6862,7 @@ function toggleAppSetting(key) {
         if (key === 'discordRPC') window.electronAPI.saveSettings({ discordRPC: appSettings[key] });
         if (key === 'rumble') window.electronAPI.saveSettings({ rumble: appSettings[key] });
         if (key === 'tournamentMode') window.electronAPI.saveSettings({ tournamentMode: appSettings[key] });
+        if (key === 'vrMode') window.electronAPI.saveSettings({ vrMode: appSettings[key] });
     }
     log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
@@ -5480,7 +6893,7 @@ function saveAudioDevice(type, deviceId) {
 async function enumerateAudioDevices() {
     try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        tempStream.getTracks().forEach(t => t.stop());
+        _forceKillStream(tempStream);
     } catch (e) { }
 
     try {
@@ -5609,12 +7022,10 @@ const launchGameData = (() => {
 })();
 if (launchGameData) {
     sessionStorage.removeItem('ns_launch_game');
-    window._autoCapture = true;
     document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             const badge = document.getElementById('capStatus');
-            if (badge) badge.textContent = 'Launching ' + (launchGameData.name || 'game') + '...';
-            setTimeout(showSourceSelectionModal, 300);
+            if (badge) badge.textContent = (launchGameData.name || 'Game') + ' launched — click Start Stream to capture';
         }, 500);
     });
 }
@@ -5683,7 +7094,6 @@ async function startMultiInstanceCapture() {
 
         for (let i = 0; i < matchedSources.length; i++) {
             const src = matchedSources[i];
-            window.electronAPI.setSelectedSource(src.id);
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
                 video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: src.id, maxFrameRate: 30 } }
@@ -5916,7 +7326,7 @@ if (document.readyState === 'loading') {
 applyHostMicState();
 
 // Initialize Global Mic Kill toggle state from persisted state
-(function() {
+(function () {
     const track = document.getElementById('smTrackGlobalMicKill');
     if (track) {
         if (_globalMicKillActive) {
@@ -5931,9 +7341,9 @@ let _discordStartTime = null;
 
 function _updateDiscordRPC() {
     if (appSettings.tournamentMode) return;
-    console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
+    if (window._nsVerboseRpc) console.log('[DEBUG] _updateDiscordRPC called. streamActive:', typeof streamActive !== 'undefined' ? streamActive : 'undef', 'isArcade:', typeof isArcade !== 'undefined' ? isArcade : 'undef');
     if (!window.electronAPI || typeof window.electronAPI.discordSetActivity !== 'function') {
-        console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
+        if (window._nsVerboseRpc) console.log('[DEBUG] window.electronAPI.discordSetActivity is missing!');
         return;
     }
 
@@ -5963,7 +7373,7 @@ function _updateDiscordRPC() {
         const secret = window._isP2P ? window._p2pCode : window._globalTunnelUrl;
         if (secret && secret !== 'none') payload.joinSecret = secret;
 
-        console.log('[DEBUG] Sending Discord Arcade Activity:', payload);
+        if (window._nsVerboseRpc) console.log('[DEBUG] Sending Discord Arcade Activity:', payload);
         window.electronAPI.discordSetActivity(payload);
         return;
     }
@@ -5986,7 +7396,7 @@ function _updateDiscordRPC() {
         }
         if (secret && secret !== 'none') payload.joinSecret = secret;
 
-        console.log('[DEBUG] Sending Discord Private Activity:', payload);
+        if (window._nsVerboseRpc) console.log('[DEBUG] Sending Discord Private Activity:', payload);
         window.electronAPI.discordSetActivity(payload);
         return;
     }
@@ -6006,7 +7416,7 @@ function _updateDiscordRPC() {
         payload.partyMax = 10;
         payload.joinSecret = secret;
 
-        console.log('[DEBUG] Sending Discord Ready Activity:', payload);
+        if (window._nsVerboseRpc) console.log('[DEBUG] Sending Discord Ready Activity:', payload);
         window.electronAPI.discordSetActivity(payload);
         return;
     }
@@ -6025,10 +7435,10 @@ function saveExpDevices() {
         const toggle = el.querySelector('.ctrl-toggle-track');
         const enabled = toggle ? toggle.classList.contains('on') : false;
         const val = el.dataset.expVal;
-        
+
         const label = el.querySelector('.exp-status-label');
         if (label) {
-            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'virtualmic';
+            const isImplemented = val === 'tablet' || val === 'guitar' || val === 'eye' || val === 'hotas' || val === 'virtualmic' || val === 'webhid';
             if (!isImplemented) {
                 label.innerHTML = '<span style="color:var(--muted2);">0 Users (Coming Soon)</span>';
             } else if (enabled) {
@@ -6185,10 +7595,27 @@ function loadExpDevices() {
         else devices = JSON.parse(localStorage.getItem('ns_exp_devices') || '[]');
     } catch (e) { }
 
+    if (!devices.some(d => d && d.val === 'webhid')) {
+        devices.push({ val: 'webhid', text: 'Raw WebHID eSports (1000Hz)', enabled: true });
+    }
+
     if (devices.length > 0) {
         const list = document.getElementById('expDeviceList');
         if (list) list.innerHTML = '';
         devices.forEach(d => addExpDevice(d.val, d.text, d.enabled));
+    }
+
+    // The Enable VR dashboard switch owns the VR module now; reconcile the
+    // device entry on host load so the pipeline matches the switch.
+    const vrEnabled = typeof appConfig !== 'undefined' && appConfig.vrEnabled === true;
+    const hasVr = devices.some(d => d && d.val === 'vr');
+    const list = document.getElementById('expDeviceList');
+    if (vrEnabled && !hasVr) {
+        addExpDevice('vr', 'VR Headsets (OpenVR)', true);
+    } else if (!vrEnabled && hasVr && list) {
+        const el = list.querySelector('[data-exp-val="vr"]');
+        if (el) el.remove();
+        saveExpDevices();
     }
 }
 
@@ -6214,6 +7641,21 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     // Check if already added
     if (list.querySelector(`[data-exp-val="${val}"]`)) return;
 
+    const descMap = {
+        'flight': 'Support for flight simulators.',
+        'tablet': 'Support for drawing tablets (stylus pressure).',
+        'webhid': '1000Hz polling rate for DualSense.',
+        'guitar': 'Support for Guitar Hero / Rock Band guitars.',
+        'hotas': 'Extended axis support for HOTAS setups.',
+        'balance': 'Wii Balance Board support.',
+        'eye': 'Head and eye tracking data passthrough.',
+        'lightgun': 'Raw absolute mouse inputs for light guns.',
+        'adaptive': 'Support for Xbox Adaptive Controllers.',
+        'custom_hid': 'Raw HID passthrough to custom uinput driver.',
+        'virtualmic': 'Routes viewer microphones to virtual Linux sinks.'
+    };
+    const desc = descMap[val] || 'Experimental hardware support.';
+
     const el = document.createElement('div');
     el.dataset.expVal = val;
     el.dataset.expText = text;
@@ -6222,16 +7664,17 @@ function addExpDevice(inVal, inText, inEnabled = true) {
     const toggleClass = enabled ? 'ctrl-toggle-track on' : 'ctrl-toggle-track';
 
     el.innerHTML = `
-        <div style="display:flex; align-items:center; gap:12px;">
-            <div class="${toggleClass}" onclick="this.classList.toggle('on'); saveExpDevices();" style="cursor:pointer;">
+        <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+            <div class="${toggleClass}" onclick="this.classList.toggle('on'); saveExpDevices();" style="cursor:pointer; flex-shrink:0;">
                 <div class="ctrl-toggle-thumb"></div>
             </div>
-            <div>
-                <div style="font-size:11px; font-weight:600; color:var(--text);">${text}</div>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:11px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${text}</div>
+                <div style="font-size:9px; color:var(--muted); margin-top:2px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis;">${desc}</div>
                 <div class="exp-status-label" style="font-size:9px;"></div>
             </div>
         </div>
-        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent;">
+        <button onclick="this.parentElement.remove(); saveExpDevices(); if(document.getElementById('expDeviceList').children.length === 0) document.getElementById('expDeviceList').innerHTML='<div style=\\'text-align:center; color:var(--muted); font-size:11px; padding:20px;\\'>No experimental devices enabled.</div>';" class="close-modal" style="width:24px; height:24px; border:none; background:transparent; flex-shrink:0;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px; height:14px;">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -6297,3 +7740,59 @@ window.addEventListener('keydown', (e) => {
         }
     }
 });
+
+// ── BRAND LOGO VR TOGGLE ──
+document.addEventListener('DOMContentLoaded', async () => {
+    const logo = document.querySelector('.rail-logo img') || document.querySelector('img[alt="Nearcade"][src*="NearcadeLogo"]');
+    
+    if (logo) {
+        logo.style.cursor = 'pointer';
+        logo.title = 'Toggle 3D Logo';
+        
+        window.toggleBrandLogo = async function() {
+            const isCurrently3D = logo.src.includes('NearcadeIcon3D');
+            const newOverride = isCurrently3D ? '2d' : '3d';
+            if (typeof saveAppConfig === 'function') {
+               await saveAppConfig({ overrideLogo: newOverride });
+            }
+            logo.src = (newOverride === '3d') ? '/assets/NearcadeIcon3D.png' : '/assets/NearcadeLogo.png';
+        };
+        logo.onclick = window.toggleBrandLogo;
+        
+        if (typeof loadAppConfig === 'function') {
+            const cfg = await loadAppConfig();
+            let use3D = !!cfg.vrMode;
+            if (cfg.overrideLogo === '3d') use3D = true;
+            if (cfg.overrideLogo === '2d') use3D = false;
+            logo.src = use3D ? '/assets/NearcadeIcon3D.png' : '/assets/NearcadeLogo.png';
+        }
+    }
+    
+    // Populate Arcade Game Titles datalist
+    fetch('/api/game-profiles').then(r => r.json()).then(titles => {
+        const dl = document.getElementById('arcadeGameTitles');
+        if (dl && Array.isArray(titles)) {
+            titles.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                dl.appendChild(opt);
+            });
+        }
+    }).catch(e => console.error('[host] failed to load game profiles:', e));
+});
+
+// ── Screen Sleep Prevention (WakeLock API) ────────────────────────────────────
+let _hostWakeLock = null;
+async function acquireHostWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+        _hostWakeLock = await navigator.wakeLock.request('screen');
+        _hostWakeLock.addEventListener('release', () => {
+            if (document.visibilityState === 'visible') acquireHostWakeLock();
+        });
+    } catch (err) {}
+}
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') acquireHostWakeLock();
+});
+acquireHostWakeLock();

@@ -6,10 +6,11 @@
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Nearcade</title>
-  <script src="/js/native-theme.js"></script>
+  <script src="/js/extended/ui/native-theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/scrollbars.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
@@ -45,6 +46,206 @@
           onclick="document.getElementById('updateModal').style.display='none'">Dismiss</button>
         <button class="btn-primary"
           onclick="if(window.electronAPI) window.electronAPI.openBrowser('https://github.com/TheRealFame/Nearcade/releases/latest'); document.getElementById('updateModal').style.display='none'">Download</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg gone" id="wivrnModal" style="z-index: 10000;">
+    <div class="modal" style="width: 440px; position:relative;">
+      <div class="modal-head">
+        <h3 id="wivrnModalTitle">WiVRn Status</h3>
+      </div>
+      <div class="modal-body" id="wivrnModalBody" style="padding: 20px; font-size: 13px; color: var(--text); line-height: 1.6;">
+      </div>
+      <div class="modal-footer">
+        <div class="btn-row" id="wivrnModalActions" style="justify-content: flex-end;">
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- Generate PIN Modal (for Companion Devices) -->
+  <div class="modal-bg gone" id="mobileLinkModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="this.classList.add('gone'); this.classList.remove('open');">
+    <div class="modal" style="width: 440px; position:relative; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;" onclick="event.stopPropagation()">
+      <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
+        <h3 style="margin: 0; font-size: 18px;">Companion Device Link</h3>
+      </div>
+      <div class="modal-body" style="padding: 24px; font-size: 13px; color: var(--text); line-height: 1.6;">
+        <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
+        
+        <div id="companionPairingBoxGen" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
+          <div id="companionPinLabelGen" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Pairing PIN</div>
+          <div id="companionPinDisplayGen" style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace;">842915</div>
+          <div id="companionPinTimerGen" style="position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); width: 100%; animation: pinTimerGen 10s linear forwards;"></div>
+        </div>
+        <style>
+          @keyframes pinTimerGen {
+            0% { width: 100%; }
+            100% { width: 0%; }
+          }
+        </style>
+        <script>
+          function startCompanionPairingGen() {
+            const el = document.getElementById('companionPinDisplayGen');
+            const label = document.getElementById('companionPinLabelGen');
+            const timer = document.getElementById('companionPinTimerGen');
+            const box = document.getElementById('companionPairingBoxGen');
+            
+            if(!el || !label || !timer || !box) return;
+            
+            el.style.fontSize = '36px';
+            el.style.letterSpacing = '6px';
+            el.innerText = Math.floor(100000 + Math.random() * 900000).toString();
+            label.innerText = 'Pairing PIN';
+            box.style.borderColor = 'var(--accent)';
+            timer.style.display = 'block';
+            timer.style.animation = 'none';
+            void timer.offsetWidth;
+            timer.style.animation = 'pinTimerGen 30s linear forwards';
+            
+            timer.onanimationend = () => {
+                if (!document.getElementById('mobileLinkModal').classList.contains('gone')) {
+                    startCompanionPairingGen();
+                }
+            };
+          }
+        </script>
+
+        <ol style="margin-top: 10px; margin-left: 20px;">
+          <li>Open Nearcade on your companion device.</li>
+          <li>Select <strong>Link to Host</strong> and enter the PIN above.</li>
+          <li>Your device will instantly appear on your Home tab, ready for one-click streaming!</li>
+        </ol>
+
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: var(--text);">Paired Devices</div>
+          <div id="pairedDevicesListModalGen" style="color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end;">
+        <div class="btn-row">
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Authenticate PIN Modal (for Host PC) -->
+  <div class="modal-bg gone" id="mobileAuthModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="this.classList.add('gone'); this.classList.remove('open');">
+    <div class="modal" style="width: 440px; position:relative; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;" onclick="event.stopPropagation()">
+      <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
+        <h3 style="margin: 0; font-size: 18px;">Authorize Companion Device</h3>
+      </div>
+      <div class="modal-body" style="padding: 24px; font-size: 13px; color: var(--text); line-height: 1.6;">
+        <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
+        
+        <div id="companionPairingBoxAuth" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
+          <div id="companionPinLabelAuth" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Enter PIN from Companion</div>
+          <input type="text" id="companionPinInputAuth" placeholder="000000" maxlength="6" style="width: 160px; font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace; background: transparent; border: none; text-align: center; outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px;">
+        </div>
+        <script>
+          function startCompanionPairingAuth() {
+            const input = document.getElementById('companionPinInputAuth');
+            if(input) {
+              input.value = '';
+              setTimeout(() => input.focus(), 100);
+            }
+          }
+          function pairCompanionDevice() {
+            const pin = document.getElementById('companionPinInputAuth').value;
+            if (!pin || pin.length !== 6) {
+               window.showError('Please enter a valid 6-digit PIN', 'yellow');
+               return;
+            }
+            let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+            devices.push({ pin, date: Date.now() });
+            localStorage.setItem('ns_companions', JSON.stringify(devices));
+            
+            if (window.renderCompanionDevices) window.renderCompanionDevices();
+            
+            document.getElementById('mobileAuthModal').classList.add('gone');
+            document.getElementById('mobileAuthModal').classList.remove('open');
+          }
+
+          window.renderCompanionDevices = function() {
+             let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+             const list = document.getElementById('companionDevicesList');
+             const modalLists = [document.getElementById('pairedDevicesListModalAuth'), document.getElementById('pairedDevicesListModalGen')];
+             
+             let modalHtml = '';
+             let bubbleHtml = '';
+             
+             devices.forEach((d, index) => {
+               // Detailed list for modals
+               modalHtml += `<div style="background: var(--surface-hover); padding: 8px 12px; border-radius: 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); margin-bottom: 8px;">
+                  <div>
+                    <div style="font-weight: bold; color: #fff;">Companion Device</div>
+                    <div style="color: var(--muted); margin-top: 2px;">Paired: ${new Date(d.date).toLocaleDateString()}</div>
+                  </div>
+                  <button onclick="unpairCompanion(${index})" style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 4px;">Unpair</button>
+               </div>`;
+
+               // Circular bubble for dashboard sidebar
+               bubbleHtml += `<div title="Click to view device stream" onclick="joinCompanion(${index})" style="position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--surface-hover); border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                 <i class="fas fa-desktop" style="color: var(--muted); font-size: 16px;"></i>
+                 <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #34d399; border-radius: 50%; border: 2px solid var(--surface);"></div>
+               </div>`;
+             });
+             
+             if (list) list.innerHTML = bubbleHtml;
+             modalLists.forEach(l => {
+               if (l) {
+                 if (devices.length === 0) {
+                    l.innerHTML = `<div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>`;
+                 } else {
+                    l.innerHTML = modalHtml;
+                 }
+               }
+             });
+          };
+
+          window.joinCompanion = function(index) {
+             // Fake jump to viewer
+             window.showError('Connecting to companion...', 'yellow');
+             setTimeout(() => {
+                 window.location.href = `http://localhost:${window.location.port || 3000}/?tunnel=companion&pin=0000`;
+             }, 1000);
+          };
+
+          window.unpairCompanion = function(index) {
+             let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+             devices.splice(index, 1);
+             localStorage.setItem('ns_companions', JSON.stringify(devices));
+             if (window.renderCompanionDevices) window.renderCompanionDevices();
+          };
+
+          document.addEventListener('DOMContentLoaded', () => {
+             if (window.renderCompanionDevices) window.renderCompanionDevices();
+          });
+        </script>
+
+        <ol style="margin-top: 10px; margin-left: 20px;">
+          <li>Open Nearcade on your companion device.</li>
+          <li>Select <strong>Link to Host</strong> to generate a pairing PIN.</li>
+          <li>Enter the PIN above to authorize the device.</li>
+        </ol>
+
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; color: var(--text);">Paired Devices</div>
+          <div id="pairedDevicesListModalAuth" style="color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="btn-row">
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileAuthModal').classList.add('gone'); document.getElementById('mobileAuthModal').classList.remove('open');">Cancel</button>
+          <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="pairCompanionDevice()">Pair Device</button>
+        </div>
       </div>
     </div>
   </div>
@@ -281,7 +482,14 @@
         <button class="ns-about-close" onclick="closeAbout()">×</button>
         <img src="../../assets/NearcadeLogo.png" alt="Logo">
         <div class="ns-about-header-text">
-          <h2>NEARCADE</h2>
+          <h2 id="logoNearcadeText" style="transition: color 0.3s ease;">NEARCADE</h2>
+          <script>
+            (function() {
+              const colors = ['#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#fb7185'];
+              const c = colors[Math.floor(Math.random() * colors.length)];
+              document.getElementById('logoNearcadeText').style.color = c;
+            })();
+          </script>
           <p>© 2026 TheRealFame.</p>
           <p>Powered by WebRTC & Electron.</p>
         </div>
@@ -375,6 +583,9 @@
           <button onclick="loadDoc('NEARCADE_ARCADE.md')"
             style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
             onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Nearcade</button>
+          <button onclick="loadDoc('OPEN_PROTOCOL.md')"
+            style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
+            onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Open Protocol (ORP)</button>
           <button onclick="loadDoc('ERROR_CODES.md')"
             style="text-align: left; background: none; border: none; color: var(--text); cursor: pointer; font-size: 14px; font-weight: 500; padding: 4px 0;"
             onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">Error
@@ -412,8 +623,14 @@
           </svg>
         </button>
         <div class="brand-wrap">
-          <img src="../../assets/NearcadeLogo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'">
-          <div class="brand-text">Nearcade</div>
+          <img src="../../assets/NearcadeLogo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'" onclick="toggleBrandLogo()" style="cursor: pointer;" title="Toggle 3D Logo">
+          <div class="brand-text" id="dashboardBrandText" style="transition: color 0.3s ease;">Nearcade</div>
+          <script>
+            (function() {
+              const colors = ['#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#fbbf24', '#f87171', '#2dd4bf', '#fb7185'];
+              document.getElementById('dashboardBrandText').style.color = colors[Math.floor(Math.random() * colors.length)];
+            })();
+          </script>
         </div>
       </div>
 
@@ -433,7 +650,7 @@
         <span class="btn-text">Live Arcade</span>
       </button>
 
-      <button class="nav-btn" onclick="launchHostSession()" id="tab-host">
+      <button class="nav-btn host-only" onclick="launchHostSession()" id="tab-host">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
           <line x1="8" y1="21" x2="16" y2="21"></line>
@@ -442,7 +659,7 @@
         <span class="btn-text">Host Session</span>
       </button>
 
-      <button class="nav-btn" onclick="switchTab('serverlist')" id="tab-serverlist" style="display:none;">
+      <button class="nav-btn host-only" onclick="switchTab('serverlist')" id="tab-serverlist" style="display:none;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"></circle>
           <line x1="2" y1="12" x2="22" y2="12"></line>
@@ -451,7 +668,7 @@
         <span class="btn-text">Community STUN</span>
       </button>
 
-      <button class="nav-btn" onclick="switchTab('turnlist')" id="tab-turnlist">
+      <button class="nav-btn host-only" onclick="switchTab('turnlist')" id="tab-turnlist">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
           stroke-linejoin="round">
           <polyline points="21 8 21 21 3 21 3 8"></polyline>
@@ -461,7 +678,7 @@
         <span class="btn-text">Community TURN</span>
       </button>
 
-      <button class="nav-btn" onclick="switchTab('containers')" id="tab-containers">
+      <button class="nav-btn host-only" onclick="switchTab('containers')" id="tab-containers">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
           stroke-linejoin="round">
           <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
@@ -473,6 +690,8 @@
       </button>
 
       <div class="spacer"></div>
+
+
 
       <button class="nav-btn" onclick="document.getElementById('gpModal').classList.add('open')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -492,10 +711,18 @@
         <span class="btn-text">App Settings</span>
       </button>
 
-      <div class="lang-switcher">
-        <img src="../../assets/icons/globe.svg" class="globe-icon" alt="Lang" onerror="this.style.display='none'">
-        <select id="langSelect" onchange="saveLangAndReload(this.value)">
-        </select>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top: auto; padding: 0 16px; margin-bottom: 12px;">
+        <button onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open'); startCompanionPairingGen();" title="Mobile Link" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:8px; display:flex; align-items:center; justify-content:center; border-radius:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--surface-hover)'; this.style.color='var(--text)'" onmouseout="this.style.background='none'; this.style.color='var(--muted)'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+            <line x1="10" y1="19" x2="14" y2="19"></line>
+          </svg>
+        </button>
+        <div class="lang-switcher" style="margin-top: 0; margin-left: auto;">
+          <img src="../../assets/icons/globe.svg" class="globe-icon" alt="Lang" onerror="this.style.display='none'">
+          <select id="langSelect" onchange="saveLangAndReload(this.value)">
+          </select>
+        </div>
       </div>
     </div>
 
@@ -505,7 +732,7 @@
           <h1>Connect to Session</h1>
           <p class="sub">Paste a tunnel URL to instantly join a private session, or browse public games in the Live
             Arcade.</p>
-
+  
           <div class="connect-card">
             <h2>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -536,7 +763,7 @@
             </div>
             <div class="error-msg" id="directLinkErr"></div>
           </div>
-
+  
           <div class="info-grid">
             <div class="info-card">
               <h3>Quick Tip</h3>
@@ -550,10 +777,33 @@
             </div>
           </div>
         </div>
+        
+        <div style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+          
+          <!-- Add Button -->
+          <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+
+          <div style="width: 32px; height: 1px; background: rgba(255,255,255,0.1);"></div>
+
+          <!-- Dynamic Devices List Container -->
+          <div id="companionDevicesList" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Devices will be injected here after pairing -->
+          </div>
+        </div>
+        
+        <button id="gamesLibraryBtn" class="host-only" onclick="openGamesOverlay()" style="position:absolute; bottom:95px; right:45px; z-index:100; background:var(--surface); border:1px solid var(--border); border-radius:30px; padding:0 20px; height:48px; display:flex; justify-content:center; align-items:center; gap:8px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); transition:all 0.2s; font-family:inherit; font-weight:bold; color:var(--muted);" title="Open Games Library">
+          <i class="fa-solid fa-gamepad" style="font-size:18px;"></i>
+          <span>Library</span>
+        </button>
       </div>
 
       <div class="panel" id="panel-arcade">
-        <iframe id="arcadeIframe" src="" style="width:100%; height:100%; border:none; flex:1;" allow="gamepad"></iframe>
+        <iframe id="arcadeIframe" src="" style="width:100%; height:100%; border:none;" allow="gamepad"></iframe>
       </div>
 
       <div class="panel" id="panel-containers">
@@ -565,8 +815,9 @@
             <h2>Deploy New Game</h2>
             <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
               <h4 style="margin: 0;">Game/Lobby Name</h4>
-              <input type="text" id="autoName" placeholder="e.g., Sonic the Fighters 24/7"
+              <input type="text" id="autoName" list="arcadeGameTitles" placeholder="e.g., Sonic the Fighters 24/7"
                 style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+              <datalist id="arcadeGameTitles"></datalist>
             </div>
             <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
               <h4 style="margin: 0;">Terminal Launch Command</h4>
@@ -705,11 +956,20 @@
             <div class="setting-row" onclick="toggleAppSetting('useNativeTheme')">
               <div class="setting-info">
                 <h4>Native OS Theming <span id="nativeThemeIndicator"
-                    style="display:none;font-size:9px;font-weight:400;color:var(--bg);background:var(--text);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span>
+                    style="display:none;font-size:9px;font-weight:400;color:var(--accent);background:var(--accent-dim);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;">Active</span>
                 </h4>
                 <p>Dynamically follow your system's background, surface, and text colors.</p>
               </div>
               <div class="toggle" id="settingTrackNativeTheme">
+                <div class="toggle-thumb"></div>
+              </div>
+            </div>
+            <div class="setting-row" onclick="toggleAppSetting('vrMode')" id="settingRowVrMode">
+              <div class="setting-info">
+                <h4>Nearcade VR Mode</h4>
+                <p>Enable VR head tracking and input routing. WiVRn backend will be started automatically.</p>
+              </div>
+              <div class="toggle" id="settingTrackVrMode">
                 <div class="toggle-thumb"></div>
               </div>
             </div>
@@ -815,6 +1075,19 @@
               <div class="toggle-thumb"></div>
             </div>
           </div>
+          <div class="settings-section host-only" id="networkRoutingSection">
+            <h2>Network & Routing</h2>
+            <div class="setting-row">
+              <div class="setting-info" style="flex:1; margin-right: 20px;">
+                <h4>Custom Display Domain</h4>
+                <p>Override the URL shown to viewers (e.g. for Cloudflare domains or VPS relays).</p>
+              </div>
+              <div class="input-wrapper" style="max-width: 250px;">
+                <input type="url" id="settingCustomUrl" placeholder="https://play.yourdomain.com" onchange="saveCustomUrl(this.value)"
+                  style="padding: 8px 12px; width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.4); border: 1px solid var(--border2); color: var(--text); border-radius: 6px; font-family: inherit;">
+              </div>
+            </div>
+          </div>
           <div class="settings-section host-only" id="tunnelsSection">
             <h2>Additional Tunnels</h2>
             <p style="font-size:12px;color:var(--muted);margin:-4px 0 12px 0">Extra tunnel providers not shown in the
@@ -888,7 +1161,7 @@
             <div class="setting-row" onclick="toggleAppSetting('fpsUnlock')">
               <div class="setting-info">
                 <h4>Unlock Framerate (120Hz+)</h4>
-                <p>Disables the standard 60fps cap for high refresh rate streaming.</p>
+                <p>Disables the standard 60fps cap for high refresh rate streaming. Takes effect on restart.</p>
               </div>
               <div class="toggle" id="settingTrackFpsUnlock">
                 <div class="toggle-thumb"></div>
@@ -897,7 +1170,7 @@
             <div class="setting-row" onclick="toggleAppSetting('vsyncOff')">
               <div class="setting-info">
                 <h4>Disable V-Sync</h4>
-                <p>Disables vertical sync for the absolute lowest latency. May cause screen tearing.</p>
+                <p>Disables vertical sync for the absolute lowest latency. May cause screen tearing. Takes effect on restart.</p>
               </div>
               <div class="toggle" id="settingTrackVsyncOff">
                 <div class="toggle-thumb"></div>
@@ -922,6 +1195,24 @@
               <div class="toggle" id="settingTrackWindowsExperimental">
                 <div class="toggle-thumb"></div>
               </div>
+            </div>
+            <div class="setting-row" id="settingRowAndroidExperimental" onclick="toggleAppSetting('androidExperimental')">
+              <div class="setting-info">
+                <h4>Android Host Mode (Termux/Shizuku)</h4>
+                <p>Attempts to use an experimental Shizuku backend to emulate an Xbox controller natively on an Android host.</p>
+              </div>
+              <div class="toggle" id="settingTrackAndroidExperimental">
+                <div class="toggle-thumb"></div>
+              </div>
+          </div>
+            </div>
+          <div class="settings-section" style="margin-top: 32px; border: 1px solid rgba(237, 66, 69, 0.4); background: rgba(237, 66, 69, 0.05); padding: 16px; border-radius: 8px;">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h2 style="margin:0; color: #ed4245; font-size: 16px; border: none; padding: 0;">Danger Zone</h2>
+                <p style="margin:4px 0 0 0; color: var(--muted); font-size: 12px;">Completely shutdown and exit the Nearcade application.</p>
+              </div>
+              <button onclick="exitNearcadeApp()" style="background: #ed4245; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-family: inherit; font-size: 13px;">Exit Nearcade</button>
             </div>
           </div>
         </div>
@@ -1009,6 +1300,11 @@
 
       <div style="padding:12px 18px; border-bottom:1px solid var(--border,#2a2833);">
         <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Add Friend</div>
+        <div style="font-size:11px; color:var(--muted,#888); margin-bottom:8px; line-height:1.4;">
+          After adding, you'll get a one-time pairing code — send it to them. They paste it (along with
+          your Friend ID) in their own app to finish pairing. Without it, their pings and invites to you
+          are rejected.
+        </div>
         <div style="display:flex; gap:8px; align-items:center;">
           <input id="friendUuidInput" type="text" placeholder="Their friend ID (full UUID)" spellcheck="false"
             onkeydown="if(event.key==='Enter')addFriend()"
@@ -1021,7 +1317,12 @@
       </div>
 
       <div style="padding:12px 18px; border-top:1px solid var(--border,#2a2833);">
-        <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Enter Pairing Code</div>
+        <div style="font-size:12px; font-weight:600; margin-bottom:6px;">Enter Pairing Code</div>
+        <div style="font-size:11px; color:var(--muted,#888); margin-bottom:8px; line-height:1.4;">
+          The host sends you this code after adding you. It proves their pings and invites really come
+          from them — only enter it after they've shared it with you. Missing it? Ask them to tap
+          ⋮ → Show Pairing Code next to your name in their friend list.
+        </div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <input id="friendPairUuidInput" type="text" placeholder="Their friend ID (full UUID)" spellcheck="false"
             onkeydown="if(event.key==='Enter')enterPairCode()"
@@ -1051,6 +1352,7 @@
   </div>
 
   <script src="/js/i18n.js"></script>
+  <script src="/js/extended/spatial-nav.js"></script>
   <script src="/js/dashboard-main.js"></script>
 
   <script>
@@ -1157,9 +1459,8 @@
     }
   </script>
   <!-- ═══ GAMES RIBBON ═══ -->
-  <div id="gamesTab" onclick="openGamesOverlay()" title="Games">‹</div>
 
-  <div id="gamesOverlay" onclick="if(event.target===this) closeGamesOverlay()">
+  <div id="gamesOverlay" class="host-only" onclick="if(event.target===this) closeGamesOverlay()">
     <div class="go-panel">
       <iframe id="gamesFrame" src="/games-picker.html"></iframe>
     </div>
@@ -1169,12 +1470,17 @@
     // ── Games Launcher ──
     (function initGamesLauncher() {
       window.openGamesOverlay = function () {
-        const panel = document.querySelector('#gamesOverlay .go-panel');
+        const overlay = document.getElementById('gamesOverlay');
+        if (overlay.classList.contains('open')) {
+          closeGamesOverlay();
+          return;
+        }
+        const panel = overlay.querySelector('.go-panel');
         if (!panel.querySelector('iframe')) {
           const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'c084fc';
           panel.innerHTML = '<iframe src="/games-picker.html?accent=' + encodeURIComponent(accent) + '"></iframe>';
         }
-        document.getElementById('gamesOverlay').classList.add('open');
+        overlay.classList.add('open');
       };
 
       window.closeGamesOverlay = function () {

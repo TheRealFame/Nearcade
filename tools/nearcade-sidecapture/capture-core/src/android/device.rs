@@ -1,0 +1,1 @@
+//! AndroidDevice type representation

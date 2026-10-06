@@ -3,7 +3,7 @@ apply plugin: 'com.android.application'
 import groovy.json.JsonSlurper
 
 def getAppVersion() {
-    def inputFile = new File(project.rootDir, "../package.json")
+    def inputFile = new File(project.rootDir, "../../package.json")
     def json = new JsonSlurper().parseText(inputFile.text)
     return json.version
 }
@@ -35,7 +35,7 @@ android {
         release {
             storeFile file("release.keystore")
             storePassword "nearsec123"
-            keyAlias "nearcade"
+            keyAlias "nearsec"
             keyPassword "nearsec123"
         }
     }

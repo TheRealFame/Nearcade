@@ -1,0 +1,114 @@
+'use strict';
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  // ── Session & Navigation ──
+  installDrivers: () => ipcRenderer.send('install-drivers'),
+  backToDashboard: (tab) => ipcRenderer.send('back-to-dashboard-from-host', tab),
+  updateTrayIcon: (iconPath) => ipcRenderer.send('update-tray-icon', iconPath),
+  joinSession: (url, meta, pin)   => ipcRenderer.invoke('join-session', { url, meta, pin }),
+  pingSession: (url)              => ipcRenderer.invoke('ping-session', url),
+  getServerInfo: ()               => ipcRenderer.invoke('get-server-info'),
+  getVersion:    ()               => ipcRenderer.invoke('get-app-version'),
+  getAccentColor: ()              => ipcRenderer.invoke('get-accent-color'),
+  getNativeTheme: ()              => ipcRenderer.invoke('get-native-theme'),
+  openHost:    (version)          => ipcRenderer.send('open-host', version || 'new'),
+  openLog:     ()                 => ipcRenderer.send('open-log'),
+  openInstallDir: ()              => ipcRenderer.send('open-dir'),
+  checkElevation: ()              => ipcRenderer.invoke('check-elevation'),
+  elevateApp:     ()              => ipcRenderer.invoke('elevate-app'),
+  readDoc:     (filename)         => ipcRenderer.invoke('read-doc', filename),
+  getSettings:                    () => ipcRenderer.invoke('get-settings'),
+  saveSettings:                   (s) => ipcRenderer.invoke('save-settings', s),
+  saveSettingsSync:               (s) => ipcRenderer.invoke('save-settings-sync', s),
+  // hydrateSettings: pushes localStorage-resident values into the config file
+  // without overwriting keys the renderer doesn't manage. Bridges the split
+  // between localStorage-only state and the persistent config file.
+  hydrateSettings:                (patch) => ipcRenderer.invoke('hydrate-settings', patch),
+  getConfigPath:                  () => ipcRenderer.invoke('get-config-path'),
+  saveEnv:                        (key, val) => ipcRenderer.invoke('save-env', key, val),
+  // Display server detection for capture pipeline routing
+  getDisplayServer:               () => ipcRenderer.invoke('get-display-server'),
+  // VPS SFU config — dedicated handlers so the master key is handled explicitly
+  getVpsConfig:   ()    => ipcRenderer.invoke('get-vps-config'),
+  saveVpsConfig:  (cfg) => ipcRenderer.invoke('save-vps-config', cfg),
+  getControllers: ()    => ipcRenderer.invoke('get-controllers'),
+  toggleAlwaysOnTop:              () => ipcRenderer.invoke('toggle-always-on-top'),
+  onSettingsUpdated:              (cb) => ipcRenderer.on('settings-updated', (_, s) => cb(s)),
+
+  // FIX #22: Secure clipboard bridge — host → viewer text sync
+  // Renderer asks main to read/write the real OS clipboard so the page
+  // doesn't need the Clipboard API permission itself.
+  // FIX #22: Secure clipboard bridge — host → viewer text sync
+  // Renderer asks main to read/write the real OS clipboard so the page
+  // doesn't need the Clipboard API permission itself.
+  clipboardWrite: (text) => ipcRenderer.invoke('clipboard-write', text),
+  clipboardRead:  ()     => ipcRenderer.invoke('clipboard-read'),
+
+  // ── CRITICAL FIX: Secure IPC routing for screen capture ──
+  getWindowSources: () => ipcRenderer.invoke('get-window-sources'),
+  setSelectedSource: (id, name) => ipcRenderer.invoke('set-selected-source', id, name),
+  checkGstreamerDeps: () => ipcRenderer.invoke('check-gstreamer-deps'),
+  getCursorPos: () => ipcRenderer.invoke('get-cursor-pos'),
+
+  // ── Window Chrome & Discord ──
+  minimize:                       () => ipcRenderer.send('window-minimize'),
+  maximize:                       () => ipcRenderer.send('window-maximize'),
+  close:                          () => ipcRenderer.send('window-close'),
+  closeApp:                       () => ipcRenderer.send('app-quit'),
+  fullscreen:                     () => ipcRenderer.send('window-fullscreen'),
+  discordSetActivity: (activity)  => ipcRenderer.send('discord-set-activity', activity),
+  discordClear:                   () => ipcRenderer.send('discord-clear'),
+  installUpdate:                  () => ipcRenderer.send('install-update'),
+
+  // ── Setup Hooks ──
+  runSetup:                       () => ipcRenderer.send('run-setup'),
+  runVbCableSetup:                () => ipcRenderer.send('run-vbcable-setup'),
+  runAdvancedLinuxSetup:          () => ipcRenderer.send('run-advanced-linux-setup'),
+  continueBoot:                   () => ipcRenderer.send('continue-boot'),
+  checkSystemSetup:               () => ipcRenderer.invoke('check-system-setup'),
+  downloadTunnel:                 (name, url) => ipcRenderer.invoke('download-tunnel', { name, url }),
+  checkTunnelInstalled:           (name) => ipcRenderer.invoke('check-tunnel-installed', name),
+  checkHmBridge:                  () => ipcRenderer.invoke('check-hm-bridge'),
+  startWivrn:                     () => ipcRenderer.invoke('start-wivrn'),
+  openExternal:                   (url) => ipcRenderer.invoke('open-external', url),
+  onSetupSuccess:                 (cb) => ipcRenderer.on('setup-success', () => cb()),
+  onSetupFailed:                  (cb) => ipcRenderer.on('setup-failed', (_e, err) => cb(err)),
+
+  // ── DRM/KMS Native Capture (Wayland silent auto-capture) ──
+  drmCaptureStart: () => ipcRenderer.invoke('drm-capture-start'),
+  drmCaptureGetFrame: () => ipcRenderer.invoke('drm-capture-get-frame'),
+  drmCaptureStop: () => ipcRenderer.invoke('drm-capture-stop'),
+
+  // ── Event Listeners ──
+  onServerLog:    (cb) => ipcRenderer.on('server-log',    (_e, v) => cb(v)),
+  onViewerClosed: (cb) => ipcRenderer.on('viewer-closed', ()      => cb()),
+  onUpdateReady:  (cb) => ipcRenderer.on('update-ready',  (_e, v) => cb(v)),
+  onAppError:     (cb) => ipcRenderer.on('app-error',     (_e, msg, severity) => cb(msg, severity)),
+  arcadeExit:     ()    => ipcRenderer.invoke('arcade-exit'),
+
+  startNativeGamepadCapture: () => ipcRenderer.send('start-native-gamepad'),
+  onNativeGamepadEvent: (cb) => ipcRenderer.on('native-gamepad-event', (_e, msg) => cb(msg)),
+  sendNativeRumble: (padIndex, strong, weak, duration) => ipcRenderer.send('native-gamepad-rumble', { padIndex, strong, weak, duration }),
+
+  // #1: Direct input forwarding — bypasses local WS relay
+  forwardInput: (msg) => ipcRenderer.send('forward-input', msg),
+  forwardInputBinary: (viewerId, buf) => ipcRenderer.send('forward-input-binary', viewerId, buf),
+
+  // Diagnostics: save log to OS temp directory
+  saveTempLog: (text, filename) => ipcRenderer.invoke('save-temp-log', text, filename),
+
+  // ── NDI egress (broadcast window for OBS via LAN) ──
+  ndiStart: (cfg) => ipcRenderer.send('ndi:start', cfg),
+  ndiFrame: (meta, buf) => ipcRenderer.send('ndi:frame', meta, buf),
+  ndiStop: () => ipcRenderer.send('ndi:stop'),
+  onNdiStatus: (cb) => ipcRenderer.on('ndi-status', (_e, s) => cb(s)),
+
+  // ── Spout2 egress (Windows only) ──
+  spoutStart: (cfg) => ipcRenderer.send('spout:start', cfg),
+  spoutFrame: (meta, buf) => ipcRenderer.send('spout:frame', meta, buf),
+  spoutStop: () => ipcRenderer.send('spout:stop'),
+  onSpoutStatus: (cb) => ipcRenderer.on('spout-status', (_e, s) => cb(s)),
+
+  isElectron: true,
+});

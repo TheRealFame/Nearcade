@@ -8,18 +8,11 @@ DEFS_Debug := \
 	'-DUSING_V8_SHARED=1' \
 	'-DV8_DEPRECATION_WARNINGS=1' \
 	'-D_GLIBCXX_USE_CXX11_ABI=1' \
-	'-DELECTRON_ENSURE_CONFIG_GYPI' \
-	'-D_LARGEFILE_SOURCE' \
 	'-D_FILE_OFFSET_BITS=64' \
-	'-DUSING_ELECTRON_CONFIG_GYPI' \
-	'-DV8_COMPRESS_POINTERS' \
-	'-DV8_COMPRESS_POINTERS_IN_ISOLATE_CAGE' \
-	'-DV8_31BIT_SMIS_ON_64BIT_ARCH' \
-	'-DV8_ENABLE_SANDBOX' \
+	'-D_LARGEFILE_SOURCE' \
 	'-D__STDC_FORMAT_MACROS' \
 	'-DOPENSSL_NO_PINSHARED' \
 	'-DOPENSSL_THREADS' \
-	'-DOPENSSL_NO_ASM' \
 	'-DNAPI_DISABLE_CPP_EXCEPTIONS' \
 	'-DBUILDING_NODE_EXTENSION' \
 	'-DDEBUG' \
@@ -42,19 +35,22 @@ CFLAGS_C_Debug :=
 # Flags passed to only C++ files.
 CFLAGS_CC_Debug := \
 	-fno-rtti \
-	-std=gnu++20 \
+	-fno-strict-aliasing \
+	-std=gnu++17 \
 	-std=c++17 \
 	-O3
 
 INCS_Debug := \
-	-I/home/fame/.cache/node-gyp/33.0.0/include/node \
-	-I/home/fame/.cache/node-gyp/33.0.0/src \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/openssl/config \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/openssl/openssl/include \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/uv/include \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/zlib \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/v8/include \
-	-I/home/fame/Documents/NearsecTogether/node_modules/node-addon-api
+	-I/home/fame/.cache/node-gyp/22.23.2/include/node \
+	-I/home/fame/.cache/node-gyp/22.23.2/src \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/openssl/config \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/openssl/openssl/include \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/uv/include \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/zlib \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/v8/include \
+	-I/home/fame/Documents/Nearcade/node_modules/node-addon-api \
+	-I/usr/include/dbus-1.0 \
+	-I/usr/lib/x86_64-linux-gnu/dbus-1.0/include
 
 DEFS_Release := \
 	'-DNODE_GYP_MODULE_NAME=uinputBridge' \
@@ -62,18 +58,11 @@ DEFS_Release := \
 	'-DUSING_V8_SHARED=1' \
 	'-DV8_DEPRECATION_WARNINGS=1' \
 	'-D_GLIBCXX_USE_CXX11_ABI=1' \
-	'-DELECTRON_ENSURE_CONFIG_GYPI' \
-	'-D_LARGEFILE_SOURCE' \
 	'-D_FILE_OFFSET_BITS=64' \
-	'-DUSING_ELECTRON_CONFIG_GYPI' \
-	'-DV8_COMPRESS_POINTERS' \
-	'-DV8_COMPRESS_POINTERS_IN_ISOLATE_CAGE' \
-	'-DV8_31BIT_SMIS_ON_64BIT_ARCH' \
-	'-DV8_ENABLE_SANDBOX' \
+	'-D_LARGEFILE_SOURCE' \
 	'-D__STDC_FORMAT_MACROS' \
 	'-DOPENSSL_NO_PINSHARED' \
 	'-DOPENSSL_THREADS' \
-	'-DOPENSSL_NO_ASM' \
 	'-DNAPI_DISABLE_CPP_EXCEPTIONS' \
 	'-DBUILDING_NODE_EXTENSION'
 
@@ -94,19 +83,22 @@ CFLAGS_C_Release :=
 # Flags passed to only C++ files.
 CFLAGS_CC_Release := \
 	-fno-rtti \
-	-std=gnu++20 \
+	-fno-strict-aliasing \
+	-std=gnu++17 \
 	-std=c++17 \
 	-O3
 
 INCS_Release := \
-	-I/home/fame/.cache/node-gyp/33.0.0/include/node \
-	-I/home/fame/.cache/node-gyp/33.0.0/src \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/openssl/config \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/openssl/openssl/include \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/uv/include \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/zlib \
-	-I/home/fame/.cache/node-gyp/33.0.0/deps/v8/include \
-	-I/home/fame/Documents/NearsecTogether/node_modules/node-addon-api
+	-I/home/fame/.cache/node-gyp/22.23.2/include/node \
+	-I/home/fame/.cache/node-gyp/22.23.2/src \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/openssl/config \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/openssl/openssl/include \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/uv/include \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/zlib \
+	-I/home/fame/.cache/node-gyp/22.23.2/deps/v8/include \
+	-I/home/fame/Documents/Nearcade/node_modules/node-addon-api \
+	-I/usr/include/dbus-1.0 \
+	-I/usr/lib/x86_64-linux-gnu/dbus-1.0/include
 
 OBJS := \
 	$(obj).target/$(TARGET)/uinputBridge.o
@@ -148,7 +140,8 @@ LDFLAGS_Release := \
 	-rdynamic \
 	-m64
 
-LIBS :=
+LIBS := \
+	-ldbus-1
 
 $(obj).target/uinputBridge.node: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(obj).target/uinputBridge.node: LIBS := $(LIBS)

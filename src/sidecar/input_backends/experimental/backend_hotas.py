@@ -34,6 +34,7 @@
 
 import sys
 import json
+import signal
 
 # Maximum axes and buttons the virtual joystick will expose.
 MAX_AXES    = 8
@@ -78,35 +79,48 @@ def start_hotas_backend():
             ui = UInput(cap, name="Nearcade Virtual HOTAS", version=0x3)
             print("[backend_hotas] Virtual HOTAS created at /dev/uinput.", flush=True)
 
-            for line in sys.stdin:
+            def sigterm_handler(_signo, _stack_frame):
+                print("[backend_hotas] Caught SIGTERM, shutting down...", flush=True)
+                sys.exit(0)
+            
+            signal.signal(signal.SIGTERM, sigterm_handler)
+
+            try:
+                for line in sys.stdin:
+                    try:
+                        data = json.loads(line)
+
+                        # Axes — map -1.0..1.0 → 0..32767
+                        for i, val in enumerate(data.get("axes", [])):
+                            if i >= MAX_AXES:
+                                break
+                            mapped = int((float(val) + 1.0) / 2.0 * AXIS_MAX)
+                            ui.write(e.EV_ABS, abs_codes[i], max(0, min(AXIS_MAX, mapped)))
+
+                        # Buttons — BTN_JOYSTICK + index
+                        for i, state in enumerate(data.get("buttons", [])):
+                            if i >= MAX_BUTTONS:
+                                break
+                            ui.write(e.EV_KEY, e.BTN_JOYSTICK + i, 1 if state else 0)
+
+                        # HAT / POV switch
+                        if "hatX" in data:
+                            hx = max(-1, min(1, int(float(data["hatX"]))))
+                            ui.write(e.EV_ABS, e.ABS_HAT0X, hx)
+                        if "hatY" in data:
+                            hy = max(-1, min(1, int(float(data["hatY"]))))
+                            ui.write(e.EV_ABS, e.ABS_HAT0Y, hy)
+
+                        ui.syn()
+
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        continue
+            finally:
                 try:
-                    data = json.loads(line)
-
-                    # Axes — map -1.0..1.0 → 0..32767
-                    for i, val in enumerate(data.get("axes", [])):
-                        if i >= MAX_AXES:
-                            break
-                        mapped = int((float(val) + 1.0) / 2.0 * AXIS_MAX)
-                        ui.write(e.EV_ABS, abs_codes[i], max(0, min(AXIS_MAX, mapped)))
-
-                    # Buttons — BTN_JOYSTICK + index
-                    for i, state in enumerate(data.get("buttons", [])):
-                        if i >= MAX_BUTTONS:
-                            break
-                        ui.write(e.EV_KEY, e.BTN_JOYSTICK + i, 1 if state else 0)
-
-                    # HAT / POV switch
-                    if "hatX" in data:
-                        hx = max(-1, min(1, int(float(data["hatX"]))))
-                        ui.write(e.EV_ABS, e.ABS_HAT0X, hx)
-                    if "hatY" in data:
-                        hy = max(-1, min(1, int(float(data["hatY"]))))
-                        ui.write(e.EV_ABS, e.ABS_HAT0Y, hy)
-
-                    ui.syn()
-
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    continue
+                    ui.close()
+                except:
+                    pass
+                print("[backend_hotas] Closed virtual HOTAS.", flush=True)
 
         except ImportError:
             print("[backend_hotas] Error: 'evdev' module not installed.", file=sys.stderr)

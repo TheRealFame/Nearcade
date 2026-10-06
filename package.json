@@ -1,24 +1,30 @@
 {
   "name": "Nearcade",
-  "version": "3.0.5",
+  "version": "3.0.7",
   "author": "Fame <support@cutefame.net>",
   "description": "Browser-based game streaming host",
-  "main": "electron-main.js",
+  "main": "src/electron/electron-main.js",
   "scripts": {
     "start": "node src/scripts/server.js",
-    "test": "node bin/verify.js",
+    "test": "node bin/verify.js && node bin/lan-sim.js",
+    "vr:stream": "node src/wivrn/relay.js",
+    "vr:bridge-builder": "bash bin/build_wivrn_bridge.sh",
+    "probe": "electron tools/gamepad-probe",
+    "probe:dist": "cd tools/gamepad-probe && npm install && npm run dist",
     "electron": "electron .",
     "dev": "electron . --dev",
+    "build:orp": "cd tools/open-remote-play/packages/orp-client && npm run build && cp dist/orp-client.bundle.js ../../../../src/scripts/core/network/",
     "build:android": "node bin/build-android.js",
     "deploy": "wrangler deploy",
     "preview": "wrangler dev",
     "dist": "electron-builder --publish always",
     "dist:win": "electron-builder --win --publish always",
+    "dist:win:zip": "electron-builder --win zip --publish never",
     "dist:mac": "electron-builder --mac --publish always",
     "dist:linux": "electron-builder --linux --publish always"
   },
   "workspaces": [
-    "packages/*"
+    "tools/npm-packages/*"
   ],
   "dependencies": {
     "@capacitor/android": "^8.3.4",
@@ -26,29 +32,39 @@
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^8.3.4",
     "@fails-components/webtransport": "^1.6.3",
-    "@nearcade/launcher-detect": "^0.1.4",
-    "@trystero-p2p/mqtt": "^0.25.3",
+    "@nearcade/launcher-detect": "^0.1.5",
+    "@nearcade/native-palette": "^1.0.0",
+    "@trystero-p2p/mqtt": "^0.25.4",
     "@trystero-p2p/torrent": "^0.25.2",
+    "acorn": "^8.18.0",
     "discord-rpc": "^4.0.1",
     "dotenv": "^17.4.2",
     "electron-updater": "^6.8.3",
-    "express": "^4.18.0",
+    "express": "^4.22.3",
+    "express-rate-limit": "^8.6.2",
+    "grandi": "^2.0.2",
     "jsdom": "^29.1.1",
     "kill-port": "^2.0.1",
+    "koffi": "^3.1.5",
     "node-datachannel": "^0.12.0",
     "open": "^10.1.0",
+    "puppeteer": "^25.12.0",
     "pusher-js": "^8.5.0",
     "systeminformation": "^5.31.7",
-    "trystero": "^0.25.2",
+    "trystero": "^0.25.4",
     "which": "^4.0.0",
-    "ws": "^8.0.0"
+    "ws": "^8.0.0",
+    "zod": "^4.5.1"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.4",
-    "electron": "^34.0.0",
-    "electron-builder": "^24.13.3",
+    "electron": "^44.4.3",
+    "electron-builder": "^25.1.8",
     "wrangler": "^4.90.0"
+  },
+  "overrides": {
+    "node-abi": "^3.96.0"
   },
   "build": {
     "appId": "com.nearcade.app",
@@ -81,7 +97,8 @@
       "!src/docs",
       "!**/*.md",
       "!.github",
-      "!packaging",
+      "!tools/os-installers",
+      "!tools",
       "!vps",
       "!drafts",
       "!src/tools/wivrn-src",
@@ -90,7 +107,8 @@
       "!**/build/Release/*.a",
       "!**/build/*.mk",
       "!**/build/Makefile",
-      "!**/build/*.gypi"
+      "!**/build/*.gypi",
+      "!src/sidecar/capture/gst-nearcade/target"
     ],
     "asarUnpack": [
       "src/sidecar/**/*",
@@ -100,7 +118,11 @@
       "assets/**/*",
       "bin/**/*",
       "node_modules/@nearcade/**/*",
-      "packages/**/*"
+      "node_modules/grandi/**/*",
+      "node_modules/koffi/**/*",
+      "node_modules/@koromix/**/*",
+      "node_modules/@grandi/**/*",
+      "tools/npm-packages/**/*"
     ],
     "nsis": {
       "oneClick": false,
@@ -109,7 +131,8 @@
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
       "include": "build/installer.nsh",
-      "deleteAppDataOnUninstall": true
+      "deleteAppDataOnUninstall": true,
+      "artifactName": "Nearcade-Setup-${version}.exe"
     },
     "win": {
       "target": [
@@ -117,10 +140,12 @@
         "portable"
       ],
       "icon": "assets/NearcadeLogo.png",
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "asInvoker"
     },
     "portable": {
-      "requestExecutionLevel": "admin"
+      "requestExecutionLevel": "user",
+      "artifactName": "Nearcade-${version}.exe",
+      "unpackDirName": "nearcade-portable"
     },
     "mac": {
       "target": [
@@ -136,7 +161,16 @@
         "pacman"
       ],
       "icon": "assets/NearcadeLogo.png",
-      "category": "Game"
+      "category": "Game",
+      "artifactName": "Nearcade-Linux.${ext}"
+    },
+    "deb": {
+      "afterInstall": "build/deb-after-install.sh",
+      "afterRemove": "build/deb-after-remove.sh"
+    },
+    "rpm": {
+      "afterInstall": "build/deb-after-install.sh",
+      "afterRemove": "build/deb-after-remove.sh"
     }
   }
 }

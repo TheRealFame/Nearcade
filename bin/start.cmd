@@ -9,9 +9,30 @@ BATCH_SECTION
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$DIR"
 
+# Bypass firejail-wrapped interpreters.
+# `sudo firecfg` (firejail) symlinks /usr/local/bin/node -> firejail, which
+# lands ahead of /usr/bin on the default PATH. That sandbox re-chdirs node to
+# $HOME (so relative paths like node_modules/.bin/electron fail to resolve)
+# and blocks X11/Wayland, so the Electron window never appears. Prefer the
+# real binaries whenever `node` is just a firejail symlink.
+if [ -L "$(command -v node 2>/dev/null)" ] && \
+   [ "$(readlink -f "$(command -v node)")" = "/usr/bin/firejail" ]; then
+    PATH="/usr/bin:$PATH"
+    export PATH
+fi
+
+# Auto-update the portable .desktop icon to the absolute path
+if [ -f "Nearcade.desktop" ]; then
+    sed -i "s|^Icon=.*|Icon=$DIR/assets/NearcadeLogo.png|" Nearcade.desktop
+fi
+
 # 1. GRACEFUL GHOST CLEANUP (UNIX)
-# Ask the process holding Port 3000 (Nearcade) to close nicely
-PORT_PID=$(lsof -ti:3000)
+# Ask the LISTENING process on Port 3000 (the Nearcade Node server) to close nicely.
+# IMPORTANT: We filter to -sTCP:LISTEN so we only match the server process, NOT
+# browser tabs (Firefox, etc.) that are connected to port 3000 as clients.
+# Without -sTCP:LISTEN, lsof returns all PIDs with any socket touching that port,
+# which includes the viewer browser — killing it along with the server.
+PORT_PID=$(lsof -ti:3000 -sTCP:LISTEN 2>/dev/null)
 if [ -n "$PORT_PID" ]; then
     echo "  ~ Asking previous Nearcade session to close nicely (saving VPS state)..."
     # Send SIGTERM (15) to trigger server.js cleanup() and cleanly drop SSH tunnels
@@ -27,9 +48,9 @@ pkill -15 -f "sidecar/input_driver.py" >/dev/null 2>&1
 
 
 
-echo "  ┌─────────────────────────────────────┐"
-echo "  │      Nearcade Launcher      │"
-echo "  └─────────────────────────────────────┘"
+echo "  ┌────────────────────┐"
+echo "  │      Nearcade      │"
+echo "  └────────────────────┘"
 
 # OS Detection & Environment Logic
 OS="$(uname -s)"
@@ -74,8 +95,9 @@ title Nearcade
 cd /d "%~dp0.."
 
 :: 1. GRACEFUL GHOST CLEANUP (WINDOWS)
-:: Find the process ID holding Port 3000
-for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :3000') do (
+:: Find the process ID holding Port 3000 in a LISTENING state
+:: We filter by LISTENING to avoid killing connected browser clients (ESTABLISHED)
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr :3000 ^| findstr LISTENING') do (
     if not "%%a"=="0" (
         echo   ~ Asking previous Nearcade session to close nicely...
         :: Try graceful shutdown first (no /f flag sends WM_CLOSE/SIGTERM)

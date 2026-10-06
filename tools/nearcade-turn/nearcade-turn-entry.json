@@ -1,0 +1,12 @@
+[
+  {
+    "name": "fames-relay eu",
+    "url": "turn:203.0.113.7:3478?transport=udp",
+    "username": "relayuser",
+    "credential": "relaypass",
+    "description": "Community relay",
+    "region": "EU-West",
+    "author": "Fame",
+    "enabled": true
+  }
+]

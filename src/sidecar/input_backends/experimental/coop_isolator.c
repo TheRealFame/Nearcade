@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <unistd.h>
 
 typedef int (*orig_open_f_type)(const char *pathname, int flags, ...);
 typedef int (*orig_open64_f_type)(const char *pathname, int flags, ...);
@@ -25,8 +26,31 @@ static void init_hooks() {
 }
 
 static int should_block(const char *pathname) {
-    // Only care about /dev/input/event*
     if (strncmp(pathname, "/dev/input/event", 16) == 0) {
+        const char *allowed_name = getenv("NEARCADE_ALLOWED_DEVNAME");
+        if (allowed_name && strlen(allowed_name) > 0) {
+            const char *base_name = pathname + 16;
+            char sysfs_path[256];
+            snprintf(sysfs_path, sizeof(sysfs_path), "/sys/class/input/event%s/device/name", base_name);
+            
+            orig_open_f_type o_open = orig_open ? orig_open : (orig_open_f_type)dlsym(RTLD_NEXT, "open");
+            int fd = o_open(sysfs_path, O_RDONLY, 0);
+            if (fd >= 0) {
+                char name_buf[256];
+                memset(name_buf, 0, sizeof(name_buf));
+                if (read(fd, name_buf, sizeof(name_buf) - 1) > 0) {
+                    char *newline = strchr(name_buf, '\n');
+                    if (newline) *newline = '\0';
+                    if (strstr(allowed_name, name_buf) != NULL) {
+                        close(fd);
+                        return 0; // Allowed
+                    }
+                }
+                close(fd);
+            }
+            return 1; // Blocked by devname
+        }
+
         const char *allowed = getenv("NEARCADE_ALLOWED_EVDEV");
         if (allowed && strlen(allowed) > 0) {
             // Check if it's the exact allowed device or a comma separated list

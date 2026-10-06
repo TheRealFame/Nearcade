@@ -1,0 +1,19 @@
+[package]
+name = "nearcade-sidecapture-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GUI (Tauri) for cross-platform capture-card / webcam capture"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+capture-core = { path = "../../capture-core" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "nearcade-sidecapture-gui"
+path = "src/main.rs"

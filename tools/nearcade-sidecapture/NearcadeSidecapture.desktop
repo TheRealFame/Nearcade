@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Nearcade Sidecapture
+Comment=Capture Android/Video devices natively via GStreamer and Tauri
+Exec=sh -c '"$(dirname "%k")/start.cmd"'
+Icon=/home/fame/Documents/Nearcade/tools/nearcade-sidecapture/capture-gui/src-tauri/icons/icon.png
+Terminal=true
+Categories=Utility;AudioVideo;Video;

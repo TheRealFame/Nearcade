@@ -1,0 +1,21 @@
+{
+  "name": "Nearcade Arcade",
+  "short_name": "Nearcade",
+  "description": "Discover and join community-hosted local multiplayer sessions.",
+  "start_url": "/arcade/",
+  "display": "standalone",
+  "background_color": "#090a0c",
+  "theme_color": "#ff5d3d",
+  "icons": [
+    {
+      "src": "/assets/NearcadeLogo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/NearcadeLogo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

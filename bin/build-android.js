@@ -1,11 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const dist = path.join(__dirname, '..', 'dist-android');
+const dist = path.join(__dirname, '..', 'dist', 'android-assets');
 const src = path.join(__dirname, '..', 'src');
 const root = path.join(__dirname, '..');
 
-// Clean dist-android
+// Clean dist/android-assets
 if (fs.existsSync(dist)) {
     fs.rmSync(dist, { recursive: true, force: true });
 }
