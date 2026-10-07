@@ -818,7 +818,8 @@ async function createPC() {
             console.log(`[WebRTC] Received Track: ${e.track.kind}`);
             if ('playoutDelayHint' in e.receiver) e.receiver.playoutDelayHint = 0;
             if (e.track.kind === 'video') {
-                if (USE_WEBCODECS && typeof VideoDecoder !== 'undefined') {
+                window._wcVideoTrackSeen = true;
+                if (USE_WEBCODECS && typeof VideoDecoder !== 'undefined' && !window._wcDowngraded) {
                     const sink = document.getElementById('video');
                     if (sink) {
                         sink.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
@@ -1579,6 +1580,11 @@ function _onInputAck(ackSeq) {
 // -- Fast-Lane Input Dispatcher ------------------------------------------------
 // Tries WebTransport datagrams first, then WebRTC DataChannel, then WebSocket.
 function sendInputData(data) {
+    // Host takeover: local inputs are paused while the host drives this slot.
+    if (window._takeoverActive && data && typeof data === 'object') {
+        const t = data.type;
+        if (t === 'gamepad' || t === 'kbm' || t === 'keyboard') return;
+    }
     const isBin = data instanceof Uint8Array || data instanceof ArrayBuffer;
     let str = isBin ? null : (typeof data === 'string' ? data : JSON.stringify(data));
 
@@ -2658,6 +2664,7 @@ function connectInputWS() {
 let vpsConnected = false;
 let stopReconnect = false;
 async function connect() {
+    _startWcTransportWatchdog();
     const urlParams = new URLSearchParams(window.location.search);
     const hostParam = urlParams.get('host');
     
@@ -3022,6 +3029,7 @@ async function connect() {
 
         if (msg.type === 'webcodecs-config') {
             window.nsWaitKey = true;
+            window._wcDataSeen = true;
             initWebCodecsViewer(msg);
             return;
         }
@@ -3573,6 +3581,7 @@ async function connect() {
             return;
         }
         if (msg.type === 'slot-assigned') { return; } // Slot info not displayed to viewer
+        if (msg.type === 'takeover') { setTakeoverActive(!!msg.active); return; }
         if (msg.type === 'chat') { appendChat(msg.from || msg.name, msg.msg, msg.viewerId === myId, msg.platform, msg.color, msg.isHost); return; }
         if (msg.type === 'input-ack') { _onInputAck(msg.seq); return; }
         if (msg.type === 'host-voice-cmd' && msg.targetViewerId === myId) {
@@ -3638,6 +3647,9 @@ async function connect() {
             // If this socket is no longer the active one (connect() already replaced it),
             // do NOT schedule another reconnect — that's what causes the cascade loop.
             if (ws !== thisWs) return;
+
+            // A dead socket ends any takeover: never leave inputs suppressed forever.
+            if (window._takeoverActive) setTakeoverActive(false);
 
             const AUTH_CODES = new Set([4001, 4002, 4003, 4004]);
             if (AUTH_CODES.has(event.code) || stopReconnect) {
@@ -3723,7 +3735,15 @@ async function connect() {
             apiUrl = hostParam.replace(/\/$/, '') + '/api/pin-required' + window.location.search;
         }
         
-        safeApiJson(apiUrl, { required: true }).then(d => {
+        // Optimistic on network failure: mixed-content blocks and dead tunnels make
+        // the probe throw, which must NOT be treated as "PIN required" — the host
+        // still closes with 4001 and the PIN screen reappears if one is needed.
+        fetch(apiUrl).then(r => {
+            if (!r.ok) return { required: true };
+            const ct = r.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) return { required: true };
+            return r.json();
+        }).catch(() => ({ required: false })).then(d => {
             pinRequired = d.required !== false;
             if (!pinRequired) {
                 const wrap = document.getElementById('pinWrap');
@@ -3839,13 +3859,45 @@ function platIcon(name) {
 function detectViewerPlatform() {
     const ua = navigator.userAgent;
     if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return 'Mobile';
+    try {
+        if (navigator.userAgentData && navigator.userAgentData.mobile) return 'Mobile';
+    } catch (_) {}
     if (navigator.platform === 'Linux x86_64' && navigator.maxTouchPoints > 0 && screen.width === 1280 && screen.height === 800) return 'Steam Deck';
+    try {
+        if (window.matchMedia && matchMedia('(pointer:coarse)').matches && navigator.maxTouchPoints > 0) return 'Mobile';
+    } catch (_) {}
     if (ua.includes('Win')) return 'Windows';
     if (ua.includes('Mac')) return 'macOS';
     if (ua.includes('Linux')) return 'Linux';
     return '';
 }
 const viewerPlatform = detectViewerPlatform();
+
+function decodeHtmlEntities(s) {
+    return String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&#96;/g, '`');
+}
+
+// -- HOST TAKEOVER ---------------------------------------------------------------
+window._takeoverActive = false;
+function setTakeoverActive(on) {
+    // Release stuck buttons first so the slot doesn't jam when control flips.
+    if (on && !window._takeoverActive && typeof myId !== 'undefined' && myId) {
+        try {
+            sendInputData({ type: 'gamepad', viewerId: myId, pad_id: myId + '_0', padIndex: 0,
+                axes: [0, 0, 0, 0], buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) });
+        } catch (_) {}
+    }
+    window._takeoverActive = !!on;
+    let banner = document.getElementById('takeoverBanner');
+    if (on && !banner) {
+        banner = document.createElement('div');
+        banner.id = 'takeoverBanner';
+        banner.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(20,22,28,0.94);color:#fff;padding:10px 18px;border-radius:10px;border:1px solid var(--accent,#c084fc);font-size:13px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.6);pointer-events:none;';
+        banner.textContent = 'Host has taken over your controller — your inputs are paused.';
+        document.body.appendChild(banner);
+    }
+    if (banner) banner.style.display = on ? 'block' : 'none';
+}
 
 function appendChat(name, text, isMe, platform, color, isHost) {
     const el = document.getElementById('chatLog');
@@ -3887,7 +3939,8 @@ function appendChat(name, text, isMe, platform, color, isHost) {
     d.appendChild(nameSpan);
     
     const msgSpan = document.createElement('span');
-    msgSpan.textContent = text;
+    // Server payloads arrive pre-escaped — decode once so entities don't print raw.
+    msgSpan.textContent = decodeHtmlEntities(text);
     if (isMeCmd) msgSpan.style.fontStyle = 'italic';
     d.appendChild(msgSpan);
     
@@ -4685,16 +4738,59 @@ function _reportWcHealth(type, data) {
         _wcHealth.criticalFailures++;
         if (_wcHealth.criticalFailures >= _wcHealth.maxCriticalFailures) {
             console.warn('[WcHealth] Critical — falling back to standard WebRTC');
-            _stopWcHealthMonitor();
             try { if (wcDecoder?.state !== 'closed') wcDecoder.close(); } catch (_) {}
             wcDecoder = null;
-            _reportWcHealth('fallback-request', { reason: type });
-            const url = new URL(window.location.href);
-            url.searchParams.delete('wc');
-            url.searchParams.delete('wc2');
-            setTimeout(() => { window.location.href = url.href; }, 1000);
+            _downgradeToWebRTC(type);
         }
     }
+}
+
+// -- WEBCODECS COMPATIBILITY DOWNGRADE ------------------------------------------
+// Strict WebCodecs sends no WebRTC video track. When the tunnel/network cannot
+// carry the DataChannel (UDP blocked, no TURN), that used to mean a silent
+// infinite black screen — the old "fallback" just reloaded into the same state.
+// Downgrade instead: render the standard video track the host attaches.
+function _downgradeToWebRTC(reason) {
+    if (window._wcDowngraded) return;
+    window._wcDowngraded = true;
+    try { _stopWcHealthMonitor(); } catch (_) {}
+    try {
+        const sink = document.getElementById('video');
+        if (sink) { sink.style.display = 'block'; sink.muted = true; sink.play().catch(() => {}); }
+        if (typeof wcCanvas !== 'undefined' && wcCanvas) wcCanvas.style.display = 'none';
+    } catch (_) {}
+    try {
+        if (typeof appendChat === 'function') appendChat('Nearcade', 'Tunnel cannot carry WebCodecs data — switched to compatibility video.', false, null, null, true);
+    } catch (_) {}
+    console.warn('[WebCodecs] Downgraded to compatibility video (' + (reason || 'manual') + ')');
+    _reportWcHealth('fallback-request', { reason: reason || 'manual' });
+}
+
+// Fires when NEITHER a video track NOR any WebCodecs bytes arrive: the decoder
+// never even configures, so the health monitor above can't see the failure.
+let _wcTransportWatchdogId = 0;
+function _startWcTransportWatchdog() {
+    if (_wcTransportWatchdogId) return;
+    window._wcVideoTrackSeen = false;
+    window._wcDataSeen = false;
+    let waited = 0;
+    const tick = () => {
+        _wcTransportWatchdogId = 0;
+        if (window._wcDowngraded || window._wcVideoTrackSeen || window._wcDataSeen) return;
+        if (typeof wcDecoder !== 'undefined' && wcDecoder && wcDecoder.state === 'configured') return;
+        try {
+            const st = (typeof pc !== 'undefined' && pc) ? pc.connectionState : 'none';
+            // Fire once ICE has settled with nothing to show, or after 40s max.
+            if (st === 'connected' || st === 'completed' || waited >= 40) {
+                console.warn('[WebCodecs] No video transport (pc=' + st + ') — requesting compatibility video');
+                _downgradeToWebRTC('no-transport');
+                return;
+            }
+        } catch (_) {}
+        waited += 20;
+        _wcTransportWatchdogId = setTimeout(tick, 20000);
+    };
+    _wcTransportWatchdogId = setTimeout(tick, 20000);
 }
 
 // -- WEBCODECS VIEWER INITIALIZER --
@@ -4797,6 +4893,10 @@ async function initWebCodecsViewer(config) {
         console.warn('[WebCodecs] VideoDecoder API is not available. Hardware decoding disabled.');
         return;
     }
+    window._wcDataSeen = true;
+    // Downgraded sessions stay on the compatibility track — a late config
+    // must not resurrect the decoder behind the video element.
+    if (window._wcDowngraded) return;
 
     // Re-init gate: the host re-sends this same config on every keyframe
     // request, so ignore exact duplicates. But DO rebuild when the decoder is
@@ -5845,6 +5945,7 @@ window.handleNativeDataChannel = (channel) => {
                 try {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'webcodecs-config') {
+                        window._wcDataSeen = true;
                         if (typeof initWebCodecsViewer === 'function') initWebCodecsViewer(msg);
                     }
                 } catch (err) {
@@ -5855,6 +5956,7 @@ window.handleNativeDataChannel = (channel) => {
 
             if (e.data instanceof ArrayBuffer) {
                 if (typeof ws !== 'undefined' && ws && ws.url && ws.url.includes('/vps')) return;
+                window._wcDataSeen = true;
                 try {
                     const ns = window._wcNetStats || (window._wcNetStats = { ws: 0, dc: 0, dec: 0 });
                     ns.dc++;

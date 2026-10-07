@@ -1148,23 +1148,35 @@ async function joinDirectLink() {
   const errEl = document.getElementById('directLinkErr');
   if (!inputVal) { errEl.textContent = 'Please enter a valid URL or Room Code.'; return; }
 
-  // Check if it's a URL
-  const isUrl = inputVal.startsWith('http://') || inputVal.startsWith('https://');
+  // Check if it's a URL — a bare domain (no scheme) is a host, NOT a room code.
+  let isUrl = inputVal.startsWith('http://') || inputVal.startsWith('https://');
+  let hostInput = inputVal;
+  if (!isUrl && /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?(\/.*)?$/i.test(inputVal) && !/\s/.test(inputVal)) {
+    hostInput = 'https://' + inputVal;
+    isUrl = true;
+  }
 
   if (isUrl) {
+    // Browsers block https pages from reaching http hosts (mixed content) —
+    // say so instead of failing silently into a PIN prompt later.
+    if (window.location.protocol === 'https:' && hostInput.startsWith('http://')) {
+      errEl.style.color = 'var(--danger)';
+      errEl.textContent = '⚠ That host uses plain http, which this https page is blocked from reaching. Use the host\u2019s https tunnel URL instead.';
+      return;
+    }
     errEl.style.color = 'var(--muted)';
     errEl.textContent = 'Verifying tunnel...';
     try {
       const controller = new AbortController();
       const tid = setTimeout(() => controller.abort(), 5000);
-      const pingUrl = inputVal.replace(/\/$/, '') + '/api/info';
+      const pingUrl = hostInput.replace(/\/$/, '') + '/api/info';
       await fetch(pingUrl, { method: 'HEAD', mode: 'no-cors', signal: controller.signal });
       clearTimeout(tid);
       errEl.textContent = '';
       if (window.electronAPI) {
-        window.electronAPI.joinSession(inputVal, { game: 'Direct Connect' }, pinVal);
+        window.electronAPI.joinSession(hostInput, { game: 'Direct Connect' }, pinVal);
       } else {
-        let navUrl = `viewer.html?client=1&compat=1&host=${encodeURIComponent(inputVal)}`;
+        let navUrl = `viewer.html?client=1&compat=1&host=${encodeURIComponent(hostInput)}`;
         if (pinVal) navUrl += `&pin=${encodeURIComponent(pinVal)}`;
         window.location.href = navUrl;
       }

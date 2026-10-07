@@ -2,7 +2,8 @@ import sys, json, time, threading, queue, signal
 
 try:
     import evdev
-except ImportError:
+except ImportError as e:
+    print(f"[host_delay] evdev unavailable ({e}) — delayed controller disabled", file=sys.stderr, flush=True)
     sys.exit(0)
 
 virtual_pads = {}
@@ -71,9 +72,10 @@ def scan_and_grab():
                         vpad = evdev.UInput.from_device(d, name=f"Nearcade Delayed: {d.name}")
                         physical_pads[d.path] = d
                         virtual_pads[d.path] = vpad
+                        print(f"[host_delay] Delayed controller created for {d.name}", flush=True)
                         threading.Thread(target=listen_to_device, args=(d.path, d, vpad), daemon=True).start()
                     except Exception as e:
-                        pass
+                        print(f"[host_delay] Could not mirror {d.name}: {e}", file=sys.stderr, flush=True)
 
 def ungrab_all():
     global enabled
@@ -103,10 +105,12 @@ try:
         try:
             msg = json.loads(line)
             if "enabled" in msg:
-                if msg["enabled"] and not enabled:
+                if msg["enabled"]:
+                    # Rescan on EVERY enable (not just transitions): hot-plugged pads
+                    # and dead backends recover; scan_and_grab skips known devices.
                     enabled = True
                     scan_and_grab()
-                elif not msg["enabled"] and enabled:
+                elif enabled:
                     ungrab_all()
             if "delayMs" in msg:
                 delay_ms = float(msg["delayMs"])

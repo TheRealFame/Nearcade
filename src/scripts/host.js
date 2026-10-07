@@ -1,9 +1,33 @@
 function closeAllModals() {
     document.querySelectorAll(".modal-bg").forEach(m => m.classList.add("gone"));
+    _syncPreviewPip();
+}
+
+// ── PREVIEW PICTURE-IN-PICTURE ───────────────────────────────────────────────
+// Full-screen settings/source modals sit above the preview stage (z-index 900),
+// which reads as "the preview vanished". While ANY modal is open, shrink the
+// preview stage into a non-interactive corner PiP above the modal instead.
+function _syncPreviewPip() {
+    const anyOpen = [...document.querySelectorAll('.modal-bg')].some(m => !m.classList.contains('gone'));
+    document.body.classList.toggle('modal-open', anyOpen);
+}
+function _attachPipObserver() {
+    if (typeof MutationObserver === 'undefined') return;
+    const _pipObs = new MutationObserver(_syncPreviewPip);
+    document.querySelectorAll('.modal-bg').forEach(m => _pipObs.observe(m, { attributes: true, attributeFilter: ['class'] }));
+    _syncPreviewPip();
+}
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _attachPipObserver);
+    else _attachPipObserver();
 }
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveViewers = new Set(), viewerCount = 0;
+// Last pipeline that actually started streaming. URL params only describe boot
+// intent (and go stale after the first swap); the select shows user intent.
+// Neither is the running truth.
+let _activePipeline = null;
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
 let _pinExplicit = false; // set once the user toggles: local intent beats server echo on reconnect
@@ -554,7 +578,9 @@ function appendChat(name, text, isMe, platform, color) {
     nameSpan.appendChild(document.createTextNode(isMeCmd ? ' ' : ': '));
     d.appendChild(nameSpan);
     const parseMarkdown = (str) => {
-        let html = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        // Server payloads arrive pre-escaped (&amp;#39; etc.) — decode once so we
+        // escape exactly once below instead of double-escaping into literal text.
+        let html = decodeHtmlEntities(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
         html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
         html = html.replace(/_(.*?)_/g, '<em>$1</em>');
@@ -588,9 +614,17 @@ function platIcon(name) {
     return map[name] || '';
 }
 
+function decodeHtmlEntities(s) {
+    return String(s).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&#96;/g, '`');
+}
+
 const _hostPlatform = (() => {
     const ua = navigator.userAgent;
-    if (/Mobile|Android/i.test(ua)) return 'Mobile';
+    if (/Mobile|Android|iPhone|iPad|iPod/i.test(ua)) return 'Mobile';
+    try {
+        if (navigator.userAgentData && navigator.userAgentData.mobile) return 'Mobile';
+        if (window.matchMedia && matchMedia('(pointer:coarse)').matches && navigator.maxTouchPoints > 0) return 'Mobile';
+    } catch (_) {}
     if (/Linux/i.test(ua) && !/Android/i.test(ua)) return 'Linux';
     if (/Windows/i.test(ua)) return 'Windows';
     if (/Mac/i.test(ua)) return 'macOS';
@@ -1394,6 +1428,139 @@ function kickViewer(id) {
     }
 }
 
+// ── HOST TAKEOVER (temporary) ────────────────────────────────────────────────
+// Lets the host drive a viewer's slot with the host's own gamepad while a popup
+// is open. Closing the popup releases the slot. The viewer sees a banner and
+// its local inputs are paused; the server only honors driving packets tagged
+// takeover:true while the host holds that viewer.
+window._takeoverTarget = null; // viewer padId, e.g. "abc_0"
+window._takeoverRaf = 0;
+window._takeoverLastSent = '';
+window._takeoverLastTime = 0;
+
+function _takeoverIds() {
+    const t = window._takeoverTarget || '';
+    const m = t.match(/^(.*)_(\d+)$/);
+    return { realId: m ? m[1] : t, padIndex: m ? (parseInt(m[2], 10) || 0) : 0 };
+}
+
+function _paintTakeoverButtons() {
+    document.querySelectorAll('[data-takeover]').forEach(b => {
+        const on = window._takeoverTarget && b.getAttribute('data-takeover') === window._takeoverTarget;
+        b.style.color = on ? 'var(--accent)' : '';
+        b.style.opacity = on ? '1' : '';
+    });
+    refreshTakeoverRoster();
+}
+
+// Input-panel sub-panel (Host Takeover is rarely used, so it lives here
+// instead of the roster). Lists connected viewers; the Take over button
+// toggles, and the active popup's Release button ends it.
+function refreshTakeoverRoster() {
+    const sel = document.getElementById('takeoverViewerSelect');
+    if (!sel) return;
+    const prev = sel.value;
+    const viewers = (window._rosterData || []).filter(v => v && v.id && v.id !== 'host_0');
+    sel.innerHTML = viewers.length
+        ? viewers.map(v => `<option value="${v.id}">${String(v.name || v.id).replace(/[<>"'&]/g, '')}</option>`).join('')
+        : '<option value="">No viewers connected</option>';
+    if (prev && viewers.some(v => v.id === prev)) sel.value = prev;
+    const btn = document.getElementById('takeoverToggleBtn');
+    if (btn) btn.textContent = window._takeoverTarget ? 'Release' : 'Take over';
+}
+
+function takeoverFromPanel() {
+    if (window._takeoverTarget) { endTakeover(); refreshTakeoverRoster(); return; }
+    const sel = document.getElementById('takeoverViewerSelect');
+    if (!sel || !sel.value) return;
+    const opt = sel.options[sel.selectedIndex];
+    toggleTakeover(sel.value, opt ? opt.textContent : sel.value);
+    refreshTakeoverRoster();
+}
+
+function _showTakeoverPopup(name) {
+    let p = document.getElementById('takeoverPopup');
+    if (!p) {
+        p = document.createElement('div');
+        p.id = 'takeoverPopup';
+        p.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(20,22,28,0.94);color:#fff;padding:10px 14px;border-radius:10px;border:1px solid var(--accent);font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);display:flex;align-items:center;gap:10px;';
+        p.innerHTML = '<span id="takeoverPopupText"></span><button id="takeoverReleaseBtn" onclick="endTakeover()" style="background:var(--accent);border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;">Release</button>';
+        document.body.appendChild(p);
+    }
+    const txt = document.getElementById('takeoverPopupText');
+    if (txt) txt.textContent = 'Controlling ' + name + ' — close to release.';
+    p.style.display = 'flex';
+}
+
+function _takeoverPoll() {
+    if (!window._takeoverTarget) return;
+    try {
+        const { realId, padIndex } = _takeoverIds();
+        const pads = (typeof navigator.getGamepads === 'function') ? navigator.getGamepads() : [];
+        let gp = null;
+        for (const p of pads) { if (p && p.connected) { gp = p; break; } }
+        const neutral = () => ({ pressed: false, value: 0 });
+        const payload = gp ? {
+            type: 'gamepad', viewerId: realId, pad_id: window._takeoverTarget, padIndex,
+            takeover: true,
+            axes: [gp.axes[0] || 0, gp.axes[1] || 0, gp.axes[2] || 0, gp.axes[3] || 0],
+            buttons: Array.from({ length: 16 }, (_, i) => { const b = gp.buttons[i]; return b ? { pressed: !!b.pressed, value: b.value || 0 } : neutral(); })
+        } : {
+            type: 'gamepad', viewerId: realId, pad_id: window._takeoverTarget, padIndex,
+            takeover: true, axes: [0, 0, 0, 0],
+            buttons: Array.from({ length: 16 }, neutral)
+        };
+        // Empty/rest state is a valid payload (releases buttons) — send on change
+        // plus a 500ms heartbeat so a reconnecting server re-learns the slot.
+        const s = JSON.stringify(payload);
+        const now = Date.now();
+        if (s !== window._takeoverLastSent || now - window._takeoverLastTime > 500) {
+            window._takeoverLastSent = s;
+            window._takeoverLastTime = now;
+            if (ws && ws.readyState === 1) ws.send(s);
+        }
+    } catch (_) {}
+    window._takeoverRaf = requestAnimationFrame(_takeoverPoll);
+}
+
+function toggleTakeover(padId, name) {
+    if (window._takeoverTarget === padId) { endTakeover(); return; }
+    if (window._takeoverTarget) endTakeover();
+    window._takeoverTarget = padId;
+    window._takeoverLastSent = '';
+    window._takeoverLastTime = 0;
+    const { realId } = _takeoverIds();
+    if (ws && ws.readyState === 1) {
+        try { ws.send(JSON.stringify({ type: 'takeover-viewer', viewerId: realId, active: true })); } catch (_) {}
+    }
+    _showTakeoverPopup(name || padId);
+    _paintTakeoverButtons();
+    if (window._takeoverRaf) cancelAnimationFrame(window._takeoverRaf);
+    window._takeoverRaf = requestAnimationFrame(_takeoverPoll);
+    log(I18N.t('Taking over') + ' ' + (name || padId), 'warn');
+}
+
+function endTakeover(notify = true, sendNeutral = true) {
+    if (!window._takeoverTarget) return;
+    const { realId, padIndex } = _takeoverIds();
+    // Send a final neutral state so held buttons don't stick on the slot.
+    // Skipped when the viewer already left (server flushed on close).
+    if (sendNeutral && ws && ws.readyState === 1) {
+        try {
+            ws.send(JSON.stringify({ type: 'gamepad', viewerId: realId, pad_id: window._takeoverTarget, padIndex,
+                takeover: true, axes: [0, 0, 0, 0],
+                buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) }));
+            if (notify !== false) ws.send(JSON.stringify({ type: 'takeover-viewer', viewerId: realId, active: false }));
+        } catch (_) {}
+    }
+    window._takeoverTarget = null;
+    if (window._takeoverRaf) { cancelAnimationFrame(window._takeoverRaf); window._takeoverRaf = 0; }
+    const p = document.getElementById('takeoverPopup');
+    if (p) p.style.display = 'none';
+    _paintTakeoverButtons();
+    log(I18N.t('Takeover released'), 'ok');
+}
+
 function reportViewer(id) {
     if (!confirm('Report this viewer for violating the arcade rules?')) return;
     if (ws && ws.readyState === 1) {
@@ -1594,18 +1761,43 @@ function connectWS() {
             const htype = msg.wcHealthType || '?';
             console.warn(`[WcHealth] Viewer ${vid}: ${htype}`, msg.wcHealthData || '');
             if (htype === 'fallback-request') {
+                if (!msg.viewerId) return;
+                // Genuine downgrade (not a reload loop): this viewer's tunnel cannot
+                // carry the DataChannel, so attach a standard WebRTC video track and
+                // renegotiate. Remember the downgrade so future offers keep video.
+                _viewerWcSupport[vid] = false;
                 const pc = peerConnections[vid];
-                if (pc) {
+                const vtr = (currentStream && currentStream !== 'gstreamer' && currentStream.getVideoTracks)
+                    ? currentStream.getVideoTracks()[0] : null;
+                if (pc && vtr && vtr.readyState === 'live' &&
+                    !pc.getSenders().some(s => s.track && s.track.kind === 'video')) {
                     try {
-                        ws.send(JSON.stringify({ type: 'force-reload', viewerId: vid, url: window.location.href.split('?')[0] }));
-                    } catch (_) { }
+                        pc.addTrack(vtr, currentStream);
+                        log(I18N.t('Downgraded') + ' ' + vid + ' ' + I18N.t('to compatibility video'), 'warn');
+                    } catch (e) {
+                        log(I18N.t('Downgrade failed for') + ' ' + vid + ': ' + e.message, 'err');
+                    }
                 }
+                try {
+                    if (typeof sendOfferToViewer === 'function') sendOfferToViewer(vid);
+                } catch (_) { }
             }
+            return;
+        }
+        if (msg.type === 'takeover-state') {
+            // Server echo of our takeover toggle — repaint buttons in case the
+            // roster hasn't re-rendered.
+            _paintTakeoverButtons();
             return;
         }
         if (msg.type === 'viewer-joined') {
             const isNew = !knownViewers.has(msg.viewerId);
             knownViewers.add(msg.viewerId);
+            // Viewer arrival re-asserts the delayed-controller backend (covers a
+            // server restart that orphaned the sidecar mid-session).
+            if (window._hostDelayEnabled && ws && ws.readyState === 1) {
+                try { ws.send(JSON.stringify({ type: 'host_delay', enabled: true, delayMs: 0 })); } catch (_) {}
+            }
             if (msg.viewerRegion) _viewerRegions[msg.viewerId] = String(msg.viewerRegion).toLowerCase().slice(0, 2);
             if (typeof msg.supportsWebCodecs === 'boolean') _viewerWcSupport[msg.viewerId] = msg.supportsWebCodecs;
             if (isNew) {
@@ -1702,12 +1894,15 @@ function connectWS() {
             delete _viewerRegions[msg.viewerId];
             delete _viewerWcSupport[msg.viewerId];
             _removeViewerVAD(msg.viewerId);
+            // Release takeover if the controlled viewer left.
+            if (window._takeoverTarget && msg.viewerId && window._takeoverTarget.indexOf(msg.viewerId) === 0) endTakeover(false, false);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
         }
         if (msg.type === 'roster') {
             _lastRosterList = msg.viewers || [];
             renderRoster(_lastRosterList);
+            refreshTakeoverRoster();
             // Keep viewer panel in sync
             window._rosterData = _lastRosterList;
             if (typeof _refreshViewerPanel === 'function') _refreshViewerPanel();
@@ -2601,11 +2796,20 @@ async function hotSwapCapture() {
 // Switch between pipeline types (gstreamer_webrtc, webcodecs, ffmpeg, webtransport)
 // without disconnecting viewers. Keeps WebRTC connections alive.
 async function swapPipeline(newPipeline) {
-    if (!currentStream || newPipeline === document.getElementById('pipelineSelect')?.value) return;
-    
+    // NOTE: the select already shows the NEW value when this runs from its
+    // onchange — compare against the last pipeline that actually started.
+    if (!currentStream || currentStream === 'gstreamer' || newPipeline === _activePipeline) return;
+
     log(I18N.t('Swapping pipeline to') + ' ' + newPipeline + '...', 'warn');
-    
-    const oldPipeline = document.getElementById('pipelineSelect')?.value;
+
+    const oldPipeline = _activePipeline || document.getElementById('pipelineSelect')?.value;
+    // Stash the live track for encoder-family targets so startCapture() reuses it
+    // instead of opening a new OS picker. Sidecar/gstreamer targets re-acquire.
+    const _noPickerTargets = ['webcodecs', 'custom_webcodecs', 'webcodecs_fallback', 'native'];
+    if (_noPickerTargets.includes(newPipeline) && currentStream.getVideoTracks) {
+        const _keepV = currentStream.getVideoTracks()[0];
+        if (_keepV && _keepV.readyState === 'live') window._swapReuseVideoTrack = _keepV;
+    }
     document.getElementById('pipelineSelect').value = newPipeline;
     
     // Notify viewers of encoder swap
@@ -2656,7 +2860,8 @@ async function swapPipeline(newPipeline) {
         
         // Restart with new pipeline (reuses current video track)
         await startCapture();
-        
+
+        _activePipeline = newPipeline;
         log(I18N.t('Pipeline swapped to') + ' ' + newPipeline, 'ok');
     } catch (err) {
         log(I18N.t('Pipeline swap failed:') + ' ' + err.message, 'err');
@@ -2685,10 +2890,20 @@ async function startCapture() {
     _elDisabled('btnStart', true);
     _elDisabled('btnSwitch', true);
 
+    // Pipeline hot-swap reuse: swapPipeline() stashes the live video track here so
+    // re-encoding into a new backend doesn't force a new OS picker.
+    const _reuseV = (window._swapReuseVideoTrack && window._swapReuseVideoTrack.readyState === 'live')
+        ? window._swapReuseVideoTrack : null;
+    window._swapReuseVideoTrack = null;
+    // Killing the reused track is forbidden — currentStream OWNS it.
+    const _isWinKill = navigator.userAgent.includes('Windows') || navigator.platform.toLowerCase().includes('win');
+
     // Teardown old streams BEFORE we start capturing.
     // _forceKillStream nulls each track individually — required on Windows so
     // Chromium releases the OS capture device handle before we re-acquire it.
-    if (currentStream) { _forceKillStream(currentStream); stopAudioMeter(); currentStream = null; }
+    // Skipped for hot-swap reuse and deferred elsewhere so cancelling the
+    // picker no longer blanks a working preview.
+    if (currentStream && !_reuseV && _isWinKill) { _forceKillStream(currentStream); stopAudioMeter(); currentStream = null; }
     Object.values(peerConnections).forEach(pc => { try { pc.close(); } catch (_) { } });
     peerConnections = {};
 
@@ -2714,6 +2929,8 @@ async function startCapture() {
 
     try {
         let screenStream = null;
+        // Hot-swap fast path: reuse the stashed live track, skip every picker.
+        if (_reuseV) screenStream = new MediaStream([_reuseV]);
         videoConstraints.cursor = 'never';
         const displayMediaOptions = { video: videoConstraints };
 
@@ -3162,6 +3379,11 @@ async function startCapture() {
             return;
         }
 
+        // Deferred teardown (non-Windows, non-reuse): the previous stream survived
+        // the picker — kill it now that the replacement is live. Reuse swaps skip
+        // this: the "old" stream owns the reused track.
+        if (currentStream && !_reuseV && !_isWinKill) { try { _forceKillStream(currentStream); stopAudioMeter(); } catch (_) {} currentStream = null; }
+
         const vTrack = screenStream.getVideoTracks()[0];
         if (!vTrack || vTrack.readyState === 'ended') {
             throw new DOMException("Stream ended unexpectedly", "AbortError");
@@ -3176,12 +3398,13 @@ async function startCapture() {
         const urlParams = new URLSearchParams(window.location.search);
         const pipelineEl = document.getElementById('pipelineSelect');
         const pipelineVal = pipelineEl ? pipelineEl.value : 'native';
+        _activePipeline = pipelineVal;
         
         const useWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
         const strictWc = pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || urlParams.get('wc') === '1';
         
         if (useWc) {
-            log(strictWc ? 'Gen 2 WebCodecs pipeline active. WebRTC video fallback DISABLED.' : 'Hybrid pipeline active. (Gen 2 + WebRTC / High Overhead)', 'ok');
+            log(strictWc ? 'Gen 2 WebCodecs pipeline active. WebRTC video fallback DISABLED.' : 'Hybrid WebCodecs/WebRTC pipeline active. (Gen 2 + WebRTC / High Overhead)', 'ok');
             startWebCodecsNetworkPipeline(vTrack.clone());
         }
         
@@ -3417,6 +3640,11 @@ async function startCapture() {
         [...knownViewers].forEach(id => sendOfferToViewer(id));
 
         vTrack.onended = () => { log(I18N.t('Capture ended by OS'), 'warn'); stopCapture(); };
+        // Re-assert the delayed-controller backend: it only exists while its
+        // sidecar runs, and a server restart silently orphans it.
+        if (window._hostDelayEnabled && ws && ws.readyState === 1) {
+            try { ws.send(JSON.stringify({ type: 'host_delay', enabled: true, delayMs: 0 })); } catch (_) {}
+        }
         _elDisabled('btnSwitch', false);
         _elDisabled('btnStop', false);
         _elDisabled('btnKbmPanic', false);
@@ -3938,6 +4166,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     _wcForceKeyframe = false;
     window._wcHwFallbackDone = false;
     window._wcH264ConfigSent = false;
+        window._wcH264ConfigDims = null;
 
     // ── SINGLE-FLIGHT TEARDOWN ──────────────────────────────────────────
     // Capture restarts, track swaps, codec switches and watchdog reconnects
@@ -4074,7 +4303,8 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         // Note: EncodedVideoChunk doesn't have a codec property; use metadata or encoder config.
         const chunkCodec = metadata?.decoderConfig?.codec || encoder?._lastConfig?.codec || '';
         if (chunk.type === 'key' && chunkCodec.startsWith('avc1') && navigator.userAgent.toLowerCase().includes('linux')) {
-            if (!window._wcH264ConfigSent) {
+            const _dims = chunk.codedWidth + 'x' + chunk.codedHeight;
+            if (!window._wcH264ConfigSent || window._wcH264ConfigDims !== _dims) {
                 const buffer = new ArrayBuffer(chunk.byteLength);
                 chunk.copyTo(buffer);
                 const cfg = _avccConfigFromAnnexB(new Uint8Array(buffer), chunk.codedWidth, chunk.codedHeight);
@@ -4087,6 +4317,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                         description: Array.from(cfg.desc)
                     });
                     window._wcH264ConfigSent = true;
+                    window._wcH264ConfigDims = _dims;
                     broadcastToViewers(_lastWcConfig);
                     console.log('[WebCodecs] Sent H264 AVCC description for Linux viewers');
                 }
@@ -4094,16 +4325,22 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         }
 
         if (metadata.decoderConfig) {
-            _lastWcConfig = JSON.stringify({
-                type: 'webcodecs-config',
-                codec: metadata.decoderConfig.codec,
-                codedWidth: metadata.decoderConfig.codedWidth || encWidth,
-                codedHeight: metadata.decoderConfig.codedHeight || encHeight,
-                description: metadata.decoderConfig.description
-                    ? Array.from(new Uint8Array(metadata.decoderConfig.description))
-                    : null
-            });
-            broadcastToViewers(_lastWcConfig);
+            const _desc = metadata.decoderConfig.description
+                ? Array.from(new Uint8Array(metadata.decoderConfig.description))
+                : null;
+            // Never clobber a good AVCC description with an empty one: Linux VAAPI
+            // emits decoderConfig WITHOUT description on keyframes, which would
+            // leave late joiners with an undecodable null-description config.
+            if (_desc || !_lastWcConfig) {
+                _lastWcConfig = JSON.stringify({
+                    type: 'webcodecs-config',
+                    codec: metadata.decoderConfig.codec,
+                    codedWidth: metadata.decoderConfig.codedWidth || encWidth,
+                    codedHeight: metadata.decoderConfig.codedHeight || encHeight,
+                    description: _desc
+                });
+                broadcastToViewers(_lastWcConfig);
+            }
         }
 
         const payload = new Uint8Array(1 + 8 + chunk.byteLength);
@@ -4159,6 +4396,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         _wcForceKeyframe = true;
         // Reset H264 config sent flag since we're now VP8
         window._wcH264ConfigSent = false;
+        window._wcH264ConfigDims = null;
         console.warn(`[WebCodecs] Hardware encoder failed (${reason}). Fell back to software VP8 — stream continues.`);
         if (typeof log === 'function') log('Hardware encoder failed, using software encoding instead.', 'warn');
     }
@@ -4275,6 +4513,7 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
                     _wcForceKeyframe = true;
                     // Reset H264 config sent flag on resolution change
                     window._wcH264ConfigSent = false;
+        window._wcH264ConfigDims = null;
                 }
 
                 // Direct encode of the source frame (used by hardware and software)
@@ -4454,6 +4693,7 @@ function _stopConnectionWatchdog() {
         }
         // Reset encoder state
         window._wcH264ConfigSent = false;
+        window._wcH264ConfigDims = null;
         window._wcHwFallbackDone = false;
         window._wcForceKeyframe = true;
 
@@ -5114,19 +5354,23 @@ window.saveCodecUI = async function (val) {
 function saveCaptureMethod(method) {
     const pSelect = document.getElementById('pipelineSelect');
 
-    // Determine what the CURRENT active pipeline is based on URL params
-    const urlParams = new URLSearchParams(window.location.search);
-    let activeMethod = urlParams.get('pipeline');
+    // The running truth is the last pipeline that actually started. URL params only
+    // describe boot intent (and go stale the moment the user swaps once).
+    let activeMethod = _activePipeline;
     if (!activeMethod) {
-        if (urlParams.get('wc') === '1') activeMethod = 'webcodecs';
-        else if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
-        else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
-        else if (urlParams.get('gst') === '1') activeMethod = 'gstreamer_webrtc';
-        else activeMethod = 'webcodecs';
+        const urlParams = new URLSearchParams(window.location.search);
+        activeMethod = urlParams.get('pipeline');
+        if (!activeMethod) {
+            if (urlParams.get('wc') === '1') activeMethod = 'webcodecs';
+            else if (urlParams.get('wc') === '2') activeMethod = 'custom_webcodecs';
+            else if (urlParams.get('ff') === '1' || (typeof process !== 'undefined' && process.argv?.includes('--ffmpeg'))) activeMethod = 'ffmpeg';
+            else if (urlParams.get('gst') === '1') activeMethod = 'gstreamer_webrtc';
+            else activeMethod = 'webcodecs';
+        }
     }
 
     // If a stream is already active, try hot-swap instead of restart
-    if (currentStream && typeof swapPipeline === 'function' && method !== activeMethod) {
+    if (currentStream && currentStream !== 'gstreamer' && typeof swapPipeline === 'function' && method !== activeMethod) {
         swapPipeline(method);
         return;
     }
@@ -6194,6 +6438,7 @@ function showSettingsModal(tab) {
     if (ndiSel) ndiSel.value = localStorage.getItem('ns_ndi_res') || '720p';
     switchSettingsTab(tab || 'video');
     document.getElementById('settingsModal').classList.remove('gone');
+    refreshTakeoverRoster();
     // Update codec select UI to show hardware acceleration support
     _updateCodecSelectUI().catch(() => {});
 }

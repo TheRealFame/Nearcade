@@ -605,7 +605,7 @@
           </div>
           <select id="pipelineSelect" class="form-select" onchange="saveCaptureMethod(this.value)">
             <option value="webcodecs" selected>WebCodecs (Strict Gen 2 / Recommended)</option>
-            <option value="webcodecs_fallback">Hybrid (Gen 2 + WebRTC / High Overhead)</option>
+            <option value="webcodecs_fallback">Hybrid WebCodecs/WebRTC (Gen 2 + WebRTC / High Overhead)</option>
             <option value="native">WebRTC (Legacy Compatibility)</option>
             <option value="custom_webcodecs" style="color:var(--warn);">Nearcade Gen 2 (Raw Hardware GL /
               Sub-Millisecond)</option>
@@ -1062,6 +1062,17 @@
           </div>
           <input type="checkbox" id="hostDelayToggle" style="display:none;"
             onchange="window.toggleHostDelay && window.toggleHostDelay(this.checked); document.getElementById('ctrlTrackHostDelay').classList.toggle('on', this.checked); document.getElementById('ctrlWarnHostDelay').style.display = this.checked ? 'block' : 'none';">
+        </div>
+
+        <div class="ctrl-modal-row" id="ctrlRowTakeover" style="flex-direction:column;gap:8px;cursor:default;margin-top:8px;">
+          <div class="ctrl-row-text">
+            <div class="ctrl-row-label">Host Takeover (rarely used)</div>
+            <div class="ctrl-row-desc">Temporarily drive a viewer's controller with your gamepad. A popup shows while active — closing it releases them.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;width:100%;">
+            <select id="takeoverViewerSelect" class="form-select" style="flex:1;"></select>
+            <button id="takeoverToggleBtn" onclick="takeoverFromPanel()" style="background:var(--accent);border:none;color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap;">Take over</button>
+          </div>
         </div>
 
         <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;margin-top:12px;">

@@ -820,6 +820,18 @@ user-select: text;
 
 .modal-bg.gone { display: none; }
 
+/* Preview stays visible while a modal is open: compact corner PiP above modals */
+body.modal-open .preview-stage {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 320px;
+    height: 180px;
+    flex: none;
+    z-index: 950;
+    pointer-events: none;
+}
+
 .modal {
     background: #131520;
     border: 1px solid var(--border2);

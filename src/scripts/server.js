@@ -145,6 +145,8 @@ const viewerAvatars = new Map();
 const viewerPlatforms = new Map();
 const viewerWcSupport = new Map();
 const inputPerms = new Map();
+// viewerId -> true while the host temporarily drives that viewer's slot
+const takeoverActive = new Map();
 const pinAttempts = new Map();
 const urlSpam = new Map();
 const reports = new Map();    // anonHash -> Array<{ timestamp, sessionId }>
@@ -688,7 +690,7 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_VERSION = 3;
+const CONFIG_VERSION = 4;
 const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
 const FRIENDS_FILE = path.join(dataDir, 'friends.json');
 const DEFAULT_ARCADE_URL = 'https://nearcade.cutefame.net';
@@ -713,6 +715,11 @@ function migrateConfig(cfg) {
     if (cfg.useNativeTheme === undefined) cfg.useNativeTheme = true;
     if (cfg.useSystemAccent === undefined) cfg.useSystemAccent = true;
     v = 3;
+  }
+  // v3 → v4: GPU-Direct Capture defaults ON (only seeds users who never chose)
+  if (v < 4) {
+    if (cfg.zeroCopy === undefined) cfg.zeroCopy = true;
+    v = 4;
   }
   cfg.configVersion = CONFIG_VERSION;
   return cfg;
@@ -2686,6 +2693,10 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             const padIdx = (msg.type === 'gpid' ? (msg.padIndex || 0) : (msg.padIndex || 0));
             const padId = id + '_' + padIdx;
 
+            // Host takeover: driving inputs tagged by the host page are honored
+            // only while the host holds this viewer's slot, bypassing perms.
+            const _takeover = msg.takeover === true && takeoverActive.get(id) === true;
+
             if (msg.type === 'gpid') {
               const pads = viewerGamepads.get(id) || new Set();
               if (!pads.has(padIdx)) {
@@ -2715,7 +2726,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             }
 
             if (msg.type === 'gamepad') {
-              if (!perms.gp) {
+              if (!perms.gp && !_takeover) {
                 console.log(`[DEBUG VPS-GP] DROPPED: perms.gp is false for padId=${padId}. perms=`, perms);
                 return;
               }
@@ -2727,7 +2738,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
               inputDriver.send(norm);
               return;
             }
-            if (msg.type === 'kbm' && !perms.kb) {
+            if (msg.type === 'kbm' && !perms.kb && !_takeover) {
               console.log(`[DEBUG KBM] Dropped in /ws/host due to perms.kb=false`);
               return;
             }
@@ -2755,6 +2766,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
         console.log("[host] disconnected");
         hostWS = null;
         hostStreaming = false;
+        // A dead host ends every takeover — never leave a viewer suppressed.
+        for (const [tid] of takeoverActive) {
+          const vws = viewers.get(tid);
+          if (vws && vws.readyState === 1) {
+            try { vws.send(JSON.stringify({ type: 'takeover', active: false })); } catch (_) {}
+          }
+        }
+        takeoverActive.clear();
         for (const [id] of arcadeSessions) {
           arcadeSessions.delete(id);
           broadcastToArcade({ type: 'arcade-session-stopped', id });
@@ -3342,6 +3361,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
         if (wasActive) {
           viewers.delete(id);
           viewerNames.delete(id);
+          takeoverActive.delete(id);
           if (hadController) {
             playLeaveSound();
             const pads = viewerGamepads.get(id) || new Set([0]);
@@ -3469,7 +3489,27 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
               return;
             }
 
-            const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay', 'virtualmic'];
+          // ── HOST TAKEOVER ──────────────────────────────────────────────
+          // Temporary host control of a viewer's slot. The viewer shows a popup
+          // and pauses local input; the host page sends driving inputs tagged
+          // with takeover:true. Closing the host popup releases the slot.
+          if (msg.type === 'takeover-viewer') {
+            const id = String(msg.viewerId || '').slice(0, 64);
+            if (!id) return;
+            const on = !!msg.active;
+            if (on) takeoverActive.set(id, true); else takeoverActive.delete(id);
+            const vws = viewers.get(id);
+            if (vws && vws.readyState === 1) {
+              try { vws.send(JSON.stringify({ type: 'takeover', active: on })); } catch (_) {}
+            }
+            if (hostWS && hostWS.readyState === 1) {
+              try { hostWS.send(JSON.stringify({ type: 'takeover-state', viewerId: id, active: on })); } catch (_) {}
+            }
+            console.log(`[takeover] ${id} ${on ? 'taken over' : 'released'} by host`);
+            return;
+          }
+
+          const expTypes = ['tablet', 'hotas', 'guitar', 'balanceboard', 'eyetracking', 'lightgun', 'adaptive', 'android', 'android-config', 'adaptive-config', 'config', 'host_delay', 'virtualmic'];
             if (expTypes.includes(msg.type)) {
               experimentalDriver.send(msg);
               return;
