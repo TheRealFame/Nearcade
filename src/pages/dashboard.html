@@ -7,6 +7,7 @@
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Nearcade</title>
   <script src="/js/extended/ui/native-theme.js"></script>
+  <script type="module" src="/js/core/network/p2p-signaler.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
@@ -66,8 +67,8 @@
 
 
 
-  <!-- Generate PIN Modal (for Companion Devices) -->
-  <div class="modal-bg gone" id="mobileLinkModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="this.classList.add('gone'); this.classList.remove('open');">
+  <!-- Generate PIN Modal (Host side: displays PIN & listens via ORP P2P) -->
+  <div class="modal-bg gone" id="mobileLinkModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="closeCompanionGenModal()">
     <div class="modal" style="width: 440px; position:relative; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;" onclick="event.stopPropagation()">
       <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
         <h3 style="margin: 0; font-size: 18px;">Companion Device Link</h3>
@@ -76,9 +77,9 @@
         <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
         
         <div id="companionPairingBoxGen" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
-          <div id="companionPinLabelGen" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Pairing PIN</div>
-          <div id="companionPinDisplayGen" style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace;">842915</div>
-          <div id="companionPinTimerGen" style="position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); width: 100%; animation: pinTimerGen 10s linear forwards;"></div>
+          <div id="companionPinLabelGen" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Pairing PIN (Listening via ORP P2P)</div>
+          <div id="companionPinDisplayGen" style="font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace;">------</div>
+          <div id="companionPinTimerGen" style="position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); width: 100%;"></div>
         </div>
         <style>
           @keyframes pinTimerGen {
@@ -86,37 +87,11 @@
             100% { width: 0%; }
           }
         </style>
-        <script>
-          function startCompanionPairingGen() {
-            const el = document.getElementById('companionPinDisplayGen');
-            const label = document.getElementById('companionPinLabelGen');
-            const timer = document.getElementById('companionPinTimerGen');
-            const box = document.getElementById('companionPairingBoxGen');
-            
-            if(!el || !label || !timer || !box) return;
-            
-            el.style.fontSize = '36px';
-            el.style.letterSpacing = '6px';
-            el.innerText = Math.floor(100000 + Math.random() * 900000).toString();
-            label.innerText = 'Pairing PIN';
-            box.style.borderColor = 'var(--accent)';
-            timer.style.display = 'block';
-            timer.style.animation = 'none';
-            void timer.offsetWidth;
-            timer.style.animation = 'pinTimerGen 30s linear forwards';
-            
-            timer.onanimationend = () => {
-                if (!document.getElementById('mobileLinkModal').classList.contains('gone')) {
-                    startCompanionPairingGen();
-                }
-            };
-          }
-        </script>
 
         <ol style="margin-top: 10px; margin-left: 20px;">
           <li>Open Nearcade on your companion device.</li>
           <li>Select <strong>Link to Host</strong> and enter the PIN above.</li>
-          <li>Your device will instantly appear on your Home tab, ready for one-click streaming!</li>
+          <li>A prompt will appear here to authorize or deny the device!</li>
         </ol>
 
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
@@ -128,110 +103,54 @@
       </div>
       <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end;">
         <div class="btn-row">
-          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileLinkModal').classList.add('gone'); document.getElementById('mobileLinkModal').classList.remove('open');">Close</button>
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="closeCompanionGenModal()">Close</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Authenticate PIN Modal (for Host PC) -->
+  <!-- Confirm Companion Request Modal (Host side: prompt to confirm or deny) -->
+  <div class="modal-bg gone" id="companionConfirmModal" style="z-index: 10002; background: rgba(0,0,0,0.85);" onclick="event.stopPropagation()">
+    <div class="modal" style="width: 420px; position:relative; background: var(--bg); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); overflow: hidden;">
+      <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
+        <h3 style="margin: 0; font-size: 18px; color: var(--accent);">Authorize Companion Device</h3>
+      </div>
+      <div class="modal-body" style="padding: 24px; font-size: 13px; color: var(--text); line-height: 1.6;">
+        <p>A companion device is requesting to link with this machine via ORP P2P:</p>
+        <div style="background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border: 1px solid var(--border); margin: 16px 0; text-align: center;">
+          <div style="font-size: 16px; font-weight: bold; color: #fff;" id="companionReqDeviceName">Unknown Device</div>
+          <div style="font-size: 11px; color: var(--muted); margin-top: 4px;" id="companionReqPlatform">Mobile</div>
+        </div>
+        <p style="color: var(--muted); font-size: 12px;">Authorizing this device will allow it to connect as a companion controller or personal stream receiver.</p>
+      </div>
+      <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="btn-row">
+          <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="respondCompanionRequest(false)">Deny</button>
+          <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="respondCompanionRequest(true)">Authorize</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Authenticate PIN Modal (Companion side: enters PIN to link with Host) -->
   <div class="modal-bg gone" id="mobileAuthModal" style="z-index: 10000; background: rgba(0,0,0,0.8);" onclick="this.classList.add('gone'); this.classList.remove('open');">
     <div class="modal" style="width: 440px; position:relative; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); overflow: hidden;" onclick="event.stopPropagation()">
       <div class="modal-head" style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--surface);">
-        <h3 style="margin: 0; font-size: 18px;">Authorize Companion Device</h3>
+        <h3 style="margin: 0; font-size: 18px;">Link to Host</h3>
       </div>
       <div class="modal-body" style="padding: 24px; font-size: 13px; color: var(--text); line-height: 1.6;">
-        <p>Use your phone, tablet, or secondary PC as a companion controller or personal stream receiver.</p>
+        <p>Enter the 6-digit PIN displayed on your Host PC to link this companion device over ORP P2P.</p>
         
         <div id="companionPairingBoxAuth" style="text-align: center; margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px dashed var(--accent); position: relative; overflow: hidden; transition: all 0.3s;">
-          <div id="companionPinLabelAuth" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Enter PIN from Companion</div>
+          <div id="companionPinLabelAuth" style="font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px;">Enter PIN from Host</div>
           <input type="text" id="companionPinInputAuth" placeholder="000000" maxlength="6" style="width: 160px; font-size: 36px; font-weight: 800; letter-spacing: 6px; color: #fff; font-family: monospace; background: transparent; border: none; text-align: center; outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px;">
+          <div id="companionAuthStatus" style="font-size: 11px; color: var(--muted); margin-top: 8px; min-height: 16px;"></div>
         </div>
-        <script>
-          function startCompanionPairingAuth() {
-            const input = document.getElementById('companionPinInputAuth');
-            if(input) {
-              input.value = '';
-              setTimeout(() => input.focus(), 100);
-            }
-          }
-          function pairCompanionDevice() {
-            const pin = document.getElementById('companionPinInputAuth').value;
-            if (!pin || pin.length !== 6) {
-               window.showError('Please enter a valid 6-digit PIN', 'yellow');
-               return;
-            }
-            let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
-            devices.push({ pin, date: Date.now() });
-            localStorage.setItem('ns_companions', JSON.stringify(devices));
-            
-            if (window.renderCompanionDevices) window.renderCompanionDevices();
-            
-            document.getElementById('mobileAuthModal').classList.add('gone');
-            document.getElementById('mobileAuthModal').classList.remove('open');
-          }
-
-          window.renderCompanionDevices = function() {
-             let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
-             const list = document.getElementById('companionDevicesList');
-             const modalLists = [document.getElementById('pairedDevicesListModalAuth'), document.getElementById('pairedDevicesListModalGen')];
-             
-             let modalHtml = '';
-             let bubbleHtml = '';
-             
-             devices.forEach((d, index) => {
-               // Detailed list for modals
-               modalHtml += `<div style="background: var(--surface-hover); padding: 8px 12px; border-radius: 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); margin-bottom: 8px;">
-                  <div>
-                    <div style="font-weight: bold; color: #fff;">Companion Device</div>
-                    <div style="color: var(--muted); margin-top: 2px;">Paired: ${new Date(d.date).toLocaleDateString()}</div>
-                  </div>
-                  <button onclick="unpairCompanion(${index})" style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 4px;">Unpair</button>
-               </div>`;
-
-               // Circular bubble for dashboard sidebar
-               bubbleHtml += `<div title="Click to view device stream" onclick="joinCompanion(${index})" style="position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--surface-hover); border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-                 <i class="fas fa-desktop" style="color: var(--muted); font-size: 16px;"></i>
-                 <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #34d399; border-radius: 50%; border: 2px solid var(--surface);"></div>
-               </div>`;
-             });
-             
-             if (list) list.innerHTML = bubbleHtml;
-             modalLists.forEach(l => {
-               if (l) {
-                 if (devices.length === 0) {
-                    l.innerHTML = `<div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>`;
-                 } else {
-                    l.innerHTML = modalHtml;
-                 }
-               }
-             });
-          };
-
-          window.joinCompanion = function(index) {
-             // Fake jump to viewer
-             window.showError('Connecting to companion...', 'yellow');
-             setTimeout(() => {
-                 window.location.href = `http://localhost:${window.location.port || 3000}/?tunnel=companion&pin=0000`;
-             }, 1000);
-          };
-
-          window.unpairCompanion = function(index) {
-             let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
-             devices.splice(index, 1);
-             localStorage.setItem('ns_companions', JSON.stringify(devices));
-             if (window.renderCompanionDevices) window.renderCompanionDevices();
-          };
-
-          document.addEventListener('DOMContentLoaded', () => {
-             if (window.renderCompanionDevices) window.renderCompanionDevices();
-          });
-        </script>
 
         <ol style="margin-top: 10px; margin-left: 20px;">
-          <li>Open Nearcade on your companion device.</li>
-          <li>Select <strong>Link to Host</strong> to generate a pairing PIN.</li>
-          <li>Enter the PIN above to authorize the device.</li>
+          <li>Click <strong>Mobile Link</strong> on your Host PC dashboard.</li>
+          <li>Enter the 6-digit PIN above.</li>
+          <li>Accept the authorization prompt on the Host PC.</li>
         </ol>
 
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
@@ -244,11 +163,367 @@
       <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); display: flex; justify-content: flex-end; gap: 8px;">
         <div class="btn-row">
           <button class="primary btn ns-btn" style="background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="document.getElementById('mobileAuthModal').classList.add('gone'); document.getElementById('mobileAuthModal').classList.remove('open');">Cancel</button>
-          <button class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="pairCompanionDevice()">Pair Device</button>
+          <button id="btnPairCompanionSubmit" class="primary btn ns-btn" style="background: var(--accent); border: none; color: #000; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer;" onclick="pairCompanionDevice()">Pair Device</button>
         </div>
       </div>
     </div>
   </div>
+
+  <script>
+    // ── ORP PEER-TO-PEER COMPANION LINK SYSTEM ──────────────────────────────────
+    async function _getOrpSession(roomCode) {
+      if (window.ORP && window.ORP.ORPNostrSession) {
+        return await window.ORP.ORPNostrSession.create(roomCode);
+      }
+      try {
+        const mod = await import('/js/core/network/orp-client.bundle.js');
+        return await mod.ORPNostrSession.create(roomCode);
+      } catch(e) {
+        console.error('[Companion] Failed to initialize ORP Nostr Session:', e);
+        throw e;
+      }
+    }
+
+    // Host generates PIN and listens for companion request over ORP P2P
+    async function startCompanionPairingGen() {
+      const el = document.getElementById('companionPinDisplayGen');
+      const label = document.getElementById('companionPinLabelGen');
+      const timer = document.getElementById('companionPinTimerGen');
+      const box = document.getElementById('companionPairingBoxGen');
+      if (!el || !label || !timer || !box) return;
+
+      if (window._companionPairSession) {
+        try { window._companionPairSession.close(); } catch(_) {}
+        window._companionPairSession = null;
+      }
+
+      const pin = Math.floor(100000 + Math.random() * 900000).toString();
+      el.style.fontSize = '36px';
+      el.style.letterSpacing = '6px';
+      el.innerText = pin;
+      label.innerText = 'Pairing PIN (Listening via ORP P2P)';
+      box.style.borderColor = 'var(--accent)';
+
+      timer.style.display = 'block';
+      timer.style.animation = 'none';
+      void timer.offsetWidth;
+      timer.style.animation = 'pinTimerGen 60s linear forwards';
+
+      timer.onanimationend = () => {
+        if (!document.getElementById('mobileLinkModal').classList.contains('gone')) {
+          startCompanionPairingGen();
+        }
+      };
+
+      try {
+        const roomCode = 'nc-companion-' + pin;
+        const session = await _getOrpSession(roomCode);
+        window._companionPairSession = session;
+        console.log('[Companion P2P] Host listening on ORP room:', roomCode);
+
+        session.onmessage = (ev) => {
+          let data;
+          try { data = JSON.parse(ev.data); } catch(_) { return; }
+          if (data && data.type === 'companion-request') {
+            console.log('[Companion P2P] Received pairing request:', data);
+            window._pendingCompanionReq = { data, session };
+            const nameEl = document.getElementById('companionReqDeviceName');
+            const platEl = document.getElementById('companionReqPlatform');
+            if (nameEl) nameEl.textContent = data.deviceName || 'Companion Device';
+            if (platEl) platEl.textContent = (data.platform || 'Mobile') + ' • ' + (data.clientVersion || 'Nearcade');
+            const confirmModal = document.getElementById('companionConfirmModal');
+            if (confirmModal) {
+              confirmModal.classList.remove('gone');
+              confirmModal.classList.add('open');
+            }
+          }
+        };
+      } catch (err) {
+        console.warn('[Companion P2P] Could not establish ORP room:', err);
+      }
+    }
+
+    function closeCompanionGenModal() {
+      const modal = document.getElementById('mobileLinkModal');
+      if (modal) {
+        modal.classList.add('gone');
+        modal.classList.remove('open');
+      }
+      if (window._companionPairSession) {
+        try { window._companionPairSession.close(); } catch(_) {}
+        window._companionPairSession = null;
+      }
+    }
+
+    window.respondCompanionRequest = async function(approved) {
+      const confirmModal = document.getElementById('companionConfirmModal');
+      if (confirmModal) {
+        confirmModal.classList.add('gone');
+        confirmModal.classList.remove('open');
+      }
+      const pending = window._pendingCompanionReq;
+      if (!pending || !pending.session) return;
+
+      if (approved) {
+        const hostName = localStorage.getItem('ns_name') || 'Host PC';
+        let hostUrl = window.location.origin || `http://${window.location.hostname || 'localhost'}:${window.location.port || 3000}`;
+        let hostPin = null;
+
+        try {
+          const infoRes = await fetch('/api/info');
+          if (infoRes.ok) {
+            const info = await infoRes.json();
+            if (info.tunnelUrl) {
+              hostUrl = info.tunnelUrl;
+            } else if (info.lanIP) {
+              hostUrl = `http://${info.lanIP}:${info.port || window.location.port || 3000}`;
+            }
+            if (info.pin) {
+              hostPin = info.pin;
+            }
+          }
+        } catch (_) {}
+
+        try {
+          pending.session.send(JSON.stringify({
+            type: 'companion-approved',
+            hostName: hostName,
+            hostUrl: hostUrl,
+            pin: hostPin,
+            p2pCode: window._p2pCode || null
+          }));
+        } catch(e) {}
+
+        let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+        devices.push({
+          id: 'comp_' + Date.now(),
+          name: pending.data.deviceName || 'Companion Device',
+          platform: pending.data.platform || 'Mobile',
+          date: Date.now()
+        });
+        localStorage.setItem('ns_companions', JSON.stringify(devices));
+        if (window.renderCompanionDevices) window.renderCompanionDevices();
+
+        closeCompanionGenModal();
+        if (window.showError) window.showError(`Authorized ${pending.data.deviceName || 'device'} successfully!`, 'ok');
+      } else {
+        try {
+          pending.session.send(JSON.stringify({ type: 'companion-denied' }));
+        } catch(e) {}
+        if (window.showError) window.showError('Companion request denied', 'yellow');
+      }
+
+      setTimeout(() => {
+        if (window._companionPairSession) {
+          try { window._companionPairSession.close(); } catch(_) {}
+          window._companionPairSession = null;
+        }
+      }, 1500);
+      window._pendingCompanionReq = null;
+    };
+
+    function startCompanionPairingAuth() {
+      const input = document.getElementById('companionPinInputAuth');
+      const status = document.getElementById('companionAuthStatus');
+      const btn = document.getElementById('btnPairCompanionSubmit');
+      if (status) status.textContent = '';
+      if (btn) { btn.disabled = false; btn.textContent = 'Pair Device'; }
+      if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 100);
+      }
+    }
+
+    async function pairCompanionDevice() {
+      const input = document.getElementById('companionPinInputAuth');
+      const status = document.getElementById('companionAuthStatus');
+      const btn = document.getElementById('btnPairCompanionSubmit');
+      const pin = input ? input.value.trim() : '';
+
+      if (!pin || pin.length !== 6) {
+        if (window.showError) window.showError('Please enter a valid 6-digit PIN', 'yellow');
+        return;
+      }
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
+      if (status) { status.style.color = 'var(--accent)'; status.textContent = 'Connecting to Host via ORP P2P...'; }
+
+      if (window._companionAuthSession) {
+        try { window._companionAuthSession.close(); } catch(_) {}
+        window._companionAuthSession = null;
+      }
+
+      try {
+        const roomCode = 'nc-companion-' + pin;
+        const session = await _getOrpSession(roomCode);
+        window._companionAuthSession = session;
+
+        let reqSent = false;
+        function sendReq() {
+          if (reqSent) return;
+          reqSent = true;
+          const devName = navigator.userAgent.includes('Android') ? 'Android Device' :
+                          (navigator.userAgent.includes('iPhone') ? 'iPhone' :
+                          (navigator.userAgent.includes('Mac') ? 'Mac Companion' : 'Companion Device'));
+          session.send(JSON.stringify({
+            type: 'companion-request',
+            deviceName: devName,
+            platform: navigator.platform || 'Mobile',
+            clientVersion: 'Nearcade v3'
+          }));
+          if (status) status.textContent = 'Waiting for Host authorization...';
+        }
+
+        session.onopen = () => sendReq();
+        setTimeout(sendReq, 1000);
+        setTimeout(sendReq, 3000);
+
+        session.onmessage = (ev) => {
+          let resp;
+          try { resp = JSON.parse(ev.data); } catch(_) { return; }
+          if (resp && resp.type === 'companion-approved') {
+            let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+            devices.push({
+              id: 'host_' + Date.now(),
+              name: resp.hostName || 'Host PC',
+              hostUrl: resp.hostUrl,
+              pin: resp.pin || null,
+              p2pCode: resp.p2pCode || null,
+              isHost: true,
+              date: Date.now()
+            });
+            localStorage.setItem('ns_companions', JSON.stringify(devices));
+            if (window.renderCompanionDevices) window.renderCompanionDevices();
+
+            const authModal = document.getElementById('mobileAuthModal');
+            if (authModal) {
+              authModal.classList.add('gone');
+              authModal.classList.remove('open');
+            }
+            if (btn) { btn.disabled = false; btn.textContent = 'Pair Device'; }
+            if (window.showError) window.showError(`Successfully paired with ${resp.hostName || 'Host PC'}!`, 'ok');
+
+            setTimeout(() => {
+              try { session.close(); } catch(_) {}
+              window._companionAuthSession = null;
+            }, 1500);
+          } else if (resp && resp.type === 'companion-denied') {
+            if (status) { status.style.color = '#ef4444'; status.textContent = 'Host denied pairing request.'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Pair Device'; }
+            if (window.showError) window.showError('Pairing request was denied by the Host.', 'red');
+            try { session.close(); } catch(_) {}
+            window._companionAuthSession = null;
+          }
+        };
+      } catch (err) {
+        console.error('[Companion P2P] Auth session error:', err);
+        if (status) { status.style.color = '#ef4444'; status.textContent = 'Failed to connect: ' + err.message; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Pair Device'; }
+      }
+    }
+
+    window.renderCompanionDevices = function() {
+      let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+      const list = document.getElementById('companionDevicesList');
+      const modalLists = [document.getElementById('pairedDevicesListModalAuth'), document.getElementById('pairedDevicesListModalGen')];
+
+      let modalHtml = '';
+      let bubbleHtml = '';
+
+      devices.forEach((d, index) => {
+        const isHost = d.isHost === true;
+        const typeLabel = isHost ? 'Host PC' : 'Companion Controller';
+        const iconClass = isHost ? 'fa-solid fa-server' : 'fa-solid fa-mobile-screen';
+
+        modalHtml += `<div style="background: var(--surface-hover); padding: 8px 12px; border-radius: 6px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); margin-bottom: 8px;">
+          <div>
+            <div style="font-weight: bold; color: #fff;">${d.name || 'Device'} <span style="font-size:9px; color:var(--accent); font-weight:normal; margin-left:4px;">(${typeLabel})</span></div>
+            <div style="color: var(--muted); margin-top: 2px;">Paired: ${new Date(d.date).toLocaleDateString()}</div>
+          </div>
+          <button onclick="unpairCompanion(${index})" style="background: none; border: none; color: var(--danger, #ef4444); cursor: pointer; padding: 4px; font-size: 11px;">Unpair</button>
+        </div>`;
+
+        bubbleHtml += `<div title="${isHost ? 'Host PC: ' + d.name + ' (Click to stream)' : 'Companion: ' + d.name}" onclick="joinCompanion(${index})" style="position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--surface-hover); border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <i class="${iconClass}" style="color: var(--accent); font-size: 15px;"></i>
+          <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #34d399; border-radius: 50%; border: 2px solid var(--surface);"></div>
+        </div>`;
+      });
+
+      if (list) list.innerHTML = bubbleHtml;
+      if (window.updateCompanionDockVisibility) window.updateCompanionDockVisibility();
+      modalLists.forEach(l => {
+        if (l) {
+          if (devices.length === 0) {
+            l.innerHTML = `<div style="padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; text-align: center; font-style: italic;">No companion devices currently paired.</div>`;
+          } else {
+            l.innerHTML = modalHtml;
+          }
+        }
+      });
+    };
+
+    window.joinCompanion = function(index) {
+      let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+      const d = devices[index];
+      if (!d) return;
+
+      if (d.isHost) {
+        const pinPart = d.pin ? `&pin=${encodeURIComponent(d.pin)}` : '';
+        if (d.p2pCode) {
+          window.location.href = `viewer.html?client=1&compat=1&host=${encodeURIComponent('p2p://' + d.p2pCode)}${pinPart}`;
+        } else if (d.hostUrl) {
+          const cleanHost = d.hostUrl.replace(/\/$/, '');
+          const isFileOrAndroid = window.location.protocol === 'file:' || /android/i.test(navigator.userAgent);
+          if (isFileOrAndroid) {
+            window.location.href = `viewer.html?client=1&compat=1&host=${encodeURIComponent(cleanHost)}${pinPart}`;
+          } else {
+            window.location.href = `${cleanHost}/viewer.html?client=1&compat=1${pinPart}`;
+          }
+        } else {
+          window.location.href = `viewer.html?client=1&compat=1${pinPart}`;
+        }
+      } else {
+        const modal = document.getElementById('mobileLinkModal');
+        if (modal) {
+          modal.classList.remove('gone');
+          modal.classList.add('open');
+        }
+        if (window.showError) {
+          window.showError(`Companion "${d.name}" is linked as a controller.`, 'ok');
+        }
+      }
+    };
+
+    window.unpairCompanion = function(index) {
+      let devices = JSON.parse(localStorage.getItem('ns_companions') || '[]');
+      devices.splice(index, 1);
+      localStorage.setItem('ns_companions', JSON.stringify(devices));
+      if (window.renderCompanionDevices) window.renderCompanionDevices();
+    };
+
+    window.updateCompanionDockVisibility = function() {
+      const dock = document.getElementById('companionDock');
+      if (!dock) return;
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.location.protocol === 'file:';
+      let show = false;
+      if (isMobile) {
+        show = (typeof appConfig !== 'undefined' && appConfig.showCompanionUI !== undefined) ? (appConfig.showCompanionUI !== false) : (localStorage.getItem('ns_show_companion_ui') !== 'false');
+      } else {
+        const cfgVal = (typeof appConfig !== 'undefined') ? appConfig.showCompanionUI : undefined;
+        if (cfgVal !== undefined) {
+          show = !!cfgVal;
+        } else {
+          show = localStorage.getItem('ns_show_companion_ui') === 'true';
+        }
+      }
+      dock.style.display = show ? 'flex' : 'none';
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.renderCompanionDevices) window.renderCompanionDevices();
+      if (window.updateCompanionDockVisibility) window.updateCompanionDockVisibility();
+    });
+  </script>
 
   <div id="ns-splash-screen">
     <img src="../../assets/NearcadeTitle.png" alt="Nearcade Logo">
@@ -778,7 +1053,7 @@
           </div>
         </div>
         
-        <div style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+        <div id="companionDock" style="position: absolute; top: 90px; right: 30px; width: 64px; display: none; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
           
           <!-- Add Button -->
           <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">
@@ -989,6 +1264,15 @@
                 <p>Show your friends what game you're playing on Nearcade Arcade.</p>
               </div>
               <div class="toggle" id="settingTrackDiscordRPC">
+                <div class="toggle-thumb"></div>
+              </div>
+            </div>
+            <div class="setting-row" id="settingRowShowCompanionUI" onclick="toggleAppSetting('showCompanionUI')">
+              <div class="setting-info">
+                <h4>Show Companion Devices Dock</h4>
+                <p>Display the paired companion devices quick-link dock on the right side of the connect screen.</p>
+              </div>
+              <div class="toggle" id="settingTrackShowCompanionUI">
                 <div class="toggle-thumb"></div>
               </div>
             </div>

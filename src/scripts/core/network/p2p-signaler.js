@@ -249,3 +249,4 @@ class P2PSignaler {
 }
 
 window.P2PManager = new P2PSignaler();
+window.ORP = ORP;

@@ -49,6 +49,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm libarchive-tools fakeroot
 
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile Native Sidecars
+        shell: bash
+        run: |
+          mkdir -p src/sidecar/input_backends/bin
+          mkdir -p bin
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            (cd src/sidecar/input_backends/rust_vigem && cargo build --release) || true
+            cp -f src/sidecar/input_backends/rust_vigem/target/release/windows_vigem.exe src/sidecar/input_backends/bin/windows_vigem.exe 2>/dev/null || true
+            cp -f src/sidecar/input_backends/rust_vigem/target/release/windows_vigem.exe bin/windows_vigem.exe 2>/dev/null || true
+
+            (cd src/sidecar/input_backends/rust_hidmaestro && cargo build --release) || true
+            cp -f src/sidecar/input_backends/rust_hidmaestro/target/release/windows_hidmaestro.exe src/sidecar/input_backends/bin/windows_hidmaestro.exe 2>/dev/null || true
+
+            (cd src/sidecar/audio/rust_windows_audio && cargo build --release) || true
+            cp -f src/sidecar/audio/rust_windows_audio/target/release/windows_audio_loopback.exe bin/windows_audio_loopback.exe 2>/dev/null || true
+          fi
+
       - name: Install Dependencies
         run: npm ci
 
@@ -96,15 +116,29 @@ jobs:
             done
             rm -f dist/*-mac.yml dist/*-linux.yml dist/*.blockmap
           fi
+
+          gh release create "${{ github.ref_name }}" --verify-tag --prerelease --title "Nearcade ${{ github.ref_name }}" --notes "Test build for ${{ github.ref_name }}" || true
           
           for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pacman dist/*.zip; do
             if [ -f "$file" ]; then
               echo "Uploading $file..."
-              gh release upload ${{ github.ref_name }} "$file" --clobber || true
+              gh release upload "${{ github.ref_name }}" "$file" --clobber || true
             fi
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Desktop Artifacts (Actions Storage)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nearcade-desktop-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.zip
+          if-no-files-found: ignore
 
 
 

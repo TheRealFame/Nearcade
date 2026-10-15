@@ -902,7 +902,7 @@ async function main() {
 
   let hostStreamTitle = "";
 
-  app.get("/", (req, res) => {
+  app.get(["/", "/viewer", "/viewer.html"], (req, res) => {
     const indexPath = path.join(pagesDir, "index.html");
     let html;
     try { html = fs.readFileSync(indexPath, "utf8"); } catch (_) { return res.sendFile(indexPath); }
@@ -989,7 +989,7 @@ async function main() {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr.includes('127.') || remoteAddr === '::1';
     const infoCfg = loadConfig();
-    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, tunnelStarting: !!global._tunnelStarting, bypassCustomUrl: !!global._tunnelBypassCustomUrl, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
   app.post("/api/fe-log", express.json(), (req, res) => {
     const clientIp = req.socket.remoteAddress || 'unknown';
@@ -1813,47 +1813,69 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     res.json({ success: true });
   });
 
+  global._tunnelStarting = false;
   app.post("/api/start-tunnel", adminMiddleware, express.json(), async (req, res) => {
     const provider = (req.body && req.body.provider) || "cloudflared";
+    const cfg = loadConfig();
+    const bypassCustomUrl = (req.body && req.body.bypassCustomUrl !== undefined)
+      ? !!req.body.bypassCustomUrl
+      : !!(cfg && cfg.bypassCustomUrl);
+    const remember = !!(req.body && req.body.remember);
 
-    // Guard: if a tunnel URL is already active, don't start a second one
-    if (tunnelUrl) {
-      console.log(`[tunnel] Rejecting re-start for ${provider} — ${tunnelUrl} is already active`);
-      return res.json({ ok: true, url: tunnelUrl, alreadyRunning: true });
+    if (global._tunnelStarting) {
+      console.log(`[tunnel] Tunnel start already in progress for ${provider}, rejecting concurrent request`);
+      return res.json({ ok: true, starting: true, inProgress: true });
     }
 
-    tunnelUrl = null;
-    saveConfig({ tunnelProvider: provider, neverAsk: !!(req.body && req.body.remember) });
+    saveConfig({ tunnelProvider: provider, neverAsk: remember, bypassCustomUrl });
 
     res.json({ ok: true, starting: true });
 
     if (provider === 'p2p' || provider === 'vps-sfu' || provider === 'portforward') {
+      tunnels.stopCurrentTunnel();
+      tunnelUrl = null;
+      global._tunnelBypassCustomUrl = false;
+      const msg = JSON.stringify({ type: "tunnel-url", url: null });
+      if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
       return; // Handled entirely by the browser, no local Node tunnel needed
     }
 
-    // CRITICAL FIX: Use readEnv to catch the host if the GUI fails to pass it!
-    const resolvedVpsHost = (req.body && req.body.vpsHost)
-      ? req.body.vpsHost.trim()
-      : (tunnels.readEnv('VPS_HOST') || '').trim();
-
-    // Let tunnels.startTunnel handle stopping the previous process and returning the result
-    const tunnelOptions = { zrokToken: req.body && req.body.zrokToken, cfToken: req.body && req.body.cfToken };
-    if (req.body && req.body.cfToken && req.body.cfToken.domain) {
-      saveConfig({ customUrl: 'https://' + req.body.cfToken.domain.replace(/^https?:\/\//, '') });
-    }
-    const startPromise = (provider === 'portforward') ? Promise.resolve(null) : tunnels.startTunnel(PORT, provider, tunnelOptions);
-
-    if (provider === 'vps' && resolvedVpsHost) {
-      saveConfig({ vpsHost: resolvedVpsHost });
-    }
-
+    global._tunnelStarting = true;
     try {
-      const tun = await startPromise;
+      // CRITICAL FIX: Use readEnv to catch the host if the GUI fails to pass it!
+      const resolvedVpsHost = (req.body && req.body.vpsHost)
+        ? req.body.vpsHost.trim()
+        : (tunnels.readEnv('VPS_HOST') || '').trim();
+
+      const customUrl = (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain)
+        ? ('https://' + req.body.cfToken.domain.replace(/^https?:\/\//, ''))
+        : (cfg && cfg.customUrl ? cfg.customUrl : '');
+
+      const tunnelOptions = {
+        zrokToken: req.body && req.body.zrokToken,
+        zrokReservedName: req.body && req.body.zrokReservedName,
+        cfToken: req.body && req.body.cfToken,
+        bypassCustomUrl,
+        customUrl
+      };
+      if (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain) {
+        saveConfig({ customUrl: 'https://' + req.body.cfToken.domain.replace(/^https?:\/\//, '') });
+      }
+
+      if (provider === 'vps' && resolvedVpsHost) {
+        saveConfig({ vpsHost: resolvedVpsHost });
+      }
+
+      const tun = await tunnels.startTunnel(PORT, provider, tunnelOptions);
       if (tun && tun.url) {
         tunnelUrl = tun.url;
+        global._tunnelBypassCustomUrl = !!tun.bypassCustomUrl || bypassCustomUrl;
         tunnels.saveLastProvider(provider);
-        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl });
+        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl, bypassCustomUrl: global._tunnelBypassCustomUrl });
         if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
+      } else if (tun && tun.error === 'RATE_LIMITED') {
+        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' rate limited: ${tun.details}`);
+        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider, details: tun.details }));
       } else if (tun && tun.error === 'NOT_FOUND') {
         console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' binary not found.`);
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-not-found", provider: provider }));
@@ -1863,7 +1885,9 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
       }
     } catch (e) {
       console.log(`  \x1b[31m~\x1b[0m Tunnel error:`, e.message);
-      if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+      if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider, details: e.message }));
+    } finally {
+      global._tunnelStarting = false;
     }
   });
 
@@ -1872,6 +1896,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
   app.post("/api/tunnels/stop", adminMiddleware, (_req, res) => {
     tunnels.stopCurrentTunnel();
     tunnelUrl = null;
+    global._tunnelBypassCustomUrl = false;
     const msg = JSON.stringify({ type: "tunnel-url", url: null });
     if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
     res.json({ ok: true });
@@ -1897,16 +1922,17 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
   });
 
   app.post("/api/tunnels/start", adminMiddleware, express.json(), async (req, res) => {
-    const { provider } = req.body;
+    const { provider, bypassCustomUrl } = req.body;
     if (!provider) { return res.status(400).json({ error: 'provider required' }); }
     saveConfig({ tunnelProvider: provider });
     const port = global.currentPort || 3000;
     try {
-      const result = await tunnels.startTunnel(port, provider);
+      const result = await tunnels.startTunnel(port, provider, { bypassCustomUrl: !!bypassCustomUrl });
       if (result && result.url) {
         tunnelUrl = result.url;
+        global._tunnelBypassCustomUrl = !!bypassCustomUrl;
         tunnels.saveLastProvider(provider);
-        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl });
+        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl, bypassCustomUrl: !!bypassCustomUrl });
         if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
         res.json({ success: true, url: result.url });
       } else if (result && result.error) {
@@ -2036,6 +2062,8 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
   });
 
   let hostStreaming = false;
+  let hostStreamPipeline = null;
+  let hostStreamStrictWc = false;
   let _hostDisplayName = 'Host';
   const audioViewers = new Set();
   const viewerGamepads = new Map();
@@ -2313,6 +2341,17 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
           if ((msg.type === "offer" || msg.type === "ice-host" || msg.type === "answer") && msg._viewerId) {
             if (_diagOn && (msg.type === "offer" || msg.type === "answer")) console.log(`[diag] relay ${msg.type} ↔ viewer ${msg._viewerId}`);
             const vws = viewers.get(msg._viewerId);
+            if (vws && vws.readyState === 1) {
+              vws.send(JSON.stringify(msg));
+            } else if (vws === null && hostWS && hostWS.readyState === 1) {
+              hostWS.send(JSON.stringify(msg));
+            }
+            return;
+          }
+
+          if (msg.type === "webcodecs-fallback-rejected" && msg.viewerId) {
+            const realId = msg.viewerId.split('_')[0];
+            const vws = viewers.get(realId);
             if (vws && vws.readyState === 1) {
               vws.send(JSON.stringify(msg));
             } else if (vws === null && hostWS && hostWS.readyState === 1) {
@@ -2609,10 +2648,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
           if (msg.type === "host-stream-ready") {
             hostStreaming = true;
             hostStreamTitle = msg.title || "";
+            hostStreamPipeline = msg.pipeline || null;
+            hostStreamStrictWc = !!msg.strictWc;
           }
           if (msg.type === "host-stream-stopped") {
             hostStreaming = false;
             hostStreamTitle = "";
+            hostStreamPipeline = null;
+            hostStreamStrictWc = false;
             for (const [id, s] of arcadeSessions) {
               arcadeSessions.delete(id);
               broadcastToArcade({ type: 'arcade-session-stopped', id });
@@ -2766,6 +2809,8 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
         console.log("[host] disconnected");
         hostWS = null;
         hostStreaming = false;
+        hostStreamPipeline = null;
+        hostStreamStrictWc = false;
         // A dead host ends every takeover — never leave a viewer suppressed.
         for (const [tid] of takeoverActive) {
           const vws = viewers.get(tid);
@@ -3072,14 +3117,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             if (_gstOfferStr && _gstJoinActive) {
               // host-stream-ready signals the viewer to show "Host found, connecting..."
               if (_diagOn) console.log(`[diag] replaying cached native offer+ICE to joining viewer`);
-              ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+              ws.send(JSON.stringify({ type: 'host-stream-ready', pipeline: 'gstreamer_webrtc', strictWc: false }));
               ws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
               for (const c of _gstIceCandidates) {
                 ws.send(JSON.stringify({ type: 'ice-host', candidate: c }));
               }
             } else if (_lastWcConfig) {
               // Replay WebCodecs configuration state for late joiners
-              ws.send(JSON.stringify({ type: 'host-stream-ready' }));
+              ws.send(JSON.stringify({ type: 'host-stream-ready', pipeline: hostStreamPipeline, strictWc: hostStreamStrictWc }));
               try { ws.send(_lastWcConfig); } catch (_) {}
             }
 
@@ -3099,7 +3144,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             // In non-GStreamer mode, host-stream-ready is sent if already streaming
             // (Fallback for WebRTC-only pipelines without WebCodecs metadata)
             if (hostStreaming && !_gstOfferStr && !_lastWcConfig) {
-              ws.send(JSON.stringify({ type: "host-stream-ready" }));
+              ws.send(JSON.stringify({ type: "host-stream-ready", pipeline: hostStreamPipeline, strictWc: hostStreamStrictWc }));
             }
 
             // Chat notification — broadcast covers all viewers + hostWS
@@ -3163,7 +3208,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             return;
           }
 
-          if (msg.type === "request-keyframe" || msg.type === "viewer-bw-hint") {
+          if (msg.type === "request-keyframe" || msg.type === "viewer-bw-hint" || msg.type === "webcodecs-health") {
             if (hostWS && hostWS.readyState === 1) {
               msg.viewerId = id; // Ensure host knows who sent it
               hostWS.send(JSON.stringify(msg));
@@ -3569,45 +3614,47 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
       console.log("  ~ Tunnel: using saved provider '" + provider + "'");
       if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider }));
 
-      const fn = {
-        zrok: tunnels.startTunnelZrok,
-        cloudflared: tunnels.startTunnelCloudflared,
-        playit: tunnels.startTunnelPlayit,
-        localhostrun: tunnels.startTunnelLocalhostRun,
-        serveo: tunnels.startTunnelServeo,
-        vps: (p) => tunnels.startTunnelVps(p, cfg.vpsHost || process.env.VPS_HOST || ''),
-        bore: tunnels.startTunnelBore,
-        ngrok: tunnels.startTunnelNgrok,
-        frp: tunnels.startTunnelFrp,
-        'tailscale-funnel': tunnels.startTunnelTailscaleFunnel,
-        'tailscale-serve': tunnels.startTunnelTailscaleServe,
-        'tailscale-mesh': tunnels.startTunnelTailscaleMesh,
-        zerotier: tunnels.startTunnelZeroTier,
-        netmaker: tunnels.startTunnelNetmaker,
-        'wireguard-direct': tunnels.startTunnelWireguardDirect,
-      }[provider] || (() => tunnels.startTunnel(PORT, provider));
+      const tunnelOptions = {
+        bypassCustomUrl: !!cfg.bypassCustomUrl,
+        vpsHost: cfg.vpsHost || process.env.VPS_HOST || '',
+        customUrl: cfg.customUrl || process.env.CUSTOM_URL || ''
+      };
 
-      const tun = await fn(PORT);
-      if (tun && tun.url) {
-        tunnelUrl = tun.url;
-        tunnels.saveLastProvider(provider);
-        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
-      } else {
-        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' failed to start on boot.`);
+      global._tunnelStarting = true;
+      try {
+        const tun = await tunnels.startTunnel(PORT, provider, tunnelOptions);
+        if (tun && tun.url) {
+          tunnelUrl = tun.url;
+          global._tunnelBypassCustomUrl = !!(tun.bypassCustomUrl !== undefined ? tun.bypassCustomUrl : cfg.bypassCustomUrl);
+          tunnels.saveLastProvider(provider);
+          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl, bypassCustomUrl: global._tunnelBypassCustomUrl }));
+        } else {
+          console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' failed to start on boot.`);
+          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+        }
+      } catch (e) {
+        console.log(`  \x1b[31m~\x1b[0m Saved tunnel boot error:`, e.message);
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+      } finally {
+        global._tunnelStarting = false;
       }
     } else {
       const last = tunnels.getLastProvider();
       if (last) {
         console.log("  ~ Tunnel: using last provider '" + last + "' (from tunnels.js)");
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider: last }));
-        const tun = await tunnels.startTunnel(PORT, last);
-        if (tun && tun.url) {
-          tunnelUrl = tun.url;
-          tunnels.saveLastProvider(last);
-          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
-        } else {
-          console.log(`  \x1b[31m~\x1b[0m Last provider '${last}' failed to start on boot.`);
+        global._tunnelStarting = true;
+        try {
+          const tun = await tunnels.startTunnel(PORT, last);
+          if (tun && tun.url) {
+            tunnelUrl = tun.url;
+            tunnels.saveLastProvider(last);
+            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
+          } else {
+            console.log(`  \x1b[31m~\x1b[0m Last provider '${last}' failed to start on boot.`);
+          }
+        } finally {
+          global._tunnelStarting = false;
         }
       } else {
         console.log("  ~ Tunnel: waiting for host to choose provider...");

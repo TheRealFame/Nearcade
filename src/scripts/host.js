@@ -1,25 +1,10 @@
 function closeAllModals() {
     document.querySelectorAll(".modal-bg").forEach(m => m.classList.add("gone"));
-    _syncPreviewPip();
-}
-
-// ── PREVIEW PICTURE-IN-PICTURE ───────────────────────────────────────────────
-// Full-screen settings/source modals sit above the preview stage (z-index 900),
-// which reads as "the preview vanished". While ANY modal is open, shrink the
-// preview stage into a non-interactive corner PiP above the modal instead.
-function _syncPreviewPip() {
-    const anyOpen = [...document.querySelectorAll('.modal-bg')].some(m => !m.classList.contains('gone'));
-    document.body.classList.toggle('modal-open', anyOpen);
-}
-function _attachPipObserver() {
-    if (typeof MutationObserver === 'undefined') return;
-    const _pipObs = new MutationObserver(_syncPreviewPip);
-    document.querySelectorAll('.modal-bg').forEach(m => _pipObs.observe(m, { attributes: true, attributeFilter: ['class'] }));
-    _syncPreviewPip();
-}
-if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _attachPipObserver);
-    else _attachPipObserver();
+    const prev = document.getElementById('preview');
+    if (prev && !prev.srcObject && !previewHidden && (window._screenStream || currentStream)) {
+        prev.srcObject = window._screenStream || currentStream;
+        prev.play().catch(() => {});
+    }
 }
 
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -28,6 +13,16 @@ let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveV
 // intent (and go stale after the first swap); the select shows user intent.
 // Neither is the running truth.
 let _activePipeline = null;
+function _isStrictWc() {
+    const pipelineVal = _activePipeline || document.getElementById('pipelineSelect')?.value;
+    const urlParams = new URLSearchParams(window.location.search);
+    return pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || urlParams.get('wc') === '1';
+}
+function _isWcPipeline() {
+    const pipelineVal = _activePipeline || document.getElementById('pipelineSelect')?.value;
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
+}
 let audioCtx, analyser, animFrame;
 let pinEnabled = true, currentPin = '----';
 let _pinExplicit = false; // set once the user toggles: local intent beats server echo on reconnect
@@ -183,7 +178,7 @@ async function sendVpsViewerBootstrap(viewerId) {
     }
     if (currentStream) {
         forceWebCodecsKeyframe();
-        vpsDispatch(viewerId, { type: 'host-stream-ready' });
+        vpsDispatch(viewerId, { type: 'host-stream-ready', pipeline: _activePipeline, strictWc: _isStrictWc() });
     } else {
         vpsDispatch(viewerId, { type: 'host-not-streaming', viewerId });
     }
@@ -1762,17 +1757,36 @@ function connectWS() {
             console.warn(`[WcHealth] Viewer ${vid}: ${htype}`, msg.wcHealthData || '');
             if (htype === 'fallback-request') {
                 if (!msg.viewerId) return;
+                if (_isStrictWc()) {
+                    log(I18N.t('WebRTC video fallback requested by') + ' ' + vid + ' ' + I18N.t('rejected (Nearcade Gen 2 Strict WebCodecs mode enforced)'), 'warn');
+                    const rejectMsg = {
+                        type: 'webcodecs-fallback-rejected',
+                        viewerId: vid,
+                        reason: 'Host is enforcing Nearcade Gen 2 (Strict WebCodecs). WebRTC video fallback is disabled.'
+                    };
+                    if (ws && ws.readyState === 1) {
+                        try { ws.send(JSON.stringify(rejectMsg)); } catch (_) {}
+                    }
+                    if (window.P2PManager && window.P2PManager.isPeer(vid)) {
+                        try { window.P2PManager.sendToPeer(vid, rejectMsg); } catch (_) {}
+                    }
+                    if (typeof vpsDispatch === 'function') {
+                        try { vpsDispatch(vid, rejectMsg); } catch (_) {}
+                    }
+                    return;
+                }
                 // Genuine downgrade (not a reload loop): this viewer's tunnel cannot
                 // carry the DataChannel, so attach a standard WebRTC video track and
                 // renegotiate. Remember the downgrade so future offers keep video.
                 _viewerWcSupport[vid] = false;
                 const pc = peerConnections[vid];
-                const vtr = (currentStream && currentStream !== 'gstreamer' && currentStream.getVideoTracks)
-                    ? currentStream.getVideoTracks()[0] : null;
+                const vtr = (window._screenStream && window._screenStream.getVideoTracks()[0]) ||
+                    ((currentStream && currentStream !== 'gstreamer' && currentStream.getVideoTracks)
+                    ? currentStream.getVideoTracks()[0] : null);
                 if (pc && vtr && vtr.readyState === 'live' &&
                     !pc.getSenders().some(s => s.track && s.track.kind === 'video')) {
                     try {
-                        pc.addTrack(vtr, currentStream);
+                        pc.addTrack(vtr, currentStream || window._screenStream);
                         log(I18N.t('Downgraded') + ' ' + vid + ' ' + I18N.t('to compatibility video'), 'warn');
                     } catch (e) {
                         log(I18N.t('Downgrade failed for') + ' ' + vid + ': ' + e.message, 'err');
@@ -1799,7 +1813,26 @@ function connectWS() {
                 try { ws.send(JSON.stringify({ type: 'host_delay', enabled: true, delayMs: 0 })); } catch (_) {}
             }
             if (msg.viewerRegion) _viewerRegions[msg.viewerId] = String(msg.viewerRegion).toLowerCase().slice(0, 2);
-            if (typeof msg.supportsWebCodecs === 'boolean') _viewerWcSupport[msg.viewerId] = msg.supportsWebCodecs;
+            if (typeof msg.supportsWebCodecs === 'boolean') {
+                _viewerWcSupport[msg.viewerId] = _isStrictWc() ? true : msg.supportsWebCodecs;
+            }
+            if (_isStrictWc() && msg.supportsWebCodecs === false) {
+                log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' ' + I18N.t('does not support WebCodecs, but WebRTC fallback is disabled in Strict Gen 2 mode'), 'warn');
+                const rejectMsg = {
+                    type: 'webcodecs-fallback-rejected',
+                    viewerId: msg.viewerId,
+                    reason: 'This host requires Nearcade Gen 2 (WebCodecs). WebRTC video fallback is disabled.'
+                };
+                if (ws && ws.readyState === 1) {
+                    try { ws.send(JSON.stringify(rejectMsg)); } catch (_) {}
+                }
+                if (window.P2PManager && window.P2PManager.isPeer(msg.viewerId)) {
+                    try { window.P2PManager.sendToPeer(msg.viewerId, rejectMsg); } catch (_) {}
+                }
+                if (typeof vpsDispatch === 'function') {
+                    try { vpsDispatch(msg.viewerId, rejectMsg); } catch (_) {}
+                }
+            }
             if (isNew) {
                 log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' joined', 'ok');
             } else {
@@ -1821,9 +1854,9 @@ function connectWS() {
                     console.log(`[P2P] Skipping standard WebRTC offer for ${msg.viewerId} (Managed by ORP/Trystero)`);
                     
                     // Inject standard WebRTC tracks into the ORP SDK's PeerConnection if WebCodecs is NOT active
-                    const pipelineVal = document.getElementById('pipelineSelect')?.value;
-                    const isGlobalWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
-                    const forceWc = isGlobalWc && _viewerWcSupport[msg.viewerId] !== false;
+                    const isGlobalWc = _isWcPipeline();
+                    const isStrict = _isStrictWc();
+                    const forceWc = isStrict || (isGlobalWc && _viewerWcSupport[msg.viewerId] !== false);
                     const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
                     if (orpViewer && orpViewer.pc && currentStream) {
                         // 1. Add to peerConnections map so broadcastToViewers can find it
@@ -1847,7 +1880,7 @@ function connectWS() {
 
                         // 3. Inject standard tracks (Audio always, Video only if not WebCodecs)
                         currentStream.getTracks().forEach(track => {
-                            if (track.kind === 'video' && forceWc) {
+                            if (track.kind === 'video' && (forceWc || isStrict)) {
                                 return;
                             }
                             if (!orpViewer.pc.getSenders().some(s => s.track === track)) {
@@ -1979,12 +2012,14 @@ function connectWS() {
             }
             log(I18N.t('Tunnel ready:') + ' ' + msg.url, 'ok');
             window._globalTunnelUrl = msg.url;
+            window._bypassCustomUrl = !!msg.bypassCustomUrl;
             fetch('/api/info').then(r => r.json()).then(async function (d) { d.tunnelUrl = msg.url; await renderUrls(d); if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC(); }).catch(() => { });
             if (!_tunnelModalManual) closeTunnelModal();
         }
         if (msg.type === 'tunnel-error') {
             log(I18N.t('Tunnel failed:') + ' ' + msg.provider, 'err');
-            showTunnelError('Failed to start ' + msg.provider + '.\n\nIf using a SSH tunnel (localhost.run / serveo), outbound port 22 is likely blocked by your router/ISP.\n\nTry using cloudflared instead.');
+            const errDetail = msg.details ? ('\n\n' + msg.details) : '';
+            showTunnelError('Failed to start ' + msg.provider + '.' + errDetail + '\n\nIf using a SSH tunnel (localhost.run / serveo), outbound port 22 is likely blocked by your router/ISP.\n\nTry using cloudflared instead.');
         }
         if (msg.type === 'tunnel-not-found') {
             log(I18N.t('Tunnel executable not found:') + ' ' + msg.provider, 'err');
@@ -2147,9 +2182,9 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
 
     peerConnections[viewerId] = pc;
 
-    const pipelineVal = document.getElementById('pipelineSelect')?.value;
-    const isGlobalWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs' || pipelineVal === 'webcodecs_fallback';
-    const forceWc = isGlobalWc && _viewerWcSupport[viewerId] !== false;
+    const isGlobalWc = _isWcPipeline();
+    const isStrict = _isStrictWc();
+    const forceWc = isStrict || (isGlobalWc && _viewerWcSupport[viewerId] !== false);
 
     if (forceWc) {
         // ── THE MISSING UDP TUNNEL ──
@@ -2247,7 +2282,7 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
     }
 
     targetStream.getTracks().forEach(track => {
-        if (track.kind === 'video' && forceWc) {
+        if (track.kind === 'video' && (forceWc || isStrict)) {
             console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
             return;
         }
@@ -2740,35 +2775,47 @@ async function hotSwapCapture() {
         const newVideoTrack = newScreenStream.getVideoTracks()[0];
         newVideoTrack.contentHint = 'motion';
 
+        const isStrict = _isStrictWc();
+
         // 3. Swap the track inside all active WebRTC peer connections (NO disconnects!)
-        for (const pc of Object.values(peerConnections)) {
-            if (!pc || typeof pc.getSenders !== 'function') continue;
-            const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-            if (sender) {
-                await sender.replaceTrack(newVideoTrack);
-                setLowLatencyParams(pc);
+        if (!isStrict) {
+            for (const pc of Object.values(peerConnections)) {
+                if (!pc || typeof pc.getSenders !== 'function') continue;
+                const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+                if (sender) {
+                    await sender.replaceTrack(newVideoTrack);
+                    setLowLatencyParams(pc);
+                }
             }
         }
 
         // 4. Swap it out locally
-        const oldVideoTrack = currentStream.getVideoTracks()[0];
-        currentStream.removeTrack(oldVideoTrack);
-        oldVideoTrack.stop();
-        currentStream.addTrack(newVideoTrack);
+        if (window._screenStream) {
+            const oldScreenTrack = window._screenStream.getVideoTracks ? window._screenStream.getVideoTracks()[0] : null;
+            if (oldScreenTrack) oldScreenTrack.stop();
+        }
+        window._screenStream = newScreenStream;
+
+        const oldVideoTrack = currentStream && currentStream.getVideoTracks ? currentStream.getVideoTracks()[0] : null;
+        if (oldVideoTrack) {
+            currentStream.removeTrack(oldVideoTrack);
+            oldVideoTrack.stop();
+        }
+        if (!isStrict && currentStream && currentStream.addTrack) {
+            currentStream.addTrack(newVideoTrack);
+        }
 
         // 5. Restart WebCodecs pipeline if active (the old track stop kills the reader)
-        const urlParams = new URLSearchParams(window.location.search);
-        const pipelineVal = document.getElementById('pipelineSelect')?.value;
-        const forceWc = urlParams.get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+        const forceWc = _isStrictWc() || _isWcPipeline();
         if (forceWc) {
             startWebCodecsNetworkPipeline(newVideoTrack);
         }
 
         const prev = document.getElementById('preview');
-        if (prev && !previewHidden) prev.srcObject = currentStream;
+        if (prev && !previewHidden) prev.srcObject = window._screenStream || currentStream;
         if (window._obsWin && !window._obsWin.closed) {
             const obsVid = window._obsWin.document.getElementById('obs-video');
-            if (obsVid) { obsVid.srcObject = currentStream; obsVid.play().catch(() => { }); }
+            if (obsVid) { obsVid.srcObject = window._screenStream || currentStream; obsVid.play().catch(() => { }); }
         }
         if (ndiActive) ndiBindSource();
 
@@ -2806,15 +2853,20 @@ async function swapPipeline(newPipeline) {
     // Stash the live track for encoder-family targets so startCapture() reuses it
     // instead of opening a new OS picker. Sidecar/gstreamer targets re-acquire.
     const _noPickerTargets = ['webcodecs', 'custom_webcodecs', 'webcodecs_fallback', 'native'];
-    if (_noPickerTargets.includes(newPipeline) && currentStream.getVideoTracks) {
-        const _keepV = currentStream.getVideoTracks()[0];
+    if (_noPickerTargets.includes(newPipeline)) {
+        const _keepV = (window._screenStream && window._screenStream.getVideoTracks ? window._screenStream.getVideoTracks()[0] : null) ||
+            (currentStream && currentStream.getVideoTracks ? currentStream.getVideoTracks()[0] : null);
         if (_keepV && _keepV.readyState === 'live') window._swapReuseVideoTrack = _keepV;
     }
     document.getElementById('pipelineSelect').value = newPipeline;
     
     // Notify viewers of encoder swap
     if (ws && ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: 'host-encoder-swap-start', newPipeline }));
+        ws.send(JSON.stringify({
+            type: 'host-encoder-swap-start',
+            newPipeline,
+            strictWc: (newPipeline === 'webcodecs' || newPipeline === 'custom_webcodecs')
+        }));
     }
     
     // Disable pipeline select during swap
@@ -3005,7 +3057,7 @@ async function startCapture() {
                     const hwStr = data.encoder || 'VA-API';
                     log(`GStreamer WebRTC Pipeline Running (${hwStr})!`, 'ok');
                     setCapDot('live', 'GStreamer WebRTC');
-                    ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '' }));
+                    ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '', pipeline: 'gstreamer_webrtc', strictWc: false }));
                     sysChat('Native WebRTC daemon started.');
 
                     // Update UI: Connect to the new GStreamer MJPEG local server!
@@ -3280,10 +3332,24 @@ async function startCapture() {
                     const videoConstraint = isWindows
                         ? {}
                         : { frameRate: { ideal: fpsVal } };
-                    vidStream = await navigator.mediaDevices.getDisplayMedia({
-                        audio: isWindows && audioSettings.forceAudioEnabled && !isWindowCap,
-                        video: videoConstraint
-                    });
+                    const wantsAudio = isWindows && audioSettings.forceAudioEnabled && !isWindowCap;
+                    try {
+                        vidStream = await navigator.mediaDevices.getDisplayMedia({
+                            audio: wantsAudio,
+                            video: videoConstraint
+                        });
+                    } catch (firstErr) {
+                        if (wantsAudio && (firstErr.name === 'NotReadableError' || firstErr.name === 'TrackStartError' || (firstErr.message && firstErr.message.includes('Could not start')))) {
+                            log(I18N.t('Audio loopback capture failed, retrying video-only...'), 'warn');
+                            await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                            vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                audio: false,
+                                video: videoConstraint
+                            });
+                        } else {
+                            throw firstErr;
+                        }
+                    }
                 }
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
@@ -3325,7 +3391,9 @@ async function startCapture() {
                 }
                 selectedSourceId = null;
                 try {
-                    screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                    const fallbackOpts = Object.assign({}, displayMediaOptions);
+                    if (isWindows) fallbackOpts.audio = false;
+                    screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
                 } catch (e2) {
                     if (isWindows) {
                         log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
@@ -3341,9 +3409,17 @@ async function startCapture() {
         } else if (!screenStream && !window._portalAttemptFailed) {
             // Ultimate fallback — native picker
             try {
-                screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                const fallbackOpts = Object.assign({}, displayMediaOptions);
+                screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
             } catch (e) {
-                if (isWindows) {
+                if (isWindows && displayMediaOptions.audio) {
+                    try {
+                        log('Retrying native picker without audio...', 'warn');
+                        const retryOpts = Object.assign({}, displayMediaOptions, { audio: false });
+                        screenStream = await navigator.mediaDevices.getDisplayMedia(retryOpts);
+                    } catch (_) {}
+                }
+                if (!screenStream && isWindows) {
                     log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
                     screenStream = await navigator.mediaDevices.getUserMedia({
                         video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
@@ -3419,7 +3495,9 @@ async function startCapture() {
             try {
                 try {
                     const unlockStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    _forceKillStream(unlockStream);
+                    if (unlockStream) {
+                        unlockStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+                    }
                 } catch (e) { log(I18N.t('Audio permission missing, loopback labels hidden'), 'warn'); }
 
                 const devices = await navigator.mediaDevices.enumerateDevices();
@@ -3540,6 +3618,7 @@ async function startCapture() {
         if (cb) cb.textContent = document.getElementById('codecSelect').value;
 
         const prev = document.getElementById('preview');
+        window._screenStream = screenStream;
         if (appSettings.hidePreviewOnStart) {
             previewHidden = true;
             prev.style.display = 'none';
@@ -3564,8 +3643,9 @@ async function startCapture() {
         const liveResEl = document.getElementById('liveResDisplay');
         const liveResText = document.getElementById('liveResText');
         function _updateRes() {
-            if (!currentStream) { clearInterval(_resInterval); return; }
-            const vt = currentStream.getVideoTracks()[0];
+            if (!currentStream && !window._screenStream) { clearInterval(_resInterval); return; }
+            const vt = (window._screenStream && window._screenStream.getVideoTracks ? window._screenStream.getVideoTracks()[0] : null) ||
+                (currentStream && currentStream.getVideoTracks ? currentStream.getVideoTracks()[0] : null);
             if (!vt) return;
             const s = vt.getSettings();
             const label = (s.width && s.height)
@@ -3635,7 +3715,12 @@ async function startCapture() {
             }
         }, 500);
 
-        ws.send(JSON.stringify({ type: 'host-stream-ready', title: (vTrack.label?.split('(')[0].trim() || '') }));
+        ws.send(JSON.stringify({
+            type: 'host-stream-ready',
+            title: (vTrack.label?.split('(')[0].trim() || ''),
+            pipeline: _activePipeline,
+            strictWc: _isStrictWc()
+        }));
         sysChat(I18N.t('Stream started.'));
         [...knownViewers].forEach(id => sendOfferToViewer(id));
 
@@ -3687,11 +3772,15 @@ function _forceKillStream(stream) {
     
     // Explicitly sever UI references to force Chromium to release the XDG Wayland portal token.
     // NOTE: prev.srcObject is often screenStream, but stream passed here is currentStream (which is combined).
-    // They are different objects, so a strict equality check fails and leaks the Wayland token!
+    // ONLY sever if this stream is the main capture stream, never for audio-only probe streams!
     const prev = document.getElementById('preview');
-    if (prev) prev.srcObject = null;
-    const localVideo = document.getElementById('localVideo');
-    if (localVideo) localVideo.srcObject = null;
+    const isCapture = (stream === currentStream) || (window._screenStream && stream === window._screenStream) || (prev && prev.srcObject === stream);
+    if (isCapture) {
+        if (prev) prev.srcObject = null;
+        const localVideo = document.getElementById('localVideo');
+        if (localVideo) localVideo.srcObject = null;
+        window._screenStream = null;
+    }
     
     try {
         const tracks = stream.getTracks();
@@ -5264,13 +5353,21 @@ function showTunnelModal(isManual) {
     document.querySelectorAll('.provider-card').forEach(c => {
         c.classList.toggle('selected', c.querySelector('input').checked);
     });
+
+    const bypassSaved = localStorage.getItem('cf_bypass_custom_url') !== null
+        ? localStorage.getItem('cf_bypass_custom_url') === 'true'
+        : (appSettings && appSettings.bypassCustomUrl === true);
+    const bypassCheck = document.getElementById('cfBypassCheck');
+    const bypassTrack = document.getElementById('cfBypassTrack');
+    if (bypassCheck) bypassCheck.checked = bypassSaved;
+    if (bypassTrack) bypassTrack.classList.toggle('on', bypassSaved);
+    if (typeof updateTunnelModalOptions === 'function') updateTunnelModalOptions();
 }
 
 // ── SAVING THE CAPTURE METHOD (PIPELINE) ──
 window.saveCodecUI = async function (val) {
     localStorage.setItem('ns_codec', val);
-    const pipelineVal = document.getElementById('pipelineSelect')?.value;
-    const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+    const forceWc = _isStrictWc() || _isWcPipeline();
 
     const cb = document.getElementById('codecBadge');
     if (cb) { cb.textContent = '⏳ switching...'; cb.style.background = 'var(--warning)'; }
@@ -5281,7 +5378,8 @@ window.saveCodecUI = async function (val) {
             try {
                 window._webcodecsReader.cancel();
                 window._webcodecsReader = null;
-                const vTrack = currentStream.getVideoTracks()[0];
+                const vTrack = (window._screenStream && window._screenStream.getVideoTracks ? window._screenStream.getVideoTracks()[0] : null) ||
+                    (currentStream && currentStream.getVideoTracks ? currentStream.getVideoTracks()[0] : null);
                 if (vTrack) await startWebCodecsNetworkPipeline(vTrack);
                 log(I18N.t('WebCodecs encoder restarted'), 'ok');
             } catch (e) {
@@ -5521,15 +5619,71 @@ function copyCmd(e, cmd, el = null) {
     }).catch(() => { try { if (el && el.dataset) el.dataset.copyBusy = '0'; } catch (_) {} });
 }
 
+function setCfBypassUI(checked) {
+    localStorage.setItem('cf_bypass_custom_url', checked ? 'true' : 'false');
+    const track = document.getElementById('cfBypassTrack');
+    if (track) track.classList.toggle('on', checked);
+    const check = document.getElementById('cfBypassCheck');
+    if (check) check.checked = checked;
+    saveAppConfig({ bypassCustomUrl: checked });
+}
+
+function toggleCfBypass(checked) {
+    setCfBypassUI(checked);
+}
+
+function toggleCfBypassUI() {
+    const check = document.getElementById('cfBypassCheck');
+    const current = check ? check.checked : (localStorage.getItem('cf_bypass_custom_url') === 'true');
+    setCfBypassUI(!current);
+}
+
+function updateTunnelModalOptions() {
+    const radio = document.querySelector('input[name="provider"]:checked');
+    const isCf = radio && radio.value === 'cloudflared';
+    const cfRow = document.getElementById('cfBypassRow');
+    if (cfRow) cfRow.style.display = isCf ? 'flex' : 'none';
+}
+
 function confirmTunnel() {
     if (_tunnelBusy) return;
     const radio = document.querySelector('input[name="provider"]:checked');
     if (!radio) return;
     const provider = radio.value;
     const remember = document.getElementById('rememberCheck').checked;
+    const bypassCheck = document.getElementById('cfBypassCheck');
+    const bypassCustomUrl = bypassCheck ? bypassCheck.checked : (localStorage.getItem('cf_bypass_custom_url') === 'true');
     setTunnelBusy(true);
 
-    if (provider === 'zrok' || provider === 'cloudflared') {
+    if (provider === 'cloudflared') {
+        if (bypassCustomUrl) {
+            doStartTunnel('cloudflared', remember, '', '', true);
+            return;
+        }
+        fetch('/api/tunnels/providers').then(r => r.json()).then(data => {
+            const cf = (data.providers || []).find(p => p.id === provider);
+            const authed = !!(cf && cf.status && cf.status.authenticated);
+            if (authed) {
+                doStartTunnel(provider, remember, '', '', false);
+            } else {
+                closeTunnelModal();
+                const modal = document.getElementById('cfTokenModal');
+                if (modal) {
+                    _pendingZrokRemember = remember;
+                    const inp = document.getElementById('cfTokenPasteInput');
+                    if (inp) { inp.value = ''; inp.focus(); }
+                    modal.classList.remove('gone');
+                } else {
+                    doStartTunnel(provider, remember, '', '', false);
+                }
+            }
+        }).catch(() => {
+            doStartTunnel(provider, remember, '', '', false);
+        });
+        return;
+    }
+
+    if (provider === 'zrok') {
         fetch('/api/tunnels/providers').then(r => r.json()).then(data => {
             const zrok = (data.providers || []).find(p => p.id === provider);
             const authed = !!(zrok && zrok.status && zrok.status.authenticated);
@@ -5537,12 +5691,10 @@ function confirmTunnel() {
                 doStartTunnel(provider, remember, '', '');
             } else {
                 closeTunnelModal();
-                const modalId = provider === 'zrok' ? 'zrokTokenModal' : 'cfTokenModal';
-                const inputId = provider === 'zrok' ? 'zrokTokenPasteInput' : 'cfTokenPasteInput';
-                const modal = document.getElementById(modalId);
+                const modal = document.getElementById('zrokTokenModal');
                 if (modal) {
                     _pendingZrokRemember = remember;
-                    const inp = document.getElementById(inputId);
+                    const inp = document.getElementById('zrokTokenPasteInput');
                     if (inp) { inp.value = ''; inp.focus(); }
                     modal.classList.remove('gone');
                 } else {
@@ -5581,22 +5733,18 @@ function submitCfToken() {
     const domInp = document.getElementById('cfDomainPasteInput');
     const token = (inp && inp.value || '').trim();
     const domain = (domInp && domInp.value || '').trim();
-    
-    // We send domain alongside token, using a compound string or a new field.
-    // Wait, doStartTunnel takes cfToken as a string. Let's send an object if domain is present.
-    // Or just fetch `/api/start-tunnel` with `customUrl`! 
-    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', token ? { token, domain } : 'skip');
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', token ? { token, domain } : 'skip', false);
 }
 
 function skipCfToken() {
     const modal = document.getElementById('cfTokenModal');
     if (modal) modal.classList.add('gone');
-    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', 'skip');
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', 'skip', false);
 }
 
 // Shared tunnel-start path used by confirmTunnel (direct) and the token
 // popups (resume).
-function doStartTunnel(provider, remember, zrokToken, cfToken) {
+function doStartTunnel(provider, remember, zrokToken, cfToken, bypassCustomUrl = false) {
 
     if (provider === 'portforward') {
         saveAppConfig({ tunnelProvider: 'portforward', neverAsk: remember });
@@ -5684,13 +5832,22 @@ function doStartTunnel(provider, remember, zrokToken, cfToken) {
     fetch('/api/info').then(r => r.json()).then(async function (d) { await renderUrls(d); }).catch(() => { });
 
     const vpsHostVal = document.getElementById('vpsHostInput')?.value?.trim() || '';
-    saveAppConfig({ tunnelProvider: provider, neverAsk: remember, vpsHost: vpsHostVal, vpsEnabled: false });
+    saveAppConfig({ tunnelProvider: provider, neverAsk: remember, vpsHost: vpsHostVal, vpsEnabled: false, bypassCustomUrl: !!bypassCustomUrl });
 
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken, cfToken })
-    }).then(() => { clearTimeout(_autoCloseTimer); }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
+        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken, cfToken, bypassCustomUrl })
+    }).then(r => r.json()).then(res => {
+        clearTimeout(_autoCloseTimer);
+        if (res && res.url) {
+            log(I18N.t('Tunnel ready:') + ' ' + res.url, 'ok');
+            window._globalTunnelUrl = res.url;
+            window._bypassCustomUrl = !!(res.bypassCustomUrl !== undefined ? res.bypassCustomUrl : bypassCustomUrl);
+            fetch('/api/info').then(r => r.json()).then(async function (d) { d.tunnelUrl = res.url; await renderUrls(d); if (typeof _updateDiscordRPC === 'function') _updateDiscordRPC(); });
+            closeTunnelModal();
+        }
+    }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
 }
 
 function startP2POnly() {
@@ -5804,11 +5961,12 @@ async function initP2PHostRoom(code) {
                     hostName: actualHostName
                 });
 
-            // Emulate server sending host-stream-ready if streaming
             if (currentStream) {
                 window.P2PManager.sendToPeer(peerId, {
                     type: 'host-stream-ready',
-                    needsOffer: false // Host sends offer
+                    needsOffer: false, // Host sends offer
+                    pipeline: _activePipeline,
+                    strictWc: _isStrictWc()
                 });
             }
 
@@ -5997,6 +6155,7 @@ document.querySelectorAll('input[name="provider"]').forEach(radio => {
         document.querySelectorAll('.provider-card').forEach(c => {
             c.classList.toggle('selected', c.querySelector('input').checked);
         });
+        if (typeof updateTunnelModalOptions === 'function') updateTunnelModalOptions();
     });
 });
 document.querySelectorAll('.provider-card').forEach(card => {
@@ -6007,6 +6166,7 @@ document.querySelectorAll('.provider-card').forEach(card => {
         input.dispatchEvent(new Event('change'));
         document.querySelectorAll('.provider-card').forEach(c =>
             c.classList.toggle('selected', c.querySelector('input').checked));
+        if (typeof updateTunnelModalOptions === 'function') updateTunnelModalOptions();
     });
 });
 
@@ -6246,19 +6406,20 @@ async function checkTunnelOnConnect() {
         // ALWAYS render whatever URL the server already has (including LAN/Public IP if tunnelUrl is null)
         renderUrls(info);
 
-        if (info.tunnelUrl) {
+        // If a tunnel is already established OR currently booting on the server, DO NOT double-spawn!
+        if (info.tunnelUrl || info.tunnelStarting) {
             return;
         }
-        // No tunnel yet — only prompt for one if the user hasn't chosen "never ask"
+        // No tunnel yet and server is not currently starting one — only prompt if user hasn't chosen "never ask"
         const cfg = await loadAppConfig();
         if (cfg.tunnelProvider === 'p2p') {
             startP2POnly(true);
         } else if (cfg.neverAsk && cfg.tunnelProvider && !['portforward', 'vps-sfu', 'p2p'].includes(cfg.tunnelProvider)) {
-            log(I18N.t('Retrying saved tunnel:') + ' ' + cfg.tunnelProvider, 'warn');
+            log(I18N.t('Starting saved tunnel:') + ' ' + cfg.tunnelProvider, 'ok');
             fetch('/api/start-tunnel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: cfg.tunnelProvider, remember: true, vpsHost: cfg.vpsHost })
+                body: JSON.stringify({ provider: cfg.tunnelProvider, remember: true, vpsHost: cfg.vpsHost, bypassCustomUrl: !!cfg.bypassCustomUrl })
             });
         } else if (!cfg.neverAsk) {
             showTunnelModal();
@@ -7138,7 +7299,9 @@ function saveAudioDevice(type, deviceId) {
 async function enumerateAudioDevices() {
     try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        _forceKillStream(tempStream);
+        if (tempStream) {
+            tempStream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+        }
     } catch (e) { }
 
     try {

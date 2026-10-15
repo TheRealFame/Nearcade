@@ -278,7 +278,10 @@ if (process.platform === 'darwin') app.dock.setIcon(path.join(__dirname, '..', '
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('log-level', '3'); // Suppress STUN timeouts & VSync C++ spam
 // app.commandLine.appendSwitch('disable-logging');
-app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+const enabledFeatures = new Set();
+const disabledFeatures = new Set();
+
+disabledFeatures.add('WebRtcHideLocalIpsWithMdns');
 
 // Never touch the desktop keyring: on mixed gnome-keyring/KWallet boxes
 // Chromium's backend autodetect lands on the wrong store and begs for
@@ -312,12 +315,13 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'win32') {
-  app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
+  // Windows Graphics Capture (WGC) for cross-adapter and hardware-accelerated capture
+  enabledFeatures.add('WinrtScreenCapture');
 }
 
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
-  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+  enabledFeatures.add('WebRTCPipeWireCapturer');
 } else if (process.platform === 'linux') {
   const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
     (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
@@ -330,8 +334,7 @@ if (isArcadeWorker && process.platform === 'linux') {
     
     // Force native Wayland instead of X11/XWayland to prevent Gamescope scaling/compositing issues
     app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
-    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
+    enabledFeatures.add('UseOzonePlatform');
     
     // Gamescope often struggles with Chromium's sandbox, so these are kept disabled
     app.commandLine.appendSwitch('no-sandbox');
@@ -342,9 +345,18 @@ if (isArcadeWorker && process.platform === 'linux') {
     // NOTE: if the GPU process cannot initialize GL here, the compositor
     // fallback below (SwiftShader) is what keeps the dashboard painting.
     app.commandLine.appendSwitch('ozone-platform-hint', process.env.NEARCADE_OZONE || 'auto');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
-    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
   }
+
+  enabledFeatures.add('WebRTCPipeWireCapturer');
+  enabledFeatures.add('CanvasOopRasterization');
+  enabledFeatures.add('WaylandWindowDecorations');
+  enabledFeatures.add('VaapiVideoEncoder');
+  enabledFeatures.add('VaapiVideoDecoder');
+  enabledFeatures.add('VaapiIgnoreDriverChecks');
+  enabledFeatures.add('AcceleratedVideoEncoder');
+  enabledFeatures.add('AcceleratedVideoDecodeLinuxZeroCopyGL');
+  enabledFeatures.add('UseMultiPlaneFormatForHardwareVideo');
+  disabledFeatures.add('UseChromeOSDirectVideoDecoder');
   app.commandLine.appendSwitch('enable-zero-copy');
 
   // Auto-detect if OS restricts unprivileged namespaces (e.g. Ubuntu 24.04 AppArmor) or running as root
@@ -376,7 +388,18 @@ if (isArcadeWorker && process.platform === 'linux') {
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // app.commandLine.appendSwitch('use-gl', 'desktop'); // causes GL init failure on some drivers
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoEncoder,VaapiVideoDecoder,PlatformHEVCDecoderSupport');
+
+// Hardware HEVC decode support where platform supports it
+enabledFeatures.add('PlatformHEVCDecoderSupport');
+
+// Apply consolidated feature switches ONCE so Chromium does not overwrite prior flags
+if (enabledFeatures.size > 0) {
+  app.commandLine.appendSwitch('enable-features', Array.from(enabledFeatures).join(','));
+}
+if (disabledFeatures.size > 0) {
+  app.commandLine.appendSwitch('disable-features', Array.from(disabledFeatures).join(','));
+}
+
 // Uncapped compositing is gated behind the user's explicit settings —
 // forcing it always made the shell burn CPU/GPU presenting a mostly-static
 // dashboard at hundreds of fps. Background flags below stay unconditional:
@@ -391,7 +414,6 @@ if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit
 // Forcing it off turns every GPU hiccup into a black screen.
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
 app.commandLine.appendSwitch('force-high-performance-gpu');
-app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -718,7 +740,7 @@ app.whenReady().then(() => {
     }
   });
 
-  if (settings.checkForUpdates !== false) {
+  if (settings.checkForUpdates !== false && app.isPackaged) {
     try {
       const { autoUpdater } = require('electron-updater');
       autoUpdater.autoDownload = true;

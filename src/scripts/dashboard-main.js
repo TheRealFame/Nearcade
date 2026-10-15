@@ -631,8 +631,17 @@ function syncToNode() {
 }
 
 async function loadAndSyncSettings() {
-  if (!window.electronAPI) return;
+  if (!window.electronAPI) {
+    if (localStorage.getItem('ns_show_companion_ui') !== null) {
+      appConfig.showCompanionUI = localStorage.getItem('ns_show_companion_ui') === 'true';
+    }
+    syncSettingsUI();
+    return;
+  }
   appConfig = await window.electronAPI.getSettings();
+  if (appConfig.showCompanionUI === undefined && localStorage.getItem('ns_show_companion_ui') !== null) {
+    appConfig.showCompanionUI = localStorage.getItem('ns_show_companion_ui') === 'true';
+  }
   syncSettingsUI();
   await applySystemAccent();
   if (appConfig.useNativeTheme) await applyNativeTheme();
@@ -703,6 +712,10 @@ function syncSettingsUI() {
   document.getElementById('settingTrackZeroCopy')?.classList.toggle('on', !!appConfig.zeroCopy);
   document.getElementById('settingTrackWindowsExperimental')?.classList.toggle('on', !!appConfig.windowsExperimental);
   document.getElementById('settingTrackAndroidExperimental')?.classList.toggle('on', !!appConfig.androidExperimental);
+  const isMobileClient = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.location.protocol === 'file:';
+  const showComp = isMobileClient ? (appConfig.showCompanionUI !== false) : (appConfig.showCompanionUI === true);
+  document.getElementById('settingTrackShowCompanionUI')?.classList.toggle('on', showComp);
+  if (window.updateCompanionDockVisibility) window.updateCompanionDockVisibility();
 
   const brandText = document.querySelector('.brand-text');
   if (brandText) {
@@ -1075,7 +1088,7 @@ async function executeUnban(ip) {
 }
 
 function toggleAppSetting(key) {
-  if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent', 'useNativeTheme', 'windowsExperimental', 'vrMode'].includes(key)) {
+  if (['tray', 'hwDecode', 'discordRPC', 'rumble', 'checkForUpdates', 'useSystemAccent', 'useNativeTheme', 'windowsExperimental', 'vrMode', 'showCompanionUI'].includes(key)) {
     appConfig[key] = !appConfig[key];
     const tk = key === 'hwDecode' ? 'HWDecode' :
       key === 'discordRPC' ? 'DiscordRPC' :
@@ -1083,9 +1096,14 @@ function toggleAppSetting(key) {
           key === 'useSystemAccent' ? 'SystemAccent' :
             key === 'useNativeTheme' ? 'NativeTheme' :
               key === 'windowsExperimental' ? 'WindowsExperimental' :
-                key.charAt(0).toUpperCase() + key.slice(1);
+                key === 'showCompanionUI' ? 'ShowCompanionUI' :
+                  key.charAt(0).toUpperCase() + key.slice(1);
     const tr = document.getElementById('settingTrack' + tk);
     if (tr) tr.classList.toggle('on', appConfig[key]);
+    if (key === 'showCompanionUI') {
+      localStorage.setItem('ns_show_companion_ui', appConfig[key]);
+      if (window.updateCompanionDockVisibility) window.updateCompanionDockVisibility();
+    }
     if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
 
     if (key === 'useSystemAccent') applySystemAccent();

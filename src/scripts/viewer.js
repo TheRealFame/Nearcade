@@ -177,9 +177,15 @@ let _turnCredentials = null;
 let _turnFetchPromise = window._turnFetchPromise = (async () => {
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        const hostParam = urlParams.get('host') ? `?host=${urlParams.get('host')}` : '';
-        const scheme = location.protocol === 'file:' ? 'http://localhost:3000' : '';
-        const res = await fetch(`${scheme}/api/turn${hostParam}`);
+        const hostParam = urlParams.get('host');
+        let turnApiUrl = '/api/turn';
+        if (hostParam && hostParam.includes('://')) {
+            turnApiUrl = hostParam.replace(/\/$/, '') + '/api/turn';
+        } else if (location.protocol === 'file:') {
+            turnApiUrl = 'http://localhost:3000/api/turn';
+        }
+        if (hostParam) turnApiUrl += (turnApiUrl.includes('?') ? '&' : '?') + `host=${encodeURIComponent(hostParam)}`;
+        const res = await fetch(turnApiUrl);
         if (res.ok) {
             _turnCredentials = await res.json();
             window._turnCredentials = _turnCredentials;
@@ -382,7 +388,7 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
             
             pinCard.insertBefore(warnDiv, pinCard.firstChild);
 
-            const hostUrl = urlParamsGlobal.get('host') || '';
+            const hostUrl = (urlParamsGlobal.get('host') || '').replace(/\/$/, '');
             safeApiJson(hostUrl + '/api/info', {}).then(info => {
                 if (info && info.tunnelUrl) {
                     const hintDiv = document.getElementById('secureTunnelHint');
@@ -409,7 +415,7 @@ if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 
 // -- PRE-JOIN HOST INFO --
 (function fetchHostInfo() {
-  const hostUrl = urlParamsGlobal.get('host');
+  const hostUrl = (urlParamsGlobal.get('host') || '').replace(/\/$/, '');
   if (hostUrl) {
     safeApiJson(hostUrl + '/api/info', null).then(info => {
       if (!info) return;
@@ -3278,7 +3284,36 @@ async function connect() {
             connectInputWS();
             return;
         }
+        if (msg.type === 'webcodecs-fallback-rejected') {
+            window._hostStrictWc = true;
+            window._wcDowngraded = false;
+            console.warn('[WebCodecs] Fallback rejected by host:', msg.reason || 'Strict Gen 2 enforced');
+            try {
+                const sink = document.getElementById('video');
+                if (sink) { sink.style.display = 'none'; sink.pause(); }
+                if (typeof wcCanvas !== 'undefined' && wcCanvas) wcCanvas.style.display = 'block';
+            } catch (_) {}
+            try {
+                if (typeof appendChat === 'function') {
+                    appendChat('Nearcade', msg.reason || 'Host is enforcing Nearcade Gen 2 (Strict WebCodecs). WebRTC video fallback is disabled.', false, null, null, true);
+                }
+            } catch (_) {}
+            return;
+        }
+        if (msg.type === 'host-encoder-swap-start') {
+            if (typeof msg.strictWc === 'boolean') {
+                window._hostStrictWc = msg.strictWc;
+            } else if (msg.newPipeline) {
+                window._hostStrictWc = (msg.newPipeline === 'webcodecs' || msg.newPipeline === 'custom_webcodecs');
+            }
+            return;
+        }
         if (msg.type === 'host-stream-ready') {
+            if (typeof msg.strictWc === 'boolean') {
+                window._hostStrictWc = msg.strictWc;
+            } else if (msg.pipeline) {
+                window._hostStrictWc = (msg.pipeline === 'webcodecs' || msg.pipeline === 'custom_webcodecs');
+            }
             _nsHostConnected = true;
             window._nsHostConnected = true; document.body.setAttribute('data-connected', 'true');
             const sf = document.getElementById('_nsStandbyFrame');
@@ -4752,6 +4787,16 @@ function _reportWcHealth(type, data) {
 // Downgrade instead: render the standard video track the host attaches.
 function _downgradeToWebRTC(reason) {
     if (window._wcDowngraded) return;
+    if (window._hostStrictWc) {
+        console.warn('[WebCodecs] Downgrade cancelled: Host enforces Nearcade Gen 2 (WebRTC video fallback disabled).');
+        try {
+            if (typeof appendChat === 'function') {
+                appendChat('Nearcade', 'WebCodecs stream stalled, but WebRTC video fallback is disabled by host (Nearcade Gen 2). Waiting for video recovery...', false, null, null, true);
+            }
+        } catch (_) {}
+        try { if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'request-keyframe', viewerId: myId })); } catch (_) {}
+        return;
+    }
     window._wcDowngraded = true;
     try { _stopWcHealthMonitor(); } catch (_) {}
     try {

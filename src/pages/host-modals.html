@@ -449,6 +449,16 @@
       </div>
     </div>
     <div class="modal-footer" style="flex-direction:column; gap:12px;">
+      <div class="ctrl-modal-row" id="cfBypassRow" onclick="toggleCfBypassUI()" style="margin:0; width:100%; cursor:pointer; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px;">
+        <div class="ctrl-toggle-track" id="cfBypassTrack">
+          <div class="ctrl-toggle-thumb"></div>
+        </div>
+        <div class="ctrl-row-text">
+          <div class="ctrl-row-label">Bypass Custom Domain (Quick Tunnel)</div>
+          <div class="ctrl-row-desc">Always use the random trycloudflare.com link, ignoring saved tokens & custom URLs</div>
+        </div>
+        <input type="checkbox" id="cfBypassCheck" style="display:none;" onchange="toggleCfBypass(this.checked)">
+      </div>
       <div class="ctrl-modal-row" onclick="document.getElementById('rememberCheck').click()" style="margin:0; width:100%; cursor:pointer; background:rgba(0,0,0,0.2); padding:10px; border-radius:8px;">
         <div class="ctrl-toggle-track" id="rememberTrack">
           <div class="ctrl-toggle-thumb"></div>
@@ -533,8 +543,8 @@
         style="width:100%;padding:10px 12px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:13px;font-family:inherit;outline:none;margin-top:8px;">
     </div>
     <div class="modal-footer">
-      <div class="btn-row" style="justify-content: flex-end;">
-        <button class="btn-skip" onclick="skipCfToken()" style="margin-right: 8px; background: var(--border2); color: var(--text);">Cancel</button>
+      <div class="btn-row" style="justify-content: flex-end; width:100%; gap:8px;">
+        <button class="btn-skip" onclick="skipCfToken()" style="margin-right:auto; background: var(--border2); color: var(--text);">Cancel</button>
         <button class="btn-confirm" onclick="submitCfToken()">Save & Connect</button>
       </div>
     </div>

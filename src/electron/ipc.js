@@ -1089,16 +1089,12 @@ function registerIpcHandlers(ctx) {
           }
         }
 
-        console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name}`);
+        console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name} | Audio: ${!!(request && request.audioRequested)}`);
         // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio on Windows.
-        // Do not pass audio on other platforms; PipeWire handles it separately.
-        if (process.platform === 'win32') {
-          if (chosenSource.id.startsWith('window:')) {
-            // Requesting loopback audio on a window source crashes getDisplayMedia on Windows VMs.
-            callback({ video: chosenSource });
-          } else {
-            callback({ video: chosenSource, audio: 'loopback' });
-          }
+        // Only attach loopback audio if audio was actually requested and not a window capture.
+        const wantAudio = !!(request && request.audioRequested && !chosenSource.id.startsWith('window:'));
+        if (process.platform === 'win32' && wantAudio) {
+          callback({ video: chosenSource, audio: 'loopback' });
         } else {
           callback({ video: chosenSource });
         }

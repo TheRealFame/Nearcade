@@ -373,13 +373,22 @@ function init(screenWidth, screenHeight) {
     const binExt = isWin ? '.exe' : (isMac ? '.bin' : '.bin');
     
     // Check multiple potential locations for the Rust/Native binaries
+    const resourcesBin = process.resourcesPath ? path.join(process.resourcesPath, 'bin') : null;
     const binPaths = [
         // 1. Packaged location (e.g. Nuitka output or release build)
         path.join(__dirname, 'bin', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
         // 2. Local Rust dev environment target directory
         path.join(__dirname, scriptBase, 'target', 'release', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
         // 3. Fallback name check (e.g. windows_vigem.exe)
-        path.join(__dirname, 'bin', pythonScriptBase + binExt).replace('app.asar', 'app.asar.unpacked')
+        path.join(__dirname, 'bin', pythonScriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
+        // 4. Windows Vigem / Hidmaestro cargo release target binary
+        isWin ? path.join(__dirname, scriptBase, 'target', 'release', pythonScriptBase + binExt).replace('app.asar', 'app.asar.unpacked') : null,
+        // 5. Root bin folder
+        path.join(__dirname, '..', '..', '..', 'bin', scriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
+        path.join(__dirname, '..', '..', '..', 'bin', pythonScriptBase + binExt).replace('app.asar', 'app.asar.unpacked'),
+        // 6. Electron process.resourcesPath (extraResources)
+        resourcesBin ? path.join(resourcesBin, scriptBase + binExt) : null,
+        resourcesBin ? path.join(resourcesBin, pythonScriptBase + binExt) : null,
     ].filter(Boolean);
 
     let foundBinary = null;

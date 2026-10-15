@@ -32,28 +32,7 @@ processHtml(path.join(src, 'pages', 'dashboard.html'), path.join(dist, 'index.ht
 processHtml(path.join(src, 'pages', 'index.html'), path.join(dist, 'viewer.html'));
 processHtml(path.join(src, 'pages', 'gamepad-popup.html'), path.join(dist, 'gamepad-popup.html'), '<style>.host-only, [id*="driver"], [id*="Driver"], [class*="driver"] { display: none !important; }</style>');
 
-// Copy scripts
-console.log('Copying scripts...');
-fs.mkdirSync(path.join(dist, 'js'));
-const scripts = fs.readdirSync(path.join(src, 'scripts'));
-for (const s of scripts) {
-    if (s.endsWith('.js') || s.endsWith('.mjs')) {
-        fs.copyFileSync(path.join(src, 'scripts', s), path.join(dist, 'js', s));
-    }
-}
-
-// Copy CSS
-console.log('Copying CSS...');
-fs.mkdirSync(path.join(dist, 'css'));
-const cssFiles = fs.readdirSync(path.join(src, 'css'));
-for (const c of cssFiles) {
-    if (c.endsWith('.css')) {
-        fs.copyFileSync(path.join(src, 'css', c), path.join(dist, 'css', c));
-    }
-}
-
-// Copy assets
-console.log('Copying assets...');
+// Copy helper
 function copyRecursive(srcDir, destDir) {
     fs.mkdirSync(destDir, { recursive: true });
     for (const item of fs.readdirSync(srcDir)) {
@@ -66,6 +45,24 @@ function copyRecursive(srcDir, destDir) {
         }
     }
 }
+
+// Copy scripts
+console.log('Copying scripts...');
+copyRecursive(path.join(src, 'scripts'), path.join(dist, 'js'));
+
+// Copy CSS
+console.log('Copying CSS...');
+copyRecursive(path.join(src, 'css'), path.join(dist, 'css'));
+
+// Copy assets
+console.log('Copying assets...');
 copyRecursive(path.join(root, 'assets'), path.join(dist, 'assets'));
+
+// Also sync to Android app assets directory if present
+const androidPublic = path.join(__dirname, '..', 'packaging', 'android', 'app', 'src', 'main', 'assets', 'public');
+if (fs.existsSync(androidPublic)) {
+    console.log('Syncing into packaging/android/app/src/main/assets/public...');
+    copyRecursive(dist, androidPublic);
+}
 
 console.log('Android dist built successfully!');
