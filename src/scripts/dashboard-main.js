@@ -1961,40 +1961,59 @@ async function pollGpuInfo(manual = false) {
       _initialGpuPreference = data?.currentPreference || appConfig.gpuPreference || 'auto';
     }
 
+    function cleanGpuName(raw) {
+      if (!raw) return '';
+      let str = String(raw).trim();
+      const match = str.match(/\[(.*?)\]/);
+      if (match && match[1]) {
+        str = match[1].split('/')[0].trim();
+      }
+      return str.replace(/\(R\)|\(TM\)/gi, '').replace(/\s+/g, ' ').trim();
+    }
+
+    const integratedGpu = controllers.find(c => c.type === 'integrated');
+    const discreteGpu = controllers.find(c => c.type === 'discrete');
+
     if (badge) {
       if (controllers.length === 0) {
-        badge.textContent = 'No discrete/integrated GPU details reported by OS';
+        badge.textContent = 'No discrete or integrated GPU details reported by OS';
       } else {
         badge.innerHTML = '';
         controllers.forEach(c => {
           const isDisc = c.type === 'discrete';
           const isInt = c.type === 'integrated';
           const tag = document.createElement('span');
-          tag.style.cssText = 'background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); font-family: monospace; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; line-height: 1.4;';
-          const prefix = isDisc ? '🎮 Dedicated: ' : (isInt ? '⚡ Integrated: ' : '🖥 GPU: ');
+          tag.style.cssText = 'background: rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); font-family: monospace; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; line-height: 1.4;';
+          const typeLabel = isDisc ? 'Dedicated' : (isInt ? 'Integrated' : 'GPU');
+          const cleanName = cleanGpuName(c.model || c.vendor);
           const vramStr = c.vram ? ` (${Math.round(c.vram > 100 ? c.vram : c.vram * 1024)}MB)` : '';
-          tag.textContent = `${prefix}${c.model || c.vendor}${vramStr}`;
+          tag.textContent = `${typeLabel}: ${cleanName}${vramStr}`;
           badge.appendChild(tag);
         });
       }
     }
 
-    // Enhance dropdown option labels with detected GPU names if found
-    const integratedGpu = controllers.find(c => c.type === 'integrated');
-    const discreteGpu = controllers.find(c => c.type === 'discrete');
-
+    // Keep dropdown option labels concise and disable unavailable hardware
     const optInt = document.getElementById('optGpuIntegrated');
     if (optInt) {
-      optInt.textContent = integratedGpu 
-        ? `Integrated (${integratedGpu.model || 'Intel / AMD'})` 
-        : 'Integrated (Intel / AMD - Low Power)';
+      if (integratedGpu) {
+        optInt.disabled = false;
+        optInt.textContent = 'Integrated (Low Power)';
+      } else {
+        optInt.disabled = true;
+        optInt.textContent = 'Integrated (Not Available)';
+      }
     }
 
     const optDisc = document.getElementById('optGpuDiscrete');
     if (optDisc) {
-      optDisc.textContent = discreteGpu 
-        ? `Discrete (${discreteGpu.model || 'NVIDIA / AMD'})` 
-        : 'Discrete (NVIDIA / AMD - High Performance)';
+      if (discreteGpu) {
+        optDisc.disabled = false;
+        optDisc.textContent = 'Dedicated (High Performance)';
+      } else {
+        optDisc.disabled = true;
+        optDisc.textContent = 'Dedicated (Not Available)';
+      }
     }
 
     const sel = document.getElementById('selectGpuPreference');

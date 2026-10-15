@@ -1434,21 +1434,21 @@
             <h2>Experimental (Requires App Restart)</h2>
 
             <div class="setting-row" id="settingRowGpuPreference" style="cursor: default; flex-wrap: wrap; align-items: center; gap: 12px;">
-              <div class="setting-info" style="flex: 1; min-width: 280px;">
+              <div class="setting-info" style="flex: 1; min-width: 260px;">
                 <h4>Graphics Card / GPU Preference</h4>
-                <p>Select which GPU to prioritize for rendering and capture. On hybrid dual-GPU laptops (Intel/NVIDIA or AMD/NVIDIA), set to <b>Integrated</b> if screen/window capture fails or freezes.</p>
+                <p>Select which GPU to prioritize for rendering and capture. On dual-GPU laptops (Intel/NVIDIA or AMD/NVIDIA), set to <b>Integrated</b> if screen or window capture fails or freezes.</p>
               </div>
               <div style="display:flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0;">
                 <div style="display: flex; gap: 6px; align-items: center;">
                   <select id="selectGpuPreference" onchange="setGpuPreference(this.value)"
-                    style="width: 260px; padding: 8px 12px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-family: inherit; font-size: 13px;">
+                    style="width: 220px; max-width: 220px; padding: 8px 10px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-family: inherit; font-size: 13px;">
                     <option value="auto">Auto (System Default)</option>
-                    <option value="integrated" id="optGpuIntegrated">Integrated (Intel / AMD - Low Power)</option>
-                    <option value="discrete" id="optGpuDiscrete">Discrete (NVIDIA / AMD - High Performance)</option>
+                    <option value="integrated" id="optGpuIntegrated">Integrated (Low Power)</option>
+                    <option value="discrete" id="optGpuDiscrete">Dedicated (High Performance)</option>
                   </select>
                   <button type="button" class="btn-poll-gpu" onclick="pollGpuInfo(true)" title="Poll detected GPUs"
-                    style="padding: 7px 10px; background: var(--surface, #1a1a1a); border: 1px solid var(--border); color: var(--text, #ccc); border-radius: 6px; cursor: pointer; font-size: 13px;">
-                    🔄
+                    style="padding: 7px 10px; background: var(--surface, #1a1a1a); border: 1px solid var(--border); color: var(--text, #ccc); border-radius: 6px; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center;">
+                    <i class="fa-solid fa-rotate-right"></i>
                   </button>
                 </div>
                 <button id="btnRestartAppGpu" type="button" onclick="restartAppForGpu()"
