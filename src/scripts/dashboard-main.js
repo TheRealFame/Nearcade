@@ -313,6 +313,8 @@ function switchTab(name) {
     // Scanning libraryfolders.vdf + every appmanifest_*.acf takes a moment —
     // only do it when the user actually opens Auto-Hosts.
     loadAutoHostSteamGames();
+  } else if (name === 'settings') {
+    pollGpuInfo(false);
   }
 }
 
@@ -645,6 +647,7 @@ async function loadAndSyncSettings() {
   syncSettingsUI();
   await applySystemAccent();
   if (appConfig.useNativeTheme) await applyNativeTheme();
+  pollGpuInfo(false);
 }
 
 function syncSettingsUI() {
@@ -694,6 +697,11 @@ function syncSettingsUI() {
     if (savedUI === 'new') savedUI = 'default';
     if (savedUI === 'old') savedUI = 'minimal';
     uiSel.value = savedUI;
+  }
+
+  const gpuSel = document.getElementById('selectGpuPreference');
+  if (gpuSel && appConfig.gpuPreference) {
+    gpuSel.value = appConfig.gpuPreference;
   }
 
   document.getElementById('settingTrackRumble')?.classList.toggle('on', appConfig.rumble !== false);
@@ -1902,6 +1910,103 @@ function setHostUI(val) {
   localStorage.setItem('ns_ui_version', val);
   appConfig.uiVersion = val;
   saveAppConfigToElectron();
+}
+
+let _initialGpuPreference = null;
+let _isPollingGpu = false;
+
+function setGpuPreference(val) {
+  if (!appConfig) appConfig = {};
+  if (_initialGpuPreference === null) {
+    _initialGpuPreference = appConfig.gpuPreference || 'auto';
+  }
+  appConfig.gpuPreference = val;
+  if (window.electronAPI) {
+    saveAppConfigToElectron();
+  }
+  syncToNode();
+
+  // Show restart button if changed from boot value
+  const restartBtn = document.getElementById('btnRestartAppGpu');
+  if (restartBtn) {
+    restartBtn.style.display = (val !== _initialGpuPreference) ? 'inline-block' : 'none';
+  }
+}
+
+function restartAppForGpu() {
+  if (window.electronAPI && window.electronAPI.restartApp) {
+    window.electronAPI.restartApp();
+  } else {
+    alert('Please restart Nearcade for the GPU change to take effect.');
+  }
+}
+
+async function pollGpuInfo(manual = false) {
+  const badge = document.getElementById('detectedGpuBadge');
+  if (!window.electronAPI || !window.electronAPI.getGpuInfo) {
+    if (badge) badge.textContent = 'Hardware polling is available in the desktop app.';
+    return;
+  }
+  if (_isPollingGpu) return;
+  _isPollingGpu = true;
+
+  if (badge && manual) {
+    badge.innerHTML = '<span class="spinner" style="width:10px;height:10px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin 1s linear infinite;margin-right:6px;"></span> Polling hardware...';
+  }
+
+  try {
+    const data = await window.electronAPI.getGpuInfo();
+    const controllers = data?.controllers || [];
+    if (_initialGpuPreference === null) {
+      _initialGpuPreference = data?.currentPreference || appConfig.gpuPreference || 'auto';
+    }
+
+    if (badge) {
+      if (controllers.length === 0) {
+        badge.textContent = 'No discrete/integrated GPU details reported by OS';
+      } else {
+        badge.innerHTML = '';
+        controllers.forEach(c => {
+          const isDisc = c.type === 'discrete';
+          const isInt = c.type === 'integrated';
+          const tag = document.createElement('span');
+          tag.style.cssText = 'background: rgba(255,255,255,0.06); padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); font-family: monospace; font-size: 11px;';
+          const prefix = isDisc ? '🎮 Dedicated: ' : (isInt ? '⚡ Integrated: ' : '🖥 GPU: ');
+          const vramStr = c.vram ? ` (${Math.round(c.vram > 100 ? c.vram : c.vram * 1024)}MB)` : '';
+          tag.textContent = `${prefix}${c.model || c.vendor}${vramStr}`;
+          badge.appendChild(tag);
+        });
+      }
+    }
+
+    // Enhance dropdown option labels with detected GPU names if found
+    const integratedGpu = controllers.find(c => c.type === 'integrated');
+    const discreteGpu = controllers.find(c => c.type === 'discrete');
+
+    const optInt = document.getElementById('optGpuIntegrated');
+    if (optInt) {
+      optInt.textContent = integratedGpu 
+        ? `Integrated (${integratedGpu.model || 'Intel / AMD'})` 
+        : 'Integrated (Intel / AMD - Low Power)';
+    }
+
+    const optDisc = document.getElementById('optGpuDiscrete');
+    if (optDisc) {
+      optDisc.textContent = discreteGpu 
+        ? `Discrete (${discreteGpu.model || 'NVIDIA / AMD'})` 
+        : 'Discrete (NVIDIA / AMD - High Performance)';
+    }
+
+    const sel = document.getElementById('selectGpuPreference');
+    if (sel && appConfig.gpuPreference) {
+      sel.value = appConfig.gpuPreference;
+    }
+  } catch (err) {
+    console.warn('[dashboard] Failed to poll GPU info:', err);
+    if (badge) badge.textContent = 'Could not query GPU details';
+  } finally {
+    _isPollingGpu = false;
+  }
 }
 
 function uploadCustomUI(input) {

@@ -414,10 +414,20 @@ if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit
 // standing between a working dashboard and a permanently blank window.
 // Forcing it off turns every GPU hiccup into a black screen.
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
-// Force high-performance GPU only on non-Windows platforms. On Windows, forcing dGPU
-// breaks DXGI Desktop Duplication and D3D11 capture on laptops with hybrid graphics
-// (e.g. NVIDIA Optimus) where the display surface is managed by the integrated GPU.
-if (process.platform !== 'win32') {
+
+// GPU Selection for dual-GPU laptops (NVIDIA Optimus / AMD Switchable Graphics)
+const isWin = process.platform === 'win32';
+const pref = _bootFlags.gpuPreference || 'auto';
+const forceLow = pref === 'integrated' || process.argv.includes('--low-power-gpu') || process.argv.includes('--force-low-power-gpu') || process.argv.includes('--force_low_power_gpu');
+const forceHigh = pref === 'discrete' || process.argv.includes('--high-performance-gpu') || process.argv.includes('--force-high-performance-gpu') || process.argv.includes('--force_high_performance_gpu');
+
+if (forceLow) {
+  console.log('[electron] GPU preference: forcing low-power (integrated) GPU');
+  app.commandLine.appendSwitch('force_low_power_gpu');
+} else if (forceHigh && isWin) {
+  console.log('[electron] GPU preference: forcing high-performance (discrete) GPU');
+  app.commandLine.appendSwitch('force-high-performance-gpu');
+} else if (!isWin) {
   app.commandLine.appendSwitch('force-high-performance-gpu');
 }
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
@@ -726,6 +736,14 @@ async function createWindow() {
 
 
 app.whenReady().then(() => {
+  try {
+    app.getGPUInfo('basic').then(info => {
+      const devices = info?.gpuDevice || [];
+      const names = devices.map(d => `${d.driverVendor || ''} (Vendor: ${d.vendorId}, Device: ${d.deviceId}, Active: ${d.active})`).join(' | ');
+      console.log('[electron] Active GPU devices:', names || JSON.stringify(info));
+    }).catch(() => {});
+  } catch (_) {}
+
   const { session } = require('electron');
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     details.requestHeaders['Bypass-Tunnel-Reminder'] = 'true'; // Cloudflare / Localtunnel

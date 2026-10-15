@@ -1433,6 +1433,34 @@
           <div class="settings-section">
             <h2>Experimental (Requires App Restart)</h2>
 
+            <div class="setting-row" id="settingRowGpuPreference" style="align-items: flex-start; cursor: default;">
+              <div class="setting-info" style="flex: 1; margin-right: 16px;">
+                <h4>Graphics Card / GPU Preference</h4>
+                <p>Select which GPU to prioritize for rendering and capture. On hybrid dual-GPU laptops (Intel/NVIDIA or AMD/NVIDIA), set to <b>Integrated</b> if screen/window capture fails or freezes.</p>
+                <div id="detectedGpuBadge" style="margin-top: 8px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span>Detecting GPUs...</span>
+                </div>
+              </div>
+              <div style="display:flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0;">
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <select id="selectGpuPreference" onchange="setGpuPreference(this.value)"
+                    style="padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px; font-family: inherit; font-size: 13px;">
+                    <option value="auto">Auto (System Default)</option>
+                    <option value="integrated" id="optGpuIntegrated">Integrated (Intel / AMD - Low Power)</option>
+                    <option value="discrete" id="optGpuDiscrete">Discrete (NVIDIA / AMD - High Performance)</option>
+                  </select>
+                  <button type="button" class="btn-poll-gpu" onclick="pollGpuInfo(true)" title="Poll detected GPUs"
+                    style="padding: 7px 10px; background: var(--surface, #1a1a1a); border: 1px solid var(--border); color: var(--text, #ccc); border-radius: 4px; cursor: pointer; font-size: 13px;">
+                    🔄
+                  </button>
+                </div>
+                <button id="btnRestartAppGpu" type="button" onclick="restartAppForGpu()"
+                  style="display:none; padding: 5px 12px; font-size: 11px; background: var(--accent, #5865F2); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                  Restart App to Apply
+                </button>
+              </div>
+            </div>
+
             <div class="setting-row" onclick="toggleAppSetting('hwDecode')">
               <div class="setting-info">
                 <h4>Hardware Decoding</h4>

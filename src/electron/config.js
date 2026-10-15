@@ -53,6 +53,7 @@ const DEFAULTS = {
   useNativeTheme: false,
   checkForUpdates: true,
   captureMethod: 'webcodecs',
+  gpuPreference: 'auto', // 'auto', 'integrated', 'discrete'
 };
 
 function loadSettings() {

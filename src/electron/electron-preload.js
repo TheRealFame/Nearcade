@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveEnv:                        (key, val) => ipcRenderer.invoke('save-env', key, val),
   // Display server detection for capture pipeline routing
   getDisplayServer:               () => ipcRenderer.invoke('get-display-server'),
+  getGpuInfo:                     () => ipcRenderer.invoke('get-gpu-info'),
+  restartApp:                     () => ipcRenderer.invoke('restart-app'),
   // VPS SFU config — dedicated handlers so the master key is handled explicitly
   getVpsConfig:   ()    => ipcRenderer.invoke('get-vps-config'),
   saveVpsConfig:  (cfg) => ipcRenderer.invoke('save-vps-config', cfg),

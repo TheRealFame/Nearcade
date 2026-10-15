@@ -463,6 +463,70 @@ function registerIpcHandlers(ctx) {
     return { version, commit };
   });
 
+  function classifyGpu(controller) {
+    const vendor = (controller.vendor || '').toLowerCase();
+    const model = (controller.model || '').toLowerCase();
+    const bus = (controller.bus || '').toLowerCase();
+    const vram = Number(controller.vram) || 0;
+
+    if (vendor.includes('nvidia') || model.includes('geforce') || model.includes('quadro') || model.includes('rtx') || model.includes('gtx')) {
+      return 'discrete';
+    }
+    if (vendor.includes('intel')) {
+      if (model.includes('arc') || model.includes('iris xe max') || model.includes('dg1') || model.includes('dg2')) {
+        return 'discrete';
+      }
+      return 'integrated';
+    }
+    if (vendor.includes('amd') || vendor.includes('ati') || vendor.includes('advanced micro devices')) {
+      if (model.includes('radeon rx') || model.includes('radeon pro') || model.includes('discrete') || model.includes('navi') || model.includes('rdna')) {
+        return 'discrete';
+      }
+      if (model.includes('vega 3') || model.includes('vega 6') || model.includes('vega 7') || model.includes('vega 8') || model.includes('vega 11') || model.includes('apu') || model.includes('radeon graphics') || model.includes('radeon(tm) graphics') || bus.includes('onboard')) {
+        return 'integrated';
+      }
+      return vram >= 2048 ? 'discrete' : 'integrated';
+    }
+    return 'unknown';
+  }
+
+  ipcMain.handle('get-gpu-info', async () => {
+    let controllers = [];
+    try {
+      const si = require('systeminformation');
+      const gfx = await si.graphics();
+      if (gfx && Array.isArray(gfx.controllers)) {
+        controllers = gfx.controllers.map(c => ({
+          vendor: c.vendor || '',
+          model: c.model || '',
+          vram: c.vram || 0,
+          bus: c.bus || '',
+          pciID: c.pciID || '',
+          type: classifyGpu(c)
+        }));
+      }
+    } catch (e) {
+      console.warn('[ipc] Failed to fetch systeminformation graphics:', e);
+    }
+
+    let electronGpu = null;
+    try {
+      electronGpu = await app.getGPUInfo('basic');
+    } catch (_) {}
+
+    return {
+      controllers,
+      electronGpu,
+      currentPreference: ctx.settings?.gpuPreference || 'auto'
+    };
+  });
+
+  ipcMain.handle('restart-app', () => {
+    app.relaunch();
+    app.isQuiting = true;
+    app.quit();
+  });
+
   ipcMain.on('open-host', (event, version) => {
     let route = '/host';
     if (version === 'old') route = '/old_host';
