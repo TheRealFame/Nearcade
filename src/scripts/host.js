@@ -2983,7 +2983,9 @@ async function startCapture() {
         let screenStream = null;
         // Hot-swap fast path: reuse the stashed live track, skip every picker.
         if (_reuseV) screenStream = new MediaStream([_reuseV]);
-        videoConstraints.cursor = 'never';
+        if (!isWindows) {
+            videoConstraints.cursor = 'never';
+        }
         const displayMediaOptions = { video: videoConstraints };
 
         if (!isLinux && audioSettings.forceAudioEnabled) {
@@ -3389,16 +3391,23 @@ async function startCapture() {
                 } else {
                     log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
                 }
+                const attemptedSourceId = window._lastSourceId;
                 selectedSourceId = null;
                 try {
                     const fallbackOpts = Object.assign({}, displayMediaOptions);
-                    if (isWindows) fallbackOpts.audio = false;
+                    if (isWindows) {
+                        fallbackOpts.audio = false;
+                        fallbackOpts.video = true;
+                    }
                     screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
                 } catch (e2) {
                     if (isWindows) {
                         log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
+                        const mandatory = { chromeMediaSource: 'desktop' };
+                        if (attemptedSourceId) mandatory.chromeMediaSourceId = attemptedSourceId;
+                        if (fpsVal) mandatory.maxFrameRate = fpsVal;
                         screenStream = await navigator.mediaDevices.getUserMedia({
-                            video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                            video: { mandatory },
                             audio: false
                         });
                     } else {
@@ -3410,19 +3419,26 @@ async function startCapture() {
             // Ultimate fallback — native picker
             try {
                 const fallbackOpts = Object.assign({}, displayMediaOptions);
+                if (isWindows) {
+                    fallbackOpts.audio = false;
+                    fallbackOpts.video = true;
+                }
                 screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
             } catch (e) {
                 if (isWindows && displayMediaOptions.audio) {
                     try {
                         log('Retrying native picker without audio...', 'warn');
-                        const retryOpts = Object.assign({}, displayMediaOptions, { audio: false });
+                        const retryOpts = Object.assign({}, displayMediaOptions, { audio: false, video: true });
                         screenStream = await navigator.mediaDevices.getDisplayMedia(retryOpts);
                     } catch (_) {}
                 }
                 if (!screenStream && isWindows) {
                     log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
+                    const mandatory = { chromeMediaSource: 'desktop' };
+                    if (window._lastSourceId) mandatory.chromeMediaSourceId = window._lastSourceId;
+                    if (fpsVal) mandatory.maxFrameRate = fpsVal;
                     screenStream = await navigator.mediaDevices.getUserMedia({
-                        video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
+                        video: { mandatory },
                         audio: false
                     });
                 }

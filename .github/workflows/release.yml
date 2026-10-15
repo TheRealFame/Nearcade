@@ -119,7 +119,7 @@ jobs:
 
           gh release create "${{ github.ref_name }}" --verify-tag --prerelease --title "Nearcade ${{ github.ref_name }}" --notes "Test build for ${{ github.ref_name }}" || true
           
-          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pacman dist/*.zip; do
+          for file in dist/*.exe dist/*.dmg dist/*.AppImage dist/*.deb dist/*.rpm dist/*.pacman dist/*.zip dist/*.yml; do
             if [ -f "$file" ]; then
               echo "Uploading $file..."
               gh release upload "${{ github.ref_name }}" "$file" --clobber || true

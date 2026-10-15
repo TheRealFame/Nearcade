@@ -315,8 +315,9 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'win32') {
-  // Windows Graphics Capture (WGC) for cross-adapter and hardware-accelerated capture
-  enabledFeatures.add('WinrtScreenCapture');
+  // Windows Graphics Capture (WGC) for cross-adapter and hardware-accelerated screen & window capture
+  enabledFeatures.add('WebRtcAllowWgcScreenCapturer');
+  enabledFeatures.add('WebRtcAllowWgcWindowCapturer');
 }
 
 if (isArcadeWorker && process.platform === 'linux') {
@@ -413,7 +414,12 @@ if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit
 // standing between a working dashboard and a permanently blank window.
 // Forcing it off turns every GPU hiccup into a black screen.
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
-app.commandLine.appendSwitch('force-high-performance-gpu');
+// Force high-performance GPU only on non-Windows platforms. On Windows, forcing dGPU
+// breaks DXGI Desktop Duplication and D3D11 capture on laptops with hybrid graphics
+// (e.g. NVIDIA Optimus) where the display surface is managed by the integrated GPU.
+if (process.platform !== 'win32') {
+  app.commandLine.appendSwitch('force-high-performance-gpu');
+}
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
