@@ -3341,7 +3341,16 @@ async function startCapture() {
                             video: videoConstraint
                         });
                     } catch (firstErr) {
-                        if (wantsAudio && (firstErr.name === 'NotReadableError' || firstErr.name === 'TrackStartError' || (firstErr.message && firstErr.message.includes('Could not start')))) {
+                        if (isWindows && isWindowCap) {
+                            // Window capture failed (common with hardware-accelerated/DirectX/Vulkan games on hybrid GPUs).
+                            // Fall back to primary desktop screen DXGI capture (the rock-solid 3.0.0 pipeline).
+                            log(I18N.t('Window capture unavailable for this game, falling back to full screen (DXGI)...'), 'warn');
+                            await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                            vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                audio: audioSettings.forceAudioEnabled,
+                                video: {}
+                            });
+                        } else if (wantsAudio && (firstErr.name === 'NotReadableError' || firstErr.name === 'TrackStartError' || (firstErr.message && firstErr.message.includes('Could not start')))) {
                             log(I18N.t('Audio loopback capture failed, retrying video-only...'), 'warn');
                             await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
                             vidStream = await navigator.mediaDevices.getDisplayMedia({
@@ -3389,17 +3398,24 @@ async function startCapture() {
                 } else if (e.name === 'StaleSourceError') {
                     // Handled gracefully above, do not log a second scary warning
                 } else {
-                    log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
+                    log(I18N.t('Source selection failed, falling back to full screen:') + ' ' + e.message, 'warn');
                 }
                 const attemptedSourceId = window._lastSourceId;
                 selectedSourceId = null;
                 try {
-                    const fallbackOpts = Object.assign({}, displayMediaOptions);
                     if (isWindows) {
-                        fallbackOpts.audio = false;
-                        fallbackOpts.video = true;
+                        // WINDOWS 3.0.0 RELIABLE FALLBACK:
+                        // Always fall back to primary desktop screen capture with DXGI and loopback audio
+                        log('Falling back to primary desktop screen capture (DXGI)...', 'ok');
+                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                        screenStream = await navigator.mediaDevices.getDisplayMedia({
+                            audio: audioSettings.forceAudioEnabled,
+                            video: {}
+                        });
+                    } else {
+                        const fallbackOpts = Object.assign({}, displayMediaOptions);
+                        screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
                     }
-                    screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
                 } catch (e2) {
                     if (isWindows) {
                         log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
@@ -3418,29 +3434,38 @@ async function startCapture() {
         } else if (!screenStream && !window._portalAttemptFailed) {
             // Ultimate fallback — native picker
             try {
-                const fallbackOpts = Object.assign({}, displayMediaOptions);
                 if (isWindows) {
-                    fallbackOpts.audio = false;
-                    fallbackOpts.video = true;
+                    await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        audio: audioSettings.forceAudioEnabled,
+                        video: {}
+                    });
+                } else {
+                    const fallbackOpts = Object.assign({}, displayMediaOptions);
+                    screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
                 }
-                screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
             } catch (e) {
-                if (isWindows && displayMediaOptions.audio) {
+                if (isWindows) {
                     try {
                         log('Retrying native picker without audio...', 'warn');
-                        const retryOpts = Object.assign({}, displayMediaOptions, { audio: false, video: true });
-                        screenStream = await navigator.mediaDevices.getDisplayMedia(retryOpts);
-                    } catch (_) {}
+                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                        screenStream = await navigator.mediaDevices.getDisplayMedia({
+                            video: {},
+                            audio: false
+                        });
+                    } catch (_) { }
                 }
                 if (!screenStream && isWindows) {
                     log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
                     const mandatory = { chromeMediaSource: 'desktop' };
                     if (window._lastSourceId) mandatory.chromeMediaSourceId = window._lastSourceId;
                     if (fpsVal) mandatory.maxFrameRate = fpsVal;
-                    screenStream = await navigator.mediaDevices.getUserMedia({
-                        video: { mandatory },
-                        audio: false
-                    });
+                    try {
+                        screenStream = await navigator.mediaDevices.getUserMedia({
+                            video: { mandatory },
+                            audio: false
+                        });
+                    } catch (_) { }
                 }
             }
         } else if (!screenStream) {

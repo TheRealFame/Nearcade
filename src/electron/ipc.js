@@ -1133,7 +1133,8 @@ function registerIpcHandlers(ctx) {
         // with WinrtScreenCapture enabled — window source ids are not always
         // stable across separate desktopCapturer.getSources() calls. Falling
         // back to a name match keeps the pick working when the id shifts.
-        let chosenSource = sources[0]; // default: first screen
+        const firstScreen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
+        let chosenSource = firstScreen; // default: first screen
         if (selectedSourceId) {
           const id = selectedSourceId;
           const name = selectedSourceName;
@@ -1147,17 +1148,17 @@ function registerIpcHandlers(ctx) {
             chosenSource = match;
           } else {
             // Not found by id or name (window closed etc.) — fall back to screen
-            const firstScreen = sources.find(s => s.id.startsWith('screen:'));
-            if (firstScreen) chosenSource = firstScreen;
+            chosenSource = firstScreen;
             console.warn('[electron] Selected source not found by id or name, falling back to primary screen.');
           }
         }
 
-        console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name} | Audio: ${!!(request && request.audioRequested)}`);
-        // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio on Windows.
-        // Only attach loopback audio if audio was actually requested and not a window capture.
-        const wantAudio = !!(request && request.audioRequested && !chosenSource.id.startsWith('window:'));
-        if (process.platform === 'win32' && wantAudio) {
+        const isWin = process.platform === 'win32';
+        const isScreen = chosenSource.id.startsWith('screen:');
+        console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name} | isScreen: ${isScreen}`);
+        // WINDOWS AUDIO FIX (matching 3.0.0): On Windows, desktop screen capture reliably uses DXGI
+        // Desktop Duplication with 'loopback' audio in the callback to initialize system sound.
+        if (isWin && isScreen) {
           callback({ video: chosenSource, audio: 'loopback' });
         } else {
           callback({ video: chosenSource });

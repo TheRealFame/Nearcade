@@ -315,8 +315,10 @@ if (process.platform === 'linux') {
 }
 
 if (process.platform === 'win32') {
-  // Windows Graphics Capture (WGC) for cross-adapter and hardware-accelerated screen & window capture
-  enabledFeatures.add('WebRtcAllowWgcScreenCapturer');
+  // Windows Graphics Capture (WGC) window capturer for individual application windows.
+  // NOTE: WebRtcAllowWgcScreenCapturer is deliberately NOT enabled because WGC screen capture
+  // fails with "Could not start video source" on many Intel UHD and hybrid GPU systems.
+  // Leaving it omitted forces Chromium to use native DXGI Desktop Duplication (the rock-solid 3.0.0 pipeline).
   enabledFeatures.add('WebRtcAllowWgcWindowCapturer');
 }
 
