@@ -1182,5 +1182,3 @@ function registerIpcHandlers(ctx) {
 }
 
 module.exports = { registerIpcHandlers };
-
-module.exports = { registerIpcHandlers };

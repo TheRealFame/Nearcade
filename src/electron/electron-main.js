@@ -424,6 +424,7 @@ const forceHigh = pref === 'discrete' || process.argv.includes('--high-performan
 if (forceLow) {
   console.log('[electron] GPU preference: forcing low-power (integrated) GPU');
   app.commandLine.appendSwitch('force_low_power_gpu');
+  app.commandLine.appendSwitch('force-low-power-gpu');
 } else if (forceHigh && isWin) {
   console.log('[electron] GPU preference: forcing high-performance (discrete) GPU');
   app.commandLine.appendSwitch('force-high-performance-gpu');

@@ -700,8 +700,8 @@ function syncSettingsUI() {
   }
 
   const gpuSel = document.getElementById('selectGpuPreference');
-  if (gpuSel && appConfig.gpuPreference) {
-    gpuSel.value = appConfig.gpuPreference;
+  if (gpuSel) {
+    gpuSel.value = appConfig.gpuPreference || 'auto';
   }
 
   document.getElementById('settingTrackRumble')?.classList.toggle('on', appConfig.rumble !== false);
@@ -2017,8 +2017,8 @@ async function pollGpuInfo(manual = false) {
     }
 
     const sel = document.getElementById('selectGpuPreference');
-    if (sel && appConfig.gpuPreference) {
-      sel.value = appConfig.gpuPreference;
+    if (sel) {
+      sel.value = appConfig.gpuPreference || 'auto';
     }
   } catch (err) {
     console.warn('[dashboard] Failed to poll GPU info:', err);
