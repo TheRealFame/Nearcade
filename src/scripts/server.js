@@ -697,6 +697,23 @@ const DEFAULT_ARCADE_URL = 'https://nearcade.cutefame.net';
 
 function migrateConfig(cfg) {
   let v = cfg.configVersion || 0;
+  // Ensure zeroCopy defaults to true on non-NVIDIA Linux hosts if not explicitly set
+  if (cfg.zeroCopy === undefined) {
+    let isNvidia = false;
+    if (process.platform === 'linux') {
+      try {
+        if (fs.existsSync('/proc/driver/nvidia')) isNvidia = true;
+        else {
+          const lspciOut = require('child_process').execSync('lspci 2>/dev/null', { encoding: 'utf8' });
+          isNvidia = /nvidia/i.test(lspciOut);
+        }
+      } catch (_) {}
+      cfg.zeroCopy = !isNvidia;
+    } else {
+      cfg.zeroCopy = false;
+    }
+  }
+
   if (v >= CONFIG_VERSION) return cfg;
   // v0 → v1: rename legacy keys if present
   if (v < 1) {

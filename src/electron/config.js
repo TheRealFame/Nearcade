@@ -33,11 +33,33 @@ const DEFAULT_CONTROLLERS = {
   },
 };
 
+let _isNvidiaCache = null;
+function isNvidiaLinux() {
+  if (process.platform !== 'linux') return false;
+  if (_isNvidiaCache !== null) return _isNvidiaCache;
+  try {
+    if (fs.existsSync('/proc/driver/nvidia')) {
+      _isNvidiaCache = true;
+      return true;
+    }
+    const lspciOut = require('child_process').execSync('lspci 2>/dev/null', { encoding: 'utf8' });
+    _isNvidiaCache = /nvidia/i.test(lspciOut);
+    return _isNvidiaCache;
+  } catch (_) {
+    _isNvidiaCache = false;
+    return false;
+  }
+}
+
+function getDefaultZeroCopy() {
+  return process.platform === 'linux' && !isNvidiaLinux();
+}
+
 const DEFAULTS = {
   encoder: 'gpu', codec: 'h264', preset: 'fast',
   alwaysOnTop: false, w: 1280, h: 800,
   tray: true, rumble: true, discordRPC: true,
-  hwDecode: true, fpsUnlock: false, vsyncOff: false, zeroCopy: false,
+  hwDecode: true, fpsUnlock: false, vsyncOff: false, zeroCopy: getDefaultZeroCopy(),
   hidePreviewOnStart: false, captureMic: false,
   ffmpegExperimental: false,
   hostName: '',
@@ -59,29 +81,26 @@ const DEFAULTS = {
 function loadSettings() {
   try {
     if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    const defaultZeroCopy = getDefaultZeroCopy();
     if (fs.existsSync(CONFIG_FILE)) {
-      return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')));
+      let parsed = {};
+      try {
+        parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) || {};
+      } catch (_) {}
+      const merged = Object.assign({}, DEFAULTS, parsed);
+      if (parsed.zeroCopy === undefined) {
+        merged.zeroCopy = defaultZeroCopy;
+      }
+      return merged;
     }
-    const seed = Object.assign({}, DEFAULTS);
+    const seed = Object.assign({}, DEFAULTS, { zeroCopy: defaultZeroCopy });
     
     // Auto-enable zeroCopy (GPU-Direct) on first run for non-NVIDIA Linux hosts
     if (process.platform === 'linux') {
-      try {
-        const hasNvidiaPath = fs.existsSync('/proc/driver/nvidia');
-        let lspciNvidia = false;
-        try {
-          const lspciOut = require('child_process').execSync('lspci 2>/dev/null', { encoding: 'utf8' });
-          lspciNvidia = /nvidia/i.test(lspciOut);
-        } catch (_) {}
-        
-        if (!hasNvidiaPath && !lspciNvidia) {
-          seed.zeroCopy = true;
-          console.log('[Setup] Non-NVIDIA GPU detected. GPU-Direct Capture (zeroCopy) enabled by default.');
-        } else {
-          console.log('[Setup] NVIDIA GPU detected. GPU-Direct Capture (zeroCopy) disabled by default for compatibility.');
-        }
-      } catch (e) {
-        console.error('Failed to probe GPU during setup:', e.message);
+      if (defaultZeroCopy) {
+        console.log('[Setup] Non-NVIDIA GPU detected. GPU-Direct Capture (zeroCopy) enabled by default.');
+      } else {
+        console.log('[Setup] NVIDIA GPU detected. GPU-Direct Capture (zeroCopy) disabled by default for compatibility.');
       }
     }
     
