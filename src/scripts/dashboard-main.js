@@ -1970,7 +1970,7 @@ async function pollGpuInfo(manual = false) {
           const isDisc = c.type === 'discrete';
           const isInt = c.type === 'integrated';
           const tag = document.createElement('span');
-          tag.style.cssText = 'background: rgba(255,255,255,0.06); padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); font-family: monospace; font-size: 11px;';
+          tag.style.cssText = 'background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); font-family: monospace; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; line-height: 1.4;';
           const prefix = isDisc ? '🎮 Dedicated: ' : (isInt ? '⚡ Integrated: ' : '🖥 GPU: ');
           const vramStr = c.vram ? ` (${Math.round(c.vram > 100 ? c.vram : c.vram * 1024)}MB)` : '';
           tag.textContent = `${prefix}${c.model || c.vendor}${vramStr}`;
