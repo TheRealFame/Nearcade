@@ -395,6 +395,20 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // Hardware HEVC decode support where platform supports it
 enabledFeatures.add('PlatformHEVCDecoderSupport');
 
+// WINDOWS DXGI FIX: On Windows (especially hybrid Intel+NVIDIA laptops where Chromium's driver
+// detection marks all GPU adapters as Active: false), we must explicitly force ANGLE to use
+// D3D11 as the rendering backend. This creates a real D3D11 device which is required for
+// IDXGIOutputDuplication (desktop capture). Without this, getDisplayMedia fails with
+// "Could not start video source" on any GPU capture path (DXGI, WGC, or GDI).
+// --disable-gpu-driver-bug-workarounds stops Chromium's heuristic from blacklisting Intel
+// Alder Lake / Iris Xe adapters based on driver version patterns.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('use-angle', 'd3d11');
+  app.commandLine.appendSwitch('use-gl', 'angle');
+  app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
+  console.log('[electron] Windows: ANGLE D3D11 forced + GPU driver bug workarounds disabled for DXGI capture.');
+}
+
 // Apply consolidated feature switches ONCE so Chromium does not overwrite prior flags
 if (enabledFeatures.size > 0) {
   app.commandLine.appendSwitch('enable-features', Array.from(enabledFeatures).join(','));

@@ -3345,18 +3345,35 @@ async function startCapture() {
                             // Window capture failed (common with hardware-accelerated/DirectX/Vulkan games on hybrid GPUs).
                             // Fall back to primary desktop screen DXGI capture (the rock-solid 3.0.0 pipeline).
                             log(I18N.t('Window capture unavailable for this game, falling back to full screen (DXGI)...'), 'warn');
-                            await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                            vidStream = await navigator.mediaDevices.getDisplayMedia({
-                                audio: audioSettings.forceAudioEnabled,
-                                video: {}
-                            });
-                        } else if (wantsAudio && (firstErr.name === 'NotReadableError' || firstErr.name === 'TrackStartError' || (firstErr.message && firstErr.message.includes('Could not start')))) {
-                            log(I18N.t('Audio loopback capture failed, retrying video-only...'), 'warn');
-                            await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
-                            vidStream = await navigator.mediaDevices.getDisplayMedia({
-                                audio: false,
-                                video: videoConstraint
-                            });
+                            try {
+                                await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                                vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                    audio: audioSettings.forceAudioEnabled,
+                                    video: {}
+                                });
+                            } catch (innerErr) {
+                                // DXGI with audio failed — GPU may not have an active D3D11 context yet.
+                                // Retry screen:0:0 video-only. The Rust WASAPI sidecar handles audio separately.
+                                log('DXGI screen fallback with audio failed, retrying video-only...', 'warn');
+                                await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                                vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                    audio: false,
+                                    video: {}
+                                });
+                            }
+                        } else if (firstErr.name === 'NotReadableError' || firstErr.name === 'TrackStartError' || (firstErr.message && firstErr.message.includes('Could not start'))) {
+                            if (wantsAudio) {
+                                // Screen capture failed with audio loopback — WASAPI conflict or GPU not initialized.
+                                // Retry screen:0:0 video-only. The Rust WASAPI sidecar handles audio independently.
+                                log(I18N.t('Audio loopback capture failed, retrying video-only...'), 'warn');
+                                await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                                vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                    audio: false,
+                                    video: videoConstraint
+                                });
+                            } else {
+                                throw firstErr;
+                            }
                         } else {
                             throw firstErr;
                         }
