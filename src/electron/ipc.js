@@ -1158,7 +1158,7 @@ function registerIpcHandlers(ctx) {
         console.log(`[electron] Executing capture for source - ID: ${chosenSource.id} | Name: ${chosenSource.name} | isScreen: ${isScreen}`);
         // WINDOWS AUDIO FIX (matching 3.0.0): On Windows, desktop screen capture reliably uses DXGI
         // Desktop Duplication with 'loopback' audio in the callback to initialize system sound.
-        if (isWin && isScreen) {
+        if (isWin && isScreen && request && request.audioRequested) {
           callback({ video: chosenSource, audio: 'loopback' });
         } else {
           callback({ video: chosenSource });

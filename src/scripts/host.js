@@ -3319,74 +3319,71 @@ async function startCapture() {
                 let vidStream;
 
                 {
-                    // Both windows and screens go through setDisplayMediaRequestHandler.
-                    // Direct getUserMedia + chromeMediaSourceId is incompatible with the
-                    // WinrtScreenCapture feature switch on Windows and reliably throws
-                    // "Could not start video source" for window sources — the OS picker
-                    // bug this used to work around no longer applies once selection is
-                    // routed through the main-process handler for both source types.
-                    await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
-                    // Windows' WinRT window-capture backend throws "Could not start
-                    // video source" (post-resolution, mid-stream) when ANY frameRate
-                    // constraint — even ideal-only — is applied to a window capture.
-                    // Screen captures tolerate it fine. Omit it entirely for windows.
-                    // Electron 44+ / Chromium 130+ strictly rejects frameRate constraints on WinRT for BOTH windows and screens.
-                    const videoConstraint = isWindows
-                        ? {}
-                        : { frameRate: { ideal: fpsVal } };
-                    const wantsAudio = isWindows && audioSettings.forceAudioEnabled && !isWindowCap;
-                    try {
+                    if (isWindows) {
+                        try {
+                            log('Starting capture via Windows Desktop Media API...', 'info');
+                            vidStream = await navigator.mediaDevices.getUserMedia({
+                                audio: false,
+                                video: {
+                                    mandatory: {
+                                        chromeMediaSource: 'desktop',
+                                        chromeMediaSourceId: selectedSourceId
+                                    }
+                                }
+                            });
+                            log(I18N.t('Desktop capture stream acquired successfully'), 'ok');
+                        } catch (gumErr) {
+                            log('Direct capture attempt failed (' + gumErr.message + '), trying desktop duplication...', 'warn');
+                            if (isWindowCap) {
+                                try {
+                                    log('Window capture unavailable for this game, falling back to full screen (DXGI)...', 'warn');
+                                    vidStream = await navigator.mediaDevices.getUserMedia({
+                                        audio: false,
+                                        video: {
+                                            mandatory: {
+                                                chromeMediaSource: 'desktop',
+                                                chromeMediaSourceId: 'screen:0:0'
+                                            }
+                                        }
+                                    });
+                                    log(I18N.t('Full screen stream acquired successfully'), 'ok');
+                                } catch (_) { }
+                            }
+                            if (!vidStream) {
+                                try {
+                                    await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                                    vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                        audio: audioSettings.forceAudioEnabled && !isWindowCap,
+                                        video: {}
+                                    });
+                                } catch (gdmErr) {
+                                    if (isWindowCap) {
+                                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                                        vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                            audio: false,
+                                            video: {}
+                                        });
+                                    } else {
+                                        throw gdmErr;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                        const videoConstraint = { frameRate: { ideal: fpsVal } };
+                        const wantsAudio = audioSettings.forceAudioEnabled && !isWindowCap;
                         vidStream = await navigator.mediaDevices.getDisplayMedia({
                             audio: wantsAudio,
                             video: videoConstraint
                         });
-                    } catch (firstErr) {
-                        if (isWindows && isWindowCap) {
-                            // Window capture failed (common with hardware-accelerated/DirectX/Vulkan games on hybrid GPUs).
-                            // Fall back to primary desktop screen DXGI capture (the rock-solid 3.0.0 pipeline).
-                            log(I18N.t('Window capture unavailable for this game, falling back to full screen (DXGI)...'), 'warn');
-                            try {
-                                await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                                vidStream = await navigator.mediaDevices.getDisplayMedia({
-                                    audio: audioSettings.forceAudioEnabled,
-                                    video: {}
-                                });
-                            } catch (innerErr) {
-                                // DXGI with audio failed — GPU may not have an active D3D11 context yet.
-                                // Retry screen:0:0 video-only. The Rust WASAPI sidecar handles audio separately.
-                                log('DXGI screen fallback with audio failed, retrying video-only...', 'warn');
-                                await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                                vidStream = await navigator.mediaDevices.getDisplayMedia({
-                                    audio: false,
-                                    video: {}
-                                });
-                            }
-                        } else if (firstErr.name === 'NotReadableError' || firstErr.name === 'TrackStartError' || (firstErr.message && firstErr.message.includes('Could not start'))) {
-                            if (wantsAudio) {
-                                // Screen capture failed with audio loopback — WASAPI conflict or GPU not initialized.
-                                // Retry screen:0:0 video-only. The Rust WASAPI sidecar handles audio independently.
-                                log(I18N.t('Audio loopback capture failed, retrying video-only...'), 'warn');
-                                await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
-                                vidStream = await navigator.mediaDevices.getDisplayMedia({
-                                    audio: false,
-                                    video: videoConstraint
-                                });
-                            } else {
-                                throw firstErr;
-                            }
-                        } else {
-                            throw firstErr;
-                        }
                     }
                 }
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                // Windows loopback audio comes directly from getDisplayMedia via ipc.js intercept (screens only).
-                // macOS does not support 'loopback'. Windows VMs crash when applying loopback to window captures.
-                // We disable legacy system audio capture on Windows completely for window captures to prevent crashes.
-                const needsLegacyAudio = (!isLinux && audioSettings.forceAudioEnabled) && !isWindows;
-                if (needsLegacyAudio) {
+                const existingAudio = vidStream.getAudioTracks()[0];
+                if (!existingAudio && audioSettings.forceAudioEnabled && !isLinux) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
                             audio: { mandatory: { chromeMediaSource: 'desktop' } },
@@ -3397,15 +3394,12 @@ async function startCapture() {
                         if (audErr.name === 'NotAllowedError' || audErr.name === 'AbortError') {
                             sysChat(I18N.t('System audio capture cancelled by user.'));
                         } else {
-                            log(I18N.t('Could not attach system audio to window capture.'), 'warn');
+                            log(I18N.t('Browser system audio capture unavailable (audio loopback sidecar active).'), 'warn');
                         }
                     }
                 }
 
                 screenStream = new MediaStream([vidStream.getVideoTracks()[0]]);
-
-                // Add the getDisplayMedia audio track (Windows) OR the manually captured track (macOS)
-                const existingAudio = vidStream.getAudioTracks()[0];
                 if (existingAudio) screenStream.addTrack(existingAudio);
                 else if (tempAudioTrack) screenStream.addTrack(tempAudioTrack);
 
@@ -3421,28 +3415,34 @@ async function startCapture() {
                 selectedSourceId = null;
                 try {
                     if (isWindows) {
-                        // WINDOWS 3.0.0 RELIABLE FALLBACK:
-                        // Always fall back to primary desktop screen capture with DXGI and loopback audio
                         log('Falling back to primary desktop screen capture (DXGI)...', 'ok');
-                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                        screenStream = await navigator.mediaDevices.getDisplayMedia({
-                            audio: audioSettings.forceAudioEnabled,
-                            video: {}
-                        });
+                        try {
+                            screenStream = await navigator.mediaDevices.getUserMedia({
+                                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
+                                audio: false
+                            });
+                        } catch (_) {
+                            await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                                audio: false,
+                                video: {}
+                            });
+                        }
                     } else {
                         const fallbackOpts = Object.assign({}, displayMediaOptions);
                         screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
                     }
                 } catch (e2) {
                     if (isWindows) {
-                        log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
-                        const mandatory = { chromeMediaSource: 'desktop' };
-                        if (attemptedSourceId) mandatory.chromeMediaSourceId = attemptedSourceId;
-                        if (fpsVal) mandatory.maxFrameRate = fpsVal;
-                        screenStream = await navigator.mediaDevices.getUserMedia({
-                            video: { mandatory },
-                            audio: false
-                        });
+                        log('Ultimate native picker fallback failed, attempting legacy Windows capture...', 'warn');
+                        try {
+                            screenStream = await navigator.mediaDevices.getUserMedia({
+                                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
+                                audio: false
+                            });
+                        } catch (e3) {
+                            log('Capture failed [Windows/Mac Desktop API]: ' + e3.message, 'err');
+                        }
                     } else {
                         throw e2;
                     }
@@ -3452,11 +3452,18 @@ async function startCapture() {
             // Ultimate fallback — native picker
             try {
                 if (isWindows) {
-                    await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                    screenStream = await navigator.mediaDevices.getDisplayMedia({
-                        audio: audioSettings.forceAudioEnabled,
-                        video: {}
-                    });
+                    try {
+                        screenStream = await navigator.mediaDevices.getUserMedia({
+                            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
+                            audio: false
+                        });
+                    } catch (_) {
+                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                        screenStream = await navigator.mediaDevices.getDisplayMedia({
+                            audio: false,
+                            video: {}
+                        });
+                    }
                 } else {
                     const fallbackOpts = Object.assign({}, displayMediaOptions);
                     screenStream = await navigator.mediaDevices.getDisplayMedia(fallbackOpts);
@@ -3464,22 +3471,8 @@ async function startCapture() {
             } catch (e) {
                 if (isWindows) {
                     try {
-                        log('Retrying native picker without audio...', 'warn');
-                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                        screenStream = await navigator.mediaDevices.getDisplayMedia({
-                            video: {},
-                            audio: false
-                        });
-                    } catch (_) { }
-                }
-                if (!screenStream && isWindows) {
-                    log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
-                    const mandatory = { chromeMediaSource: 'desktop' };
-                    if (window._lastSourceId) mandatory.chromeMediaSourceId = window._lastSourceId;
-                    if (fpsVal) mandatory.maxFrameRate = fpsVal;
-                    try {
                         screenStream = await navigator.mediaDevices.getUserMedia({
-                            video: { mandatory },
+                            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
                             audio: false
                         });
                     } catch (_) { }

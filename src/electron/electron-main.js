@@ -314,13 +314,10 @@ if (process.platform === 'linux') {
     app.commandLine.appendSwitch('disable-dev-shm-usage');
 }
 
-if (process.platform === 'win32') {
-  // Windows Graphics Capture (WGC) window capturer for individual application windows.
-  // NOTE: WebRtcAllowWgcScreenCapturer is deliberately NOT enabled because WGC screen capture
-  // fails with "Could not start video source" on many Intel UHD and hybrid GPU systems.
-  // Leaving it omitted forces Chromium to use native DXGI Desktop Duplication (the rock-solid 3.0.0 pipeline).
-  enabledFeatures.add('WebRtcAllowWgcWindowCapturer');
-}
+// Windows Graphics Capture (WGC) feature switches are deliberately NOT enabled.
+// WGC window and screen capturers fail with "Could not start video source" on many
+// Intel UHD / hybrid GPU systems and break getUserMedia with chromeMediaSourceId.
+// Leaving them omitted forces Chromium to use native DXGI Desktop Duplication & GDI (the 3.0.0 pipeline).
 
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
@@ -390,24 +387,8 @@ if (isArcadeWorker && process.platform === 'linux') {
 // or Gamescope sessions get it, where boot is impossible otherwise.
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
-// app.commandLine.appendSwitch('use-gl', 'desktop'); // causes GL init failure on some drivers
-
 // Hardware HEVC decode support where platform supports it
 enabledFeatures.add('PlatformHEVCDecoderSupport');
-
-// WINDOWS DXGI FIX: On Windows (especially hybrid Intel+NVIDIA laptops where Chromium's driver
-// detection marks all GPU adapters as Active: false), we must explicitly force ANGLE to use
-// D3D11 as the rendering backend. This creates a real D3D11 device which is required for
-// IDXGIOutputDuplication (desktop capture). Without this, getDisplayMedia fails with
-// "Could not start video source" on any GPU capture path (DXGI, WGC, or GDI).
-// --disable-gpu-driver-bug-workarounds stops Chromium's heuristic from blacklisting Intel
-// Alder Lake / Iris Xe adapters based on driver version patterns.
-if (process.platform === 'win32') {
-  app.commandLine.appendSwitch('use-angle', 'd3d11');
-  app.commandLine.appendSwitch('use-gl', 'angle');
-  app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
-  console.log('[electron] Windows: ANGLE D3D11 forced + GPU driver bug workarounds disabled for DXGI capture.');
-}
 
 // Apply consolidated feature switches ONCE so Chromium does not overwrite prior flags
 if (enabledFeatures.size > 0) {
@@ -441,12 +422,15 @@ if (forceLow) {
   console.log('[electron] GPU preference: forcing low-power (integrated) GPU');
   app.commandLine.appendSwitch('force_low_power_gpu');
   app.commandLine.appendSwitch('force-low-power-gpu');
-} else if (forceHigh && isWin) {
-  console.log('[electron] GPU preference: forcing high-performance (discrete) GPU');
+} else if (forceHigh || isWin) {
+  // On Windows (Optimus / hybrid laptops with 144Hz displays), default to the high-performance GPU
+  // so DXGI desktop duplication matches the adapter driving the display and games.
+  console.log('[electron] GPU preference: using high-performance GPU');
   app.commandLine.appendSwitch('force-high-performance-gpu');
-} else if (!isWin) {
+} else {
   app.commandLine.appendSwitch('force-high-performance-gpu');
 }
+app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
