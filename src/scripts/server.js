@@ -482,7 +482,7 @@ function normalizeGamepadMsg(msg) {
   // NOTE: We do NOT reject empty arrays — an all-zero/rest state is
   // still valid and MUST be processed so that _claimSlot runs for new viewers.
   if (axes && axes.length > 20 || btns && btns.length > 40) {
-    console.warn(`[input_validator] REJECTED: Gamepad API arrays exceed maximum size. Axes: ${axes ? axes.length : 0}, Buttons: ${btns ? btns.length : 0}`);
+    console.warn('[input_validator] REJECTED: Gamepad API arrays exceed maximum size.');
     return null;
   }
 
@@ -797,7 +797,9 @@ async function main() {
   const LAN_IP = getLanIP();
   getPublicIP().then(ip => { if (ip) console.log("  Public IP : http://" + ip + ":" + PORT + "/ (needs port forward)"); });
   const initialCfg = loadConfig();
-  console.log("[config] Loaded initial configuration:", initialCfg);
+  const safeInitialCfg = { ...initialCfg };
+  if (safeInitialCfg.persistentPassword) safeInitialCfg.persistentPassword = '[REDACTED]';
+  console.log("[config] Loaded initial configuration:", safeInitialCfg);
   initArcadeHeartbeat(initialCfg);
   let sessionPassword = initialCfg.persistentPassword || '';
   let PIN = sessionPassword ? sessionPassword : makePin();
@@ -806,7 +808,8 @@ async function main() {
   console.log("\n  \x1b[1mNearcade\x1b[0m");
   console.log("  Host page : http://localhost:" + PORT + "/host");
   console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
-  console.log("  PIN       : \x1b[1;32m" + PIN + "\x1b[0m\n");
+  const displayPin = sessionPassword ? '[SAVED PASSWORD ACTIVE]' : PIN;
+  console.log("  PIN       : \x1b[1;32m" + displayPin + "\x1b[0m\n");
 
   const app = express();
   const server = http.createServer(app);
@@ -1964,7 +1967,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
       // to get the bare viewer UUID that keys the viewers map.
       const padId = inputDriver.getViewerForSlot ? inputDriver.getViewerForSlot(data.slot) : null;
       const realId = padId ? padId.replace(/_\d+$/, '') : null;
-      console.log(`[Rumble] C++ callback fired — slot=${data.slot} padId=${padId} viewer=${realId || 'unknown'} strong=${data.strong.toFixed(3)} weak=${data.weak.toFixed(3)}`);
+      console.log(`[Rumble] C++ callback fired — slot=${data.slot} strong=${data.strong.toFixed(3)} weak=${data.weak.toFixed(3)}`);
       const rumbleMsg = JSON.stringify({
         type: 'rumble',
         strong: data.strong,
@@ -1982,11 +1985,11 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
         if (vws && vws.readyState === 1) {
           // Direct local WebSocket viewer
           vws.send(rumbleMsg);
-          console.log(`[Rumble] Sent directly to viewer ${realId}`);
+          console.log('[Rumble] Sent directly to local viewer');
         } else if (vws === null) {
           // VPS viewer — no direct WS, handled by hostWS above
         } else {
-          console.warn(`[Rumble] Viewer ${realId} WebSocket not open (state: ${vws?.readyState})`);
+          console.warn(`[Rumble] Target viewer WebSocket not open (state: ${vws?.readyState})`);
         }
       } else {
         // Slot not yet resolved — broadcast to all viewers best-effort
@@ -2270,7 +2273,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
           }
 
           if (msg.type === "request-offer" && msg.viewerId) {
-            if (_diagOn) console.log(`[diag] re-offer requested by viewer ${msg.viewerId} (reason=${msg.reason || 'n/a'} pc=${msg.pcState || 'n/a'})`);
+            if (_diagOn) console.log('[diag] re-offer requested');
             if (hostWS && hostWS.readyState === 1) {
               // Pass through the viewer's reason + PC state so the host can
               // tell a dead-viewer retry (rebuild) from a mid-flight duplicate
@@ -2289,7 +2292,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             if (_gstOfferStr && _gstActiveNow) {
               const vws = viewers.get(msg.viewerId);
               if (vws && vws.readyState === 1) {
-                if (_diagOn) console.log(`[diag] replaying cached native offer+ICE to viewer ${msg.viewerId} (retry)`);
+                if (_diagOn) console.log('[diag] replaying cached native offer+ICE (retry)');
                 try {
                   vws.send(JSON.stringify({ type: 'host-stream-ready' }));
                   vws.send(JSON.stringify({ type: 'offer', sdp: { type: 'offer', sdp: _gstOfferStr } }));
@@ -2304,7 +2307,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
 
           // ── STANDARD SIGNALING ──
           if ((msg.type === "offer" || msg.type === "ice-host" || msg.type === "answer") && msg._viewerId) {
-            if (_diagOn && (msg.type === "offer" || msg.type === "answer")) console.log(`[diag] relay ${msg.type} ↔ viewer ${msg._viewerId}`);
+            if (_diagOn && (msg.type === "offer" || msg.type === "answer")) console.log(`[diag] relay ${msg.type} signal`);
             const vws = viewers.get(msg._viewerId);
             if (vws && vws.readyState === 1) {
               vws.send(JSON.stringify(msg));
@@ -2357,10 +2360,10 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             if (targetWs) {
               try { targetWs.send(JSON.stringify({ type: "pin-rejected", reason: "kicked" })); } catch { }
               targetWs.close(4003, "KICKED");
-              console.log(`[host] Kicked viewer ${realId}`);
+              console.log('[host] Kicked local viewer');
             } else if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify({ type: "pin-rejected", reason: "kicked", targetViewerId: realId }));
-              console.log(`[host] Kicked VPS viewer ${realId}`);
+              console.log('[host] Kicked VPS viewer');
             }
 
             broadcastRoster();
@@ -2371,18 +2374,18 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             const realId = msg.viewerId.split('_')[0];
             const name = viewerNames.get(realId) || realId;
             const anonHash = msg.anonHash || null;
-            console.log(`[host] Report for viewer ${realId} (${name})${anonHash ? ' hash=' + anonHash.slice(0, 8) : ''} reason: ${msg.reason || 'none'}`);
+            console.log('[host] Report received for viewer');
             if (anonHash) {
               const list = reports.get(anonHash) || [];
               list.push({ timestamp: Date.now(), sessionId: msg.sessionId || '?' });
               reports.set(anonHash, list);
-              console.log(`[host] Viewer ${name} reported (${list.length} total reports)`);
+              console.log(`[host] Viewer report added (${list.length} total reports)`);
             }
             // Track per-session report count for auto-warning/shutdown
             if (msg.sessionId && msg.tunnelUrl) {
               // Whitelist check — skip report escalation for whitelisted hosts
               if (whitelistedIps.has(hostAnonHash)) {
-                console.log(`[report] Session ${msg.sessionId} host is whitelisted — skipping escalation`);
+                console.log('[report] Host is whitelisted — skipping report escalation');
                 return;
               }
               const key = `session:${msg.sessionId}`;
@@ -2390,7 +2393,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
               list.push({ timestamp: Date.now(), anonHash, viewerId: realId });
               reports.set(key, list);
               const count = list.length;
-              console.log(`[report] Session ${msg.sessionId} now at ${count} reports`);
+              console.log(`[report] Session report count: ${count}`);
 
               // Relay report count to arcade worker for delisting
               const arcadeApi = (cfg.arcadeUrl || 'https://nearcade.cutefame.net') + '/api/arcade/report';
@@ -2407,14 +2410,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
               if (count >= 5 && hostWS && hostWS.readyState === 1) {
                 // Force shutdown
                 hostWS.send(JSON.stringify({ type: 'hoststream-shutdown', reason: 'reported', reportCount: count }));
-                console.log(`[report] Session ${msg.sessionId} FORCE SHUTDOWN (${count} reports)`);
+                console.log(`[report] Session FORCE SHUTDOWN (${count} reports)`);
                 setTimeout(() => {
                   if (hostWS) { try { hostWS.close(4006, 'REPORTED'); } catch(_){} }
                 }, 5000);
               } else if (count >= 3 && hostWS && hostWS.readyState === 1) {
                 // Warning
                 hostWS.send(JSON.stringify({ type: 'hoststream-warning', reason: 'reported', reportCount: count }));
-                console.log(`[report] Session ${msg.sessionId} WARNING issued (${count} reports)`);
+                console.log(`[report] Session WARNING issued (${count} reports)`);
               }
             }
             return;
@@ -2453,8 +2456,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
           }
 
           if (msg.type === "bind-evdev") {
-            const realId = msg.viewerId.split('_')[0];
-            console.log(`[host] Binding Viewer ${realId} to evdev window target: ${msg.targetWindowName}`);
+            console.log('[host] Binding viewer to evdev window target');
             // Send to Python input driver
             toUinput(msg);
             return;
@@ -2647,7 +2649,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
                 }));
               }
               broadcastRoster();
-              console.log('[VPS] Viewer joined:', id);
+              console.log('[VPS] Viewer joined');
             }
             return;
           }
@@ -2665,7 +2667,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
               hostWS.send(JSON.stringify({ type: 'viewer-left', viewerId: id }));
             }
             broadcastRoster();
-            console.log('[VPS] Viewer left:', id);
+            console.log('[VPS] Viewer left');
             return;
           }
 
@@ -2678,7 +2680,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
 
             if (msg.type === 'gamepad') {
               // Add simple debug logging to see if VPS inputs even reach this point
-              console.log(`[DEBUG VPS-GP] Arrived: viewerId=${msg.viewerId} pad_id=${msg.pad_id}`);
+              console.log('[DEBUG VPS-GP] Arrived');
             }
 
             // Use the full UUID as canonical viewer id
@@ -2711,12 +2713,12 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             const perms = inputPerms.get(padId) || inputPerms.get(id + '_0') || { gp: true, kb: false };
 
             if (msg.type === 'kbm') {
-              console.log(`[DEBUG KBM] (/ws/host) padId: ${padId}, perms: ${JSON.stringify(perms)}, Event: ${msg.event} ${msg.key}`);
+              console.log('[DEBUG KBM] (/ws/host) input event received');
             }
 
             if (msg.type === 'gamepad') {
               if (!perms.gp) {
-                console.log(`[DEBUG VPS-GP] DROPPED: perms.gp is false for padId=${padId}. perms=`, perms);
+                console.log('[DEBUG VPS-GP] DROPPED: perms.gp is false');
                 return;
               }
               const norm = normalizeGamepadMsg(msg);
@@ -2855,7 +2857,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
       let _joinHandled = false;
 
       let id = "v" + crypto.randomUUID().slice(0, 8);
-      const defaultName = "Guest" + (1000 + Math.floor(Math.random() * 9000));
+      const defaultName = "Guest" + crypto.randomInt(1000, 10000);
 
       // ── Arcade viewer cap ─────────────────────────────────────────────────
       // If an arcade session is active and has a maxPlayers limit, reject
@@ -3018,7 +3020,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             if (viewerScriptVer && viewerScriptVer !== SERVER_SCRIPT_VER && hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify({ type: 'script-version-mismatch', viewerId: id, viewerVer: viewerScriptVer, serverVer: SERVER_SCRIPT_VER }));
             }
-            console.log("[viewer]", id, "name resolved to:", joinName, viewerScriptVer ? `(script v${viewerScriptVer})` : '(no script)');
+            console.log('[viewer] New viewer connection acknowledged');
 
             // Always acknowledge the viewer immediately so it can transition
             // past the "Connecting" state, regardless of host connection status.
@@ -3152,7 +3154,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             const hwKey = (msg.id || 'unknown') + ':' + padIdx;
             const staleViewerId = hwIdToViewer.get(hwKey);
             if (staleViewerId && staleViewerId !== id) {
-              console.log("[viewer] evicting stale hw registration:", hwKey, "from", staleViewerId, "→", id);
+              console.log('[viewer] evicting stale hw registration');
               const stalePads = viewerGamepads.get(staleViewerId);
               if (stalePads) {
                 stalePads.delete(padIdx);
@@ -3301,7 +3303,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             const perms = inputPerms.get(id) || inputPerms.get(rosterId) || { gp: true, kb: false };
 
             if (msg.type === 'kbm') {
-              console.log(`[DEBUG KBM] (app.ws) id: ${id}, rosterId: ${rosterId}, perms: ${JSON.stringify(perms)}, Event: ${msg.event} ${msg.key}`);
+              console.log('[DEBUG KBM] (app.ws) input event received');
             }
 
             if (msg.type === "gamepad" && !perms.gp) return;
@@ -3417,11 +3419,11 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             const msg = JSON.parse(raw);
             if (msg.type === "identify") {
               if (viewerTokens.get(msg.viewerId) !== msg.token) {
-                console.warn(`[input] token mismatch for ${msg.viewerId}`);
+                console.warn('[input] token mismatch for viewer');
                 ws.close(4003, "INVALID_TOKEN");
                 return;
               }
-              myId = msg.viewerId; console.log("[input] identified as", myId); return;
+              myId = msg.viewerId; console.log('[input] viewer identified'); return;
             }
             if (msg.type === "gpid") {
               if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-gpid", viewerId: myId, id: msg.id }));
@@ -3441,14 +3443,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             }
 
             if (msg.type === "keyboard" || msg.type === "kbm") {
-              console.log(`[DEBUG KBM] (/ws/input) received keyboard event:`, msg.event, msg.key);
+              console.log('[DEBUG KBM] (/ws/input) received keyboard event');
               if (!myId) {
-                console.log(`[DEBUG KBM] Dropped in /ws/input: myId is null`);
+                console.log('[DEBUG KBM] Dropped in /ws/input: myId is null');
                 return;
               }
               const perms = inputPerms.get(msg.pad_id) || inputPerms.get(myId + '_0') || { gp: true, kb: false };
               if (!perms.kb || perms.locked) {
-                console.log(`[DEBUG KBM] Dropped in /ws/input: perms.kb=false or locked for id ${myId}`);
+                console.log('[DEBUG KBM] Dropped in /ws/input: perms.kb=false or locked');
                 return;
               }
               console.log(`[DEBUG KBM] Sending to InputOrchestrator from /ws/input!`);
