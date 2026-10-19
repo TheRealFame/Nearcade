@@ -246,10 +246,10 @@ function _handleWindowFocus(title) {
                 viewerModes.set(vid, 'kbm_emulated');
             }
         }
-        console.log(`[input] CSV match '${title}' → kbm_emulated (${Object.keys(binds).length} binds)`);
+        console.log(`[input] CSV match found → kbm_emulated (${Object.keys(binds).length} binds)`);
     } else if (_activeWindowBinds) {
         _activeWindowBinds = null;
-        console.log(`[input] No CSV match for '${title}' — clearing window binds`);
+        console.log('[input] No CSV match — clearing window binds');
     }
 }
 
@@ -597,7 +597,7 @@ function _claimSlot(slotIndex, viewerId, profileKey) {
     Buffer.from(viewerId).copy(_alBuf, 40, 0, Math.min(63, viewerId.length));
 
     _bridge.submitInputPacket(_alBuf);
-    console.log(`[input] ALLOC slot ${slotIndex} for ${viewerId} as ${resolvedKey} (${profile.name})`);
+    console.log(`[input] ALLOC slot ${slotIndex} as ${resolvedKey} (${profile.name})`);
 }
 
 function _freeSlot(viewerId) {
@@ -676,7 +676,7 @@ function _handleGamepad(msg) {
     
     setTimeout(() => {
         const eventPath = _bridge ? _bridge.getGamepadEventPath(slotIndex) : 'N/A';
-        console.log(`[DEBUG GAMEPAD] Viewer ${viewerId} allocated slot ${slotIndex} at ${eventPath}`);
+        console.log(`[DEBUG GAMEPAD] Allocated slot ${slotIndex} at ${eventPath}`);
         
         // Update active controllers JSON
         const pth = path.join(require('os').tmpdir(), 'nearcade_active_controllers.json');
@@ -880,7 +880,7 @@ function _handleKbm(msg) {
         const action = layout.keys[msg.key] || defaultKeys[msg.key];
 
         if (!action) {
-            console.log(`[DEBUG KBM] _handleKbm dropped because ${msg.key} has no mapping action!`);
+            console.log('[DEBUG KBM] _handleKbm dropped unmapped key event');
             return;
         }
 
@@ -1104,7 +1104,7 @@ function send(msg) {
     if (msg.type === 'gamepad') {
         validated = _validateGamepadMsg(msg);
         if (!validated) {
-            console.warn(`[DEBUG GP] DROPPED by validator — pad_id="${msg.pad_id}" lx=${msg.lx} btns=${msg.buttons}`);
+            console.warn('[DEBUG GP] DROPPED by validator — invalid gamepad message');
             return; // drop
         }
     } else if (msg.type === 'kbm' || msg.type === 'keyboard') {
@@ -1121,7 +1121,7 @@ function send(msg) {
     const vid = msg.pad_id || msg.viewerId || msg.viewer_id;
     if (vid && !activeInputStreams.has(vid)) {
         activeInputStreams.add(vid);
-        console.log(`[Input] Active input stream established from viewer ${String(vid).substring(0, 8)}`);
+        console.log('[Input] Active input stream established from viewer');
     }
 
     // Handle window-focus / game detection BEFORE routing to any backend

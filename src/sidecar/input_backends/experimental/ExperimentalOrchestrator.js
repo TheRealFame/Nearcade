@@ -74,7 +74,7 @@ function send(msg) {
 
             const pythonCmd = isWin ? 'python' : 'python3';
             proc = spawn(pythonCmd, ['-u', pythonScript, ...args], { stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true });
-            console.log(`[ExperimentalOrchestrator] sidecar started for type: ${msg.type} via Python`);
+            console.log('[ExperimentalOrchestrator] sidecar started via Python');
         }
         
         proc.on('close', () => { _procs.delete(msg.type); });

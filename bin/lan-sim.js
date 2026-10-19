@@ -55,7 +55,7 @@ async function run() {
     try {
         const r = await get('/api/pin-required');
         required = JSON.parse(r.body).required;
-        say(typeof required === 'boolean', 'pin-required probe', JSON.stringify({ required }));
+        say(typeof required === 'boolean', 'pin-required probe', required ? '{"required":true}' : '{"required":false}');
     } catch (e) { say(false, 'pin-required probe', e.message); return cleanup(1); }
 
     // /ws/viewer as a LAN client: challenge -> LAN bypass -> join.
