@@ -836,6 +836,28 @@ async function main() {
     }
   });
 
+  const pageLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { ok: false, error: 'Too many requests, please try again later.' }
+  });
+  const fileApiLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { ok: false, error: 'Too many requests, please try again later.' }
+  });
+  const actionLimiter = rateLimitMiddleware({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { ok: false, error: 'Too many requests, please try again later.' }
+  });
+
   app.use((req, res, next) => {
     res.setHeader("Permissions-Policy", "gamepad=*, display-capture=(self)");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -894,22 +916,25 @@ async function main() {
   const pagesDir = path.join(__dirname, "..", "..", "src/pages");
 
   // FIX: Serve the favicon explicitly so the browser finds it
-  app.get("/favicon.ico", (req, res) => res.sendFile(path.join(projectRoot, "favicon.ico")));
+  app.get("/favicon.ico", fileApiLimiter, (req, res) => res.sendFile(path.join(projectRoot, "favicon.ico")));
 
   let hostStreamTitle = "";
 
-  app.get("/", (req, res) => {
+  app.get("/", pageLimiter, (req, res) => {
     const indexPath = path.join(pagesDir, "index.html");
     let html;
     try { html = fs.readFileSync(indexPath, "utf8"); } catch (_) { return res.sendFile(indexPath); }
     const sess = arcadeSessions.size > 0 ? [...arcadeSessions.values()][0] : null;
 
     // Grab the host name from the URL query, fallback to "A player"
-    // Grab the host name from the URL query, fallback to "A player"
-    let hostName = req.query.hostName || req.query.name || req.query.host || "A player";
+    let hostName = String(req.query.hostName || req.query.name || req.query.host || "A player")
+      .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+      .slice(0, 100);
     if (hostName.startsWith('p2p://')) hostName = "A player";
 
-    const activeGame = sess ? sess.game : hostStreamTitle;
+    const activeGame = String(sess ? sess.game : (hostStreamTitle || ''))
+      .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+      .slice(0, 100);
     const gameText = activeGame ? activeGame : 'remote play';
     const displayHost = hostName === "A player" ? "this" : `${hostName}'s`;
 
@@ -917,7 +942,8 @@ async function main() {
     const ogTitle = activeGame ? activeGame : `${hostName} is looking to play!`;
     const ogDesc = `Connect instantly to ${displayHost} ${gameText} session via Nearcade.`;
     const cfgOg = loadConfig();
-    const ogImage = (sess && sess.thumbnail) ? sess.thumbnail : (cfgOg.arcadeUrl || 'https://nearcade.cutefame.net') + '/assets/NearcadeLogo.png';
+    const rawOgImage = (sess && sess.thumbnail) ? sess.thumbnail : (cfgOg.arcadeUrl || 'https://nearcade.cutefame.net') + '/assets/NearcadeLogo.png';
+    const ogImage = String(rawOgImage).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     html = html
       .replace(/(<meta property="og:title"\s+content=")[^"]*"/, `$1${ogTitle}"`)
@@ -944,30 +970,30 @@ async function main() {
     }
   };
 
-  app.get("/dashboard", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
-  app.get("/setup", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "setup.html")); });
-  app.get("/host", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
+  app.get("/dashboard", adminMiddleware, pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "dashboard.html")); });
+  app.get("/setup", adminMiddleware, pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "setup.html")); });
+  app.get("/host", adminMiddleware, pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "host.html")); });
 
-  app.get("/host-minimal", adminMiddleware, (req, res) => {
+  app.get("/host-minimal", adminMiddleware, pageLimiter, (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-minimal.html"));
   });
-  app.get("/host-playground", adminMiddleware, (req, res) => {
+  app.get("/host-playground", adminMiddleware, pageLimiter, (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-playground.html"));
   });
-  app.get("/host-custom", adminMiddleware, (req, res) => {
+  app.get("/host-custom", adminMiddleware, pageLimiter, (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(pagesDir, "host-custom.html"));
   });
-  app.get("/gamepad-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
-  app.get("/keyboard-popup.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "keyboard-popup.html")); });
-  app.get("/display-color-tweaks.html", (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "display-color-tweaks.html")); });
-  app.get("/games-picker.html", adminMiddleware, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(path.dirname(require.resolve('@nearcade/launcher-detect')), 'games-picker.html')); });
+  app.get("/gamepad-popup.html", pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "gamepad-popup.html")); });
+  app.get("/keyboard-popup.html", pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "keyboard-popup.html")); });
+  app.get("/display-color-tweaks.html", pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(pagesDir, "display-color-tweaks.html")); });
+  app.get("/games-picker.html", adminMiddleware, pageLimiter, (req, res) => { res.setHeader('Content-Type', 'text/html'); res.sendFile(path.join(path.dirname(require.resolve('@nearcade/launcher-detect')), 'games-picker.html')); });
   app.use('/css', express.static(path.join(__dirname, '..', 'css')));
   app.use('/pages', express.static(path.join(__dirname, '..', 'pages')));
 
-  app.post("/api/save-custom-host", adminMiddleware, express.json({ limit: '10mb' }), (req, res) => {
+  app.post("/api/save-custom-host", adminMiddleware, actionLimiter, express.json({ limit: '10mb' }), (req, res) => {
     const htmlContent = req.body.html;
     if (typeof htmlContent !== 'string') return res.status(400).json({ error: 'Invalid content' });
     if (htmlContent.length > 10485760) return res.status(400).json({ error: 'Content too large' });
@@ -1004,18 +1030,18 @@ async function main() {
     res.json({ required: pinEnabled && shouldRequirePin(clientIp, hasTunnelHeader) });
   });
 
-  app.get("/api/community-servers", (req, res) => {
+  app.get("/api/community-servers", fileApiLimiter, (req, res) => {
     const file = path.join(projectRoot, 'config', 'community-servers.json');
     if (fs.existsSync(file)) res.sendFile(file);
     else res.json([]);
   });
 
-  app.get("/api/community-turn-servers", (req, res) => {
+  app.get("/api/community-turn-servers", fileApiLimiter, (req, res) => {
     const file = path.join(projectRoot, 'config', 'community-turn-servers.json');
     if (fs.existsSync(file)) res.sendFile(file);
     else res.json([]);
   });
-  app.get("/api/config", adminMiddleware, (req, res) => {
+  app.get("/api/config", adminMiddleware, fileApiLimiter, (req, res) => {
     const cfg = loadConfig();
     if (process.env.CUSTOM_URL) cfg.customUrl = process.env.CUSTOM_URL.trim();
     // Friends-enabled lives in friends.json (its dedicated config file); mirror
@@ -1023,14 +1049,14 @@ async function main() {
     if (typeof cfg.friendsEnabled !== 'boolean') cfg.friendsEnabled = getFriendsConfig().enabled === true;
     res.json(cfg);
   });
-app.post("/api/shutdown", adminMiddleware, (req, res) => {
+app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     res.json({ success: true });
     console.log('[server] Shutdown requested via API.');
     try { cleanup(false); } catch (e) { }
     setTimeout(() => process.exit(0), 1000);
   });
 
-  app.post("/api/config", adminMiddleware, express.json(), (req, res) => {
+  app.post("/api/config", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     const oldCfg = loadConfig();
     const newCfg = saveConfig(req.body || {});
 
@@ -1417,7 +1443,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     }
   });
 
-  app.get("/api/game-profiles", (req, res) => {
+  app.get("/api/game-profiles", fileApiLimiter, (req, res) => {
     const csvPath = path.join(projectRoot, 'config', 'game_profiles.csv');
     if (!fs.existsSync(csvPath)) return res.json([]);
     try {
@@ -1443,13 +1469,13 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     return require('@nearcade/launcher-detect');
   }
 
-  app.get("/api/launchers", (_req, res) => {
+  app.get("/api/launchers", fileApiLimiter, (_req, res) => {
     const { detect } = freshLauncherDetect();
     res.json({ launchers: detect() });
   });
 
   const gamesCache = { data: null, time: 0, TTL: 300000 }; // 5 minute cache
-  app.get("/api/games", (_req, res) => {
+  app.get("/api/games", fileApiLimiter, (_req, res) => {
     if (gamesCache.data && Date.now() - gamesCache.time < gamesCache.TTL) {
       return res.json({ games: gamesCache.data });
     }
@@ -1487,7 +1513,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
 
   require('./core/server/game-art.js')(app);
 
-  app.post("/api/launch-game", adminMiddleware, express.json(), (req, res) => {
+  app.post("/api/launch-game", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     const { launch } = freshLauncherDetect();
     const { launcher, gameId } = req.body || {};
     if (!launcher || !gameId) return res.status(400).json({ error: 'Missing launcher or gameId' });
@@ -1501,13 +1527,18 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
 
 
 
-  app.get("/api/local-image", adminMiddleware, (req, res) => {
+  app.get("/api/local-image", adminMiddleware, fileApiLimiter, (req, res) => {
     const filePath = req.query.path;
     if (!filePath || typeof filePath !== 'string') return res.status(400).end();
+    const resolvedPath = path.resolve(filePath);
+    const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', '.ico', '.bmp', '.svg'];
+    if (!allowedExts.includes(path.extname(resolvedPath).toLowerCase())) {
+      return res.status(403).end();
+    }
     // Allow reading image files for launcher covers
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(resolvedPath)) {
       res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.sendFile(filePath);
+      return res.sendFile(resolvedPath);
     }
     res.status(404).end();
   });
@@ -1583,16 +1614,16 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     res.json({ ok: true });
   });
   // Sidecapture Devices API for native video picker integration
-  app.get("/api/adb-devices", adminMiddleware, (req, res) => {
+  app.get("/api/adb-devices", adminMiddleware, actionLimiter, (req, res) => {
     try {
-      const { execSync } = require('child_process');
+      const { execFileSync } = require('child_process');
       const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'target', 'debug', 'nearcade-sidecapture');
       const fs = require('fs');
       if (!fs.existsSync(binPath)) {
         return res.json({ devices: [] });
       }
       
-      const output = execSync(`${binPath} list --json`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const output = execFileSync(binPath, ['list', '--json'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
       const rawDevices = JSON.parse(output);
       
       const devices = [];
@@ -1616,13 +1647,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
   });
 
   // Launch scrcpy GUI for native window capture
-  app.post("/api/adb-launch", adminMiddleware, express.json(), (req, res) => {
+  app.post("/api/adb-launch", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     try {
       const { spawn } = require('child_process');
       const { sourceId } = req.body;
-      if (!sourceId || !sourceId.startsWith('android:')) return res.status(400).json({ error: 'invalid source' });
+      if (!sourceId || typeof sourceId !== 'string' || !sourceId.startsWith('android:')) return res.status(400).json({ error: 'invalid source' });
       
-      const rawId = sourceId.replace('android:', '');
+      const rawId = sourceId.replace('android:', '').trim();
+      if (!/^[a-zA-Z0-9_\-\.:]+$/.test(rawId)) return res.status(400).json({ error: 'invalid device id' });
       
       const binPath = path.join(__dirname, '..', '..', 'tools', 'nearcade-sidecapture', 'capture-gui', 'src-tauri', 'bin', 'scrcpy', process.platform === 'win32' ? 'win64' : 'linux', process.platform === 'win32' ? 'scrcpy.exe' : 'scrcpy');
       
@@ -1643,17 +1675,18 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     }
   });
 
-  app.post("/api/sidecapture/controls", adminMiddleware, express.json(), (req, res) => {
+  app.post("/api/sidecapture/controls", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     const { target, control, value } = req.body;
     try {
-        if (target && target.startsWith('v4l2:')) {
-            const dev = target.replace('v4l2:', '');
-            const { execSync } = require('child_process');
+        if (target && typeof target === 'string' && target.startsWith('v4l2:')) {
+            const dev = target.replace('v4l2:', '').trim();
+            if (!/^\/dev\/video\d+$/.test(dev)) return res.status(400).json({ error: 'invalid device' });
+            const { execFileSync } = require('child_process');
             
             // Helper to get min/max/default and map -100..100 correctly
             const mapValue = (ctrl, uiVal) => {
                 try {
-                    const out = execSync(`v4l2-ctl -d ${dev} -l`).toString();
+                    const out = execFileSync('v4l2-ctl', ['-d', dev, '-l'], { encoding: 'utf-8' });
                     const match = out.match(new RegExp(`${ctrl}.*min=(-?\\d+)\\s+max=(-?\\d+).*default=(-?\\d+)`));
                     if (match) {
                         const min = parseInt(match[1]);
@@ -1669,12 +1702,14 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
             };
 
             if (control === 'brightness') {
-                execSync(`v4l2-ctl -d ${dev} -c brightness=${Math.round(mapValue('brightness', value))}`);
+                const bVal = String(Math.round(mapValue('brightness', value)));
+                execFileSync('v4l2-ctl', ['-d', dev, '-c', `brightness=${bVal}`]);
             } else if (control === 'contrast') {
-                execSync(`v4l2-ctl -d ${dev} -c contrast=${Math.round(mapValue('contrast', value))}`);
+                const cVal = String(Math.round(mapValue('contrast', value)));
+                execFileSync('v4l2-ctl', ['-d', dev, '-c', `contrast=${cVal}`]);
             } else if (control === 'mirror') {
                 const val = value ? '1' : '0';
-                execSync(`v4l2-ctl -d ${dev} -c hflip=${val}`);
+                execFileSync('v4l2-ctl', ['-d', dev, '-c', `hflip=${val}`]);
             }
         }
         res.json({ ok: true });
@@ -1756,7 +1791,7 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
     }
   });
 
-  app.post("/api/restart-game", adminMiddleware, express.json(), (req, res) => {
+  app.post("/api/restart-game", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     if (activeGameProc) {
       try { process.kill(-activeGameProc.pid); } catch (e) { }
       try { activeGameProc.kill(); } catch (e) { }
@@ -1768,21 +1803,27 @@ app.post("/api/shutdown", adminMiddleware, (req, res) => {
       const cmd = parts.shift();
       if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false, reason: 'invalid command' });
 
+      if (!/^[a-zA-Z0-9_\-\./]+$/.test(cmd) || cmd.includes('..')) {
+        return res.status(400).json({ ok: false, reason: 'invalid command path' });
+      }
+
       const ALLOWED_GAMES = ['steam', 'Heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak', '.exe', '.AppImage', 'bash', 'sh'];
-      const allowMatch = (cmd) => ALLOWED_GAMES.some(a => cmd.includes(a) || cmd.endsWith(a));
-      if (!allowMatch(cmd)) {
+      const baseCmd = path.basename(cmd);
+      const allowMatch = (target) => ALLOWED_GAMES.some(a => target === a || target.endsWith(a));
+      if (!allowMatch(cmd) && !allowMatch(baseCmd)) {
         console.warn(`[security] BLOCKED restart-game: "${cmd}" not in allowlist`);
         return res.status(403).json({ ok: false, reason: 'game not in allowlist' });
       }
 
-      console.log("  \x1b[35m~\x1b[0m Launching game process:", req.body.command);
+      const safeParts = parts.filter(p => typeof p === 'string' && !/[\r\n\0]/.test(p));
+      console.log("  \x1b[35m~\x1b[0m Launching game process:", cmd);
 
       // ── CRITICAL AUDIO ROUTING: Force game audio into the virtual sink ──
       const spawnEnv = Object.assign({}, process.env);
       spawnEnv.PULSE_SINK = "NearcadeVirtual";
 
       // ── LIFECYCLE MONITORING: Do NOT detach. Monitor the game and crash if it dies. ──
-      activeGameProc = spawn(cmd, parts, {
+      activeGameProc = spawn(cmd, safeParts, {
         stdio: 'ignore',
         env: spawnEnv
       });

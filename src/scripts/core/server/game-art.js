@@ -7,6 +7,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const https = require('https');
+const rateLimitMiddleware = require('express-rate-limit');
+
+const gameArtLimiter = rateLimitMiddleware({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many requests, please try again later.' }
+});
 
 const gameArtCacheDir = path.join(os.homedir(), '.cache', 'Nearcade', 'game-art');
 const GAME_ART_MAX_MB = 200;
@@ -28,7 +37,7 @@ function evictGameArtCache() {
 }
 
 module.exports = function(app) {
-  app.get("/api/game-art/:appId", (req, res) => {
+  app.get("/api/game-art/:appId", gameArtLimiter, (req, res) => {
     const { appId } = req.params;
     if (!/^\d+$/.test(appId)) return res.status(400).end();
     fs.mkdirSync(gameArtCacheDir, { recursive: true });
