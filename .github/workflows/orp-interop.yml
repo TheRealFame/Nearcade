@@ -9,6 +9,9 @@ on:
       - 'tools/open-remote-play/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   orp-interop:
     name: ORP Interop Tests (${{ matrix.os }})

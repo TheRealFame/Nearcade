@@ -11,6 +11,9 @@ on:
       - 'src/sidecar/audio/rust_**/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-rust-sidecars:
     name: "${{ matrix.artifact_name }} @ ${{ matrix.os }}"
