@@ -366,6 +366,7 @@ const congestionControl = {
 };
 
 async function monitorCongestion(pc, viewerId) {
+    if (!viewerId || viewerId === '__proto__' || viewerId === 'constructor' || viewerId === 'prototype') return;
     if (!congestionControl.enabled) return;
     if (appSettings.tournamentMode) { console.log('[Tournament] Congestion monitoring disabled'); return; }
 

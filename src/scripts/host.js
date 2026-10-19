@@ -257,8 +257,18 @@ arcadeChannel.bind('pusher:subscription_error', (status) => {
 // ─────────────────────────────────────────────────────
 
 let arcadePingInterval = null;
-let arcadeOverrodePin = false;
-const hostSessionId = 'ns-' + (window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 9) : Math.random().toString(36).substr(2, 9));
+function secureRandomString(len = 9) {
+    if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+        return window.crypto.randomUUID().replace(/-/g, '').slice(0, len);
+    }
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const arr = new Uint32Array(2);
+        crypto.getRandomValues(arr);
+        return (arr[0].toString(36) + arr[1].toString(36)).slice(0, len);
+    }
+    return String(Date.now().toString(36));
+}
+const hostSessionId = 'ns-' + secureRandomString(9);
 
 
 
@@ -540,7 +550,12 @@ function appendChat(name, text, isMe, platform, color) {
     if (platform) {
         const platBadge = document.createElement('span');
         platBadge.className = 'plat-badge';
-        platBadge.innerHTML = platIcon(platform) || platform;
+        const icon = platIcon(platform);
+        if (icon) {
+            platBadge.innerHTML = icon;
+        } else {
+            platBadge.textContent = String(platform);
+        }
         nameSpan.appendChild(platBadge);
     }
     if (isMe) {
@@ -1075,6 +1090,10 @@ function renderRoster(list) {
             displayName += ' <span style="color:var(--accent);font-size:10px;">(VR)</span>';
         }
 
+        const safeId = String(v.id).replace(/[^a-zA-Z0-9_\-]/g, '');
+        const safeNameAttr = encodeURIComponent(String(v.name));
+        const safeRegion = String(_viewerRegions[v.id] || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+
         let iconSrc = '/assets/icons/gamepad.svg';
         if (currentMode === 'disabled') iconSrc = '/assets/icons/circle-off.svg';
         if (currentMode === 'kbm') iconSrc = '/assets/icons/keyboard.svg';
@@ -1085,20 +1104,20 @@ function renderRoster(list) {
             iconSrc = '/assets/icons/steamdeck.svg';
         }
 
-        if (!viewerAudioStates[v.id]) viewerAudioStates[v.id] = { vol: 100, state: 0 };
-        const audState = _globalMicKillActive ? 3 : viewerAudioStates[v.id].state;
+        if (!viewerAudioStates[safeId]) viewerAudioStates[safeId] = { vol: 100, state: 0 };
+        const audState = _globalMicKillActive ? 3 : viewerAudioStates[safeId].state;
         const micSvg = _micSvg(audState);
         const micTitle = _micTitles[audState];
 
         r.innerHTML = `
         <div class="rnum">${index + 1}</div>
         <div style="flex:1; overflow:hidden;">
-        <div class="rname">${_viewerRegions[v.id] ? `<span class="fi fi-${_viewerRegions[v.id]}"></span> ` : ''}${displayName}</div>
+        <div class="rname">${safeRegion ? `<span class="fi fi-${safeRegion}"></span> ` : ''}${displayName}</div>
         <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
-        <img src="${iconSrc}" style="width:14px;height:14px;filter:invert(0.8);" id="icon-${v.id}" />
-        ${v.id === 'host_0' ? `<span style="font-size:9px;color:var(--muted);">Host</span>` : `
+        <img src="${iconSrc}" style="width:14px;height:14px;filter:invert(0.8);" id="icon-${safeId}" />
+        ${safeId === 'host_0' ? `<span style="font-size:9px;color:var(--muted);">Host</span>` : `
         <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;"
-        onchange="changeInputMode('${v.id}', this.value, '${v.name.replace(/'/g, "\\'")}'); this.blur();">
+        onchange="changeInputMode('${safeId}', this.value, decodeURIComponent('${safeNameAttr}')); this.blur();">
         <option value="gamepad"       ${currentMode === 'gamepad' ? 'selected' : ''}>Gamepad</option>
         <option value="kbm"           ${currentMode === 'kbm' ? 'selected' : ''}>Raw KBM</option>
         <option value="kbm_emulated"  ${currentMode === 'kbm_emulated' ? 'selected' : ''}>Emulated KBM</option>
@@ -1106,15 +1125,15 @@ function renderRoster(list) {
         <option value="disabled"      ${currentMode === 'disabled' ? 'selected' : ''}>Disabled</option>
         </select>
         `}
-        ${(window._multiInstanceMode && window._multiStreams && window._multiStreams.length > 0 && v.id !== 'host_0') ? `
+        ${(window._multiInstanceMode && window._multiStreams && window._multiStreams.length > 0 && safeId !== 'host_0') ? `
         <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;"
-        onchange="assignViewerToInstance('${v.id}', this.value); this.blur();">
+        onchange="assignViewerToInstance('${safeId}', this.value); this.blur();">
             <option value="-1">Auto/None</option>
-            ${window._multiStreams.map((_, j) => `<option value="${j}" ${(window.viewerWindowAssignments && window.viewerWindowAssignments[v.id] === j) ? 'selected' : ''}>Inst ${j + 1}</option>`).join('')}
+            ${window._multiStreams.map((_, j) => `<option value="${j}" ${(window.viewerWindowAssignments && window.viewerWindowAssignments[safeId] === j) ? 'selected' : ''}>Inst ${j + 1}</option>`).join('')}
         </select>
         ` : ''}
-        ${v.id === 'host_0' ? '' : `
-        <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;" onchange="changeViewerSlot('${v.id}', this.value); this.blur();">
+        ${safeId === 'host_0' ? '' : `
+        <select class="form-select" style="padding:2px 4px;font-size:9px;width:auto;" onchange="changeViewerSlot('${safeId}', this.value); this.blur();">
             <option value="-1" ${v.slot == null ? 'selected' : ''}>Auto Slot</option>
             <option value="0" ${v.slot === 0 ? 'selected' : ''}>Player 1</option>
             <option value="1" ${v.slot === 1 ? 'selected' : ''}>Player 2</option>
@@ -1122,39 +1141,36 @@ function renderRoster(list) {
             <option value="3" ${v.slot === 3 ? 'selected' : ''}>Player 4</option>
         </select>
         `}
-        ${v.id === 'host_0' ? '' : `
+        ${safeId === 'host_0' ? '' : `
         <div style="width:1px;height:12px;background:var(--border2);margin:0 2px;"></div>
-        <button onclick="cycleViewerMic('${v.id}')" title="${micTitle}"
-        id="mic-btn-${v.id}"
+        <button onclick="cycleViewerMic('${safeId}')" title="${micTitle}"
+        id="mic-btn-${safeId}"
         style="background:none;border:none;cursor:pointer;display:flex;align-items:center;padding:2px;${_globalMicKillActive ? 'opacity:0.4;pointer-events:none;' : ''}">
         ${micSvg}
         </button>
-        <input type="range" min="0" max="100" value="${viewerAudioStates[v.id].vol}"
-        oninput="setViewerVolume('${v.id}', this.value)"
+        <input type="range" min="0" max="100" value="${viewerAudioStates[safeId].vol}"
+        oninput="setViewerVolume('${safeId}', this.value)"
         style="width:38px;accent-color:var(--accent);height:3px;" title="Viewer voice volume">
         `}
         </div>
         </div>
         <div class="rstat">${v.slot !== null ? '(Assigned)' : ''}</div>
-        <button class="rlock" onclick="toggleSlotLock('${v.id}', ${!v.locked})" title="Lock slot"
+        <button class="rlock" onclick="toggleSlotLock('${safeId}', ${!v.locked})" title="Lock slot"
         style="background:none;border:none;cursor:pointer;padding:0 4px;width:20px;height:20px;display:flex;align-items:center;">
         <img src="/assets/icons/${v.locked ? 'lock' : 'lock-open'}.svg" style="width:14px;height:14px;${v.locked ? 'filter:invert(0.8) sepia(1) saturate(5) hue-rotate(350deg);' : 'filter:invert(0.5);'}" />
         </button>
-        ${v.id === 'host_0' ? '' : `<button class="rkick" onclick="kickViewer('${v.id}')" title="Kick Viewer">×</button>`}
-        ${v.id === 'host_0' || typeof isArcade === 'undefined' || !isArcade ? '' : `<button class="rreport" onclick="reportViewer('${v.id}')" title="Report Viewer" data-vid="${v.id}">!</button>`}
-        ${v.id !== 'host_0' && typeof window._reportState !== 'undefined' && window._reportState[v.id] ? `<span style="font-size:9px;color:var(--warn);margin-left:2px;" class="r-reported-badge" data-vid="${v.id}">Reported</span>` : ''}
+        ${safeId === 'host_0' ? '' : `<button class="rkick" onclick="kickViewer('${safeId}')" title="Kick Viewer">×</button>`}
+        ${safeId === 'host_0' || typeof isArcade === 'undefined' || !isArcade ? '' : `<button class="rreport" onclick="reportViewer('${safeId}')" title="Report Viewer" data-vid="${safeId}">!</button>`}
+        ${safeId !== 'host_0' && typeof window._reportState !== 'undefined' && window._reportState[safeId] ? `<span style="font-size:9px;color:var(--warn);margin-left:2px;" class="r-reported-badge" data-vid="${safeId}">Reported</span>` : ''}
         `;
         c.appendChild(r);
 
         if (overlayC && index < 4) {
-            const r2 = document.createElement('div');
-            r2.className = r.className;
-            r2.draggable = r.draggable;
-            r2.dataset.id = r.dataset.id;
-            r2.style.cssText = r.style.cssText;
-            r2.innerHTML = r.innerHTML
-                .replace(`id="icon-${v.id}"`, `id="overlay-icon-${v.id}"`)
-                .replace(`id="mic-btn-${v.id}"`, `id="overlay-mic-btn-${v.id}"`);
+            const r2 = r.cloneNode(true);
+            const overlayIcon = r2.querySelector('#icon-' + safeId);
+            if (overlayIcon) overlayIcon.id = 'overlay-icon-' + safeId;
+            const overlayMic = r2.querySelector('#mic-btn-' + safeId);
+            if (overlayMic) overlayMic.id = 'overlay-mic-btn-' + safeId;
             overlayC.appendChild(r2);
         }
     });
@@ -1275,6 +1291,7 @@ function cycleViewerMic(viewerId) {
 
 // ── VIEWER VOICE VOLUME ───────────────────────────────────────────────────────
 function setViewerVolume(viewerId, vol) {
+    if (!viewerId || viewerId === '__proto__' || viewerId === 'constructor' || viewerId === 'prototype') return;
     if (!viewerAudioStates[viewerId]) viewerAudioStates[viewerId] = { vol: 100, state: 0 };
     viewerAudioStates[viewerId].vol = parseInt(vol, 10);
     const audioEl = document.getElementById('remote-audio-' + viewerId);
@@ -1557,8 +1574,10 @@ function connectWS() {
                 // Plain data URL. No query-string suffix: anything after the
                 // comma is payload, so '?t=' would corrupt the base64 and
                 // break blob: URLs too. New content each frame is its own cache-buster.
-                mjpegImg.src = 'data:image/jpeg;base64,' + msg.data;
-                mjpegImg.style.display = 'block';
+                if (typeof msg.data === 'string' && /^[a-zA-Z0-9+/=]+$/.test(msg.data)) {
+                    mjpegImg.src = 'data:image/jpeg;base64,' + msg.data;
+                    mjpegImg.style.display = 'block';
+                }
             }
             return;
         }
@@ -1595,7 +1614,7 @@ function connectWS() {
         if (msg.type === 'webcodecs-health') {
             const vid = msg.viewerId || '(unknown)';
             const htype = msg.wcHealthType || '?';
-            console.warn(`[WcHealth] Viewer ${vid}: ${htype}`, msg.wcHealthData || '');
+            console.warn('[WcHealth] Viewer health status:', vid, htype, msg.wcHealthData || '');
             if (htype === 'fallback-request') {
                 const pc = peerConnections[vid];
                 if (pc) {
@@ -1880,6 +1899,7 @@ function connectWS() {
 }
 
 async function sendOfferToViewer(viewerId, viewerPcState) {
+    if (!viewerId || viewerId === '__proto__' || viewerId === 'constructor' || viewerId === 'prototype') return;
     if (!currentStream) return;
     // Never murder a live handshake: viewer-joined, request-offer, the
     // watchdog and the 20s handshake timer can ALL fire for one join. Only a
@@ -2185,7 +2205,7 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
 // arrived, burning an offer cycle every join.
 function _waitIceGatheringDone(pc, timeoutMs) {
     return new Promise((resolve) => {
-        if (!pc || pc.iceGatheringState === 'complete') return resolve();
+        if (!pc || pc === Object.prototype || pc.iceGatheringState === 'complete') return resolve();
         let done = false;
         const finish = () => {
             if (done) return; done = true;
@@ -2979,8 +2999,8 @@ async function startCapture() {
             if (!screenStream && !zeroCopyOn && isLinux) {
                 const portalMsg = document.createElement('div');
                 portalMsg.id = 'ns-portal-msg';
-                portalMsg.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;pointer-events:none;background:rgba(20,22,28,0.92);color:#fff;padding:12px 20px;border-radius:10px;border:1px solid var(--accent);text-align:center;font-family:monospace;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);max-width:440px;';
-                const gameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
+                const rawGameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
+                const gameName = String(rawGameName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
                 portalMsg.innerHTML = 'Screen Selection Required — select ' + (gameName ? '<strong>' + gameName + '</strong>' : 'your screen or game window') + ' in the system dialog that just appeared.<br><span style="color:#888;font-size:11px;">Required once per session on Wayland.</span>';
                 document.body.appendChild(portalMsg);
                 try {
