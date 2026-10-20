@@ -203,18 +203,21 @@ if (!gotTheLock) {
 
 process.on('uncaughtException', (e) => {
   const msg = e?.message || String(e);
-  console.error('\n[electron] ⚠ Uncaught Exception:', msg);
+  console.error('\n[electron] [Uncaught Exception]:', msg);
   try {
     if (win && !win.isDestroyed()) {
       win.webContents.executeJavaScript(`
-        (function showErrorBanner() {
+        (function showErrorBanner(safeMsg) {
           if (document.getElementById('ns-crash-banner')) return;
           var b = document.createElement('div');
           b.id = 'ns-crash-banner';
-          b.style.cssText = 'animation:nsCrashIn 0.3s ease-out;@keyframes nsCrashIn{from{opacity:0;transform:translateX(-50%) translateY(-20px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}';
-          b.innerHTML = '<div style="padding:12px 20px;background:rgba(211,47,47,0.9);color:#fff;font-family:monospace;font-size:12px;text-align:center;border-radius:0 0 6px 6px;position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:999999;max-width:90vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">⚠ Nearcade Error: ' + ${JSON.stringify(msg.replace(/"/g,'\\"').substring(0,120))} + '</div>';
+          b.style.cssText = 'animation:nsCrashIn 0.3s ease-out;';
+          var inner = document.createElement('div');
+          inner.style.cssText = 'padding:12px 20px;background:rgba(211,47,47,0.9);color:#fff;font-family:monospace;font-size:12px;text-align:center;border-radius:0 0 6px 6px;position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:999999;max-width:90vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+          inner.textContent = '[Nearcade Error] ' + safeMsg;
+          b.appendChild(inner);
           document.body.appendChild(b);
-        })();
+        })(${JSON.stringify(String(msg).slice(0, 120))});
       `).catch(() => {});
     }
   } catch (_) {}
@@ -222,7 +225,7 @@ process.on('uncaughtException', (e) => {
 process.on('unhandledRejection', (e) => {
   const msg = e?.message || String(e);
   if (msg.includes('could not be cloned') || msg.includes('no video stream')) return;
-  console.error('\n[electron] ⚠ Unhandled Rejection:', msg);
+  console.error('\n[electron] [Unhandled Rejection]:', msg);
 });
 
 function _electronSignalCleanup(signal) {

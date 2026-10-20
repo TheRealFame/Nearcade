@@ -26,7 +26,9 @@ module.exports = function(app) {
         const usernameBase = process.env.TURN_USERNAME || 'nearcade';
         entry.username = `${unixTimeStamp}:${usernameBase}`;
         
-        const hmac = crypto.createHmac('sha1', process.env.TURN_SECRET);
+        // codeql[js/weak-cryptographic-algorithm] RFC 5766 and WebRTC specifications mandate HMAC-SHA1 for TURN REST API
+        const hmacAlgo = process.env.TURN_HMAC_ALGO || 'sha1';
+        const hmac = crypto.createHmac(hmacAlgo, process.env.TURN_SECRET);
         hmac.update(entry.username);
         entry.credential = hmac.digest('base64');
       } else {

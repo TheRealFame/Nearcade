@@ -306,10 +306,21 @@ const RAD2DEG = 180 / Math.PI;
 // http://stackoverflow.com/questions/105034/how-to-create-a-guid-uuid-in-javascript/21963136#21963136
 function generateUUID() {
 
-	const d0 = Math.random() * 0xffffffff | 0;
-	const d1 = Math.random() * 0xffffffff | 0;
-	const d2 = Math.random() * 0xffffffff | 0;
-	const d3 = Math.random() * 0xffffffff | 0;
+	if ( typeof crypto !== 'undefined' && crypto.randomUUID ) {
+		return crypto.randomUUID().toUpperCase();
+	}
+
+	const _rnd = new Uint32Array( 4 );
+	if ( typeof crypto !== 'undefined' && crypto.getRandomValues ) {
+		crypto.getRandomValues( _rnd );
+	} else {
+		for ( let i = 0; i < 4; i ++ ) _rnd[ i ] = ( ( Date.now() + i * 0xdead ) * 0x45d9f3b ) >>> 0;
+	}
+
+	const d0 = _rnd[ 0 ];
+	const d1 = _rnd[ 1 ];
+	const d2 = _rnd[ 2 ];
+	const d3 = _rnd[ 3 ];
 	const uuid = _lut[ d0 & 0xff ] + _lut[ d0 >> 8 & 0xff ] + _lut[ d0 >> 16 & 0xff ] + _lut[ d0 >> 24 & 0xff ] + '-' +
 			_lut[ d1 & 0xff ] + _lut[ d1 >> 8 & 0xff ] + '-' + _lut[ d1 >> 16 & 0x0f | 0x40 ] + _lut[ d1 >> 24 & 0xff ] + '-' +
 			_lut[ d2 & 0x3f | 0x80 ] + _lut[ d2 >> 8 & 0xff ] + '-' + _lut[ d2 >> 16 & 0xff ] + _lut[ d2 >> 24 & 0xff ] +

@@ -335,7 +335,11 @@ function renderGames(filter) {
   if (vrUiEnabled && vrOnly) list = list.filter(g => g.vr);
 
   if (!list.length) {
-    body.innerHTML = '<div class="go-empty">' + (q ? 'No games match "' + q + '".' : 'No games found.') + '</div>';
+    body.textContent = '';
+    const emptyDiv = document.createElement('div');
+    emptyDiv.className = 'go-empty';
+    emptyDiv.textContent = q ? `No games match "${q}".` : 'No games found.';
+    body.appendChild(emptyDiv);
     return;
   }
 
@@ -413,18 +417,20 @@ function gameTile(g) {
   if (imgUrl && !imgUrl.startsWith('/api/') && !imgUrl.startsWith('http')) {
     imgUrl = '/api/local-image?path=' + encodeURIComponent(imgUrl.replace(/^file:\/\//, ''));
   }
-  const name = g.name.replace(/[<>"&]/g, '');
+  const name = String(g.name || '').replace(/[<>"'&]/g, '');
+  const safeId = String(g.id || '').replace(/[^a-zA-Z0-9_\-\.]/g, '');
+  const safeLauncher = String(g.launcher || '').replace(/[^a-zA-Z0-9_\-]/g, '');
   const isGrid = currentView === 'grid';
   const vrBadge = (vrUiEnabled && g.vr)
-    ? '<span class="go-vr-badge' + (g.vr === 'only' ? ' only' : '') + '" title="' + (g.vr === 'only' ? 'VR Only' : 'VR Supported') + '">🕶 ' + (g.vr === 'only' ? 'VR Only' : 'VR') + '</span>'
+    ? '<span class="go-vr-badge' + (g.vr === 'only' ? ' only' : '') + '" title="' + (g.vr === 'only' ? 'VR Only' : 'VR Supported') + '">[VR] ' + (g.vr === 'only' ? 'Only' : '') + '</span>'
     : '';
-  return '<div class="go-game' + (imgUrl ? '' : ' no-img') + '" data-id="' + g.id + '" data-launcher="' + g.launcher + '" data-name="' + name + '"' + (vrBadge ? ' data-vr="1"' : '') + '>'
-    + '<button class="go-pin' + (pinned ? ' pinned' : '') + '" onclick="event.stopPropagation();togglePin(\'' + g.id + '\', event)" title="' + (pinned ? 'Unpin' : 'Pin') + '">' + (pinned ? '★' : '☆') + '</button>'
+  return '<div class="go-game' + (imgUrl ? '' : ' no-img') + '" data-id="' + safeId + '" data-launcher="' + safeLauncher + '" data-name="' + name + '"' + (vrBadge ? ' data-vr="1"' : '') + '>'
+    + '<button class="go-pin' + (pinned ? ' pinned' : '') + '" onclick="event.stopPropagation();togglePin(\'' + safeId + '\', event)" title="' + (pinned ? 'Unpin' : 'Pin') + '">' + (pinned ? '*' : '-') + '</button>'
     + (imgUrl ? '<img class="go-game-img" src="' + imgUrl + '" alt="' + name + '" loading="lazy">' : '')
     + '<div class="go-game-info">'
     + '<span class="go-game-name">' + name + '</span>'
     + '<div class="go-game-meta">'
-    + '<span class="go-game-badge">' + g.launcher + '</span>'
+    + '<span class="go-game-badge">' + safeLauncher + '</span>'
     + vrBadge
     + (times ? '<span class="go-game-plays">' + times + (times === 1 ? ' play' : ' plays') + '</span>' : '')
     + '</div>'

@@ -1265,7 +1265,7 @@ async function startTunnel(port, provider, options = {}) {
   stopCurrentTunnel();
   currentTunnelProvider = provider; // provisionally claim, set a live URL below
   if (provider) {
-    const fn = {
+    const providerMap = {
       zrok: (p) => startTunnelZrok(p, 3, options.zrokToken),
       cloudflared: (p) => startTunnelCloudflared(p, options),
       playit: startTunnelPlayit,
@@ -1281,7 +1281,10 @@ async function startTunnel(port, provider, options = {}) {
       zerotier: startTunnelZeroTier,
       netmaker: startTunnelNetmaker,
       'wireguard-direct': startTunnelWireguardDirect,
-    }[provider] || startTunnelAuto;
+    };
+    const fn = (typeof provider === 'string' && Object.prototype.hasOwnProperty.call(providerMap, provider))
+      ? providerMap[provider]
+      : startTunnelAuto;
     if (fn) { const r = await fn(port); if (r && r.url) { saveLastProvider(provider); currentTunnelProc = r.proc; currentTunnelUrl = r.url; currentTunnelProvider = provider; } return r; }
     return null;
   }
@@ -1301,7 +1304,8 @@ async function startTunnelAuto(port) {
 
   const last = getLastProvider();
   if (last && last !== forced) {
-    const fn = { zrok: startTunnelZrok, cloudflared: startTunnelCloudflared, playit: startTunnelPlayit, localhostrun: startTunnelLocalhostRun, serveo: startTunnelServeo, bore: startTunnelBore, ngrok: startTunnelNgrok, frp: startTunnelFrp, 'tailscale-funnel': startTunnelTailscaleFunnel, 'tailscale-serve': startTunnelTailscaleServe, 'tailscale-mesh': startTunnelTailscaleMesh, zerotier: startTunnelZeroTier, netmaker: startTunnelNetmaker, 'wireguard-direct': startTunnelWireguardDirect }[last];
+    const autoMap = { zrok: startTunnelZrok, cloudflared: startTunnelCloudflared, playit: startTunnelPlayit, localhostrun: startTunnelLocalhostRun, serveo: startTunnelServeo, bore: startTunnelBore, ngrok: startTunnelNgrok, frp: startTunnelFrp, 'tailscale-funnel': startTunnelTailscaleFunnel, 'tailscale-serve': startTunnelTailscaleServe, 'tailscale-mesh': startTunnelTailscaleMesh, zerotier: startTunnelZeroTier, netmaker: startTunnelNetmaker, 'wireguard-direct': startTunnelWireguardDirect };
+    const fn = (typeof last === 'string' && Object.prototype.hasOwnProperty.call(autoMap, last)) ? autoMap[last] : null;
     if (fn) { const r = await fn(port); if (r && r.url) return r; }
   }
 

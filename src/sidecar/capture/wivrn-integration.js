@@ -11,7 +11,7 @@
 
 'use strict';
 
-const { spawn, spawnSync, execSync } = require('child_process');
+const { spawn, spawnSync, execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -299,7 +299,7 @@ class WiVRnIntegration {
         try {
             const binary = this._findServerBinary();
             if (binary) {
-                const result = execSync(`${binary} --version 2>/dev/null`, { encoding: 'utf8', timeout: 3000 });
+                const result = execFileSync(binary, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
                 return result.trim() || 'unknown';
             }
             if (this._isServerOnBus()) {

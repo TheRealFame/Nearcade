@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -32,8 +32,8 @@ const LAUNCHERS = [
   { id: 'bnet',   label: 'Battle.net' }
 ];
 
-function tryExec(cmd, opts = {}) {
-  try { return execSync(cmd, { encoding: 'utf8', timeout: 3000, ...opts }).trim(); } catch { return ''; }
+function tryExecFile(file, args = [], opts = {}) {
+  try { return execFileSync(file, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], ...opts }).trim(); } catch { return ''; }
 }
 
 // Resolve a URL scheme to the handler desktop file's Exec line
@@ -43,7 +43,7 @@ function tryExec(cmd, opts = {}) {
 function desktopFileHandler(launcherId) {
   const scheme = SCHEMES[launcherId];
   if (!scheme) return null;
-  const desktopFile = tryExec(`xdg-mime query default ${scheme}`);
+  const desktopFile = tryExecFile('xdg-mime', ['query', 'default', scheme]);
   if (!desktopFile || desktopFile.includes('/')) return null;
   const candidates = [
     path.join(os.homedir(), '.local', 'share', 'applications', desktopFile),
@@ -84,10 +84,10 @@ function detect() {
       { id: 'bnet',   scheme: 'x-scheme-handler/battlenet', match: /blizzard|battlenet|battle/i }
     ];
     for (const c of checks) {
-      const desktopFile = tryExec(`xdg-mime query default ${c.scheme}`);
+      const desktopFile = tryExecFile('xdg-mime', ['query', 'default', c.scheme]);
       if (desktopFile && c.match.test(desktopFile)) found.push(c.id);
     }
-    const flatpaks = tryExec('flatpak list --columns=application');
+    const flatpaks = tryExecFile('flatpak', ['list', '--columns=application']);
     if (!found.includes('heroic') && flatpaks.includes('com.heroicgameslauncher')) found.push('heroic');
     if (!found.includes('lutris') && flatpaks.includes('net.lutris.Lutris')) found.push('lutris');
   } else if (platform === 'win32') {
@@ -103,7 +103,7 @@ function detect() {
       { id: 'heroic', key: 'HKCU\\Software\\HeroicGamesLauncher' }
     ];
     for (const c of regChecks) {
-      if (tryExec(`reg query "${c.key}" /ve 2>nul`)) seen.add(c.id);
+      if (tryExecFile('reg', ['query', c.key, '/ve'])) seen.add(c.id);
     }
     const schemeChecks = [
       { scheme: 'steam',  id: 'steam' },
@@ -114,7 +114,7 @@ function detect() {
       { scheme: 'battlenet', id: 'bnet' }
     ];
     for (const c of schemeChecks) {
-      if (!seen.has(c.id) && tryExec(`reg query "HKCU\\Software\\Classes\\${c.scheme}\\shell\\open\\command" /ve 2>nul`)) seen.add(c.id);
+      if (!seen.has(c.id) && tryExecFile('reg', ['query', `HKCU\\Software\\Classes\\${c.scheme}\\shell\\open\\command`, '/ve'])) seen.add(c.id);
     }
     found.push(...seen);
   } else if (platform === 'darwin') {
@@ -135,10 +135,11 @@ function detect() {
     const schemeChecks = ['steam', 'heroic', 'com.epicgames.launcher', 'uplay', 'origin', 'battlenet'];
     for (const scheme of schemeChecks) {
       if (!found.includes(scheme === 'com.epicgames.launcher' ? 'epic' : scheme)) {
-        const out = tryExec(
-          `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump 2>/dev/null | grep -i "${scheme}"`
+        const out = tryExecFile(
+          '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister',
+          ['-dump']
         );
-        if (out) {
+        if (out && out.toLowerCase().includes(scheme.toLowerCase())) {
           const id = scheme === 'com.epicgames.launcher' ? 'epic' : scheme;
           if (!found.includes(id)) found.push(id);
         }
@@ -168,9 +169,7 @@ function launch(launcherId, gameId) {
 
   try {
     if (platform === 'win32') {
-      // Still using tryExec (which uses execSync) because Windows 'start' is a cmd-builtin.
-      // The gameId is now strictly sanitized above, so injection is impossible.
-      tryExec(`start /low "" "${url}"`);
+      tryExecFile('cmd.exe', ['/c', 'start', '/low', '""', url]);
     } else if (platform === 'darwin') {
       execFileSync('open', [url], { timeout: 3000 });
     } else {
@@ -192,16 +191,16 @@ function launch(launcherId, gameId) {
         // xdg-open routes custom URL schemes through KIO workers, which can
         // pop up sandbox/worker dialogs or fail silently when the launcher
         // app is not running. Direct spawn keeps the flow popup-free.
-        const flatpaks = tryExec('flatpak list --columns=application');
+        const flatpaks = tryExecFile('flatpak', ['list', '--columns=application']);
         let cmd = null, args = null;
         if (launcherId === 'heroic') {
-          if (tryExec('command -v heroic')) { cmd = 'heroic'; args = [url]; }
+          if (tryExecFile('which', ['heroic'])) { cmd = 'heroic'; args = [url]; }
           else if (flatpaks.includes('com.heroicgameslauncher')) { cmd = 'flatpak'; args = ['run', 'com.heroicgameslauncher', url]; }
         } else if (launcherId === 'lutris') {
-          if (tryExec('command -v lutris')) { cmd = 'lutris'; args = [url]; }
+          if (tryExecFile('which', ['lutris'])) { cmd = 'lutris'; args = [url]; }
           else if (flatpaks.includes('net.lutris.Lutris')) { cmd = 'flatpak'; args = ['run', 'net.lutris.Lutris', url]; }
         } else if (launcherId === 'epic') {
-          if (tryExec('command -v legendary')) { cmd = 'legendary'; args = ['launch', String(gameId)]; }
+          if (tryExecFile('which', ['legendary'])) { cmd = 'legendary'; args = ['launch', String(gameId)]; }
         }
         if (cmd) {
           spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
@@ -223,15 +222,16 @@ function launch(launcherId, gameId) {
 }
 
 function protectSelf(pid) {
-  pid = pid || process.pid;
+  const safePid = parseInt(pid || process.pid, 10);
+  if (!Number.isInteger(safePid) || safePid <= 0) return;
   try {
     if (os.platform() === 'linux') {
-      fs.writeFileSync('/proc/' + pid + '/oom_score_adj', '-500');
-      tryExec('renice -n -5 -p ' + pid);
+      try { fs.writeFileSync('/proc/' + safePid + '/oom_score_adj', '-500'); } catch {}
+      tryExecFile('renice', ['-n', '-5', '-p', String(safePid)]);
     } else if (os.platform() === 'darwin') {
-      tryExec('renice -n -5 -p ' + pid);
+      tryExecFile('renice', ['-n', '-5', '-p', String(safePid)]);
     } else if (os.platform() === 'win32') {
-      tryExec('wmic process where processid=' + pid + ' CALL setpriority 32768');
+      tryExecFile('wmic', ['process', 'where', 'processid=' + safePid, 'CALL', 'setpriority', '32768']);
     }
   } catch {}
 }
@@ -278,7 +278,7 @@ function detectGames() {
     for (const p of candidates) {
       if (fs.existsSync(p)) steamDirs.push(p);
     }
-    const regOut = tryExec('reg query "HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam" /v InstallPath 2>nul');
+    const regOut = tryExecFile('reg', ['query', 'HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam', '/v', 'InstallPath']);
     if (regOut) {
       const installPath = regOut.match(/InstallPath\s+REG_SZ\s+(.+)/i);
       if (installPath) {
@@ -321,9 +321,9 @@ function detectGames() {
     const heroicDirs = [];
 
     // Native install → check where heroic binary lives
-    const heroicBin = tryExec('which heroic 2>/dev/null');
-    const heroicFlatpak = tryExec('flatpak info com.heroicgameslauncher 2>/dev/null');
-    const heroicSnap = tryExec('snap list heroic 2>/dev/null');
+    const heroicBin = tryExecFile('which', ['heroic']);
+    const heroicFlatpak = tryExecFile('flatpak', ['info', 'com.heroicgameslauncher']);
+    const heroicSnap = tryExecFile('snap', ['list', 'heroic']);
 
     if (heroicBin) {
       heroicDirs.push(path.join(os.homedir(), '.config', 'heroic'));
@@ -386,7 +386,7 @@ function detectGames() {
       const pgaDb = path.join(lDir, 'pga.db');
       if (fs.existsSync(pgaDb)) {
         try {
-          const out = tryExec(`sqlite3 "${pgaDb}" "SELECT slug, name, installed FROM games WHERE installed=1" 2>/dev/null`);
+          const out = tryExecFile('sqlite3', [pgaDb, 'SELECT slug, name, installed FROM games WHERE installed=1']);
           if (out) {
             for (const line of out.split('\n')) {
               const [slug, ...rest] = line.split('|');

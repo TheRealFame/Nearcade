@@ -1,5 +1,5 @@
 const express = require('express');
-const { spawn, exec } = require('child_process');
+const { spawn, execFile, exec } = require('child_process');
 const http = require('http');
 const path = require('path');
 const os = require('os');
@@ -60,7 +60,7 @@ function startWivrnServer() {
         wivrnProcess.kill('SIGKILL');
         wivrnProcess = null;
     }
-    exec('killall wivrn-server 2>/dev/null; true', () => {
+    execFile('killall', ['wivrn-server'], () => {
         currentPin = null;
         console.log('Spawning WiVRn server with --early-active-runtime...');
         wivrnProcess = spawn(WIVRN_SERVER_BIN, ['--early-active-runtime'], {
@@ -68,7 +68,7 @@ function startWivrnServer() {
         });
 
     setTimeout(() => {
-        exec(`${WIVRNCTL_BIN} pair`, (err, stdout) => {
+        execFile(WIVRNCTL_BIN, ['pair'], (err, stdout) => {
             if (stdout) console.log(`[wivrnctl] ${stdout.trim()}`);
         });
     }, 1500);

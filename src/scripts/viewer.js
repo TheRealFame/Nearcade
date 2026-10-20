@@ -2639,7 +2639,12 @@ async function connect() {
     
     // Check if we are connecting to a P2P room
     if (hostParam && hostParam.startsWith('p2p://')) {
-        const roomCode = hostParam.replace('p2p://', '');
+        const rawCode = hostParam.replace('p2p://', '').trim();
+        const roomCode = rawCode.replace(/[^a-zA-Z0-9_\-]/g, '');
+        if (!roomCode || roomCode === '__proto__' || roomCode === 'constructor' || roomCode === 'prototype') {
+            if (typeof setStatus === 'function') setStatus('Invalid P2P room code');
+            return;
+        }
         console.log('[P2P] Initializing serverless connection to room:', roomCode);
         
         if (typeof setStatus === 'function') setStatus('Discovering host via P2P network...');

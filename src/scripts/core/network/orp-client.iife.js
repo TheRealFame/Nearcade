@@ -18549,13 +18549,13 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
     }
     e.prototype.format = function() {
       var y = this.auth || "";
-      y && (y = encodeURIComponent(y), y = y.replace(/%3A/i, ":"), y += "@");
+      y && (y = encodeURIComponent(y), y = y.replace(/%3A/gi, ":"), y += "@");
       var O = this.protocol || "", v = this.pathname || "", M2 = this.hash || "", F = false, U = "";
       this.host ? F = y + this.host : this.hostname && (F = y + (this.hostname.indexOf(":") === -1 ? this.hostname : "[" + this.hostname + "]"), this.port && (F += ":" + this.port)), this.query && typeof this.query == "object" && Object.keys(this.query).length && (U = b.stringify(this.query, { arrayFormat: "repeat", addQueryPrefix: false }));
       var Q = this.search || U && "?" + U || "";
       return O && O.substr(-1) !== ":" && (O += ":"), this.slashes || (!O || S[O]) && F !== false ? (F = "//" + (F || ""), v && v.charAt(0) !== "/" && (v = "/" + v)) : F || (F = ""), M2 && M2.charAt(0) !== "#" && (M2 = "#" + M2), Q && Q.charAt(0) !== "?" && (Q = "?" + Q), v = v.replace(/[?#]/g, function(W) {
         return encodeURIComponent(W);
-      }), Q = Q.replace("#", "%23"), O + F + v + Q + M2;
+      }), Q = Q.replace(/#/g, "%23"), O + F + v + Q + M2;
     };
     function R(y, O) {
       return w(y, false, true).resolve(O);
@@ -22311,26 +22311,33 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
           console.warn(`[ORP] Failed to send via ${name2}:`, e);
         }
       });
-      room.onPeerJoin = (peerId) => {
-        console.log(`[ORP] \u{1F7E2} Peer ${peerId} discovered via ${name2}!`);
-        if (this.readyState === 0) {
-          this.readyState = 1;
-          this.openListeners.forEach((fn) => fn());
-        }
-      };
+      if (!room || room === Object.prototype || typeof room !== "object") return;
+      Object.defineProperty(room, "onPeerJoin", {
+        value: (peerId) => {
+          console.log(`[ORP] Peer ${peerId} discovered via ${name2}!`);
+          if (this.readyState === 0) {
+            this.readyState = 1;
+            this.openListeners.forEach((fn) => fn());
+          }
+        },
+        writable: true, configurable: true, enumerable: true
+      });
       action.onMessage = (data, meta) => {
         if (data && data.senderId) {
           this.peerIdMap.set(data.senderId, meta.peerId);
         }
-        console.log(`[ORP] \u{1F4E9} Received msg from ${meta.peerId} via ${name2}`);
+        console.log(`[ORP] Received msg from ${meta.peerId} via ${name2}`);
         const rawData = typeof data === "string" ? data : JSON.stringify(data);
         const ev = new MessageEvent("message", { data: rawData });
         this.messageListeners.forEach((fn) => fn(ev));
       };
-      room.onPeerLeave = (peerId) => {
-        console.log(`[ORP] \u{1F534} Peer ${peerId} left via ${name2}!`);
-        this.closeListeners.forEach((fn) => fn());
-      };
+      Object.defineProperty(room, "onPeerLeave", {
+        value: (peerId) => {
+          console.log(`[ORP] Peer ${peerId} left via ${name2}!`);
+          this.closeListeners.forEach((fn) => fn());
+        },
+        writable: true, configurable: true, enumerable: true
+      });
     }
     // Mock WebSocket API
     addEventListener(type, listener) {

@@ -390,10 +390,23 @@ function registerIpcHandlers(ctx) {
         scriptPath = path.join(process.resourcesPath, 'bin', 'setup', 'linux_advanced_setup.sh');
       }
       if (!fs.existsSync(scriptPath)) return;
-      const command = `x-terminal-emulator -e "bash ${scriptPath}" || konsole -e "bash ${scriptPath}" || gnome-terminal -- bash ${scriptPath} || xterm -e "bash ${scriptPath}"`;
-      exec(command, (error) => {
-        if (error) console.error('[Setup] Linux advanced setup failed to launch:', error.message);
-      });
+      const terminals = [
+        { bin: 'x-terminal-emulator', args: ['-e', 'bash', scriptPath] },
+        { bin: 'konsole', args: ['-e', 'bash', scriptPath] },
+        { bin: 'gnome-terminal', args: ['--', 'bash', scriptPath] },
+        { bin: 'xterm', args: ['-e', 'bash', scriptPath] }
+      ];
+      function tryNextTerminal(idx) {
+        if (idx >= terminals.length) {
+          console.error('[Setup] Linux advanced setup failed to launch: no supported terminal emulator found');
+          return;
+        }
+        const t = terminals[idx];
+        const child = spawn(t.bin, t.args, { detached: true, stdio: 'ignore' });
+        child.on('error', () => tryNextTerminal(idx + 1));
+        child.unref();
+      }
+      tryNextTerminal(0);
     }
   });
 
