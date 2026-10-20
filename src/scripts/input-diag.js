@@ -34,6 +34,18 @@ function seqGen() {
 
 function clamp(n, lo, hi) { return n < lo ? lo : n > hi ? hi : n; }
 
+function makeDiagSessionId() {
+    if (typeof crypto !== 'undefined') {
+        if (crypto.randomUUID) return crypto.randomUUID();
+        if (crypto.getRandomValues) {
+            const arr = new Uint32Array(2);
+            crypto.getRandomValues(arr);
+            return (arr[0].toString(36) + arr[1].toString(36)).slice(0, 12);
+        }
+    }
+    return String(Date.now().toString(36));
+}
+
 export class InputDiag {
     constructor(opts = {}) {
         this.role = opts.role || 'viewer';
@@ -43,7 +55,7 @@ export class InputDiag {
         this.events = [];
         this.seq = seqGen();
         this.state = new Map(); // pad_id -> { buttonsPressed: Set, lastAxes: [], lastTs: 0 }
-        this.sessionId = crypto.randomUUID?.() || Math.random().toString(36).slice(2);
+        this.sessionId = makeDiagSessionId();
         this.startTime = nowMs();
     }
 
@@ -51,7 +63,7 @@ export class InputDiag {
         this.enabled = true;
         this.events = [];
         this.state.clear();
-        this.sessionId = crypto.randomUUID?.() || Math.random().toString(36).slice(2);
+        this.sessionId = makeDiagSessionId();
         this.startTime = nowMs();
         this._push({ type: 'session_start', role: this.role, viewerId: this.viewerId, ts: nowIso(), sessionId: this.sessionId });
     }

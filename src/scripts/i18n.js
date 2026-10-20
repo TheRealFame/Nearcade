@@ -77,7 +77,7 @@ const I18N = {
             this.autoTranslateDOM();
 
         } catch (e) {
-            console.warn(`[i18n] Could not load ${this.targetLang}.json`, e);
+            console.warn('[i18n] Could not load locale file:', String(this.targetLang), e);
             localStorage.setItem('ns_lang', 'en');
             const select = document.getElementById('langSelect');
             if (select) select.value = 'en';
@@ -155,12 +155,16 @@ const I18N = {
         // Rewrite Documentation Links — translated docs live in /docs/<lang>/ folders
         document.querySelectorAll('a[href^="/docs/"]').forEach(a => {
             let href = a.getAttribute('href');
+            if (!href || !href.startsWith('/docs/')) return;
             // Strip any existing language folder before appending the current one
             href = href.replace(/\/docs\/[a-z]{2}\//, '/docs/');
-            if (this.targetLang !== 'en') {
-                href = href.replace('/docs/', `/docs/${this.targetLang}/`);
+            const safeLang = String(this.targetLang || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+            if (safeLang && safeLang !== 'en') {
+                href = href.replace('/docs/', `/docs/${safeLang}/`);
             }
-            a.setAttribute('href', href);
+            if (href.startsWith('/docs/')) {
+                a.setAttribute('href', href);
+            }
         });
     },
 

@@ -22,7 +22,7 @@ class Signaling {
         switch (level) {
             case 'warn': console.warn(`${prefix} ${msg}`); break;
             case 'err':  console.error(`${prefix} ${msg}`); break;
-            case 'ok':   console.log(`%c${prefix} ${msg}`, 'color:#34d399'); break;
+            case 'ok':   console.log('%c' + prefix, 'color:#34d399', msg); break;
             default:     console.log(`${prefix} ${msg}`);
         }
     }

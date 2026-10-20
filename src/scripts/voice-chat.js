@@ -45,15 +45,18 @@
         const isSelf = u.isMe;
         const btnCls = 'vc-mute-btn' + (muted ? ' muted' : '');
         const micImg = muted ? MIC_OFF : MIC_ON;
-        const safe = (u.name || '').replace(/</g, '&lt;');
+        const safe = String(u.name || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const initial = safe.charAt(0) || '?';
         const nameHtml = u.isHost
           ? safe + ' <span style="font-size:7px;opacity:.5">(Host)</span>'
           : safe;
-        const style = 'color:' + u.bg + ';';
+        const safeBg = String(u.bg || '').replace(/[^a-zA-Z0-9#_]/g, '');
+        const safeAvatar = String(u.avatar || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+        const style = 'color:' + safeBg + ';';
         html += `<div class="vc-user${talking ? ' talking' : ''}${muted ? ' muted' : ''}">
-          <div class="vc-av" style="background:${u.bg};">
-            ${u.avatar ? `<img src="/assets/avatars/avatar-${u.avatar}.svg" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : u.name[0]}
-            <span class="vc-ring" style="border-color:${u.bg}"></span>
+          <div class="vc-av" style="background:${safeBg};">
+            ${safeAvatar ? `<img src="/assets/avatars/avatar-${safeAvatar}.svg" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : initial}
+            <span class="vc-ring" style="border-color:${safeBg}"></span>
           </div>
           <div class="vc-info">
             <div class="vc-name" style="${style}">${nameHtml}</div>
@@ -80,11 +83,18 @@
   function vcShowMini(u) {
     const el = document.getElementById('vcMini');
     const av = document.getElementById('vcMiniAv');
-    av.style.background = u.bg;
-    if (u.avatar) {
-      av.innerHTML = `<img src="/assets/avatars/avatar-${u.avatar}.svg" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"><span class="vc-ring" style="border-color:${u.bg}"></span>`;
+    const safeBg = String(u.bg || '').replace(/[^a-zA-Z0-9#_]/g, '');
+    const safeAvatar = String(u.avatar || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+    const initial = String(u.name || '').charAt(0) || '?';
+    av.style.background = safeBg;
+    if (safeAvatar) {
+      av.innerHTML = `<img src="/assets/avatars/avatar-${safeAvatar}.svg" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"><span class="vc-ring" style="border-color:${safeBg}"></span>`;
     } else {
-      av.innerHTML = `${u.name[0]}<span class="vc-ring" style="border-color:${u.bg}"></span>`;
+      av.textContent = initial;
+      const ring = document.createElement('span');
+      ring.className = 'vc-ring';
+      ring.style.borderColor = safeBg;
+      av.appendChild(ring);
     }
     document.getElementById('vcMiniName').textContent = u.name;
     el.classList.add('show');
