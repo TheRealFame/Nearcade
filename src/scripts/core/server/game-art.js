@@ -11,7 +11,7 @@ const rateLimitMiddleware = require('express-rate-limit');
 
 const gameArtLimiter = rateLimitMiddleware({
   windowMs: 60 * 1000,
-  max: 120,
+  max: 1200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { ok: false, error: 'Too many requests, please try again later.' }

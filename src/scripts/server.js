@@ -838,21 +838,21 @@ async function main() {
 
   const pageLimiter = rateLimitMiddleware({
     windowMs: 60 * 1000,
-    max: 300,
+    max: 600,
     standardHeaders: true,
     legacyHeaders: false,
     message: { ok: false, error: 'Too many requests, please try again later.' }
   });
   const fileApiLimiter = rateLimitMiddleware({
     windowMs: 60 * 1000,
-    max: 300,
+    max: 1000,
     standardHeaders: true,
     legacyHeaders: false,
     message: { ok: false, error: 'Too many requests, please try again later.' }
   });
   const actionLimiter = rateLimitMiddleware({
     windowMs: 60 * 1000,
-    max: 120,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: { ok: false, error: 'Too many requests, please try again later.' }
@@ -1680,7 +1680,9 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     try {
         if (target && typeof target === 'string' && target.startsWith('v4l2:')) {
             const dev = target.replace('v4l2:', '').trim();
-            if (!/^\/dev\/video\d+$/.test(dev)) return res.status(400).json({ error: 'invalid device' });
+            if (!/^\/dev\/(video\d+|v4l\/by-(id|path)\/[a-zA-Z0-9_\-\.:]+)$/.test(dev)) {
+                return res.status(400).json({ error: 'invalid device' });
+            }
             const { execFileSync } = require('child_process');
             
             // Helper to get min/max/default and map -100..100 correctly
@@ -1799,23 +1801,36 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     }
 
     if (req.body && req.body.command && req.body.command !== 'KILL_ONLY') {
-      const parts = req.body.command.split(' ');
-      const cmd = parts.shift();
+      const rawCommand = String(req.body.command || '').trim();
+      const tokens = rawCommand.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+      let cmd = tokens.shift();
       if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false, reason: 'invalid command' });
 
-      if (!/^[a-zA-Z0-9_\-\./]+$/.test(cmd) || cmd.includes('..')) {
+      if ((cmd.startsWith('"') && cmd.endsWith('"')) || (cmd.startsWith("'") && cmd.endsWith("'"))) {
+        cmd = cmd.slice(1, -1);
+      }
+
+      if (/[\r\n\0`$;|&><]/.test(cmd) || cmd.includes('..')) {
         return res.status(400).json({ ok: false, reason: 'invalid command path' });
       }
 
-      const ALLOWED_GAMES = ['steam', 'Heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak', '.exe', '.AppImage', 'bash', 'sh'];
-      const baseCmd = path.basename(cmd);
-      const allowMatch = (target) => ALLOWED_GAMES.some(a => target === a || target.endsWith(a));
+      const ALLOWED_GAMES = ['steam', 'Heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak', 'bash', 'sh'];
+      const baseCmd = path.basename(cmd).toLowerCase();
+      const allowMatch = (target) => {
+        const t = target.toLowerCase();
+        return ALLOWED_GAMES.some(a => t === a.toLowerCase() || t.startsWith(a.toLowerCase()) || t.endsWith(a.toLowerCase())) || t.endsWith('.exe') || t.endsWith('.appimage');
+      };
       if (!allowMatch(cmd) && !allowMatch(baseCmd)) {
         console.warn(`[security] BLOCKED restart-game: "${cmd}" not in allowlist`);
         return res.status(403).json({ ok: false, reason: 'game not in allowlist' });
       }
 
-      const safeParts = parts.filter(p => typeof p === 'string' && !/[\r\n\0]/.test(p));
+      const safeParts = tokens.map(p => {
+        if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'"))) {
+          p = p.slice(1, -1);
+        }
+        return p;
+      }).filter(p => typeof p === 'string' && !/[\r\n\0]/.test(p));
       console.log("  \x1b[35m~\x1b[0m Launching game process:", cmd);
 
       // ── CRITICAL AUDIO ROUTING: Force game audio into the virtual sink ──

@@ -33,7 +33,22 @@ const LAUNCHERS = [
 ];
 
 function tryExecFile(file, args = [], opts = {}) {
-  try { return execFileSync(file, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], ...opts }).trim(); } catch { return ''; }
+  let bin = file;
+  if (os.platform() === 'win32' && !path.extname(file) && !path.isAbsolute(file)) {
+    bin = `${file}.exe`;
+  }
+  try {
+    return execFileSync(bin, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], ...opts }).trim();
+  } catch {
+    if (bin !== file) {
+      try {
+        return execFileSync(file, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], ...opts }).trim();
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  }
 }
 
 // Resolve a URL scheme to the handler desktop file's Exec line
