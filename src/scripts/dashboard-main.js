@@ -297,8 +297,17 @@ function switchTab(name) {
     const arcadeFrame = document.querySelector('#panel-arcade iframe');
     if (arcadeFrame && !arcadeFrame.getAttribute('src')) {
       const savedLang = localStorage.getItem('ns_lang') || navigator.language.split('-')[0] || 'en';
-      const currentPort = _getServerPort();
-      let url = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/arcade?electron=1&port=' + currentPort + '&lang=' + savedLang;
+      const safeLang = encodeURIComponent(String(savedLang).replace(/[^a-zA-Z0-9_\-]/g, '') || 'en');
+      const safePort = encodeURIComponent(String(_getServerPort()).replace(/[^0-9]/g, '') || '3000');
+      const rawBase = window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net';
+      let safeBase = 'https://nearcade.cutefame.net';
+      try {
+        const parsed = new URL(rawBase);
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          safeBase = parsed.origin;
+        }
+      } catch (_) {}
+      let url = `${safeBase}/arcade?electron=1&port=${safePort}&lang=${safeLang}`;
       if (window.isVrFilterEnabled) {
         url += '&vr=1';
       }
@@ -535,7 +544,12 @@ async function applyNativeTheme() {
 }
 
 function _getServerPort() {
-  return new URLSearchParams(window.location.search).get('port') || '3000';
+  const p = new URLSearchParams(window.location.search).get('port') || '3000';
+  const num = parseInt(p, 10);
+  if (!Number.isNaN(num) && num > 0 && num <= 65535) {
+    return String(num);
+  }
+  return '3000';
 }
 
 function toggleHidMaestro() {
@@ -664,13 +678,15 @@ function syncSettingsUI() {
     }
 
     const hostAvatarPreview = document.getElementById('hostAvatarPreview');
-    if (hostAvatarPreview) hostAvatarPreview.src = `/assets/avatars/avatar-${savedHostAvatar}.svg`;
+    const safeHostAvatar = String(savedHostAvatar || '').replace(/[^a-zA-Z0-9_\-]/g, '') || '1';
+    if (hostAvatarPreview) hostAvatarPreview.src = `/assets/avatars/avatar-${safeHostAvatar}.svg`;
 
     window.randomizeHostAvatar = function () {
       const newAv = Math.floor(Math.random() * 100) + 1;
       localStorage.setItem('ns_host_avatar', newAv);
       localStorage.setItem('ns_avatar', newAv);
-      if (hostAvatarPreview) hostAvatarPreview.src = `/assets/avatars/avatar-${newAv}.svg`;
+      const safeNewAv = String(newAv || '').replace(/[^a-zA-Z0-9_\-]/g, '') || '1';
+      if (hostAvatarPreview) hostAvatarPreview.src = `/assets/avatars/avatar-${safeNewAv}.svg`;
 
       fetch(`http://localhost:${_getServerPort()}/api/config`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1022,7 +1038,7 @@ async function executeBan() {
       showBanPopup(ip);
       fetch(`http://localhost:${_getServerPort()}/api/system-chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ msg: '⚠ A viewer was banned from the session.' })
+        body: JSON.stringify({ msg: 'A viewer was banned from the session.' })
       }).catch(() => { });
     } else {
       statusEl.textContent = data.message || 'Ban failed';
@@ -1040,10 +1056,28 @@ function showBanPopup(ip) {
   const popup = document.createElement('div');
   popup.id = 'banPopup';
   popup.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;background:#1a1a1a;border:1px solid var(--danger);border-radius:10px;padding:16px 20px;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.6);animation:fadeIn 0.3s;font-family:inherit;';
-  popup.innerHTML = '<div style="color:var(--danger);font-weight:700;font-size:14px;margin-bottom:4px;">⚠ IP Banned</div>' +
-    '<div style="color:var(--text);font-size:13px;margin-bottom:8px;font-family:monospace;">' + ip + '</div>' +
-    '<div style="color:var(--muted);font-size:12px;">A chat warning has been sent to all viewers.</div>' +
-    '<button onclick="this.parentElement.remove()" style="margin-top:8px;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;">Dismiss</button>';
+  
+  const title = document.createElement('div');
+  title.style.cssText = 'color:var(--danger);font-weight:700;font-size:14px;margin-bottom:4px;';
+  title.textContent = 'IP Banned';
+  popup.appendChild(title);
+
+  const ipDiv = document.createElement('div');
+  ipDiv.style.cssText = 'color:var(--text);font-size:13px;margin-bottom:8px;font-family:monospace;';
+  ipDiv.textContent = String(ip || '');
+  popup.appendChild(ipDiv);
+
+  const noteDiv = document.createElement('div');
+  noteDiv.style.cssText = 'color:var(--muted);font-size:12px;';
+  noteDiv.textContent = 'A chat warning has been sent to all viewers.';
+  popup.appendChild(noteDiv);
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.style.cssText = 'margin-top:8px;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;';
+  dismissBtn.textContent = 'Dismiss';
+  dismissBtn.addEventListener('click', () => popup.remove());
+  popup.appendChild(dismissBtn);
+
   document.body.appendChild(popup);
   setTimeout(() => { const p = document.getElementById('banPopup'); if (p) p.remove(); }, 8000);
 }
@@ -1853,7 +1887,8 @@ async function launchHostSession(opts = {}) {
     if (uiVer === 'minimal') path = '/host-minimal';
     else if (uiVer === 'playground') path = '/host-playground';
     else if (uiVer === 'custom') path = '/host-custom';
-    window.location.href = 'http://localhost:' + port + path;
+    const targetUrl = new URL(path, `http://127.0.0.1:${port}`);
+    window.location.href = targetUrl.href;
   }
 }
 

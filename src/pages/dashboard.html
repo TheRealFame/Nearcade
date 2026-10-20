@@ -1434,10 +1434,29 @@
         const html = parseMarkdown(raw);
         contentDiv.innerHTML = `<div style="line-height:1.7;font-size:13px;color:var(--muted);">${html}</div>`;
       } catch (e) {
-        const url = `http://localhost:${port}/docs/${filename}`;
-        contentDiv.innerHTML =
-          `<span style="color:var(--danger)">Could not load <strong>${filename}</strong> from <code style="font-size:11px;">${url}</code>.<br><br>` +
-          `<span style="color:var(--muted);font-size:11px;">Error: ${e.message}</span></span>`;
+        const safeFile = String(filename || '').replace(/[^a-zA-Z0-9_\-\.]/g, '');
+        const safePort = String(port || '3000').replace(/[^0-9]/g, '');
+        const url = `http://localhost:${safePort}/docs/${safeFile}`;
+        contentDiv.textContent = '';
+        const dangerSpan = document.createElement('span');
+        dangerSpan.style.color = 'var(--danger)';
+        dangerSpan.appendChild(document.createTextNode('Could not load '));
+        const strong = document.createElement('strong');
+        strong.textContent = safeFile;
+        dangerSpan.appendChild(strong);
+        dangerSpan.appendChild(document.createTextNode(' from '));
+        const code = document.createElement('code');
+        code.style.fontSize = '11px';
+        code.textContent = url;
+        dangerSpan.appendChild(code);
+        dangerSpan.appendChild(document.createElement('br'));
+        dangerSpan.appendChild(document.createElement('br'));
+        const mutedSpan = document.createElement('span');
+        mutedSpan.style.color = 'var(--muted)';
+        mutedSpan.style.fontSize = '11px';
+        mutedSpan.textContent = `Error: ${e.message}`;
+        dangerSpan.appendChild(mutedSpan);
+        contentDiv.appendChild(dangerSpan);
       }
     }
 

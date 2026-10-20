@@ -4166,13 +4166,15 @@
         savedAvatar = Math.floor(Math.random() * 100) + 1;
         localStorage.setItem('ns_avatar', savedAvatar);
       }
+      const safeAvatar = String(savedAvatar).replace(/[^a-zA-Z0-9_\-]/g, '') || '1';
       const avatarPreview = document.getElementById('profileAvatarPreview');
-      if (avatarPreview) avatarPreview.src = `/assets/avatars/avatar-${savedAvatar}.svg`;
+      if (avatarPreview) avatarPreview.src = `/assets/avatars/avatar-${safeAvatar}.svg`;
 
       window.randomizeAvatar = function () {
         const newAv = Math.floor(Math.random() * 100) + 1;
         localStorage.setItem('ns_avatar', newAv);
-        if (avatarPreview) avatarPreview.src = `/assets/avatars/avatar-${newAv}.svg`;
+        const safeNewAv = String(newAv).replace(/[^a-zA-Z0-9_\-]/g, '') || '1';
+        if (avatarPreview) avatarPreview.src = `/assets/avatars/avatar-${safeNewAv}.svg`;
         if (typeof window.vcUpdateSelf === 'function') {
           window.vcUpdateSelf(undefined, undefined, newAv);
         }
@@ -4186,7 +4188,7 @@
       // appear here — the host decides to join you from their side.
       const friendUuidInput = document.getElementById('friendUuidInput');
       const friendUrlInput = document.getElementById('friendUrlInput');
-      const friendSecretInput = document.getElementById('friendSecretInput');
+      const friendPairingInput = document.getElementById('friendSecretInput') || document.getElementById('friendCodeInput');
       if (friendUuidInput) {
         friendUuidInput.value = localStorage.getItem('ns_friend_uuid') || '';
         friendUuidInput.addEventListener('input', () => {
@@ -4199,19 +4201,19 @@
           localStorage.setItem('ns_friend_url', friendUrlInput.value.trim());
         });
       }
-      if (friendSecretInput) {
-        friendSecretInput.value = localStorage.getItem('ns_friend_secret') || '';
-        friendSecretInput.addEventListener('input', () => {
-          localStorage.setItem('ns_friend_secret', friendSecretInput.value.trim().toLowerCase());
+      if (friendPairingInput) {
+        friendPairingInput.value = localStorage.getItem('ns_friend_code') || localStorage.getItem('ns_friend_secret') || '';
+        friendPairingInput.addEventListener('input', () => {
+          localStorage.setItem('ns_friend_code', friendPairingInput.value.trim().toLowerCase());
         });
       }
 
       // HMAC-SHA256 of the payload using the pairing code. This proves to the
       // host's server that we really hold the secret for our UUID — a stolen
       // friend ID alone is not enough to impersonate anyone.
-      async function hmacSign(secret, payload) {
+      async function hmacSign(keyStr, payload) {
         const enc = new TextEncoder();
-        const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const key = await crypto.subtle.importKey('raw', enc.encode(keyStr), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
         const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
         return [...new Uint8Array(sigBuf)].map(b => b.toString(16).padStart(2, '0')).join('');
       }
@@ -4223,12 +4225,12 @@
         const name = (document.getElementById('nameInput')?.value.trim() || localStorage.getItem('ns_name') || 'Guest').slice(0, 32);
         const uuid = (localStorage.getItem('ns_friend_uuid') || '').trim().toLowerCase();
         const url = (localStorage.getItem('ns_friend_url') || '').trim();
-        const secret = (localStorage.getItem('ns_friend_secret') || '').trim().toLowerCase();
+        const pairCode = (localStorage.getItem('ns_friend_code') || localStorage.getItem('ns_friend_secret') || '').trim().toLowerCase();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) {
           if (res) res.textContent = I18N.t('Enter your Friend ID above — it is how the host verifies it is really you.');
           return;
         }
-        if (!/^[0-9a-f]{48}$/.test(secret)) {
+        if (!/^[0-9a-f]{48}$/.test(pairCode)) {
           if (res) res.textContent = I18N.t('Enter the pairing code the host gave you — it proves this Friend ID is really yours.');
           return;
         }
@@ -4236,7 +4238,7 @@
         if (res) res.textContent = I18N.t('Pinging...');
         try {
           const ts = Date.now();
-          const sig = await hmacSign(secret, [uuid, ts, url].join(':'));
+          const sig = await hmacSign(pairCode, [uuid, ts, url].join(':'));
           const r = await fetch('/api/ping', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4286,9 +4288,16 @@
       function updatePreview() {
         if (!namePreview) return;
         const n = nameInput.value.trim() || localStorage.getItem('ns_name') || 'Guest';
-        namePreview.innerHTML = '<span style="color:' + saved + ';font-weight:700;">' + n.replace(/</g, '&lt;') + '</span> will appear in chat';
+        namePreview.textContent = '';
+        const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(saved) ? saved : '#43b581';
+        const span = document.createElement('span');
+        span.style.color = safeColor;
+        span.style.fontWeight = '700';
+        span.textContent = n;
+        namePreview.appendChild(span);
+        namePreview.appendChild(document.createTextNode(' will appear in chat'));
         const joinBtn = document.querySelector('.pin-submit-btn');
-        if (joinBtn) joinBtn.style.background = saved;
+        if (joinBtn) joinBtn.style.background = safeColor;
       }
 
       nameInput.value = savedName;
@@ -4308,11 +4317,23 @@
       root.style.setProperty('--accent-glow', `rgba(${r0},${g0},${b0},0.35)`);
       updatePreview();
       function renderFreq() {
-        const picker = profileClr;
-        const dot = (c, a) => '<button class="clr-freq' + (c === a ? ' active' : '') + '" data-clr="' + c + '" style="background:' + c + '" onclick="window.setColor(\'' + c + '\')"></button>';
-        const all = [saved].concat(freq.filter(c => c !== saved));
-        if (freqContainer) freqContainer.innerHTML = all.slice(0, 7).map(c => dot(c, saved)).join('');
-        if (profileFreq) profileFreq.innerHTML = all.slice(0, 7).map(c => dot(c, saved)).join('');
+        const safeSaved = /^#[0-9a-fA-F]{3,8}$/.test(saved) ? saved : '#43b581';
+        const cleanFreq = Array.isArray(freq) ? freq.filter(c => /^#[0-9a-fA-F]{3,8}$/.test(c)) : [];
+        const all = [safeSaved].concat(cleanFreq.filter(c => c !== safeSaved)).slice(0, 7);
+        const populate = (container) => {
+          if (!container) return;
+          container.textContent = '';
+          for (const c of all) {
+            const btn = document.createElement('button');
+            btn.className = 'clr-freq' + (c === safeSaved ? ' active' : '');
+            btn.dataset.clr = c;
+            btn.style.background = c;
+            btn.addEventListener('click', () => window.setColor(c));
+            container.appendChild(btn);
+          }
+        };
+        populate(freqContainer);
+        populate(profileFreq);
       }
 
       function syncName(val) {
