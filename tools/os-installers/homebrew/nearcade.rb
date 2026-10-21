@@ -1,8 +1,8 @@
 cask "nearcade" do
-  version "3.0.5"
-  sha256 "UPDATE_ME_WITH_DMG_SHA256"
+  version "3.0.7"
+  sha256 "cda65e06c1df797a0a820509e3b86b49e0cd461a127d6dfabdd066a0d5ef61bb"
 
-  url "https://github.com/TheRealFame/Nearcade/releases/download/v#{version}/Nearcade-#{version}-universal.dmg"
+  url "https://github.com/TheRealFame/Nearcade/releases/download/v3.0.7-bug-fixes/Nearcade-#{version}-universal.dmg"
   name "Nearcade"
   desc "Browser-based game streaming host — low-latency remote play"
   homepage "https://nearcade.cutefame.net"
