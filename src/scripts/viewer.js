@@ -142,7 +142,7 @@ function _requestOffer(reason) {
         console.warn(`[WebRTC] Offer budget spent (${reason}). Parking on overlay with manual retry.`);
         setStatus('Connection is taking longer than expected — tap anywhere to retry');
         showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
         const overlay = document.getElementById('overlay');
         if (overlay && !overlay._nsRetryWired) {
             overlay._nsRetryWired = true;
@@ -270,7 +270,7 @@ standbyWs.onmessage = (e) => {
         const pinScreen = document.getElementById('pinScreen');
         if (pinScreen && !pinScreen.classList.contains('gone')) return;
         showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
         setStatus('Host is not sharing their screen yet...');
         const sp = document.getElementById('spinner'); if (sp) sp.style.display = 'none';
         
@@ -526,7 +526,7 @@ function _ensureUpscaleCanvas() {
     if (!upscalerCanvas) {
         upscalerCanvas = document.createElement('canvas');
         upscalerCanvas.id = 'upscale-canvas';
-        upscalerCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 11; display: block; overflow: hidden; pointer-events: none;';
+        upscalerCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center center; position: absolute; inset: 0; margin: auto; z-index: 11; display: block; overflow: hidden; pointer-events: none;';
         document.getElementById('video-container')?.appendChild(upscalerCanvas) ?? document.body.appendChild(upscalerCanvas);
         
         upscalerCtx = upscalerCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
@@ -922,6 +922,7 @@ async function createPC() {
                     }
                     videoEl.onplaying = () => {
                         if (typeof showOverlay === 'function') showOverlay(false);
+                        updateAndroidImmersive(true);
                         setStatus('');
                         const spinner = document.getElementById('spinner');
                         if (spinner) spinner.style.display = 'none';
@@ -1413,6 +1414,7 @@ function startFrameProcessor(track) {
         video.srcObject.addTrack(track);
         video.onplaying = () => {
             showOverlay(false); setStatus('Live', true);
+            updateAndroidImmersive(true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             if (window.kbmHintEnabled) document.getElementById('kbmHint').style.display = 'inline';
@@ -1449,6 +1451,7 @@ function startFrameProcessor(track) {
         if (firstFrame) {
             firstFrame = false;
             showOverlay(false); setStatus('Live', true);
+            updateAndroidImmersive(true);
             document.getElementById('spinner').style.display = 'none';
             document.getElementById('gpPrompt').classList.add('gone');
             if (window.kbmHintEnabled) document.getElementById('kbmHint').style.display = 'inline';
@@ -1460,7 +1463,7 @@ function startFrameProcessor(track) {
     track.addEventListener('ended', () => {
         processorRunning = false;
         frameCanvas.style.display = 'none';
-        video.style.opacity = '1'; video.style.position = 'static'; video.style.pointerEvents = 'auto';
+        video.style.opacity = '1'; video.style.position = 'absolute'; video.style.pointerEvents = 'auto';
     });
 }
 
@@ -2717,7 +2720,7 @@ async function connect() {
         if (typeof setStatus === 'function') setStatus('Discovering host via P2P network...');
         if (document.getElementById('spinner')) document.getElementById('spinner').style.display = 'block';
         if (typeof showOverlay === 'function') showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
         
         // Provide progressive feedback for long P2P discovery times
         window._p2pProgression1 = setTimeout(() => {
@@ -3090,7 +3093,7 @@ async function connect() {
             if (pinScreen && !pinScreen.classList.contains('gone')) return;
             
             showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             setStatus('Host is not sharing their screen yet...');
             const sp = document.getElementById('spinner'); if (sp) sp.style.display = 'none';
 
@@ -3116,6 +3119,7 @@ async function connect() {
             }
             _nsHostConnected = true;
             window._nsHostConnected = true; document.body.setAttribute('data-connected', 'true');
+            updateAndroidImmersive(true);
             window.sessionEndedByHost = false; // Reset session ended state
             _resetOfferBudget(); // new host session = new offer budget
             if (pc) { try { pc.close(); } catch { } pc = null; }
@@ -3144,7 +3148,7 @@ async function connect() {
     </div>`;
             }
             showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             
             const sfOld = document.getElementById('_nsStandbyFrame');
             if (sfOld) sfOld.style.display = 'none';
@@ -3328,6 +3332,7 @@ async function connect() {
         if (msg.type === 'host-stream-ready') {
             _nsHostConnected = true;
             window._nsHostConnected = true; document.body.setAttribute('data-connected', 'true');
+            updateAndroidImmersive(true);
             const sf = document.getElementById('_nsStandbyFrame');
             if (sf) sf.style.display = 'none';
             window.nsWaitKey = true;
@@ -3399,6 +3404,7 @@ async function connect() {
         if (msg.type === 'host-disconnected') {
             _nsHostConnected = false;
             window._nsHostConnected = false; document.body.setAttribute('data-connected', 'false');
+            updateAndroidImmersive(false);
             window.sessionEndedByHost = true;
             _freezeFrameForSwap();
 
@@ -3419,7 +3425,7 @@ async function connect() {
             }
             
             showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             const sp = document.getElementById('spinner');
             if (sp) sp.style.display = 'none';
 
@@ -3444,6 +3450,7 @@ async function connect() {
         if (msg.type === 'host-stream-stopped') {
             _nsHostConnected = false;
             window._nsHostConnected = false; document.body.setAttribute('data-connected', 'false');
+            updateAndroidImmersive(false);
             _freezeFrameForSwap();
 
             if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
@@ -3459,7 +3466,7 @@ async function connect() {
             }
             
             showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             const sp = document.getElementById('spinner');
             if (sp) sp.style.display = 'none';
 
@@ -3487,7 +3494,7 @@ async function connect() {
 
         if (msg.type === 'session-full') {
             showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
             setStatus(`Session full — ${msg.reason || 'maximum players reached'}`);
             const sp2 = document.getElementById('spinner'); if (sp2) sp2.style.display = 'none';
             if (pc) { pc.close(); pc = null; }
@@ -3520,7 +3527,7 @@ async function connect() {
         }
         if (msg.type === 'host-not-streaming') {
             showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = ''; setStatus('Host is not sharing their screen yet...');
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = ''; setStatus('Host is not sharing their screen yet...');
             const sp3 = document.getElementById('spinner'); if (sp3) sp3.style.display = 'none';
             if (pc) { pc.close(); pc = null; }
             video.srcObject = null; return;
@@ -3857,6 +3864,7 @@ window.submitPin = function submitPin() {
     enteredPin = val;
     document.getElementById('pinErr').textContent = '';
     document.getElementById('pinScreen').classList.add('gone');
+    updateAndroidImmersive(true);
     safeApiJson('/api/info', {}).then(d => {
         if (d.version) {
           const vA = String(CLIENT_VERSION).split('.')[0];
@@ -4557,14 +4565,36 @@ function initLatencyOverlay() {
     requestAnimationFrame(_latencyLoop);
 }
 
-document.addEventListener('DOMContentLoaded', initLatencyOverlay);
+document.addEventListener('DOMContentLoaded', () => {
+    initLatencyOverlay();
+    if (window.AndroidClipboard) {
+        const immBtn = document.getElementById('immersiveBtn');
+        if (immBtn) immBtn.style.display = 'none';
+    }
+});
 
-// -- FULLSCREEN ----------------------------------------------------------------
+// -- FULLSCREEN & IMMERSIVE ----------------------------------------------------
+function updateAndroidImmersive(active) {
+    window._androidImmersive = !!active;
+    if (window.AndroidClipboard && typeof window.AndroidClipboard.setImmersive === 'function') {
+        window.AndroidClipboard.setImmersive(!!active);
+    }
+    const immBtn = document.getElementById('immersiveBtn');
+    if (immBtn && window.AndroidClipboard) {
+        immBtn.style.display = 'none';
+    }
+}
+
 function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
 function toggleFS() {
+    if (window.AndroidClipboard && typeof window.AndroidClipboard.setImmersive === 'function') {
+        updateAndroidImmersive(!window._androidImmersive);
+    }
     if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().then(landscape).catch(() => { });
-    } else { document.exitFullscreen(); }
+    } else {
+        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    }
 }
 document.addEventListener('fullscreenchange', () => {
     if (document.fullscreenElement) landscape();
@@ -4727,7 +4757,7 @@ function _startViewerConnectionWatchdog() {
                 if (pc && pc.connectionState === 'connected') {
                     setStatus('Connected — waiting for host video…');
                     showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
                 }
             } catch (_) {}
             
@@ -4735,7 +4765,7 @@ function _startViewerConnectionWatchdog() {
                 console.error('[Viewer Watchdog] sustained stall — parking on overlay, quiet P2P retry continues. NEVER reloading.');
                 setStatus('Connection is taking longer than expected — tap anywhere to retry');
                 showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
                 _scheduleQuietP2PRetry();
                 _viewerConnectionStallCount = 0; // keep watching; WS fallback carries video meanwhile
             }
@@ -4935,7 +4965,7 @@ async function initWebCodecsViewer(config) {
     // receipt left users staring at a black page. The overlay keeps its
     // ORIGINAL text ("Waiting for host..." / "Connecting...") — never renamed.
     if (typeof showOverlay === 'function') showOverlay(true);
-            if (window.electronAPI && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
+            if ((window.electronAPI || window.AndroidClipboard) && document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = '';
     const spinner = document.getElementById('spinner');
     if (spinner) spinner.style.display = 'block';
 
@@ -4943,7 +4973,7 @@ async function initWebCodecsViewer(config) {
         wcCanvas = document.createElement('canvas');
         wcCanvas.id = 'webcodecs-canvas';
         // Add CSS so the stream scales to fit the viewport instead of overflowing
-        wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100vw; max-height: 100vh; object-fit: contain; position: absolute; top: 0; left: 0; z-index: 10; display: block; overflow: hidden;';
+        wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center center; position: absolute; inset: 0; margin: auto; z-index: 10; display: block; overflow: hidden;';
         document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
         
         // Ensure KBM pointer lock works on the experimental WebCodecs canvas
@@ -5009,8 +5039,8 @@ async function initWebCodecsViewer(config) {
     // JS Containment rule to forcefully prevent 4K frame overflows
     window._wcResizeHandler = () => {
         if (wcCanvas) {
-            wcCanvas.style.maxWidth = window.innerWidth + 'px';
-            wcCanvas.style.maxHeight = window.innerHeight + 'px';
+            wcCanvas.style.maxWidth = '100%';
+            wcCanvas.style.maxHeight = '100%';
         }
     };
     window.addEventListener('resize', window._wcResizeHandler);
@@ -5056,6 +5086,7 @@ async function initWebCodecsViewer(config) {
                 _wcFirstFrame = false;
                 if (typeof showOverlay === 'function') showOverlay(false);
                 if (typeof setStatus === 'function') setStatus('Live', true);
+                updateAndroidImmersive(true);
                 if (spinner) spinner.style.display = 'none';
                 if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
                     _swapOverlayEl.style.display = 'none';

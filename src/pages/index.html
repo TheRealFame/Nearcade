@@ -252,43 +252,41 @@
     /* ─── VIDEO LAYER (always full-screen behind everything) ────────────── */
     #video-container {
       position: fixed;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: 0;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       background: #000;
       z-index: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #video,
+    #frameCanvas,
+    #webcodecs-canvas,
+    #upscale-canvas,
+    canvas[id*="gpuCanvas"] {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      object-position: center center;
     }
 
     #video {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
       display: block;
     }
 
-    #frameCanvas {
+    #frameCanvas,
+    #webcodecs-canvas,
+    #upscale-canvas {
       display: none;
-      position: fixed;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-    }
-
-    #webcodecs-canvas {
-      display: none;
-      position: fixed;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
       background: #000;
       z-index: 1;
     }
