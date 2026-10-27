@@ -178,6 +178,22 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public String getSystemAccentColor() {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    int color = getColor(android.R.color.system_accent1_500);
+                    return String.format("#%06X", (0xFFFFFF & color));
+                } else {
+                    android.util.TypedValue typedValue = new android.util.TypedValue();
+                    if (getTheme().resolveAttribute(android.R.attr.colorAccent, typedValue, true)) {
+                        return String.format("#%06X", (0xFFFFFF & typedValue.data));
+                    }
+                }
+            } catch (Exception ignored) {}
+            return "";
+        }
+
+        @JavascriptInterface
         public void setImmersive(final boolean enabled) {
             applyImmersiveMode(enabled);
         }

@@ -1347,6 +1347,82 @@
       pointer-events: auto;
     }
 
+    /* ─── SIDEBAR SWIPE HINT (Mobile / Touch) ───────────────────────────── */
+    .sidebar-hint {
+      position: fixed;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 290;
+      pointer-events: auto;
+      cursor: pointer;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .sidebar-hint.visible {
+      display: block;
+      opacity: 1;
+    }
+
+    .sidebar-hint.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .sidebar-hint-inner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      background: rgba(14, 16, 24, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-right: none;
+      border-radius: 20px 0 0 20px;
+      padding: 10px 6px 10px 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px var(--accent-glow, rgba(6, 182, 212, 0.35));
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .hint-chevron {
+      font-size: 20px;
+      line-height: 1;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.4);
+      display: inline-block;
+      animation: hintChevronPulse 1.8s infinite ease-in-out;
+    }
+
+    .hint-chevron.c1 {
+      animation-delay: 0s;
+    }
+
+    .hint-chevron.c2 {
+      animation-delay: 0.25s;
+    }
+
+    .hint-chevron.c3 {
+      animation-delay: 0.5s;
+    }
+
+    @keyframes hintChevronPulse {
+      0%, 100% {
+        color: rgba(255, 255, 255, 0.35);
+        transform: translateX(0);
+        text-shadow: none;
+      }
+      50% {
+        color: var(--accent2, #22d3ee);
+        transform: translateX(-4px);
+        text-shadow: 0 0 8px var(--accent-glow, rgba(6, 182, 212, 0.8));
+      }
+    }
+
     #nsBarInner {
       width: 220px;
       max-height: 100vh;
@@ -1906,16 +1982,9 @@
     #touchUI .controls-left,
     #touchUI .controls-right {
       position: absolute;
-      /* Best-guess fix: bottom:4vh alone (~34px on a typical portrait phone)
-         sits inside or right against the OS gesture-bar / home-indicator
-         exclusion zone on the bottom edge. That zone intercepts touches
-         silently — no visual feedback, matches the "acts dead" symptom.
-         In landscape the gesture bar sits on a side edge instead, out of
-         this box's way, which is why only portrait was affected. Adding
-         the safe-area inset pushes the whole control zone clear of it. */
-      bottom: calc(4vh + env(safe-area-inset-bottom, 0px));
+      bottom: calc(6vh + env(safe-area-inset-bottom, 8px));
       width: 38vw;
-      height: 42vh;
+      height: 44vh;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1931,11 +2000,11 @@
 
     #touchUI .joystick-base {
       position: relative;
-      width: min(30vw, 180px);
-      height: min(30vw, 180px);
+      width: min(30vw, 36vh, 180px);
+      height: min(30vw, 36vh, 180px);
       border-radius: 50%;
       background: rgba(20, 20, 28, 0.45);
-      border: 2px solid rgba(139, 92, 246, 0.25);
+      border: 2px solid rgba(var(--touch-accent-rgb, 139, 92, 246), 0.35);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1945,67 +2014,62 @@
       width: 42%;
       height: 42%;
       border-radius: 50%;
-      background: rgba(139, 92, 246, 0.25);
-      border: 2px solid rgba(139, 92, 246, 0.4);
-      box-shadow: 0 0 16px var(--accent-glow);
+      background: rgba(var(--touch-accent-rgb, 139, 92, 246), 0.3);
+      border: 2px solid rgba(var(--touch-accent-rgb, 139, 92, 246), 0.65);
+      box-shadow: 0 0 16px var(--touch-accent-glow, rgba(139, 92, 246, 0.4));
       transition: transform 0.05s linear;
     }
 
     #touchUI .buttons {
       position: relative;
-      width: min(34vw, 260px);
-      height: min(34vw, 260px);
+      width: min(32vw, 38vh, 220px);
+      height: min(32vw, 38vh, 220px);
     }
 
     #touchUI .button {
       position: absolute;
-      width: min(14vw, 78px);
-      height: min(14vw, 78px);
+      width: min(10.5vw, 12vh, 62px);
+      height: min(10.5vw, 12vh, 62px);
       border-radius: 50%;
       border: none;
-      /* Best-guess fix (backed by real Chromium bug reports on nested/repeated
-         backdrop-filter recalculation, and confirmed against a working MIT
-         reference touch-gamepad implementation that uses plain box-shadow
-         for its pressed state, not blur+transform): dropped backdrop-filter
-         entirely and switched to a solid, higher-contrast background so the
-         buttons (a) can't get stuck in a broken GPU compositing state after
-         many rapid taps, and (b) stay visible over bright/white game scenes
-         instead of nearly disappearing. */
       background: rgba(20, 20, 28, 0.55);
       border: 2px solid rgba(255, 255, 255, 0.35);
       color: white;
-      font-size: clamp(16px, 2vw, 24px);
+      font-size: clamp(14px, 2.6vh, 20px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     #touchUI .button:active {
-      box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.45);
-      background: rgba(139, 92, 246, 0.35);
+      box-shadow: 0 0 0 4px var(--touch-accent-glow, rgba(139, 92, 246, 0.45));
+      background: rgba(var(--touch-accent-rgb, 139, 92, 246), 0.35);
     }
 
     #touchUI .y {
-      top: 0;
-      left: calc(50% - min(7vw, 39px));
+      top: 4px;
+      left: calc(50% - min(5.25vw, 6vh, 31px));
     }
 
     #touchUI .x {
-      left: 0;
-      top: calc(50% - min(7vw, 39px));
+      left: 4px;
+      top: calc(50% - min(5.25vw, 6vh, 31px));
     }
 
     #touchUI .b {
-      right: 0;
-      top: calc(50% - min(7vw, 39px));
+      right: 4px;
+      top: calc(50% - min(5.25vw, 6vh, 31px));
     }
 
     #touchUI .a {
-      bottom: 0;
-      left: calc(50% - min(7vw, 39px));
+      bottom: 4px;
+      left: calc(50% - min(5.25vw, 6vh, 31px));
     }
 
     #touchUI .dpad {
       position: absolute;
-      width: min(34vw, 220px);
-      height: min(34vw, 220px);
+      width: min(32vw, 38vh, 220px);
+      height: min(32vw, 38vh, 220px);
     }
 
     #touchUI .dpad-btn {
@@ -2019,8 +2083,8 @@
     }
 
     #touchUI .dpad-btn:active {
-      background: rgba(139, 92, 246, 0.35);
-      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.45);
+      background: rgba(var(--touch-accent-rgb, 139, 92, 246), 0.35);
+      box-shadow: 0 0 0 3px var(--touch-accent-glow, rgba(139, 92, 246, 0.45));
     }
 
     #touchUI .up {
@@ -3351,6 +3415,15 @@
   </div>
 
 
+
+  <!-- ════ SIDEBAR SWIPE HINT (Mobile / Touch) ════ -->
+  <div id="sidebarHint" class="sidebar-hint" onclick="openSidebarFromHint()" title="Swipe or tap to open menu">
+    <div class="sidebar-hint-inner">
+      <span class="hint-chevron c1">&#x2039;</span>
+      <span class="hint-chevron c2">&#x2039;</span>
+      <span class="hint-chevron c3">&#x2039;</span>
+    </div>
+  </div>
 
   <!-- ════ SLIDE-OUT CONTROL BAR ════ -->
   <div id="nsBar">

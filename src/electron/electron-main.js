@@ -439,14 +439,15 @@ async function createWindow() {
   const port = await startServer();
   console.log('[electron] server ready on port', port);
 
-  const safeW = (typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280;
-  const safeH = (typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800;
+  const isPortrait = process.argv.includes('-portrait') || process.argv.includes('--portrait');
+  const safeW = isPortrait ? 420 : ((typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280);
+  const safeH = isPortrait ? 880 : ((typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800);
 
   win = new BrowserWindow({
-    width: Math.max(safeW, 600),
-    height: Math.max(safeH, 500),
-    minWidth: 600,
-    minHeight: 500,
+    width: isPortrait ? 420 : Math.max(safeW, 600),
+    height: isPortrait ? 880 : Math.max(safeH, 500),
+    minWidth: isPortrait ? 320 : 600,
+    minHeight: isPortrait ? 480 : 500,
     title: 'Nearcade',
     icon: path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'),
     backgroundColor: require('electron').nativeTheme.shouldUseDarkColors ? '#111111' : '#e2e8f0',
@@ -508,10 +509,11 @@ async function createWindow() {
     win.loadURL(`http://localhost:${port}/host?auto=1&title=${encodeURIComponent(gameName)}&tunnel=${encodeURIComponent(tunnelProv)}`);
   } else {
     // Show setup wizard on first run instead of dashboard
+    const pParam = isPortrait ? (settings.firstRunComplete && !settings.neverBotherSetup ? '&portrait=1' : '?portrait=1') : '';
     if (!settings.firstRunComplete && !settings.neverBotherSetup) {
-      win.loadURL(`http://localhost:${port}/setup`);
+      win.loadURL(`http://localhost:${port}/setup${pParam}`);
     } else {
-      win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
+      win.loadURL(`http://localhost:${port}/dashboard?port=${port}${pParam}`);
     }
   }
 

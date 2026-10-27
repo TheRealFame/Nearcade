@@ -395,7 +395,13 @@ let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
 let useVps = false;
 let myName = localStorage.getItem('ns_name') || urlParamsGlobal.get('name') || '';
-document.getElementById("nameInput").value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
+const nameInputEl = document.getElementById("nameInput");
+if (nameInputEl) {
+    nameInputEl.value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
+    nameInputEl.addEventListener('input', (e) => {
+        updateJoystickTheme(e.target.value);
+    });
+}
 if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 
 (function checkSecureContext() {
@@ -1767,7 +1773,146 @@ function toggleTouch() {
     const btn = document.getElementById('vTouchToggle');
     if (btn) { if (touchMode) btn.classList.add('on'); else btn.classList.remove('on'); }
     document.getElementById('nsBar').classList.remove('open');
+    if (touchMode) {
+        updateJoystickTheme(myName || document.getElementById('nameInput')?.value);
+        showSidebarHint();
+    }
 }
+
+// ── DYNAMIC JOYSTICK THEME (Personalized by Player Name) ─────────────────────
+function getColorFromName(name) {
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return { hex: '#8b5cf6', rgb: '139, 92, 246', glow: 'rgba(139, 92, 246, 0.45)' };
+    }
+    const clean = name.trim().toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < clean.length; i++) {
+        hash = clean.charCodeAt(i) + ((hash << 5) - hash);
+        hash |= 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    const sat = 82;
+    const light = 58;
+    const c = (1 - Math.abs(2 * (light / 100) - 1)) * (sat / 100);
+    const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+    const m = (light / 100) - c / 2;
+    let r1 = 0, g1 = 0, b1 = 0;
+    if (hue < 60) { r1 = c; g1 = x; }
+    else if (hue < 120) { r1 = x; g1 = c; }
+    else if (hue < 180) { g1 = c; b1 = x; }
+    else if (hue < 240) { g1 = x; b1 = c; }
+    else if (hue < 300) { r1 = x; b1 = c; }
+    else { r1 = c; b1 = x; }
+    const r = Math.round((r1 + m) * 255);
+    const g = Math.round((g1 + m) * 255);
+    const b = Math.round((b1 + m) * 255);
+    const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    return {
+        hex,
+        rgb: `${r}, ${g}, ${b}`,
+        glow: `rgba(${r}, ${g}, ${b}, 0.45)`
+    };
+}
+
+function updateJoystickTheme(name) {
+    const color = getColorFromName(name);
+    const touchEl = document.getElementById('touchUI');
+    if (touchEl) {
+        touchEl.style.setProperty('--touch-accent', color.hex);
+        touchEl.style.setProperty('--touch-accent-rgb', color.rgb);
+        touchEl.style.setProperty('--touch-accent-glow', color.glow);
+    }
+}
+
+// ── SIDEBAR SWIPE HINT & EDGE GESTURES ────────────────────────────────────────
+let _sidebarHintTimer = null;
+function showSidebarHint() {
+    const hint = document.getElementById('sidebarHint');
+    if (!hint) return;
+    try {
+        if (localStorage.getItem('nearcade_sidebar_hint_seen') === 'true') return;
+    } catch (_) {}
+    const isTouchUser = isMobileDevice || urlParamsGlobal.has('portrait') || ('ontouchstart' in window);
+    if (!isTouchUser) return;
+
+    hint.classList.remove('gone', 'fade-out');
+    hint.classList.add('visible');
+
+    if (_sidebarHintTimer) clearTimeout(_sidebarHintTimer);
+    _sidebarHintTimer = setTimeout(() => {
+        dismissSidebarHint(false);
+    }, 3500);
+}
+
+function dismissSidebarHint(permanently) {
+    const hint = document.getElementById('sidebarHint');
+    if (hint) {
+        hint.classList.add('fade-out');
+        setTimeout(() => {
+            hint.classList.remove('visible', 'fade-out');
+            hint.classList.add('gone');
+        }, 400);
+    }
+    if (permanently) {
+        try { localStorage.setItem('nearcade_sidebar_hint_seen', 'true'); } catch (_) {}
+    }
+}
+
+window.openSidebarFromHint = function() {
+    const bar = document.getElementById('nsBar');
+    if (bar) bar.classList.add('open');
+    dismissSidebarHint(true);
+};
+
+// Edge swipe listener for opening/closing #nsBar on touch devices
+(function initSidebarSwipeListener() {
+    let startX = 0, startY = 0, trackingEdge = false, trackingBar = false;
+    document.addEventListener('touchstart', (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        startX = touch.clientX;
+        startY = touch.clientY;
+        const screenW = window.innerWidth;
+        // Edge zone: rightmost 75px
+        trackingEdge = (startX >= screenW - 75);
+        const bar = document.getElementById('nsBar');
+        trackingBar = bar && bar.classList.contains('open') && (startX >= screenW - 380);
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+        if (!e.changedTouches || e.changedTouches.length !== 1) return;
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - startX;
+        const dy = touch.clientY - startY;
+
+        // Swiping left from right edge opens sidebar
+        if (trackingEdge && dx < -35 && Math.abs(dy) < 70) {
+            const bar = document.getElementById('nsBar');
+            if (bar) {
+                bar.classList.add('open');
+                dismissSidebarHint(true);
+            }
+        }
+        // Swiping right while sidebar is open closes it
+        else if (trackingBar && dx > 40 && Math.abs(dy) < 80) {
+            const bar = document.getElementById('nsBar');
+            if (bar) bar.classList.remove('open');
+        }
+        trackingEdge = false;
+        trackingBar = false;
+    }, { passive: true });
+
+    // Close #nsBar if tapping outside it while open
+    document.addEventListener('click', (e) => {
+        const bar = document.getElementById('nsBar');
+        const hint = document.getElementById('sidebarHint');
+        if (bar && bar.classList.contains('open')) {
+            if (!bar.contains(e.target) && (!hint || !hint.contains(e.target))) {
+                bar.classList.remove('open');
+            }
+        }
+    });
+})();
 
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 if (isMobileDevice) {
@@ -1777,6 +1922,7 @@ if (isMobileDevice) {
         const tBtn = document.getElementById('touchToggleBtn');
         if (tUI) tUI.classList.remove('gone');
         if (tBtn) { tBtn.classList.add('ns-btn-active'); tBtn.textContent = 'Touch UI: ON'; }
+        updateJoystickTheme(myName || document.getElementById('nameInput')?.value);
     });
     // NOTE: Do NOT call activateGamepad() here — it would set gpStateObj.lastActiveId
     // before ws is open, causing the gpid announcement to never be sent to the host.
@@ -3333,6 +3479,7 @@ async function connect() {
             _nsHostConnected = true;
             window._nsHostConnected = true; document.body.setAttribute('data-connected', 'true');
             updateAndroidImmersive(true);
+            showSidebarHint();
             const sf = document.getElementById('_nsStandbyFrame');
             if (sf) sf.style.display = 'none';
             window.nsWaitKey = true;
@@ -3856,6 +4003,8 @@ window.submitPin = function submitPin() {
     }
     const nameVal = document.getElementById('nameInput').value.trim();
     if (nameVal) { myName = nameVal; localStorage.setItem('ns_name', myName); }
+    updateJoystickTheme(myName);
+    showSidebarHint();
     const val = document.getElementById('pinInput').value.trim();
     if (pinRequired && val.length === 0) {
         document.getElementById('pinErr').textContent = 'PIN / Password required';
@@ -5087,6 +5236,7 @@ async function initWebCodecsViewer(config) {
                 if (typeof showOverlay === 'function') showOverlay(false);
                 if (typeof setStatus === 'function') setStatus('Live', true);
                 updateAndroidImmersive(true);
+                showSidebarHint();
                 if (spinner) spinner.style.display = 'none';
                 if (typeof _swapOverlayEl !== 'undefined' && _swapOverlayEl) {
                     _swapOverlayEl.style.display = 'none';

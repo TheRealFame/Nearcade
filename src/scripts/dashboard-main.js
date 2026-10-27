@@ -413,13 +413,39 @@ async function applySystemAccent() {
     }
   };
 
-  if (!window.electronAPI || !useAccent) {
+  if (!useAccent) {
     applyDefault();
     return;
   }
   try {
-    const accent = await window.electronAPI.getAccentColor();
+    let accent = null;
+    if (window.electronAPI && typeof window.electronAPI.getAccentColor === 'function') {
+      try {
+        accent = await window.electronAPI.getAccentColor();
+      } catch (_) {}
+    }
+    if (!accent && window.AndroidClipboard && typeof window.AndroidClipboard.getSystemAccentColor === 'function') {
+      try {
+        accent = window.AndroidClipboard.getSystemAccentColor();
+      } catch (_) {}
+    }
     if (!accent) {
+      try {
+        const testEl = document.createElement('div');
+        testEl.style.color = 'AccentColor';
+        testEl.style.display = 'none';
+        document.head.appendChild(testEl);
+        const comp = getComputedStyle(testEl).color;
+        document.head.removeChild(testEl);
+        const m = comp && comp.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+        if (m) {
+          const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
+          if (hex !== '#000000' && hex !== '#ffffff') accent = hex;
+        }
+      } catch (_) {}
+    }
+
+    if (!accent || !/^#[0-9a-fA-F]{6}$/.test(accent)) {
       applyDefault();
       return;
     }

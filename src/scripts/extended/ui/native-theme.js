@@ -111,11 +111,10 @@
   // Self-sufficiency: pages that never visit the dashboard (host-first flows)
   // would otherwise sit on the CSS default forever when no stored color
   // exists. If nothing above applied an accent, ask the OS directly
-  // (Electron only) and persist it so every page heals.
+  // (Electron, Android Material You, or iOS system accent) and persist it.
   try {
-    if (!document.documentElement.dataset.nsAccent
-      && window.electronAPI && typeof window.electronAPI.getAccentColor === 'function') {
-      window.electronAPI.getAccentColor().then((accent) => {
+    if (!document.documentElement.dataset.nsAccent) {
+      const applyResolvedAccent = (accent) => {
         try {
           if (!accent || !/^#[0-9a-fA-F]{6}$/.test(accent)) return;
           const root = document.documentElement;
@@ -133,7 +132,29 @@
           root.dataset.nsAccent = '1';
           try { localStorage.setItem('ns_chat_color', accent); } catch (_) {}
         } catch (_) {}
-      }).catch(() => {});
+      };
+
+      if (window.electronAPI && typeof window.electronAPI.getAccentColor === 'function') {
+        window.electronAPI.getAccentColor().then(applyResolvedAccent).catch(() => {});
+      } else if (window.AndroidClipboard && typeof window.AndroidClipboard.getSystemAccentColor === 'function') {
+        const androidColor = window.AndroidClipboard.getSystemAccentColor();
+        if (androidColor) applyResolvedAccent(androidColor);
+      } else {
+        // iOS / WebKit system AccentColor probe
+        try {
+          const testEl = document.createElement('div');
+          testEl.style.color = 'AccentColor';
+          testEl.style.display = 'none';
+          document.head.appendChild(testEl);
+          const comp = getComputedStyle(testEl).color;
+          document.head.removeChild(testEl);
+          const m = comp && comp.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+          if (m) {
+            const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
+            if (hex !== '#000000' && hex !== '#ffffff') applyResolvedAccent(hex);
+          }
+        } catch (_) {}
+      }
     }
   } catch (_) {}
 })();
