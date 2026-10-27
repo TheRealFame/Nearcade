@@ -283,17 +283,30 @@ standbyWs.onmessage = (e) => {
 };
 standbyWs.onerror = () => { };
 
+window._joinAttempted = false;
+
 function _showTunnelApprovalNotice() {
+    if (!window._joinAttempted) return;
     if (document.getElementById('tunnelApprovalNotice')) return;
-    const notice = document.createElement('div');
-    notice.id = 'tunnelApprovalNotice';
-    notice.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(25,20,10,0.96);border:1px solid #f59e0b;color:#fef3c7;padding:12px 18px;border-radius:10px;font-family:sans-serif;font-size:12px;max-width:90vw;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.7);';
-    notice.innerHTML = `
-        <div style="font-weight:bold;margin-bottom:6px;color:#fbbf24;font-size:13px;">Tunnel Security Approval Required</div>
-        <div style="margin-bottom:8px;line-height:1.4;">Your tunnel provider requires a one-time domain confirmation before it allows stream connections.</div>
-        <button style="background:#f59e0b;color:#000;border:none;border-radius:6px;padding:6px 14px;font-weight:bold;cursor:pointer;font-size:12px;" onclick="window.open(window.location.origin, '_blank'); this.textContent = 'Approved? Reloading...'; setTimeout(() => window.location.reload(), 4000);">Approve in Browser &rarr;</button>
+    const modal = document.createElement('div');
+    modal.id = 'tunnelApprovalNotice';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);';
+    modal.innerHTML = `
+        <div style="background:#18181b;border:1px solid #f59e0b;color:#f4f4f5;padding:24px;border-radius:14px;max-width:420px;width:100%;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.8);font-family:sans-serif;">
+            <div style="font-weight:700;margin-bottom:8px;color:#fbbf24;font-size:16px;">Tunnel Approval Required</div>
+            <p style="margin:0 0 16px;color:#a1a1aa;font-size:13px;line-height:1.5;">This stream is hosted through a public tunnel (such as zrok) that requires a one-time domain confirmation before connecting.</p>
+            <div style="display:flex;gap:10px;justify-content:center;">
+                <button id="btnApproveTunnel" style="background:#f59e0b;color:#000;border:none;border-radius:8px;padding:10px 18px;font-weight:bold;cursor:pointer;font-size:13px;flex:1;">Open to Approve &rarr;</button>
+                <button id="btnDismissTunnel" style="background:transparent;color:#71717a;border:1px solid #3f3f46;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;">Cancel</button>
+            </div>
+        </div>
     `;
-    document.body.appendChild(notice);
+    document.body.appendChild(modal);
+    document.getElementById('btnDismissTunnel').onclick = () => modal.remove();
+    document.getElementById('btnApproveTunnel').onclick = () => {
+        window.open(window.location.origin, '_blank');
+        modal.remove();
+    };
 }
 
 async function safeApiJson(url, fallback) {
@@ -310,9 +323,9 @@ async function safeApiJson(url, fallback) {
         if (!ct.includes('application/json')) {
             try {
                 const text = await r.text();
-                if (text && (text.includes('zrok') || text.includes('interstitial') || text.includes('cloudflare') || text.includes('ngrok') || text.includes('Proceed') || text.includes('reminder'))) {
+                if (text && (text.includes('zrok') || text.includes('interstitial') || text.includes('cloudflare') || text.includes('ngrok') || text.includes('Proceed') || text.includes('reminder') || text.includes('Visit Share'))) {
                     window._tunnelInterstitialDetected = true;
-                    _showTunnelApprovalNotice();
+                    if (window._joinAttempted) _showTunnelApprovalNotice();
                 }
             } catch (_) {}
             return fallback;
@@ -3820,6 +3833,11 @@ async function connect() {
 })();
 
 window.submitPin = function submitPin() {
+    window._joinAttempted = true;
+    if (window._tunnelInterstitialDetected) {
+        _showTunnelApprovalNotice();
+        return;
+    }
     const nameVal = document.getElementById('nameInput').value.trim();
     if (nameVal) { myName = nameVal; localStorage.setItem('ns_name', myName); }
     const val = document.getElementById('pinInput').value.trim();
