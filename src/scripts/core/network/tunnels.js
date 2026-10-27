@@ -50,6 +50,7 @@ const which = require("which");
 let currentTunnelProc = null;
 let currentTunnelUrl = null;
 let currentTunnelProvider = null;
+let currentTunnelBypassCustomUrl = false;
 let currentZrokShareToken = null;
 // Every share token minted by this process (bounded). zrok hands out a NEW
 // random token per `share public`, so retries/timeouts orphan reservations
@@ -455,49 +456,65 @@ function startTunnelCloudflared(port, options = {}, retries = 2) {
       if (!cloudflaredPath) { resolve({ error: 'NOT_FOUND', provider: 'cloudflared' }); return; }
       ensureExecutable(cloudflaredPath);
 
-      if (options && options.cfToken && options.cfToken !== 'skip') {
-        saveCfToken(options.cfToken);
-      }
+      const bypassCustomUrl = !!(options && options.bypassCustomUrl);
 
-      let rawToken = readEnv('CF_TOKEN');
-      if (!rawToken && options && options.cfToken && options.cfToken !== 'skip') {
-          rawToken = typeof options.cfToken === 'string' ? options.cfToken : options.cfToken.token;
-      }
-      if (rawToken) {
-        console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Token)...");
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "run", "--token", rawToken], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-        const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
-        verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
-          if (ok) {
-            console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-            console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
-            resolve({ url, proc });
-          } else {
-            console.log("  \x1b[31m!\x1b[0m Custom domain did not serve our API — check the tunnel routing.");
-            try { proc.kill(); } catch (_) {}
-            resolve(null);
-          }
-        });
-        return;
-      }
+      if (!bypassCustomUrl) {
+        if (options && options.cfToken && options.cfToken !== 'skip') {
+          saveCfToken(options.cfToken);
+        }
 
-      const cfName = readEnv('CF_TUNNEL_NAME');
-      if (cfName) {
-        console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Locally Managed)...");
-        const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", cfName], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-        const url = (readEnv('CUSTOM_URL') || "https://your-custom-domain.com").replace(/\/$/, "") + '/?v3';
-        verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
-          if (ok) {
-            console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
-            console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
-            resolve({ url, proc });
-          } else {
-            console.log("  \x1b[31m!\x1b[0m Named tunnel did not serve our API — check `cloudflared tunnel info " + cfName + "`.");
-            try { proc.kill(); } catch (_) {}
-            resolve(null);
+        let rawToken = readEnv('CF_TOKEN');
+        if (!rawToken && options && options.cfToken && options.cfToken !== 'skip') {
+            rawToken = typeof options.cfToken === 'string' ? options.cfToken : options.cfToken.token;
+        }
+        if (rawToken) {
+          console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Token)...");
+          const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "run", "--token", rawToken], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+          currentTunnelProc = proc;
+          const customTarget = (options && options.customUrl) || readEnv('CUSTOM_URL') || "https://your-custom-domain.com";
+          let url = customTarget.trim().replace(/\/$/, "");
+          if (!url.includes('v3')) {
+            url += (url.includes('?') ? '&' : '?') + 'v3';
           }
-        });
-        return;
+          verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
+            if (ok) {
+              console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+              console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+              resolve({ url, proc, bypassCustomUrl: false });
+            } else {
+              console.log("  \x1b[31m!\x1b[0m Custom domain did not serve our API — check the tunnel routing.");
+              try { proc.kill(); } catch (_) {}
+              resolve(null);
+            }
+          });
+          return;
+        }
+
+        const cfName = readEnv('CF_TUNNEL_NAME');
+        if (cfName) {
+          console.log("  \x1b[33m~\x1b[0m Starting persistent Cloudflare tunnel (Locally Managed)...");
+          const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", cfName], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+          currentTunnelProc = proc;
+          const customTarget = (options && options.customUrl) || readEnv('CUSTOM_URL') || "https://your-custom-domain.com";
+          let url = customTarget.trim().replace(/\/$/, "");
+          if (!url.includes('v3')) {
+            url += (url.includes('?') ? '&' : '?') + 'v3';
+          }
+          verifyTunnelUrl(url, { tries: 3 }).then((ok) => {
+            if (ok) {
+              console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
+              console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
+              resolve({ url, proc, bypassCustomUrl: false });
+            } else {
+              console.log("  \x1b[31m!\x1b[0m Named tunnel did not serve our API — check `cloudflared tunnel info " + cfName + "`.");
+              try { proc.kill(); } catch (_) {}
+              resolve(null);
+            }
+          });
+          return;
+        }
+      } else {
+        console.log("  \x1b[33m~\x1b[0m Cloudflare: Custom domain / token BYPASS active. Forcing quick trycloudflare tunnel...");
       }
 
       console.log("  \x1b[33m~\x1b[0m Starting cloudflared tunnel...");
@@ -505,6 +522,7 @@ function startTunnelCloudflared(port, options = {}, retries = 2) {
       console.log("  \x1b[31m!\x1b[0m WARNING: Free Cloudflare tunnels (trycloudflare.com) are currently heavily restricted.");
 
       const proc = spawn(cloudflaredPath, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://127.0.0.1:" + port], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      currentTunnelProc = proc;
       let done = false, verifying = false;
       const check = data => {
         const m = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
@@ -519,11 +537,11 @@ function startTunnelCloudflared(port, options = {}, retries = 2) {
               clearTimeout(timeoutHandle);
               console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + url + "\x1b[0m");
               console.log("  \x1b[32m✓\x1b[0m Tunnel verified end-to-end.");
-              resolve({ url, proc });
+              resolve({ url, proc, bypassCustomUrl: true });
             } else {
               console.log("  \x1b[33m!\x1b[0m Edge is restricted (no our-server answer) — respawning for a clean edge...");
               try { proc.kill('SIGKILL'); } catch (_) {}
-              if (retries > 0) setTimeout(() => resolve(startTunnelCloudflared(port, retries - 1)), 2000);
+              if (retries > 0) setTimeout(() => resolve(startTunnelCloudflared(port, options, retries - 1)), 2000);
               else { done = true; clearTimeout(timeoutHandle); resolve(null); }
             }
           });
@@ -710,7 +728,7 @@ function startTunnelServeo(port) {
   });
 }
 
-function startTunnelZrok(port, retries = 3, token = '') {
+function startTunnelZrok(port, retries = 3, options = '') {
   return new Promise(async (resolve) => {
     // Reuse a still-alive zrok share instead of releasing it and being handed
     // a brand-new random token (zrok re-tokens every fresh public share).
@@ -747,6 +765,7 @@ function startTunnelZrok(port, retries = 3, token = '') {
     if (!zrokPath) { resolve({ error: 'NOT_FOUND', provider: 'zrok' }); return; }
     ensureExecutable(zrokPath);
 
+    const token = typeof options === 'string' ? options : (options && options.zrokToken ? options.zrokToken : '');
     if (token && token.toLowerCase() !== 'skip') {
       console.log(`  \x1b[33m~\x1b[0m Enabling Zrok with provided token...`);
       const enableProc = spawn(zrokPath, ['enable', token], { stdio: 'ignore' });
@@ -861,9 +880,14 @@ function startTunnelZrok(port, retries = 3, token = '') {
           .map((l) => l.replace(/[a-z0-9-]+\.shares?\.zrok\.io/gi, '[share]')
             .replace(/https?:\/\/\[share\]/gi, '[url]')).slice(-6);
         for (const line of tail) console.log("  \x1b[33m!\x1b[0m [zrok] " + line.slice(0, 300));
+        const isRateLimited = /status 429|service is busy|too many requests/i.test(_zrokErrBuf);
+        if (isRateLimited) {
+          console.log("  \x1b[31m!\x1b[0m zrok controller rate limited (HTTP 429 / service busy). Retries halted.");
+          return resolve({ error: 'RATE_LIMITED', provider: 'zrok', details: 'zrok.io rate limit reached (HTTP 429). The service is busy or account limits were exceeded.' });
+        }
         if (retries > 0) {
           console.log("  \x1b[33m~\x1b[0m Retrying Zrok tunnel in 3 seconds...");
-          setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+          setTimeout(() => resolve(startTunnelZrok(port, retries - 1, options)), 3000);
         } else {
           resolve(null);
         }
@@ -875,7 +899,7 @@ function startTunnelZrok(port, retries = 3, token = '') {
         try { proc.kill('SIGKILL'); } catch (_) {} // zrok ignores SIGTERM
         if (retries > 0) {
           console.log("  \x1b[33m~\x1b[0m Zrok timeout. Retrying in 3 seconds...");
-          setTimeout(() => resolve(startTunnelZrok(port, retries - 1)), 3000);
+          setTimeout(() => resolve(startTunnelZrok(port, retries - 1, options)), 3000);
         } else {
           resolve(null);
           console.log("  \x1b[33m!\x1b[0m zrok share timeout.");
@@ -1249,24 +1273,26 @@ function startTunnelWireguardDirect(port) {
 async function startTunnel(port, provider, options = {}) {
   if (!provider) provider = getLastProvider();
 
-  // If the SAME provider's tunnel is still alive, reuse it rather than killing
-  // the live share and being assigned a brand-new random URL (zrok re-tokens on
-  // every new share). This keeps viewers connecting to a stable address.
-  if (currentTunnelProc && currentTunnelProvider === provider && currentTunnelUrl) {
+  const wantBypass = !!(options && options.bypassCustomUrl);
+
+  // If the SAME provider's tunnel is still alive and has identical bypass mode,
+  // reuse it rather than killing the live share and being assigned a brand-new random URL.
+  if (currentTunnelProc && currentTunnelProvider === provider && currentTunnelUrl && (currentTunnelBypassCustomUrl === wantBypass)) {
     const alive = currentTunnelProc.exitCode === null &&
       !currentTunnelProc.killed &&
       (currentTunnelProc.signalCode === null || currentTunnelProc.signalCode === undefined);
     if (alive) {
       console.log(`  \x1b[33m~\x1b[0m Reusing already-running ${provider} tunnel (address unchanged).`);
-      return { url: currentTunnelUrl, proc: currentTunnelProc };
+      return { url: currentTunnelUrl, proc: currentTunnelProc, bypassCustomUrl: currentTunnelBypassCustomUrl };
     }
   }
 
   stopCurrentTunnel();
   currentTunnelProvider = provider; // provisionally claim, set a live URL below
+  currentTunnelBypassCustomUrl = wantBypass;
   if (provider) {
     const providerMap = {
-      zrok: (p) => startTunnelZrok(p, 3, options.zrokToken),
+      zrok: (p) => startTunnelZrok(p, 3, options),
       cloudflared: (p) => startTunnelCloudflared(p, options),
       playit: startTunnelPlayit,
       localhostrun: startTunnelLocalhostRun,
@@ -1284,12 +1310,27 @@ async function startTunnel(port, provider, options = {}) {
     };
     const fn = (typeof provider === 'string' && Object.prototype.hasOwnProperty.call(providerMap, provider))
       ? providerMap[provider]
-      : startTunnelAuto;
-    if (fn) { const r = await fn(port); if (r && r.url) { saveLastProvider(provider); currentTunnelProc = r.proc; currentTunnelUrl = r.url; currentTunnelProvider = provider; } return r; }
+      : ((p) => startTunnelAuto(p, options));
+    if (fn) {
+      const r = await fn(port);
+      if (r && r.url) {
+        saveLastProvider(provider);
+        currentTunnelProc = r.proc;
+        currentTunnelUrl = r.url;
+        currentTunnelProvider = provider;
+        currentTunnelBypassCustomUrl = !!r.bypassCustomUrl || wantBypass;
+      }
+      return r;
+    }
     return null;
   }
-  const r = await startTunnelAuto(port);
-  if (r && r.url) { currentTunnelProc = r.proc; currentTunnelUrl = r.url; currentTunnelProvider = r.provider || null; }
+  const r = await startTunnelAuto(port, options);
+  if (r && r.url) {
+    currentTunnelProc = r.proc;
+    currentTunnelUrl = r.url;
+    currentTunnelProvider = r.provider || null;
+    currentTunnelBypassCustomUrl = !!r.bypassCustomUrl || wantBypass;
+  }
   return r;
 }
 

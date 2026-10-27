@@ -769,12 +769,13 @@ function saveLangAndReload(val) {
   I18N.changeLanguage(val);
 }
 
-function saveHostName(val) {
 function saveCustomUrl(val) {
   appConfig.customUrl = val.trim();
   saveAppConfigToElectron();
   syncToNode();
 }
+
+function saveHostName(val) {
   appConfig.hostName = val.trim();
   // Sync to standard local storage so Arcade and Viewer immediately see it
   localStorage.setItem('ns_name', appConfig.hostName);
@@ -1977,6 +1978,9 @@ function openAutoHostTerminal() {
   const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
   if (isLinux) { const b = document.getElementById('btnOpenTerminal'); if (b) b.style.display = 'block'; }
   if (!isLinux) { const v = document.getElementById('settingRowVrMode'); if (v) v.style.display = 'none'; }
+  const isAndroid = navigator.userAgent.includes('Android') || (typeof window.Capacitor !== 'undefined' && window.Capacitor?.getPlatform() === 'android');
+  const androidRow = document.getElementById('settingRowAndroidExperimental');
+  if (androidRow && !isAndroid) androidRow.style.display = 'none';
 })();
 
 async function killGame() {

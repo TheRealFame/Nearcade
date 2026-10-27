@@ -5031,6 +5031,15 @@ function showTunnelModal(isManual) {
     document.querySelectorAll('.provider-card').forEach(c => {
         c.classList.toggle('selected', c.querySelector('input').checked);
     });
+
+    const bypassSaved = localStorage.getItem('cf_bypass_custom_url') !== null
+        ? localStorage.getItem('cf_bypass_custom_url') === 'true'
+        : (appSettings && appSettings.bypassCustomUrl === true);
+    const bypassCheck = document.getElementById('cfBypassCheck');
+    const bypassTrack = document.getElementById('cfBypassTrack');
+    if (bypassCheck) bypassCheck.checked = bypassSaved;
+    if (bypassTrack) bypassTrack.classList.toggle('on', bypassSaved);
+    if (typeof updateTunnelModalOptions === 'function') updateTunnelModalOptions();
 }
 
 // ── SAVING THE CAPTURE METHOD (PIPELINE) ──
@@ -5284,15 +5293,71 @@ function copyCmd(e, cmd, el = null) {
     }).catch(() => { try { if (el && el.dataset) el.dataset.copyBusy = '0'; } catch (_) {} });
 }
 
+function setCfBypassUI(checked) {
+    localStorage.setItem('cf_bypass_custom_url', checked ? 'true' : 'false');
+    const track = document.getElementById('cfBypassTrack');
+    if (track) track.classList.toggle('on', checked);
+    const check = document.getElementById('cfBypassCheck');
+    if (check) check.checked = checked;
+    saveAppConfig({ bypassCustomUrl: checked });
+}
+
+function toggleCfBypass(checked) {
+    setCfBypassUI(checked);
+}
+
+function toggleCfBypassUI() {
+    const check = document.getElementById('cfBypassCheck');
+    const current = check ? check.checked : (localStorage.getItem('cf_bypass_custom_url') === 'true');
+    setCfBypassUI(!current);
+}
+
+function updateTunnelModalOptions() {
+    const radio = document.querySelector('input[name="provider"]:checked');
+    const isCf = radio && radio.value === 'cloudflared';
+    const cfRow = document.getElementById('cfBypassRow');
+    if (cfRow) cfRow.style.display = isCf ? 'flex' : 'none';
+}
+
 function confirmTunnel() {
     if (_tunnelBusy) return;
     const radio = document.querySelector('input[name="provider"]:checked');
     if (!radio) return;
     const provider = radio.value;
     const remember = document.getElementById('rememberCheck').checked;
+    const bypassCheck = document.getElementById('cfBypassCheck');
+    const bypassCustomUrl = bypassCheck ? bypassCheck.checked : (localStorage.getItem('cf_bypass_custom_url') === 'true');
     setTunnelBusy(true);
 
-    if (provider === 'zrok' || provider === 'cloudflared') {
+    if (provider === 'cloudflared') {
+        if (bypassCustomUrl) {
+            doStartTunnel('cloudflared', remember, '', '', true);
+            return;
+        }
+        fetch('/api/tunnels/providers').then(r => r.json()).then(data => {
+            const cf = (data.providers || []).find(p => p.id === provider);
+            const authed = !!(cf && cf.status && cf.status.authenticated);
+            if (authed) {
+                doStartTunnel(provider, remember, '', '', false);
+            } else {
+                closeTunnelModal();
+                const modal = document.getElementById('cfTokenModal');
+                if (modal) {
+                    _pendingZrokRemember = remember;
+                    const inp = document.getElementById('cfTokenPasteInput');
+                    if (inp) { inp.value = ''; inp.focus(); }
+                    modal.classList.remove('gone');
+                } else {
+                    doStartTunnel(provider, remember, '', '', false);
+                }
+            }
+        }).catch(() => {
+            doStartTunnel(provider, remember, '', '', false);
+        });
+        return;
+    }
+
+    if (provider === 'zrok') {
         fetch('/api/tunnels/providers').then(r => r.json()).then(data => {
             const zrok = (data.providers || []).find(p => p.id === provider);
             const authed = !!(zrok && zrok.status && zrok.status.authenticated);
@@ -5300,12 +5365,10 @@ function confirmTunnel() {
                 doStartTunnel(provider, remember, '', '');
             } else {
                 closeTunnelModal();
-                const modalId = provider === 'zrok' ? 'zrokTokenModal' : 'cfTokenModal';
-                const inputId = provider === 'zrok' ? 'zrokTokenPasteInput' : 'cfTokenPasteInput';
-                const modal = document.getElementById(modalId);
+                const modal = document.getElementById('zrokTokenModal');
                 if (modal) {
                     _pendingZrokRemember = remember;
-                    const inp = document.getElementById(inputId);
+                    const inp = document.getElementById('zrokTokenPasteInput');
                     if (inp) { inp.value = ''; inp.focus(); }
                     modal.classList.remove('gone');
                 } else {
@@ -5344,22 +5407,18 @@ function submitCfToken() {
     const domInp = document.getElementById('cfDomainPasteInput');
     const token = (inp && inp.value || '').trim();
     const domain = (domInp && domInp.value || '').trim();
-    
-    // We send domain alongside token, using a compound string or a new field.
-    // Wait, doStartTunnel takes cfToken as a string. Let's send an object if domain is present.
-    // Or just fetch `/api/start-tunnel` with `customUrl`! 
-    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', token ? { token, domain } : 'skip');
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', token ? { token, domain } : 'skip', false);
 }
 
 function skipCfToken() {
     const modal = document.getElementById('cfTokenModal');
     if (modal) modal.classList.add('gone');
-    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', 'skip');
+    doStartTunnel('cloudflared', _pendingZrokRemember || false, '', 'skip', false);
 }
 
 // Shared tunnel-start path used by confirmTunnel (direct) and the token
 // popups (resume).
-function doStartTunnel(provider, remember, zrokToken, cfToken) {
+function doStartTunnel(provider, remember, zrokToken, cfToken, bypassCustomUrl = false) {
 
     if (provider === 'portforward') {
         saveAppConfig({ tunnelProvider: 'portforward', neverAsk: remember });
@@ -5447,12 +5506,12 @@ function doStartTunnel(provider, remember, zrokToken, cfToken) {
     fetch('/api/info').then(r => r.json()).then(async function (d) { await renderUrls(d); }).catch(() => { });
 
     const vpsHostVal = document.getElementById('vpsHostInput')?.value?.trim() || '';
-    saveAppConfig({ tunnelProvider: provider, neverAsk: remember, vpsHost: vpsHostVal, vpsEnabled: false });
+    saveAppConfig({ tunnelProvider: provider, neverAsk: remember, vpsHost: vpsHostVal, vpsEnabled: false, bypassCustomUrl: !!bypassCustomUrl });
 
     fetch('/api/start-tunnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken, cfToken })
+        body: JSON.stringify({ provider, remember, vpsHost: document.getElementById('vpsHostInput')?.value?.trim(), zrokToken, cfToken, bypassCustomUrl })
     }).then(() => { clearTimeout(_autoCloseTimer); }).catch(() => { clearTimeout(_autoCloseTimer); showTunnelError(I18N.t('Network request failed')); });
 }
 
@@ -5760,6 +5819,7 @@ document.querySelectorAll('input[name="provider"]').forEach(radio => {
         document.querySelectorAll('.provider-card').forEach(c => {
             c.classList.toggle('selected', c.querySelector('input').checked);
         });
+        if (typeof updateTunnelModalOptions === 'function') updateTunnelModalOptions();
     });
 });
 document.querySelectorAll('.provider-card').forEach(card => {
@@ -5770,6 +5830,7 @@ document.querySelectorAll('.provider-card').forEach(card => {
         input.dispatchEvent(new Event('change'));
         document.querySelectorAll('.provider-card').forEach(c =>
             c.classList.toggle('selected', c.querySelector('input').checked));
+        if (typeof updateTunnelModalOptions === 'function') updateTunnelModalOptions();
     });
 });
 
@@ -6021,7 +6082,7 @@ async function checkTunnelOnConnect() {
             fetch('/api/start-tunnel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: cfg.tunnelProvider, remember: true, vpsHost: cfg.vpsHost })
+                body: JSON.stringify({ provider: cfg.tunnelProvider, remember: true, vpsHost: cfg.vpsHost, bypassCustomUrl: !!cfg.bypassCustomUrl })
             });
         } else if (!cfg.neverAsk) {
             showTunnelModal();

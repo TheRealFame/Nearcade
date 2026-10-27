@@ -1888,9 +1888,21 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       ? req.body.vpsHost.trim()
       : (tunnels.readEnv('VPS_HOST') || '').trim();
 
+    const bypassCustomUrl = !!(req.body && req.body.bypassCustomUrl);
+    const cfg = loadConfig();
+    const customUrl = (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain)
+      ? ('https://' + req.body.cfToken.domain.replace(/^https?:\/\//, ''))
+      : (cfg && cfg.customUrl ? cfg.customUrl : '');
+
     // Let tunnels.startTunnel handle stopping the previous process and returning the result
-    const tunnelOptions = { zrokToken: req.body && req.body.zrokToken, cfToken: req.body && req.body.cfToken };
-    if (req.body && req.body.cfToken && req.body.cfToken.domain) {
+    const tunnelOptions = {
+      zrokToken: req.body && req.body.zrokToken,
+      zrokReservedName: req.body && req.body.zrokReservedName,
+      cfToken: req.body && req.body.cfToken,
+      bypassCustomUrl,
+      customUrl
+    };
+    if (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain) {
       saveConfig({ customUrl: 'https://' + req.body.cfToken.domain.replace(/^https?:\/\//, '') });
     }
     const startPromise = (provider === 'portforward') ? Promise.resolve(null) : tunnels.startTunnel(PORT, provider, tunnelOptions);
@@ -1903,9 +1915,13 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       const tun = await startPromise;
       if (tun && tun.url) {
         tunnelUrl = tun.url;
+        global._tunnelBypassCustomUrl = !!tun.bypassCustomUrl || bypassCustomUrl;
         tunnels.saveLastProvider(provider);
-        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl });
+        const msg = JSON.stringify({ type: "tunnel-url", url: tunnelUrl, bypassCustomUrl: global._tunnelBypassCustomUrl });
         if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
+      } else if (tun && tun.error === 'RATE_LIMITED') {
+        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' rate limited: ${tun.details}`);
+        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider, details: tun.details }));
       } else if (tun && tun.error === 'NOT_FOUND') {
         console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' binary not found.`);
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-not-found", provider: provider }));
