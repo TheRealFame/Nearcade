@@ -436,7 +436,14 @@ function verifyTunnelUrl(url, { tries = 4, gapMs = 1500, timeoutMs = 2500 } = {}
       try {
         const ctl = new AbortController();
         const to = setTimeout(() => ctl.abort(), timeoutMs);
-        const r = await fetch(apiUrl, { signal: ctl.signal });
+        const r = await fetch(apiUrl, {
+          signal: ctl.signal,
+          headers: {
+            'skip_zrok_interstitial': 'true',
+            'ngrok-skip-browser-warning': 'true',
+            'Bypass-Tunnel-Reminder': 'true'
+          }
+        });
         clearTimeout(to);
         if (r && r.ok) {
           const j = await r.json().catch(() => null);
@@ -811,7 +818,14 @@ function startTunnelZrok(port, retries = 3, options = '') {
         try {
           const ctl = new AbortController();
           const to = setTimeout(() => ctl.abort(), 2500);
-          const r = await fetch(url + '/api/info', { signal: ctl.signal });
+          const r = await fetch(url + '/api/info', {
+            signal: ctl.signal,
+            headers: {
+              'skip_zrok_interstitial': 'true',
+              'ngrok-skip-browser-warning': 'true',
+              'Bypass-Tunnel-Reminder': 'true'
+            }
+          });
           clearTimeout(to);
           if (r && r.ok) {
             const j = await r.json().catch(() => null);

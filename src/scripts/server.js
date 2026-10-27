@@ -1011,7 +1011,7 @@ async function main() {
     const remoteAddr = req.socket.remoteAddress || '';
     const isLocal = remoteAddr.includes('127.') || remoteAddr === '::1';
     const infoCfg = loadConfig();
-    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
+    res.json({ lanIP: LAN_IP, port: PORT, pin: isLocal ? PIN : undefined, hasPin: !!PIN, pinEnabled: pinEnabled, publicIP: null, tunnelUrl: tunnelUrl || null, tunnelStarting: !!global._tunnelStarting, version: APP_VERSION, arcadeUrl: infoCfg.arcadeUrl || 'https://nearcade.cutefame.net' });
   });
   app.post("/api/fe-log", express.json(), (req, res) => {
     const clientIp = req.socket.remoteAddress || 'unknown';
@@ -1873,6 +1873,10 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       console.log(`[tunnel] Rejecting re-start for ${provider} — ${tunnelUrl} is already active`);
       return res.json({ ok: true, url: tunnelUrl, alreadyRunning: true });
     }
+    if (global._tunnelStarting) {
+      console.log(`[tunnel] Start already in progress for a tunnel — rejecting concurrent request`);
+      return res.json({ ok: true, starting: true, inProgress: true });
+    }
 
     tunnelUrl = null;
     saveConfig({ tunnelProvider: provider, neverAsk: !!(req.body && req.body.remember) });
@@ -1911,6 +1915,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       saveConfig({ vpsHost: resolvedVpsHost });
     }
 
+    global._tunnelStarting = true;
     try {
       const tun = await startPromise;
       if (tun && tun.url) {
@@ -1932,6 +1937,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     } catch (e) {
       console.log(`  \x1b[31m~\x1b[0m Tunnel error:`, e.message);
       if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+    } finally {
+      global._tunnelStarting = false;
     }
   });
 
@@ -3590,45 +3597,49 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       console.log("  ~ Tunnel: using saved provider '" + provider + "'");
       if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider }));
 
-      const fn = {
-        zrok: tunnels.startTunnelZrok,
-        cloudflared: tunnels.startTunnelCloudflared,
-        playit: tunnels.startTunnelPlayit,
-        localhostrun: tunnels.startTunnelLocalhostRun,
-        serveo: tunnels.startTunnelServeo,
-        vps: (p) => tunnels.startTunnelVps(p, cfg.vpsHost || process.env.VPS_HOST || ''),
-        bore: tunnels.startTunnelBore,
-        ngrok: tunnels.startTunnelNgrok,
-        frp: tunnels.startTunnelFrp,
-        'tailscale-funnel': tunnels.startTunnelTailscaleFunnel,
-        'tailscale-serve': tunnels.startTunnelTailscaleServe,
-        'tailscale-mesh': tunnels.startTunnelTailscaleMesh,
-        zerotier: tunnels.startTunnelZeroTier,
-        netmaker: tunnels.startTunnelNetmaker,
-        'wireguard-direct': tunnels.startTunnelWireguardDirect,
-      }[provider] || (() => tunnels.startTunnel(PORT, provider));
-
-      const tun = await fn(PORT);
-      if (tun && tun.url) {
-        tunnelUrl = tun.url;
-        tunnels.saveLastProvider(provider);
-        if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
-      } else {
-        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' failed to start on boot.`);
+      global._tunnelStarting = true;
+      try {
+        const tunnelOptions = {
+          bypassCustomUrl: !!cfg.bypassCustomUrl,
+          customUrl: cfg.customUrl || '',
+          vpsHost: cfg.vpsHost || process.env.VPS_HOST || ''
+        };
+        const tun = await tunnels.startTunnel(PORT, provider, tunnelOptions);
+        if (tun && tun.url) {
+          tunnelUrl = tun.url;
+          global._tunnelBypassCustomUrl = !!tun.bypassCustomUrl || !!cfg.bypassCustomUrl;
+          tunnels.saveLastProvider(provider);
+          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl, bypassCustomUrl: global._tunnelBypassCustomUrl }));
+        } else {
+          console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' failed to start on boot.`);
+          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+        }
+      } catch (err) {
+        console.log(`  \x1b[31m~\x1b[0m Tunnel provider '${provider}' error on boot: ${err.message}`);
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-error", provider: provider }));
+      } finally {
+        global._tunnelStarting = false;
       }
     } else {
       const last = tunnels.getLastProvider();
       if (last) {
         console.log("  ~ Tunnel: using last provider '" + last + "' (from tunnels.js)");
         if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-starting", provider: last }));
-        const tun = await tunnels.startTunnel(PORT, last);
-        if (tun && tun.url) {
-          tunnelUrl = tun.url;
-          tunnels.saveLastProvider(last);
-          if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
-        } else {
-          console.log(`  \x1b[31m~\x1b[0m Last provider '${last}' failed to start on boot.`);
+        global._tunnelStarting = true;
+        try {
+          const tun = await tunnels.startTunnel(PORT, last);
+          if (tun && tun.url) {
+            tunnelUrl = tun.url;
+            global._tunnelBypassCustomUrl = !!tun.bypassCustomUrl;
+            tunnels.saveLastProvider(last);
+            if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl, bypassCustomUrl: global._tunnelBypassCustomUrl }));
+          } else {
+            console.log(`  \x1b[31m~\x1b[0m Last provider '${last}' failed to start on boot.`);
+          }
+        } catch (err) {
+          console.log(`  \x1b[31m~\x1b[0m Last provider '${last}' error on boot: ${err.message}`);
+        } finally {
+          global._tunnelStarting = false;
         }
       } else {
         console.log("  ~ Tunnel: waiting for host to choose provider...");

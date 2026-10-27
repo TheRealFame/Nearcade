@@ -1713,6 +1713,12 @@ function connectWS() {
                     
                     return;
                 }
+                if (_lastWcConfig && ws && ws.readyState === 1) {
+                    try { ws.send(_lastWcConfig); } catch (_) {}
+                }
+                if (_wcEncoder && _wcEncoder.state !== 'closed') {
+                    _wcForceKeyframe = true;
+                }
                 await sendOfferToViewer(msg.viewerId, msg.viewerPcState);
             } else {
                 ws.send(JSON.stringify({ type: 'host-not-streaming', viewerId: msg.viewerId }));
@@ -6070,7 +6076,7 @@ async function checkTunnelOnConnect() {
         // ALWAYS render whatever URL the server already has (including LAN/Public IP if tunnelUrl is null)
         renderUrls(info);
 
-        if (info.tunnelUrl) {
+        if (info.tunnelUrl || info.tunnelStarting) {
             return;
         }
         // No tunnel yet — only prompt for one if the user hasn't chosen "never ask"

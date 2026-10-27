@@ -227,9 +227,10 @@ if (_orpParam && _orpParam.startsWith('web+orp://')) {
     }
 }
 const isP2PGlobal = (urlParamsGlobal.get('host') || '').startsWith('p2p://');
-// Only connect to the VPS standby lane if this is not a P2P session. P2P sessions are
-// completely disjoint from the VPS and must not inherit its PIN or stream-state rules.
-const standbyWs = !isP2PGlobal ? new WebSocket(`${proto}://${host}/vps?standby=true`) : { onmessage: null, onerror: null };
+const isVpsSession = location.hostname === 'publicnearcade.cutefame.net' || urlParamsGlobal.has('v3') || urlParamsGlobal.has('vps');
+// Only connect to the VPS standby lane if routing through the Rust VPS SFU.
+// On standard local and tunnel connections, the Node server has no /vps route.
+const standbyWs = isVpsSession ? new WebSocket(`${proto}://${host}/vps?standby=true`) : { onmessage: null, onerror: null };
 
 // Hide host-specific UI elements when loading the viewer client
 if (document.getElementById('quickHostBtn')) document.getElementById('quickHostBtn').style.display = 'none';
@@ -282,13 +283,45 @@ standbyWs.onmessage = (e) => {
 };
 standbyWs.onerror = () => { };
 
+function _showTunnelApprovalNotice() {
+    if (document.getElementById('tunnelApprovalNotice')) return;
+    const notice = document.createElement('div');
+    notice.id = 'tunnelApprovalNotice';
+    notice.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(25,20,10,0.96);border:1px solid #f59e0b;color:#fef3c7;padding:12px 18px;border-radius:10px;font-family:sans-serif;font-size:12px;max-width:90vw;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.7);';
+    notice.innerHTML = `
+        <div style="font-weight:bold;margin-bottom:6px;color:#fbbf24;font-size:13px;">Tunnel Security Approval Required</div>
+        <div style="margin-bottom:8px;line-height:1.4;">Your tunnel provider requires a one-time domain confirmation before it allows stream connections.</div>
+        <button style="background:#f59e0b;color:#000;border:none;border-radius:6px;padding:6px 14px;font-weight:bold;cursor:pointer;font-size:12px;" onclick="window.open(window.location.origin, '_blank'); this.textContent = 'Approved? Reloading...'; setTimeout(() => window.location.reload(), 4000);">Approve in Browser &rarr;</button>
+    `;
+    document.body.appendChild(notice);
+}
+
 async function safeApiJson(url, fallback) {
     try {
-        const r = await fetch(url);
+        const r = await fetch(url, {
+            headers: {
+                'skip_zrok_interstitial': 'true',
+                'ngrok-skip-browser-warning': 'true',
+                'Bypass-Tunnel-Reminder': 'true'
+            }
+        });
         if (!r.ok) return fallback;
         const ct = r.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) return fallback;
-        return await r.json();
+        if (!ct.includes('application/json')) {
+            try {
+                const text = await r.text();
+                if (text && (text.includes('zrok') || text.includes('interstitial') || text.includes('cloudflare') || text.includes('ngrok') || text.includes('Proceed') || text.includes('reminder'))) {
+                    window._tunnelInterstitialDetected = true;
+                    _showTunnelApprovalNotice();
+                }
+            } catch (_) {}
+            return fallback;
+        }
+        const data = await r.json();
+        if (data && (data.version || data.port || data.lanIP)) {
+            window._isGenuineNearcadeHost = true;
+        }
+        return data;
     } catch (_) {
         return fallback;
     }
@@ -2893,6 +2926,7 @@ async function connect() {
         gpStateObj.lastActiveId = null;
         sendJoinToWS();
         _maybeStartInputDiag();
+        if (typeof requestKeyframeFromHost === 'function') requestKeyframeFromHost(true);
     };
 
     ws.onmessage = async (e) => {
@@ -2909,6 +2943,7 @@ async function connect() {
             } catch (_) { return; }
         }
         if (e.data instanceof ArrayBuffer) {
+            window._wcDataSeen = true;
             try {
                 const ns = window._wcNetStats || (window._wcNetStats = { ws: 0, dc: 0, dec: 0 });
                 ns.ws++;
@@ -2920,8 +2955,12 @@ async function connect() {
             if (byteLen > 9) {
                 const firstByte = new Uint8Array(e.data, 0, 1)[0];
                 if (firstByte === 0 || firstByte === 1) {
+                    window._wcDataSeen = true;
                     // WebCodecs video chunk: [isKey(1)] [timestamp(8)] [payload...]
-                    if (!wcDecoder || wcDecoder.state !== 'configured') return;
+                    if (!wcDecoder || wcDecoder.state !== 'configured') {
+                        requestKeyframeFromHost();
+                        return;
+                    }
                     const isKey = firstByte === 1;
                     if (window.nsWaitKey) {
                         if (!isKey) return;
@@ -3267,6 +3306,7 @@ async function connect() {
             }
             // Otherwise start the fast lane now that we know our ID.
             connectInputWS();
+            if (typeof requestKeyframeFromHost === 'function') requestKeyframeFromHost(true);
             return;
         }
         if (msg.type === 'host-stream-ready') {
@@ -3277,6 +3317,7 @@ async function connect() {
             window.nsWaitKey = true;
             setStatus('Host found, connecting...');
             maybeShowControllerGuide();
+            if (typeof requestKeyframeFromHost === 'function') requestKeyframeFromHost(true);
             return;
         }
 
@@ -3668,6 +3709,17 @@ async function connect() {
                 return;
             }
             if (event.code === 1006) {
+                const isTunnelDomain = location.hostname.includes('shares.zrok.io') ||
+                    location.hostname.includes('trycloudflare.com') ||
+                    location.hostname.includes('ngrok-free.app') ||
+                    location.hostname.includes('ngrok.app') ||
+                    location.hostname.includes('localtunnel.me') ||
+                    location.hostname.includes('lhr.life') ||
+                    window._tunnelInterstitialDetected;
+                if (isTunnelDomain && typeof _showTunnelApprovalNotice === 'function') {
+                    _showTunnelApprovalNotice();
+                }
+
                 // Loopback fallback ONLY when the page itself was loaded from
                 // loopback (then it's a no-op anyway). For LAN/remote clients,
                 // 127.0.0.1 is the client's OWN device — repointing there
@@ -4825,6 +4877,7 @@ async function initWebCodecsViewer(config) {
         console.warn('[WebCodecs] VideoDecoder API is not available. Hardware decoding disabled.');
         return;
     }
+    window._wcDataSeen = true;
 
     // Re-init gate: the host re-sends this same config on every keyframe
     // request, so ignore exact duplicates. But DO rebuild when the decoder is
@@ -5002,8 +5055,13 @@ async function initWebCodecsViewer(config) {
     try {
         wcDecoder.configure(decoderConfig);
     } catch (_) {
-        delete decoderConfig.optimizeForLatency;
-        wcDecoder.configure(decoderConfig);
+        try {
+            delete decoderConfig.optimizeForLatency;
+            wcDecoder.configure(decoderConfig);
+        } catch (err) {
+            console.error('[WebCodecs] Failed to configure decoder:', err);
+            return;
+        }
     }
     // Log hardware acceleration status
     try {
