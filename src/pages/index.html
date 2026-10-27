@@ -3409,7 +3409,7 @@
         <span id="chatBadge"></span>
       </div>
       <button class="ns-bar-btn" id="disconnectBtn" style="color:var(--danger);font-weight:bold;margin-top:8px;"
-        onclick="if(window.electronAPI) { window.electronAPI.backToDashboard(); } else { window.location.href='/'; }">
+        onclick="if(window.electronAPI) { window.electronAPI.backToDashboard(); } else if (window.AndroidClipboard && typeof window.AndroidClipboard.backToDashboard === 'function') { window.AndroidClipboard.backToDashboard(); } else { window.location.href='/'; }">
         Disconnect
       </button>
 

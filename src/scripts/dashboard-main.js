@@ -1167,29 +1167,6 @@ function toggleAppSetting(key) {
   syncToNode();
 }
 
-function showDashboardTunnelModal(tunnelUrl) {
-  if (document.getElementById('dashTunnelModal')) return;
-  const modal = document.createElement('div');
-  modal.id = 'dashTunnelModal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);';
-  modal.innerHTML = `
-    <div style="background:#18181b;border:1px solid #f59e0b;color:#f4f4f5;padding:24px;border-radius:14px;max-width:420px;width:100%;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.8);font-family:sans-serif;">
-      <div style="font-weight:700;margin-bottom:8px;color:#fbbf24;font-size:16px;">Tunnel Approval Required</div>
-      <p style="margin:0 0 16px;color:#a1a1aa;font-size:13px;line-height:1.5;">This host is using a free tunnel provider (such as zrok) that requires a one-time domain confirmation before connecting.</p>
-      <div style="display:flex;gap:10px;justify-content:center;">
-        <button id="btnDashApproveTunnel" style="background:#f59e0b;color:#000;border:none;border-radius:8px;padding:10px 18px;font-weight:bold;cursor:pointer;font-size:13px;flex:1;">Open to Approve &rarr;</button>
-        <button id="btnDashDismissTunnel" style="background:transparent;color:#71717a;border:1px solid #3f3f46;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:13px;">Cancel</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  document.getElementById('btnDashDismissTunnel').onclick = () => modal.remove();
-  document.getElementById('btnDashApproveTunnel').onclick = () => {
-    window.open(tunnelUrl, '_blank');
-    modal.remove();
-  };
-}
-
 async function pasteFromClipboard() {
   const inputEl = document.getElementById('directLinkInput');
   const errEl = document.getElementById('directLinkErr');
@@ -1223,60 +1200,26 @@ async function joinDirectLink() {
   const inputVal = document.getElementById('directLinkInput').value.trim();
   const pinVal = document.getElementById('pinInput').value.trim();
   const errEl = document.getElementById('directLinkErr');
-  if (!inputVal) { errEl.textContent = 'Please enter a valid URL or Room Code.'; return; }
+  if (!inputVal) {
+    if (errEl) errEl.textContent = 'Please enter a valid URL or Room Code.';
+    return;
+  }
 
   // Check if it's a URL
   const isUrl = inputVal.startsWith('http://') || inputVal.startsWith('https://');
 
   if (isUrl) {
-    errEl.style.color = 'var(--muted)';
-    errEl.textContent = 'Verifying tunnel...';
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 6000);
-      const pingUrl = inputVal.replace(/\/$/, '') + '/api/info';
-      const r = await fetch(pingUrl, {
-        headers: {
-          'skip_zrok_interstitial': 'true',
-          'ngrok-skip-browser-warning': 'true',
-          'Bypass-Tunnel-Reminder': 'true'
-        },
-        signal: controller.signal
-      }).catch(() => null);
-      clearTimeout(tid);
-
-      let isInterstitial = false;
-      if (r) {
-        const ct = r.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) {
-          const text = await r.text().catch(() => '');
-          if (text && (text.includes('zrok') || text.includes('Visit Share') || text.includes('interstitial') || text.includes('cloudflare') || text.includes('ngrok') || text.includes('Proceed') || text.includes('reminder'))) {
-            isInterstitial = true;
-          }
-        }
-      }
-
-      if (isInterstitial) {
-        errEl.textContent = '';
-        showDashboardTunnelModal(inputVal);
-        return;
-      }
-
-      errEl.textContent = '';
-      if (window.electronAPI) {
-        window.electronAPI.joinSession(inputVal, { game: 'Direct Connect' }, pinVal);
-      } else {
-        let navUrl = `viewer.html?client=1&compat=1&host=${encodeURIComponent(inputVal)}`;
-        if (pinVal) navUrl += `&pin=${encodeURIComponent(pinVal)}`;
-        window.location.href = navUrl;
-      }
-    } catch {
-      errEl.style.color = 'var(--danger)';
-      errEl.textContent = 'Session unreachable. Make sure the host is online.';
+    if (errEl) errEl.textContent = '';
+    if (window.electronAPI) {
+      window.electronAPI.joinSession(inputVal, { game: 'Direct Connect' }, pinVal);
+    } else {
+      let viewerUrl = inputVal + (inputVal.includes('?') ? '&' : '?') + 'client=1&compat=1';
+      if (pinVal) viewerUrl += `&pin=${encodeURIComponent(pinVal)}`;
+      window.location.href = viewerUrl;
     }
   } else {
     // It's a Room Code
-    errEl.textContent = '';
+    if (errEl) errEl.textContent = '';
     if (window.electronAPI) {
       window.electronAPI.joinSession(`p2p://${inputVal}`, { game: 'P2P Session' }, pinVal);
     } else {

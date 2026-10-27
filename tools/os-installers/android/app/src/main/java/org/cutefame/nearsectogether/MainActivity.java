@@ -17,9 +17,27 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         try {
             if (this.bridge != null && this.bridge.getWebView() != null) {
+                android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+                cookieManager.setAcceptCookie(true);
+                cookieManager.setAcceptThirdPartyCookies(this.bridge.getWebView(), true);
                 this.bridge.getWebView().addJavascriptInterface(new AndroidNativeClipboard(), "AndroidClipboard");
             }
         } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onBackPressed() {
+        try {
+            if (this.bridge != null && this.bridge.getWebView() != null) {
+                String currentUrl = this.bridge.getWebView().getUrl();
+                String appUrl = this.bridge.getAppUrl();
+                if (currentUrl != null && appUrl != null && !currentUrl.startsWith(appUrl)) {
+                    this.bridge.getWebView().loadUrl(appUrl);
+                    return;
+                }
+            }
+        } catch (Exception ignored) {}
+        super.onBackPressed();
     }
 
     public class AndroidNativeClipboard {
@@ -74,6 +92,23 @@ public class MainActivity extends BridgeActivity {
                 latch.await(500, TimeUnit.MILLISECONDS);
             } catch (InterruptedException ignored) {}
             return success.get();
+        }
+
+        @JavascriptInterface
+        public void backToDashboard() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (bridge != null && bridge.getWebView() != null) {
+                            String appUrl = bridge.getAppUrl();
+                            if (appUrl != null) {
+                                bridge.getWebView().loadUrl(appUrl);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            });
         }
     }
 }

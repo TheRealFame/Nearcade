@@ -3,7 +3,10 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'org.cutefame.nearcade',
   appName: 'Nearcade',
-  webDir: '../../dist-android'
+  webDir: '../../dist-android',
+  server: {
+    allowNavigation: ['*']
+  }
 };
 
 export default config;

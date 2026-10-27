@@ -795,6 +795,9 @@ async function createPC() {
                                     if (window.electronAPI) {
                                         actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
                                         setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                                    } else if (window.AndroidClipboard && typeof window.AndroidClipboard.backToDashboard === 'function') {
+                                        actionBtn = '<button class="pin-submit-btn" onclick="window.AndroidClipboard.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
+                                        setTimeout(() => window.AndroidClipboard.backToDashboard(), 3000);
                                     } else {
                                         actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'/\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
                                     }
@@ -3406,6 +3409,9 @@ async function connect() {
                 if (window.electronAPI) {
                     actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
                     setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                } else if (window.AndroidClipboard && typeof window.AndroidClipboard.backToDashboard === 'function') {
+                    actionBtn = '<button class="pin-submit-btn" onclick="window.AndroidClipboard.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
+                    setTimeout(() => window.AndroidClipboard.backToDashboard(), 3000);
                 } else {
                     actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'about:blank\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
                 }
@@ -3465,6 +3471,9 @@ async function connect() {
                 if (window.electronAPI) {
                     actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
                     setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                } else if (window.AndroidClipboard && typeof window.AndroidClipboard.backToDashboard === 'function') {
+                    actionBtn = '<button class="pin-submit-btn" onclick="window.AndroidClipboard.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
+                    setTimeout(() => window.AndroidClipboard.backToDashboard(), 3000);
                 } else {
                     actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'/\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
                 }
