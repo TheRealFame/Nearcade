@@ -22,6 +22,24 @@ public class MainActivity extends BridgeActivity {
                 cookieManager.setAcceptThirdPartyCookies(this.bridge.getWebView(), true);
                 this.bridge.getWebView().addJavascriptInterface(new AndroidNativeClipboard(), "AndroidClipboard");
             }
+            getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+                @Override
+                public void handleOnBackPressed() {
+                    try {
+                        if (bridge != null && bridge.getWebView() != null) {
+                            String currentUrl = bridge.getWebView().getUrl();
+                            String appUrl = bridge.getAppUrl();
+                            if (currentUrl != null && appUrl != null && !currentUrl.startsWith(appUrl)) {
+                                bridge.getWebView().loadUrl(appUrl);
+                                return;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                }
+            });
         } catch (Exception ignored) {}
     }
 
