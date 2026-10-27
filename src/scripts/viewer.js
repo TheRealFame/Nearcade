@@ -2096,14 +2096,32 @@ let gpDeadzones = {};
 let gpSens = {};
 let sentGpid = new Set();
 
+// Adaptive poll rate state — shared between activateGamepad() and _adaptPollRate()
+let _gpPollIntervalMs = 1;  // 1000 Hz default
+let _gpPollIntervalId = null;
+let _gpPollGoodCount  = 0;  // consecutive stat reads at the better tier (hysteresis)
+
 function activateGamepad() {
     if (gpPolling) return;
     gpPolling = true;
     const pmt = document.getElementById('gpPrompt');
     if (pmt) { pmt.classList.add('active'); pmt.textContent = 'Grab A Gamepad!'; }
-    // 1ms interval (1000 Hz) for maximum competitive precision / lowest input latency
-    setInterval(pollGamepad, 4); // 250Hz polling (improves upscaler performance)
+    // 1000 Hz — both touch-joystick state and physical gamepads flush on every tick.
+    // _adaptPollRate() in updateStats will step this down if the connection is weak.
+    _gpPollIntervalId = setInterval(pollGamepad, _gpPollIntervalMs);
 }
+
+// Cellular initial cap: if the device is already on cellular when the page loads,
+// start at 250 Hz so we don't blast a congested radio link immediately.
+(function _initCellularCap() {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!conn) return;
+    const apply = () => {
+        if (conn.type === 'cellular' && _gpPollIntervalMs < 4) _gpPollIntervalMs = 4;
+    };
+    apply();
+    conn.addEventListener('change', apply);
+}());
 
 let knownNativePads = [];
 if (window.electronAPI && window.electronAPI.onNativeGamepadEvent) {
@@ -4101,6 +4119,56 @@ const statsHud = document.getElementById('statsHud');
 let prevBytesReceived = 0, prevStatsTime = 0, prevJitterDelay = 0, prevEmitted = 0;
 let _prevPacketsLost = 0;
 let _keyframeCooldown = false;
+// -- ADAPTIVE GAMEPAD POLL RATE -----------------------------------------------
+// Called every ~500 ms from updateStats() when a valid RTT is available.
+// Steps the shared setInterval up or down based on connection quality.
+// Touch-joystick axes are written on touchmove and flushed by pollGamepad, so
+// both physical gamepads and on-screen touch controls benefit from this.
+//
+// Tiers (cellular caps at 250 Hz regardless of measured quality):
+//   excellent  rtt < 60ms  && loss < 1%    → 1 ms  (1000 Hz)
+//   good       rtt < 120ms && loss < 3%    → 4 ms  (250 Hz)
+//   fair       rtt < 220ms && loss < 10%   → 16 ms (60 Hz)
+//   poor       rtt >= 220ms || loss >= 10% → 33 ms (30 Hz)
+function _adaptPollRate(rttMs, lossRatio) {
+    if (!gpPolling || !_gpPollIntervalId) return;
+
+    const isCellular = (() => {
+        const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        return c && c.type === 'cellular';
+    })();
+
+    // Determine the target interval from quality tiers
+    let target;
+    if      (rttMs < 60  && lossRatio < 1)  target = 1;   // 1000 Hz
+    else if (rttMs < 120 && lossRatio < 3)  target = 4;   // 250 Hz
+    else if (rttMs < 220 && lossRatio < 10) target = 16;  // 60 Hz
+    else                                     target = 33;  // 30 Hz
+
+    // Cellular: never poll faster than 250 Hz regardless of measured quality
+    if (isCellular && target < 4) target = 4;
+
+    // Already at the right rate — nothing to do
+    if (target === _gpPollIntervalMs) { _gpPollGoodCount = 0; return; }
+
+    // Stepping DOWN is immediate (latency is already suffering)
+    if (target > _gpPollIntervalMs) {
+        _gpPollGoodCount = 0;
+        clearInterval(_gpPollIntervalId);
+        _gpPollIntervalMs = target;
+        _gpPollIntervalId = setInterval(pollGamepad, _gpPollIntervalMs);
+        return;
+    }
+
+    // Stepping UP requires 3 consecutive good readings to avoid flapping
+    _gpPollGoodCount++;
+    if (_gpPollGoodCount < 3) return;
+    _gpPollGoodCount = 0;
+    clearInterval(_gpPollIntervalId);
+    _gpPollIntervalMs = target;
+    _gpPollIntervalId = setInterval(pollGamepad, _gpPollIntervalMs);
+}
+
 async function updateStats() {
     if (!pc) return;
     try {
@@ -4150,6 +4218,9 @@ async function updateStats() {
                 else if (rttN < 220 && lossRatio < 14) window.updateNetworkDot('mid');
                 else window.updateNetworkDot('bad');
             }
+
+            // Adaptive gamepad poll rate — same RTT + loss the HUD already computed
+            if (gpPolling) _adaptPollRate(rttN, lossRatio);
 
             let bars, colour;
             if (rttN < 40 && lossRatio < 1) { bars = '▪▪▪▪'; colour = '#4ade80'; } // excellent — green
