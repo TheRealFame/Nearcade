@@ -318,6 +318,24 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
 }
 
+const isSteamDeckHardware = (process.platform === 'linux' && (
+  fs.existsSync('/sys/class/dmi/id/product_name') && (() => {
+    try {
+      const board = fs.existsSync('/sys/class/dmi/id/board_name') ? fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim() : '';
+      const vendor = fs.existsSync('/sys/class/dmi/id/sys_vendor') ? fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim() : '';
+      return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
+    } catch (_) { return false; }
+  })()
+));
+
+function applyGamescopeScaler() {
+  if (process.platform !== 'linux') return;
+  try {
+    const { exec } = require('child_process');
+    exec('DISPLAY=:0 xprop -root -f GAMESCOPE_NEW_SCALING_SCALER 32c -set GAMESCOPE_NEW_SCALING_SCALER 4 2>/dev/null || true');
+  } catch (_) {}
+}
+
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
@@ -325,14 +343,16 @@ if (isArcadeWorker && process.platform === 'linux') {
   const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
     (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
     process.env.SteamDeck === '1' ||
-    process.env.SteamGamepadUI === '1';
+    process.env.SteamGamepadUI === '1' ||
+    isSteamDeckHardware;
 
   if (isGamescope) {
     // Prevent Steam Deck virtual keyboard from constantly popping up and crashing the app
     process.env.GTK_IM_MODULE = 'None';
+    applyGamescopeScaler();
     
-    // Force native Wayland instead of X11/XWayland to prevent Gamescope scaling/compositing issues
-    app.commandLine.appendSwitch('ozone-platform-hint', 'wayland');
+    // Choose Wayland if available, otherwise X11
+    app.commandLine.appendSwitch('ozone-platform-hint', process.env.NEARCADE_OZONE || 'auto');
     app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
     app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
     
@@ -432,15 +452,7 @@ const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().inc
   (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
   process.env.SteamDeck === '1' ||
   process.env.SteamGamepadUI === '1' ||
-  (process.platform === 'linux' && (
-    fs.existsSync('/sys/class/dmi/id/product_name') && (() => {
-      try {
-        const board = fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim();
-        const vendor = fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim();
-        return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
-      } catch (_) { return false; }
-    })()
-  ));
+  isSteamDeckHardware;
 
 async function createWindow() {
   settings = loadSettings();
@@ -451,8 +463,8 @@ async function createWindow() {
   const isPortrait = process.argv.includes('-portrait') || process.argv.includes('--portrait');
   const isHandheld = process.argv.includes('-handheld') || process.argv.includes('--handheld') || process.argv.includes('-tv') || process.argv.includes('--tv') || isGamescopeEnv;
   const isFullscreen = isGamescopeEnv || process.argv.includes('-fullscreen') || process.argv.includes('--fullscreen') || process.argv.includes('-tv') || process.argv.includes('--tv');
-  const safeW = isPortrait ? 420 : ((typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280);
-  const safeH = isPortrait ? 880 : ((typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800);
+  const safeW = isPortrait ? 420 : (isGamescopeEnv ? 1280 : ((typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280));
+  const safeH = isPortrait ? 880 : (isGamescopeEnv ? 800 : ((typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800));
 
   win = new BrowserWindow({
     width: isPortrait ? 420 : Math.max(safeW, 600),
@@ -473,7 +485,14 @@ async function createWindow() {
     autoHideMenuBar: true,
   });
 
-  if (!isGamescopeEnv) {
+  if (isGamescopeEnv) {
+    applyGamescopeScaler();
+    win.on('focus', applyGamescopeScaler);
+    const gsInterval = setInterval(() => {
+      if (win && !win.isDestroyed()) applyGamescopeScaler();
+      else clearInterval(gsInterval);
+    }, 3000);
+  } else {
     win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
   }
   // Blank-screen detection: Monitor for 3 seconds after ready-to-show

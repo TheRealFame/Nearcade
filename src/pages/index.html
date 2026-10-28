@@ -263,6 +263,10 @@
       overflow: hidden;
     }
 
+    :root {
+      --ns-video-fit: contain;
+    }
+
     #video,
     #frameCanvas,
     #webcodecs-canvas,
@@ -275,7 +279,7 @@
       height: 100%;
       max-width: 100%;
       max-height: 100%;
-      object-fit: contain;
+      object-fit: var(--ns-video-fit, contain);
       object-position: center center;
     }
 
@@ -297,7 +301,7 @@
       #frameCanvas {
         width: 100%;
         height: 100%;
-        object-fit: contain;
+        object-fit: var(--ns-video-fit, contain);
       }
 
       body.touch-active #video-container,
@@ -332,7 +336,7 @@
         height: 100%;
         max-width: 100%;
         max-height: 100%;
-        object-fit: contain;
+        object-fit: var(--ns-video-fit, contain);
         object-position: center bottom;
       }
 
@@ -449,7 +453,7 @@
       height: 100%;
       max-width: 100%;
       max-height: 100%;
-      object-fit: contain;
+      object-fit: var(--ns-video-fit, contain);
       object-position: center bottom;
     }
     html.portrait-mode body.touch-active #touchUI,
@@ -3648,6 +3652,9 @@
       <button class="ns-bar-btn" id="fsBtn" onclick="toggleFS()">
         Full Screen
       </button>
+      <button class="ns-bar-btn" id="aspectFitBtn" onclick="cycleVideoFitMode()">
+        Aspect: Fit
+      </button>
 
       <div class="ns-bar-divider"></div>
       <div class="ns-bar-section">Controls</div>
@@ -4154,6 +4161,19 @@
                 <option value="1">Crisp (Sharp Bilinear)</option>
                 <option value="2">Pixel Perfect (Blocky)</option>
                 <option value="3">Ultra (FSR/Bicubic)</option>
+              </select>
+            </div>
+          </div>
+          <div class="v-settings-row">
+            <div class="v-settings-row-info">
+              <div class="v-settings-row-title">Aspect Ratio &amp; Video Fit</div>
+              <div class="v-settings-row-desc">Fit preserves aspect ratio; Fill crops borders; Stretch fills entire screen.</div>
+            </div>
+            <div class="v-settings-control">
+              <select class="v-select" id="vAspectFitSelect" onchange="setVideoFitMode(this.value)">
+                <option value="contain">Fit (Black Borders)</option>
+                <option value="cover">Fill (Crop Borders)</option>
+                <option value="fill">Stretch (Fill Screen)</option>
               </select>
             </div>
           </div>

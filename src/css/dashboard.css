@@ -1362,7 +1362,7 @@ html.handheld-mode .handheld-status-bar {
   padding-left: 10px;
 }
 
-/* Handheld & TV Layout Adjustments (Optimized for 16:9 Aspect Ratio, e.g. 1280x720, 1600x900, 1080p TVs) */
+/* Handheld & TV Layout Adjustments (Optimized for 16:10 and 16:9 Aspect Ratios, e.g. 1280x800 Steam Deck, 1280x720, 1080p TVs) */
 html.handheld-mode {
   zoom: 1.2;
   --sidebar-width: 220px;

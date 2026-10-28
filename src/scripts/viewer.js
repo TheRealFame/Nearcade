@@ -536,7 +536,7 @@ function _ensureUpscaleCanvas() {
     if (!upscalerCanvas) {
         upscalerCanvas = document.createElement('canvas');
         upscalerCanvas.id = 'upscale-canvas';
-        upscalerCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center center; position: absolute; inset: 0; margin: auto; z-index: 11; display: block; overflow: hidden; pointer-events: none;';
+        upscalerCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: var(--ns-video-fit, contain); object-position: center center; position: absolute; inset: 0; margin: auto; z-index: 11; display: block; overflow: hidden; pointer-events: none;';
         document.getElementById('video-container')?.appendChild(upscalerCanvas) ?? document.body.appendChild(upscalerCanvas);
         
         upscalerCtx = upscalerCanvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, preserveDrawingBuffer: true });
@@ -553,9 +553,17 @@ function _updateUpscaleCanvasSize(sourceW, sourceH) {
     const dpr = window.devicePixelRatio || 1;
     let targetW = window.innerWidth;
     let targetH = window.innerHeight;
-    const aspect = sourceW / sourceH;
+    const fitMode = (function() { try { return localStorage.getItem('ns_video_fit'); } catch (_) { return 'contain'; } })() || 'contain';
+    const aspect = (sourceW && sourceH) ? (sourceW / sourceH) : (16 / 9);
     const screenAspect = targetW / targetH;
-    if (screenAspect > aspect) { targetW = targetH * aspect; } else { targetH = targetW / aspect; }
+    
+    if (fitMode === 'cover') {
+        if (screenAspect > aspect) { targetH = targetW / aspect; } else { targetW = targetH * aspect; }
+    } else if (fitMode === 'fill') {
+        // Stretch mode matches window directly
+    } else {
+        if (screenAspect > aspect) { targetW = targetH * aspect; } else { targetH = targetW / aspect; }
+    }
     
     const w = Math.max(sourceW, Math.floor(targetW * dpr));
     const h = Math.max(sourceH, Math.floor(targetH * dpr));
@@ -614,6 +622,44 @@ window.setUpscaleMode = function(v) {
     if (toggle) toggle.classList.toggle('on', window.pixelFilterEnabled);
     _applyUpscaleFilter();
     try { localStorage.setItem('ns_upscale_mode', String(_upscaleMode)); } catch (e) {}
+};
+
+window.setVideoFitMode = function(mode) {
+    if (!['contain', 'cover', 'fill'].includes(mode)) mode = 'contain';
+    try { localStorage.setItem('ns_video_fit', mode); } catch (_) {}
+    document.documentElement.style.setProperty('--ns-video-fit', mode);
+    
+    const targets = [
+        document.getElementById('video'),
+        document.getElementById('frameCanvas'),
+        document.getElementById('webcodecs-canvas'),
+        document.getElementById('upscale-canvas'),
+        window._gpuCanvas
+    ];
+    targets.forEach(el => {
+        if (el) el.style.objectFit = mode;
+    });
+    
+    const sel = document.getElementById('vAspectFitSelect');
+    if (sel && sel.value !== mode) sel.value = mode;
+    
+    const barBtn = document.getElementById('aspectFitBtn');
+    if (barBtn) {
+        const labels = { contain: 'Aspect: Fit', cover: 'Aspect: Fill', fill: 'Aspect: Stretch' };
+        barBtn.textContent = labels[mode] || 'Aspect: Fit';
+    }
+    
+    if (typeof _updateUpscaleCanvasSize === 'function') {
+        const w = (typeof wcCanvas !== 'undefined' && wcCanvas && wcCanvas.width) || (document.getElementById('video')?.videoWidth) || 1280;
+        const h = (typeof wcCanvas !== 'undefined' && wcCanvas && wcCanvas.height) || (document.getElementById('video')?.videoHeight) || 720;
+        _updateUpscaleCanvasSize(w, h);
+    }
+};
+
+window.cycleVideoFitMode = function() {
+    const current = (function() { try { return localStorage.getItem('ns_video_fit'); } catch (_) { return 'contain'; } })() || 'contain';
+    const next = current === 'contain' ? 'cover' : (current === 'cover' ? 'fill' : 'contain');
+    window.setVideoFitMode(next);
 };
 
 function _setupWebGL(gl) {
@@ -1190,6 +1236,11 @@ function openViewerSettings() {
     document.getElementById('nsBar')?.classList.remove('open');
     // Reflect current GPU backend toggle state
     _syncGpuBackendToggleUI();
+    const fitSel = document.getElementById('vAspectFitSelect');
+    if (fitSel) {
+        const curFit = (function() { try { return localStorage.getItem('ns_video_fit'); } catch (_) { return 'contain'; } })() || 'contain';
+        fitSel.value = curFit;
+    }
 }
 
 function closeViewerSettings() {
@@ -1314,6 +1365,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedBw = localStorage.getItem('ns_bw_profile') || 'auto';
     const bwSel = document.getElementById('vBwSelect');
     if (bwSel) bwSel.value = savedBw;
+
+    const savedFit = (function() { try { return localStorage.getItem('ns_video_fit'); } catch (_) { return 'contain'; } })() || 'contain';
+    if (window.setVideoFitMode) window.setVideoFitMode(savedFit);
     
     // Wire click-outside for modal
     const settingsModal = document.getElementById('viewerSettingsModal');
@@ -1739,10 +1793,38 @@ function handleTabletEvent(e) {
                    
     if (!targetEl) return;
     const bounds = targetEl.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    let vx = bounds.left, vy = bounds.top, vw = bounds.width, vh = bounds.height;
+    const sw = targetEl.videoWidth || targetEl.width || bounds.width;
+    const sh = targetEl.videoHeight || targetEl.height || bounds.height;
+    const fitMode = (function() { try { return localStorage.getItem('ns_video_fit'); } catch (_) { return 'contain'; } })() || 'contain';
+
+    if (fitMode === 'contain' && sw > 0 && sh > 0) {
+        const videoRatio = sw / sh;
+        const containerRatio = bounds.width / bounds.height;
+        if (containerRatio > videoRatio) {
+            vw = bounds.height * videoRatio;
+            vx = bounds.left + (bounds.width - vw) / 2;
+        } else {
+            vh = bounds.width / videoRatio;
+            vy = bounds.top + (bounds.height - vh) / 2;
+        }
+    } else if (fitMode === 'cover' && sw > 0 && sh > 0) {
+        const videoRatio = sw / sh;
+        const containerRatio = bounds.width / bounds.height;
+        if (containerRatio > videoRatio) {
+            vh = bounds.width / videoRatio;
+            vy = bounds.top + (bounds.height - vh) / 2;
+        } else {
+            vw = bounds.height * videoRatio;
+            vx = bounds.left + (bounds.width - vw) / 2;
+        }
+    }
     
     // Normalize coordinates (0.0 to 1.0) relative to the video frame
-    const nx = (e.clientX - bounds.left) / bounds.width;
-    const ny = (e.clientY - bounds.top) / bounds.height;
+    const nx = (e.clientX - vx) / vw;
+    const ny = (e.clientY - vy) / vh;
     
     // Clamp so the pen doesn't draw way off screen
     if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
@@ -5150,7 +5232,7 @@ async function initWebCodecsViewer(config) {
         wcCanvas = document.createElement('canvas');
         wcCanvas.id = 'webcodecs-canvas';
         // Add CSS so the stream scales to fit the viewport instead of overflowing
-        wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center center; position: absolute; inset: 0; margin: auto; z-index: 10; display: block; overflow: hidden;';
+        wcCanvas.style.cssText = 'width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: var(--ns-video-fit, contain); object-position: center center; position: absolute; inset: 0; margin: auto; z-index: 10; display: block; overflow: hidden;';
         document.getElementById('video-container')?.appendChild(wcCanvas) ?? document.body.appendChild(wcCanvas);
         
         // Ensure KBM pointer lock works on the experimental WebCodecs canvas
