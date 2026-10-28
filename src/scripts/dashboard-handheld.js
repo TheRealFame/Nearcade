@@ -194,3 +194,21 @@ function toggleHandheldMode() {
   const track = document.getElementById('settingTrackHandheldMode');
   if (track) track.classList.toggle('on', next);
 }
+
+function handleHandheldBack() {
+  const openModal = document.querySelector('.modal.open');
+  if (openModal) {
+    openModal.classList.remove('open');
+    return;
+  }
+  const fPanel = document.getElementById('friendPanel');
+  if (fPanel && fPanel.style.transform === 'translateX(0%)') {
+    if (typeof closeFriendPanel === 'function') closeFriendPanel();
+    return;
+  }
+  const currentTab = document.querySelector('.panel.active');
+  if (currentTab && currentTab.id !== 'panel-connect') {
+    if (typeof switchTab === 'function') switchTab('connect');
+    return;
+  }
+}

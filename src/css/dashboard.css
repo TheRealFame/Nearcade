@@ -1231,9 +1231,15 @@ html.handheld-mode .handheld-status-bar {
 html.handheld-mode {
   --sidebar-width: 220px;
 }
+html.handheld-mode #sidebar .sidebar-orange-btn {
+  display: none !important;
+}
+html.handheld-mode #main-content {
+  padding-bottom: 56px;
+}
 html.handheld-mode .connect-container {
   max-width: 900px;
-  padding: 24px 32px;
+  padding: 24px 32px 56px 32px;
 }
 html.handheld-mode h1 {
   font-size: 26px;
@@ -1287,4 +1293,121 @@ html.handheld-mode button:focus-visible {
   outline: 2px solid var(--accent);
   box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.5);
 }
+
+/* Handheld Bottom-Right Controller Input Prompts */
+.handheld-prompt-bar {
+  display: none;
+}
+
+html.handheld-mode .handheld-prompt-bar {
+  display: flex;
+  position: fixed;
+  bottom: 18px;
+  right: 24px;
+  gap: 8px;
+  align-items: center;
+  z-index: 990;
+  user-select: none;
+  pointer-events: auto;
+}
+
+@media screen and (orientation: portrait) {
+  .handheld-prompt-bar {
+    display: none !important;
+  }
+}
+
+.handheld-prompt-bar .prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(18, 18, 22, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 4px 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.handheld-prompt-bar .prompt-chip:hover {
+  background: rgba(30, 30, 38, 0.95);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.handheld-prompt-bar .prompt-chip.prompt-friends {
+  color: #ff8a4c;
+  border-color: rgba(255, 138, 76, 0.3);
+  position: relative;
+}
+
+.handheld-prompt-bar .prompt-chip.prompt-friends:hover {
+  border-color: #ff8a4c;
+  background: rgba(255, 138, 76, 0.15);
+}
+
+.handheld-prompt-bar .prompt-chip.prompt-docs {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.handheld-prompt-bar .prompt-chip.prompt-quit:hover {
+  border-color: rgba(255, 68, 68, 0.5);
+  color: #ff6666;
+}
+
+.handheld-prompt-bar .btn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.handheld-prompt-bar .btn-a {
+  background: #2ea043;
+}
+.handheld-prompt-bar .btn-b {
+  background: #da3633;
+}
+.handheld-prompt-bar .btn-x {
+  background: #1f6feb;
+}
+.handheld-prompt-bar .btn-y {
+  background: #d29922;
+}
+.handheld-prompt-bar .btn-menu {
+  background: #6e7681;
+  border-radius: 4px;
+  width: 18px;
+  height: 16px;
+  font-size: 11px;
+}
+
+.handheld-prompt-bar .prompt-ping-badge {
+  background: #ff4444;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+}
+
 

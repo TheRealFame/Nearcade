@@ -25,8 +25,8 @@ function toggleFriendPanel() {
   panel.style.transform = 'translateX(0%)';
   overlay.style.display = 'block';
   loadFriends();
-  const badge = document.getElementById('friendPingBadge');
-  if (badge) badge.style.display = 'none';
+  const badges = [document.getElementById('friendPingBadge'), document.getElementById('friendPromptPingBadge')].filter(Boolean);
+  badges.forEach(b => { b.style.display = 'none'; b.classList.add('gone'); });
 }
 
 function closeFriendPanel() {
@@ -73,12 +73,13 @@ async function loadFriends() {
     const fPanel = document.getElementById('friendPanel');
     const panelOpen = fPanel && fPanel.style.transform === 'translateX(0%)';
     if (!panelOpen && (data.pings || []).length > _friendSeenPings) {
-      const badge = document.getElementById('friendPingBadge');
+      const badges = [document.getElementById('friendPingBadge'), document.getElementById('friendPromptPingBadge')].filter(Boolean);
       const newCount = (data.pings || []).length - _friendSeenPings;
-      if (badge) {
+      badges.forEach(badge => {
         badge.textContent = newCount;
+        badge.classList.remove('gone');
         badge.style.display = 'inline-block';
-      }
+      });
     }
     _friendSeenPings = (data.pings || []).length;
   } catch (_) { }

@@ -188,6 +188,30 @@
     </div>
   </div>
 
+  <div id="handheldPromptBar" class="handheld-prompt-bar" aria-label="Gamepad Input Prompts">
+    <button class="prompt-chip prompt-friends" onclick="toggleFriendPanel()" title="Friends">
+      <span class="btn-badge btn-y">Y</span>
+      <span class="prompt-label">Friends</span>
+      <span id="friendPromptPingBadge" class="prompt-ping-badge gone"></span>
+    </button>
+    <button class="prompt-chip prompt-docs" onclick="openDocs()" title="Documentation &amp; Help">
+      <span class="btn-badge btn-x">X</span>
+      <span class="prompt-label">Docs</span>
+    </button>
+    <div class="prompt-chip prompt-select">
+      <span class="btn-badge btn-a">A</span>
+      <span class="prompt-label">Select</span>
+    </div>
+    <div class="prompt-chip prompt-back" onclick="handleHandheldBack()">
+      <span class="btn-badge btn-b">B</span>
+      <span class="prompt-label">Back</span>
+    </div>
+    <button class="prompt-chip prompt-quit" onclick="exitNearcadeApp()" title="Quit Nearcade">
+      <span class="btn-badge btn-menu">≡</span>
+      <span class="prompt-label">Quit</span>
+    </button>
+  </div>
+
   <style>
     /* Nearcade-style About Modal CSS */
     .ns-about-bg {

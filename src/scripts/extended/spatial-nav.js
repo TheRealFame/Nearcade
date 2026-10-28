@@ -44,14 +44,42 @@ function updateGamepad(time) {
     if (Math.abs(gdx) > 0.15) totalDx += gdx * speed * dt;
     if (Math.abs(gdy) > 0.15) totalDy += gdy * speed * dt;
 
-    if (p.buttons[0].pressed && !p._wasPressed) {
+    if (p.buttons[0] && p.buttons[0].pressed && !p._wasPressed) {
       cursor.classList.add('clicking');
       const el = document.elementFromPoint(cx, cy);
       if (el && typeof el.click === 'function') el.click();
       p._wasPressed = true;
-    } else if (!p.buttons[0].pressed) {
+    } else if (p.buttons[0] && !p.buttons[0].pressed) {
       cursor.classList.remove('clicking');
       p._wasPressed = false;
+    }
+
+    if (p.buttons[1] && p.buttons[1].pressed && !p._wasBPressed) {
+      if (typeof handleHandheldBack === 'function') handleHandheldBack();
+      p._wasBPressed = true;
+    } else if (p.buttons[1] && !p.buttons[1].pressed) {
+      p._wasBPressed = false;
+    }
+
+    if (p.buttons[2] && p.buttons[2].pressed && !p._wasXPressed) {
+      if (typeof openDocs === 'function') openDocs();
+      p._wasXPressed = true;
+    } else if (p.buttons[2] && !p.buttons[2].pressed) {
+      p._wasXPressed = false;
+    }
+
+    if (p.buttons[3] && p.buttons[3].pressed && !p._wasYPressed) {
+      if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
+      p._wasYPressed = true;
+    } else if (p.buttons[3] && !p.buttons[3].pressed) {
+      p._wasYPressed = false;
+    }
+
+    if (p.buttons[9] && p.buttons[9].pressed && !p._wasStartPressed) {
+      if (typeof exitNearcadeApp === 'function') exitNearcadeApp();
+      p._wasStartPressed = true;
+    } else if (p.buttons[9] && !p.buttons[9].pressed) {
+      p._wasStartPressed = false;
     }
   }
 
@@ -115,6 +143,8 @@ window.addEventListener('keydown', (e) => {
     setTimeout(() => cursor.classList.remove('clicking'), 150);
     const el = document.elementFromPoint(cx, cy);
     if (el && typeof el.click === 'function') el.click();
+  } else if (e.key === 'Escape') {
+    if (typeof handleHandheldBack === 'function') handleHandheldBack();
   }
 });
 
