@@ -14,6 +14,7 @@
       --green: #44cc44;
       --warn: #ffaa00;
       --sidebar-width: 280px;
+      --safe-top: max(env(safe-area-inset-top, 0px), var(--android-status-bar, 0px));
     }
 
     /* Mobile UI Overrides */
@@ -657,10 +658,15 @@ input[type="range"].form-range::-webkit-slider-thumb {
     top: 0;
     left: 0;
     right: 0;
-    height: 52px;
+    padding-top: var(--safe-top, env(safe-area-inset-top, 0px)) !important;
+    min-height: calc(52px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
+    height: auto !important;
+    box-sizing: border-box !important;
     background: var(--sidebar);
     border-bottom: 1px solid var(--border);
-    padding: 0 16px;
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-bottom: 6px;
     z-index: 600;
     -webkit-app-region: drag;
   }
@@ -680,12 +686,13 @@ input[type="range"].form-range::-webkit-slider-thumb {
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--accent);
+    line-height: 1.2;
   }
 
-  /* Right actions inside top bar: safely inset, 3rd button hidden to avoid clipping */
+  /* Right actions inside top bar: safely inset below notification bar */
   #docsFloatBtn {
     position: fixed !important;
-    top: 8px !important;
+    top: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
     right: 14px !important;
     z-index: 601 !important;
     gap: 8px !important;
@@ -730,7 +737,7 @@ input[type="range"].form-range::-webkit-slider-thumb {
   #main-content {
     width: 100% !important;
     flex: 1 !important;
-    padding-top: 52px !important;
+    padding-top: calc(52px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
     min-width: 0 !important;
   }
 
@@ -872,10 +879,15 @@ html.portrait-mode #mobileTopBar {
   top: 0;
   left: 0;
   right: 0;
-  height: 52px;
+  padding-top: var(--safe-top, env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(52px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
+  height: auto !important;
+  box-sizing: border-box !important;
   background: var(--sidebar);
   border-bottom: 1px solid var(--border);
-  padding: 0 16px;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 6px;
   z-index: 600;
   -webkit-app-region: drag;
 }
@@ -894,10 +906,11 @@ html.portrait-mode .mobile-title {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent);
+  line-height: 1.2;
 }
 html.portrait-mode #docsFloatBtn {
   position: fixed !important;
-  top: 8px !important;
+  top: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
   right: 14px !important;
   z-index: 601 !important;
   gap: 8px !important;
@@ -934,7 +947,7 @@ html.portrait-mode #app {
 html.portrait-mode #main-content {
   width: 100% !important;
   flex: 1 !important;
-  padding-top: 52px !important;
+  padding-top: calc(52px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
   min-width: 0 !important;
 }
 html.portrait-mode .connect-container,

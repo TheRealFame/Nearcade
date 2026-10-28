@@ -37,6 +37,7 @@ public class MainActivity extends BridgeActivity {
                 android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
                 cookieManager.setAcceptCookie(true);
                 cookieManager.setAcceptThirdPartyCookies(this.bridge.getWebView(), true);
+                syncTextZoom();
                 this.bridge.getWebView().addJavascriptInterface(new AndroidNativeClipboard(), "AndroidClipboard");
             }
             getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
@@ -60,6 +61,21 @@ public class MainActivity extends BridgeActivity {
                 }
             });
         } catch (Exception ignored) {}
+    }
+
+    private void syncTextZoom() {
+        try {
+            if (this.bridge != null && this.bridge.getWebView() != null) {
+                float fontScale = getResources().getConfiguration().fontScale;
+                this.bridge.getWebView().getSettings().setTextZoom((int) (fontScale * 100));
+            }
+        } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        syncTextZoom();
     }
 
     @Override
@@ -237,6 +253,25 @@ public class MainActivity extends BridgeActivity {
                     } catch (Exception ignored) {}
                 }
             });
+        }
+
+        @JavascriptInterface
+        public int getStatusBarHeight() {
+            try {
+                int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                if (resourceId > 0) {
+                    return getResources().getDimensionPixelSize(resourceId);
+                }
+            } catch (Exception ignored) {}
+            return 0;
+        }
+
+        @JavascriptInterface
+        public float getFontScale() {
+            try {
+                return getResources().getConfiguration().fontScale;
+            } catch (Exception ignored) {}
+            return 1.0f;
         }
     }
 }
