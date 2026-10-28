@@ -190,24 +190,24 @@
 
   <div id="handheldPromptBar" class="handheld-prompt-bar" aria-label="Gamepad Input Prompts">
     <button class="prompt-chip prompt-friends" onclick="toggleFriendPanel()" title="Friends">
-      <span class="btn-badge btn-y">Y</span>
+      <span id="promptBadgeFriends" class="btn-badge btn-y">Y</span>
       <span class="prompt-label">Friends</span>
       <span id="friendPromptPingBadge" class="prompt-ping-badge gone"></span>
     </button>
     <button class="prompt-chip prompt-docs" onclick="openDocs()" title="Documentation &amp; Help">
-      <span class="btn-badge btn-x">X</span>
+      <span id="promptBadgeDocs" class="btn-badge btn-x">X</span>
       <span class="prompt-label">Docs</span>
     </button>
-    <div class="prompt-chip prompt-select">
-      <span class="btn-badge btn-a">A</span>
+    <div class="prompt-chip prompt-select" onclick="triggerHandheldSelect()">
+      <span id="promptBadgeSelect" class="btn-badge btn-a">A</span>
       <span class="prompt-label">Select</span>
     </div>
     <div class="prompt-chip prompt-back" onclick="handleHandheldBack()">
-      <span class="btn-badge btn-b">B</span>
+      <span id="promptBadgeBack" class="btn-badge btn-b">B</span>
       <span class="prompt-label">Back</span>
     </div>
     <button class="prompt-chip prompt-quit" onclick="exitNearcadeApp()" title="Quit Nearcade">
-      <span class="btn-badge btn-menu">≡</span>
+      <span id="promptBadgeQuit" class="btn-badge btn-menu">≡</span>
       <span class="prompt-label">Quit</span>
     </button>
   </div>
@@ -681,6 +681,13 @@
           <select id="langSelect" onchange="saveLangAndReload(this.value)">
           </select>
         </div>
+      </div>
+
+      <div id="version-display"
+        style="padding: 0 16px; margin-bottom: 8px; font-size: 11px; color: var(--muted); cursor: pointer; text-align: left; user-select: none; line-height: 1.3;"
+        onclick="copyVersion()" title="Click to copy version">
+        <div id="version-text"></div>
+        <div id="commit-hash" style="font-size: 9px; opacity: 0.7;"></div>
       </div>
     </div>
 
@@ -1343,13 +1350,6 @@
       <span>More</span>
     </button>
   </nav>
-
-  <div id="version-display"
-    style="position:fixed; bottom: 12px; right: 16px; font-size: 11px; color: var(--muted); cursor: pointer; text-align: right; z-index: 100; user-select: none;"
-    onclick="copyVersion()" title="Click to copy version">
-    <div id="version-text"></div>
-    <div id="commit-hash" style="font-size: 9px; opacity: 0.7;"></div>
-  </div>
 
   <!-- Friend list side menu -->
   <div id="friendOverlay" onclick="closeFriendPanel()"

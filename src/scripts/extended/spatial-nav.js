@@ -9,6 +9,13 @@ let lastTime = performance.now();
 let vx = 0, vy = 0;
 const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
+window.triggerSpatialNavClick = function() {
+  if (cursor) cursor.classList.add('clicking');
+  const el = document.elementFromPoint(cx, cy);
+  if (el && typeof el.click === 'function') el.click();
+  setTimeout(() => { if (cursor) cursor.classList.remove('clicking'); }, 150);
+};
+
 function updateGamepad(time) {
   const dt = Math.min((time - lastTime) / 1000, 0.1); // Cap delta time at 100ms
   lastTime = time;
@@ -38,40 +45,53 @@ function updateGamepad(time) {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   for (const p of pads) {
     if (!p) continue;
+
+    const layout = typeof window.detectGamepadLayout === 'function' ? window.detectGamepadLayout(p) : 'xbox';
+    if (typeof window.updateHandheldPromptGlyphs === 'function' && window._lastNavLayout !== layout) {
+      window._lastNavLayout = layout;
+      window.updateHandheldPromptGlyphs(layout);
+    }
+
     const gdx = p.axes[0], gdy = p.axes[1];
     const speed = 840;
 
     if (Math.abs(gdx) > 0.15) totalDx += gdx * speed * dt;
     if (Math.abs(gdy) > 0.15) totalDy += gdy * speed * dt;
 
-    if (p.buttons[0] && p.buttons[0].pressed && !p._wasPressed) {
+    // Face buttons: Nintendo swaps Confirm (A / button 1) and Cancel (B / button 0)
+    const selectBtn = (layout === 'nintendo') ? p.buttons[1] : p.buttons[0];
+    const backBtn = (layout === 'nintendo') ? p.buttons[0] : p.buttons[1];
+    const docsBtn = p.buttons[2];
+    const friendsBtn = p.buttons[3];
+
+    if (selectBtn && selectBtn.pressed && !p._wasPressed) {
       cursor.classList.add('clicking');
       const el = document.elementFromPoint(cx, cy);
       if (el && typeof el.click === 'function') el.click();
       p._wasPressed = true;
-    } else if (p.buttons[0] && !p.buttons[0].pressed) {
+    } else if (selectBtn && !selectBtn.pressed) {
       cursor.classList.remove('clicking');
       p._wasPressed = false;
     }
 
-    if (p.buttons[1] && p.buttons[1].pressed && !p._wasBPressed) {
+    if (backBtn && backBtn.pressed && !p._wasBPressed) {
       if (typeof handleHandheldBack === 'function') handleHandheldBack();
       p._wasBPressed = true;
-    } else if (p.buttons[1] && !p.buttons[1].pressed) {
+    } else if (backBtn && !backBtn.pressed) {
       p._wasBPressed = false;
     }
 
-    if (p.buttons[2] && p.buttons[2].pressed && !p._wasXPressed) {
+    if (docsBtn && docsBtn.pressed && !p._wasXPressed) {
       if (typeof openDocs === 'function') openDocs();
       p._wasXPressed = true;
-    } else if (p.buttons[2] && !p.buttons[2].pressed) {
+    } else if (docsBtn && !docsBtn.pressed) {
       p._wasXPressed = false;
     }
 
-    if (p.buttons[3] && p.buttons[3].pressed && !p._wasYPressed) {
+    if (friendsBtn && friendsBtn.pressed && !p._wasYPressed) {
       if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
       p._wasYPressed = true;
-    } else if (p.buttons[3] && !p.buttons[3].pressed) {
+    } else if (friendsBtn && !friendsBtn.pressed) {
       p._wasYPressed = false;
     }
 

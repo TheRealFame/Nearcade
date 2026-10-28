@@ -212,3 +212,84 @@ function handleHandheldBack() {
     return;
   }
 }
+
+function triggerHandheldSelect() {
+  if (typeof window.triggerSpatialNavClick === 'function') {
+    window.triggerSpatialNavClick();
+    return;
+  }
+  const active = document.activeElement;
+  if (active && typeof active.click === 'function') {
+    active.click();
+  }
+}
+
+let currentGamepadLayout = 'xbox';
+
+function detectGamepadLayout(gamepad) {
+  if (!gamepad && typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+    const pads = navigator.getGamepads();
+    for (const p of pads) {
+      if (p) {
+        gamepad = p;
+        break;
+      }
+    }
+  }
+  const id = (gamepad && gamepad.id ? gamepad.id : '').toLowerCase();
+  if (id.includes('playstation') || id.includes('dualshock') || id.includes('dualsense') || id.includes('054c') || id.includes('sony')) {
+    return 'playstation';
+  }
+  if (id.includes('nintendo') || id.includes('joy-con') || id.includes('switch') || id.includes('057e')) {
+    return 'nintendo';
+  }
+  if (id.includes('xbox') || id.includes('x-box') || id.includes('xinput') || id.includes('microsoft') || id.includes('045e') || id.includes('valve') || id.includes('steam')) {
+    return 'xbox';
+  }
+  return 'xbox';
+}
+
+function updateHandheldPromptGlyphs(layout) {
+  currentGamepadLayout = layout || 'xbox';
+  const bFriends = document.getElementById('promptBadgeFriends');
+  const bDocs = document.getElementById('promptBadgeDocs');
+  const bSelect = document.getElementById('promptBadgeSelect');
+  const bBack = document.getElementById('promptBadgeBack');
+  const bQuit = document.getElementById('promptBadgeQuit');
+
+  if (layout === 'playstation') {
+    if (bFriends) { bFriends.textContent = '△'; bFriends.className = 'btn-badge btn-ps-triangle'; }
+    if (bDocs) { bDocs.textContent = '□'; bDocs.className = 'btn-badge btn-ps-square'; }
+    if (bSelect) { bSelect.textContent = '×'; bSelect.className = 'btn-badge btn-ps-cross'; }
+    if (bBack) { bBack.textContent = '○'; bBack.className = 'btn-badge btn-ps-circle'; }
+    if (bQuit) { bQuit.textContent = '≡'; bQuit.className = 'btn-badge btn-menu'; }
+  } else if (layout === 'nintendo') {
+    if (bFriends) { bFriends.textContent = 'X'; bFriends.className = 'btn-badge btn-nin-x'; }
+    if (bDocs) { bDocs.textContent = 'Y'; bDocs.className = 'btn-badge btn-nin-y'; }
+    if (bSelect) { bSelect.textContent = 'A'; bSelect.className = 'btn-badge btn-nin-a'; }
+    if (bBack) { bBack.textContent = 'B'; bBack.className = 'btn-badge btn-nin-b'; }
+    if (bQuit) { bQuit.textContent = '+'; bQuit.className = 'btn-badge btn-nin-plus'; }
+  } else {
+    if (bFriends) { bFriends.textContent = 'Y'; bFriends.className = 'btn-badge btn-y'; }
+    if (bDocs) { bDocs.textContent = 'X'; bDocs.className = 'btn-badge btn-x'; }
+    if (bSelect) { bSelect.textContent = 'A'; bSelect.className = 'btn-badge btn-a'; }
+    if (bBack) { bBack.textContent = 'B'; bBack.className = 'btn-badge btn-b'; }
+    if (bQuit) { bQuit.textContent = '≡'; bQuit.className = 'btn-badge btn-menu'; }
+  }
+}
+
+window.detectGamepadLayout = detectGamepadLayout;
+window.updateHandheldPromptGlyphs = updateHandheldPromptGlyphs;
+window.triggerHandheldSelect = triggerHandheldSelect;
+window.getActiveGamepadLayout = () => currentGamepadLayout;
+
+window.addEventListener('gamepadconnected', (e) => {
+  const layout = detectGamepadLayout(e.gamepad);
+  updateHandheldPromptGlyphs(layout);
+});
+
+window.addEventListener('gamepaddisconnected', () => {
+  const layout = detectGamepadLayout();
+  updateHandheldPromptGlyphs(layout);
+});
+
