@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="shine" cx="34%" cy="27%" r="55%" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="110" fill="#FF6D2F"/>
+  <rect x="224" y="262" width="64" height="156" rx="30" fill="#FF6D2F" stroke="#FFFFFF" stroke-width="14"/>
+  <rect x="122" y="396" width="268" height="56" rx="28" fill="#FF6D2F" stroke="#FFFFFF" stroke-width="14"/>
+  <circle cx="256" cy="188" r="108" fill="#FF6D2F" stroke="#FFFFFF" stroke-width="14"/>
+  <circle cx="256" cy="188" r="108" fill="url(#shine)"/>
+</svg>
