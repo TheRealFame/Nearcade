@@ -7,7 +7,10 @@ function initHandheldStatusBar() {
   const batteryText = document.getElementById('handheldBatteryText');
   const batteryBolt = document.getElementById('handheldBatteryBolt');
   const batteryContainer = document.getElementById('handheldBattery');
+  const acIcon = document.getElementById('handheldAcIcon');
+  const wifiContainer = document.getElementById('handheldWifi');
   const wifiBars = document.getElementById('handheldWifiBars');
+  const ethernetIcon = document.getElementById('handheldEthernetIcon');
 
   function updateClock() {
     if (clockEl) {
@@ -17,42 +20,72 @@ function initHandheldStatusBar() {
   }
   updateClock();
 
-  if (!handheldBarInitialized) {
-    setInterval(updateClock, 15000);
+  function updateNetworkDisplay(type, quality) {
+    if (type === 'ethernet') {
+      if (ethernetIcon) ethernetIcon.classList.remove('gone');
+      if (wifiBars) wifiBars.classList.add('gone');
+      if (wifiContainer) wifiContainer.title = 'Ethernet (Wired Connection)';
+    } else {
+      if (ethernetIcon) ethernetIcon.classList.add('gone');
+      if (wifiBars) {
+        wifiBars.classList.remove('gone');
+        wifiBars.className = 'wifi-bars q-' + (quality !== undefined ? quality : 4);
+      }
+      if (wifiContainer) wifiContainer.title = 'Wi-Fi Connection';
+    }
   }
 
-  if (typeof navigator !== 'undefined' && typeof navigator.getBattery === 'function') {
-    navigator.getBattery().then(battery => {
-      function updateBattery() {
-        const pct = Math.round(battery.level * 100);
-        if (batteryText) batteryText.textContent = pct + '%';
-        if (batteryFill) batteryFill.style.width = Math.max(4, pct) + '%';
-        if (batteryBolt) {
-          if (battery.charging) batteryBolt.classList.remove('gone');
-          else batteryBolt.classList.add('gone');
-        }
-        if (batteryContainer) {
-          batteryContainer.classList.remove('lvl-green', 'lvl-yellow', 'lvl-red');
-          if (pct <= 15) batteryContainer.classList.add('lvl-red');
-          else if (pct <= 30) batteryContainer.classList.add('lvl-yellow');
-          else batteryContainer.classList.add('lvl-green');
-        }
-      }
-      updateBattery();
-      if (!handheldBarInitialized) {
-        battery.addEventListener('levelchange', updateBattery);
-        battery.addEventListener('chargingchange', updateBattery);
-      }
-    }).catch(() => {
-      if (batteryContainer) batteryContainer.style.display = 'none';
-    });
-  } else {
-    if (batteryContainer) batteryContainer.style.display = 'none';
+  function updateBatteryDisplay(bat) {
+    if (!batteryContainer) return;
+    batteryContainer.style.display = 'flex';
+
+    const hasBattery = bat && bat.hasBattery !== false && (bat.hasBattery || (typeof bat.level === 'number' && bat.level > 0));
+    const acConnected = bat && (bat.acConnected || bat.charging || bat.isCharging);
+
+    if (!hasBattery || (!hasBattery && acConnected)) {
+      // Wall/AC power connected (desktop PC or docked handheld with no internal battery reading)
+      if (acIcon) acIcon.classList.remove('gone');
+      if (batteryBolt) batteryBolt.classList.add('gone');
+      if (batteryFill) batteryFill.style.width = '100%';
+      if (batteryText) batteryText.textContent = 'AC';
+      batteryContainer.classList.remove('lvl-yellow', 'lvl-red');
+      batteryContainer.classList.add('lvl-green');
+      batteryContainer.title = 'AC Power Connected';
+      return;
+    }
+
+    // Battery present
+    const pct = Math.round(
+      typeof bat.percent === 'number' ? bat.percent :
+      (typeof bat.level === 'number' ? bat.level * 100 : 100)
+    );
+    const isCharging = !!(bat.isCharging || bat.charging);
+
+    if (acIcon) {
+      if (acConnected && pct >= 99) acIcon.classList.remove('gone');
+      else acIcon.classList.add('gone');
+    }
+
+    if (batteryText) batteryText.textContent = pct + '%';
+    if (batteryFill) batteryFill.style.width = Math.max(4, pct) + '%';
+    if (batteryBolt) {
+      if (isCharging) batteryBolt.classList.remove('gone');
+      else batteryBolt.classList.add('gone');
+    }
+
+    batteryContainer.classList.remove('lvl-green', 'lvl-yellow', 'lvl-red');
+    if (pct <= 15) batteryContainer.classList.add('lvl-red');
+    else if (pct <= 30) batteryContainer.classList.add('lvl-yellow');
+    else batteryContainer.classList.add('lvl-green');
+    batteryContainer.title = isCharging ? ('Charging (' + pct + '%)') : ('Battery: ' + pct + '%');
   }
 
-  function updateNetwork() {
-    if (!wifiBars) return;
+  function checkLocalNetwork() {
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && conn.type === 'ethernet') {
+      updateNetworkDisplay('ethernet');
+      return;
+    }
     let quality = 4;
     if (conn) {
       const rtt = conn.rtt || 30;
@@ -68,14 +101,81 @@ function initHandheldStatusBar() {
         quality = 4;
       }
     }
-    wifiBars.className = 'wifi-bars q-' + quality;
+    updateNetworkDisplay('wifi', quality);
   }
-  updateNetwork();
+
+  function handleStatusPayload(data) {
+    if (!data) return;
+    if (data.network) {
+      if (data.network.type === 'ethernet') {
+        updateNetworkDisplay('ethernet');
+      } else if (data.network.type === 'wifi') {
+        updateNetworkDisplay('wifi');
+      }
+    }
+    if (data.battery) {
+      updateBatteryDisplay(data.battery);
+    }
+  }
+
+  async function queryDeviceStatus() {
+    try {
+      if (window.electronAPI && typeof window.electronAPI.getDeviceStatus === 'function') {
+        const data = await window.electronAPI.getDeviceStatus();
+        if (data) handleStatusPayload(data);
+        return;
+      }
+      const res = await fetch('/api/device-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data) handleStatusPayload(data);
+      }
+    } catch (_) {}
+  }
+
+  checkLocalNetwork();
+  queryDeviceStatus();
+
+  if (typeof navigator !== 'undefined' && typeof navigator.getBattery === 'function') {
+    navigator.getBattery().then(battery => {
+      function onBatteryChange() {
+        updateBatteryDisplay({
+          hasBattery: true,
+          charging: battery.charging,
+          level: battery.level
+        });
+      }
+      onBatteryChange();
+      if (!handheldBarInitialized) {
+        battery.addEventListener('levelchange', onBatteryChange);
+        battery.addEventListener('chargingchange', onBatteryChange);
+      }
+    }).catch(() => {
+      updateBatteryDisplay({ hasBattery: false, acConnected: true });
+    });
+  } else {
+    updateBatteryDisplay({ hasBattery: false, acConnected: true });
+  }
+
   if (!handheldBarInitialized) {
+    setInterval(updateClock, 15000);
+    setInterval(queryDeviceStatus, 10000);
+
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     if (conn) {
-      conn.addEventListener('change', updateNetwork);
+      conn.addEventListener('change', () => {
+        checkLocalNetwork();
+        queryDeviceStatus();
+      });
     }
+
+    window.addEventListener('online', () => {
+      checkLocalNetwork();
+      queryDeviceStatus();
+    });
+    window.addEventListener('offline', () => {
+      updateNetworkDisplay('wifi', 0);
+    });
   }
 
   handheldBarInitialized = true;

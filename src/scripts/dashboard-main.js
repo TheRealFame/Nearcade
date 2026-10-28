@@ -332,11 +332,6 @@ function switchTab(name) {
     document.getElementById('bnav-more')?.classList.add('active');
   }
 
-  const docsBtn = document.getElementById('docsFloatBtn');
-  if (docsBtn) {
-    docsBtn.style.display = (name === 'arcade' || name === 'settings') ? 'none' : 'flex';
-  }
-
   if (name === 'settings') {
     syncSettingsUI();
   }
@@ -1317,7 +1312,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 1. Hide PC-only elements if running on Android / Capacitor
   const isMobile = window.Capacitor || navigator.userAgent.includes('Android');
   if (isMobile) {
-    ['docsFloatBtn', 'settingRowSetupWizard'].forEach(id => {
+    ['settingRowSetupWizard'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.setProperty('display', 'none', 'important');
     });

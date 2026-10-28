@@ -1555,6 +1555,40 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     });
   });
 
+  app.get("/api/device-status", async (req, res) => {
+    try {
+      const [netIfaces, battery] = await Promise.all([
+        si.networkInterfaces(),
+        si.battery()
+      ]);
+      const ifaces = Array.isArray(netIfaces) ? netIfaces : [];
+      const defIface = ifaces.find(n => n.default && n.operstate === 'up')
+        || ifaces.find(n => n.operstate === 'up' && n.type !== 'virtual')
+        || ifaces[0] || null;
+
+      const netType = defIface ? (defIface.type === 'wireless' ? 'wifi' : (defIface.type === 'wired' ? 'ethernet' : 'unknown')) : 'unknown';
+
+      res.json({
+        network: {
+          type: netType,
+          iface: defIface ? defIface.iface : '',
+          online: !!defIface
+        },
+        battery: {
+          hasBattery: !!battery.hasBattery,
+          isCharging: !!battery.isCharging,
+          percent: typeof battery.percent === 'number' && battery.hasBattery ? battery.percent : null,
+          acConnected: !!battery.acConnected
+        }
+      });
+    } catch (e) {
+      res.json({
+        network: { type: 'unknown', iface: '', online: true },
+        battery: { hasBattery: false, isCharging: false, percent: null, acConnected: true }
+      });
+    }
+  });
+
   app.post("/api/create-virtual-audio", adminMiddleware, (req, res) => {
     initVirtualAudio((success, error) => {
       res.json({ success, error: error || null });

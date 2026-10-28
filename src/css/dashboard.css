@@ -689,28 +689,6 @@ input[type="range"].form-range::-webkit-slider-thumb {
     line-height: 1.2;
   }
 
-  /* Right actions inside top bar: safely inset below notification bar */
-  #docsFloatBtn {
-    position: fixed !important;
-    top: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
-    right: 14px !important;
-    z-index: 601 !important;
-    gap: 8px !important;
-  }
-  #docsFloatBtn button {
-    width: 36px !important;
-    height: 36px !important;
-    padding: 6px !important;
-    -webkit-app-region: no-drag;
-  }
-  #docsFloatBtn button:last-child {
-    display: none !important;
-  }
-  #docsFloatBtn svg, #docsFloatBtn img {
-    width: 18px !important;
-    height: 18px !important;
-  }
-
   /* 3-Icon Bottom Nav */
   #mobileBottomNav {
     display: flex !important;
@@ -908,22 +886,6 @@ html.portrait-mode .mobile-title {
   color: var(--accent);
   line-height: 1.2;
 }
-html.portrait-mode #docsFloatBtn {
-  position: fixed !important;
-  top: calc(8px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
-  right: 14px !important;
-  z-index: 601 !important;
-  gap: 8px !important;
-}
-html.portrait-mode #docsFloatBtn button {
-  width: 36px !important;
-  height: 36px !important;
-  padding: 6px !important;
-  -webkit-app-region: no-drag;
-}
-html.portrait-mode #docsFloatBtn button:last-child {
-  display: none !important;
-}
 html.portrait-mode #mobileBottomNav {
   display: flex !important;
   position: fixed;
@@ -1076,13 +1038,18 @@ html.portrait-mode .tunnel-grid {
    ═══════════════════════════════════════════════════════════════════════════ */
 .handheld-status-bar {
   display: none;
+  position: fixed;
+  top: 18px;
+  right: 24px;
+  z-index: 1000;
+  -webkit-app-region: no-drag;
 }
 
 html.handheld-mode .handheld-status-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(18, 18, 18, 0.78);
+  background: rgba(18, 18, 18, 0.82);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--border);
@@ -1144,6 +1111,27 @@ html.handheld-mode .handheld-status-bar {
 }
 .handheld-status-bar .wifi-bars.q-1 .bar-1 {
   background: var(--danger, #ff4444);
+}
+
+/* Ethernet Icon */
+.handheld-status-bar .ethernet-icon {
+  width: 17px;
+  height: 17px;
+  color: var(--green, #44cc44);
+  flex-shrink: 0;
+}
+
+/* AC Power Plug Icon */
+.handheld-status-bar .battery-ac-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--green, #44cc44);
+  flex-shrink: 0;
+}
+
+.handheld-status-bar .gone,
+.gone {
+  display: none !important;
 }
 
 /* Battery Indicator */
@@ -1216,38 +1204,82 @@ html.handheld-mode .handheld-status-bar {
   padding-left: 10px;
 }
 
-/* Handheld & TV Layout Adjustments */
+/* Sidebar Orange Action Buttons (Friends & Docs) */
+.sidebar-orange-btn {
+  color: #ff8a4c !important;
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.sidebar-orange-btn svg {
+  stroke: #ff8a4c !important;
+  transition: transform 0.2s ease;
+}
+
+.sidebar-orange-btn:hover {
+  background: rgba(255, 138, 76, 0.12) !important;
+  color: #ff9d66 !important;
+  border-left-color: #ff8a4c;
+}
+
+.sidebar-orange-btn:hover svg {
+  stroke: #ff9d66 !important;
+  transform: scale(1.05);
+}
+
+/* Handheld & TV Layout Adjustments (Optimized for 16:10 Aspect Ratio, e.g. 1280x800) */
 html.handheld-mode {
-  --sidebar-width: 240px;
+  --sidebar-width: 220px;
 }
 html.handheld-mode .connect-container {
-  max-width: 960px;
-  padding: 40px 48px;
+  max-width: 900px;
+  padding: 24px 32px;
+}
+html.handheld-mode h1 {
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+html.handheld-mode p.sub {
+  margin-bottom: 18px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 html.handheld-mode .connect-card {
-  padding: 32px;
-  border-radius: 16px;
+  padding: 20px 24px;
+  margin-bottom: 18px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: var(--surface);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+html.handheld-mode .connect-card h2 {
+  font-size: 15px;
+  margin-bottom: 12px;
 }
 html.handheld-mode .input-wrapper input {
-  font-size: 16px;
-  padding: 16px 20px;
+  font-size: 15px;
+  padding: 12px 16px;
+  padding-right: 48px;
 }
 html.handheld-mode .btn-connect {
-  font-size: 15px;
-  padding: 0 32px;
-  min-height: 48px;
+  font-size: 14px;
+  padding: 0 24px;
+  min-height: 44px;
+}
+html.handheld-mode .info-grid {
+  gap: 12px;
+}
+html.handheld-mode .info-card {
+  padding: 14px 18px;
 }
 html.handheld-mode .nav-btn {
-  padding: 16px;
-  font-size: 15px;
-  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  border-radius: 10px;
 }
 html.handheld-mode .nav-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
 }
 html.handheld-mode .nav-btn:focus-visible,
 html.handheld-mode .connect-card:focus-within,

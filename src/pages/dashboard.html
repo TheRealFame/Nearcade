@@ -152,54 +152,40 @@
       document.getElementById('ns-splash-screen').style.display = 'none';
     }
   </script>
-  <div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex; gap: 8px; align-items: center;">
-    <div id="handheldStatusBar" class="handheld-status-bar" aria-label="Device Status">
-      <div class="status-item status-wifi" id="handheldWifi" title="Network Connection">
-        <div class="wifi-bars" id="handheldWifiBars">
-          <span class="w-bar bar-1"></span>
-          <span class="w-bar bar-2"></span>
-          <span class="w-bar bar-3"></span>
-          <span class="w-bar bar-4"></span>
-        </div>
-      </div>
-      <div class="status-item status-battery" id="handheldBattery" title="Battery Status">
-        <div class="battery-shell">
-          <div class="battery-fill" id="handheldBatteryFill" style="width: 100%;"></div>
-          <svg class="battery-bolt gone" id="handheldBatteryBolt" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
-        <span class="battery-text" id="handheldBatteryText">--%</span>
-      </div>
-      <div class="status-item status-clock" id="handheldClock">
-        <span id="handheldClockText">--:--</span>
+  <div id="handheldStatusBar" class="handheld-status-bar" aria-label="Device Status">
+    <div class="status-item status-wifi" id="handheldWifi" title="Network Connection">
+      <svg id="handheldEthernetIcon" class="ethernet-icon gone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="16" y="16" width="6" height="6" rx="1"></rect>
+        <rect x="2" y="16" width="6" height="6" rx="1"></rect>
+        <rect x="9" y="2" width="6" height="6" rx="1"></rect>
+        <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path>
+        <path d="M12 12V8"></path>
+      </svg>
+      <div class="wifi-bars" id="handheldWifiBars">
+        <span class="w-bar bar-1"></span>
+        <span class="w-bar bar-2"></span>
+        <span class="w-bar bar-3"></span>
+        <span class="w-bar bar-4"></span>
       </div>
     </div>
-    <button id="friendFloatBtn" onclick="toggleFriendPanel()" title="Friends"
-      style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #fff; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; position: relative; font-family: inherit;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="width: 20px;">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-        <circle cx="9" cy="7" r="4"></circle>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+    <div class="status-item status-battery" id="handheldBattery" title="Battery Status">
+      <svg id="handheldAcIcon" class="battery-ac-icon gone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22v-5"></path>
+        <path d="M9 8V2"></path>
+        <path d="M15 2v6"></path>
+        <path d="M18 8v5a6 6 0 0 1-12 0V8z"></path>
       </svg>
-      <span id="friendPingBadge"
-        style="display:none; position:absolute; top:-4px; right:-4px; background:#f44; color:#fff; border-radius:10px; font-size:10px; min-width:18px; height:18px; line-height:18px; padding:0 4px; font-weight:bold;"></span>
-    </button>
-    <button id="friendEnableFloatBanner" onclick="toggleFriendPanel()" title="Enable the friend list"
-      style="display:none; background: transparent; border: 1px dashed var(--accent-glow,rgba(192,132,252,0.45)); border-radius: 8px; padding: 0 12px; cursor: pointer; color: var(--accent,#c084fc); align-items: center; justify-content: center; height: 40px; font-size: 12px; font-weight: 700; font-family: inherit; white-space: nowrap;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; margin-right: 6px;">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-        <circle cx="9" cy="7" r="4"></circle>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-      </svg>
-      Enable Friends
-    </button>
-    <button onclick="openDocs()" title="Documentation & Help"
-      style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
-      <img src="../../assets/icons/book.svg" style="width: 20px; filter: invert(1);" />
-    </button>
+      <div class="battery-shell" id="handheldBatteryShell">
+        <div class="battery-fill" id="handheldBatteryFill" style="width: 100%;"></div>
+        <svg class="battery-bolt gone" id="handheldBatteryBolt" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      </div>
+      <span class="battery-text" id="handheldBatteryText">--%</span>
+    </div>
+    <div class="status-item status-clock" id="handheldClock">
+      <span id="handheldClockText">--:--</span>
+    </div>
   </div>
 
   <style>
@@ -628,6 +614,35 @@
           </path>
         </svg>
         <span class="btn-text">App Settings</span>
+      </button>
+
+      <button class="nav-btn sidebar-orange-btn" id="friendFloatBtn" onclick="toggleFriendPanel()" title="Friends">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span class="btn-text">Friends</span>
+        <span id="friendPingBadge" style="display:none; margin-left:auto; background:#f44; color:#fff; border-radius:10px; font-size:10px; min-width:18px; height:18px; line-height:18px; padding:0 4px; font-weight:bold; text-align:center;"></span>
+      </button>
+
+      <button class="nav-btn sidebar-orange-btn" id="friendEnableFloatBanner" onclick="toggleFriendPanel()" title="Enable Friends" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span class="btn-text">Enable Friends</span>
+      </button>
+
+      <button class="nav-btn sidebar-orange-btn" id="sidebarDocsBtn" onclick="openDocs()" title="Documentation &amp; Help">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+        <span class="btn-text">Documentation</span>
       </button>
 
       <div style="display:flex; align-items:center; justify-content:space-between; margin-top: auto; padding: 0 16px; margin-bottom: 12px;">

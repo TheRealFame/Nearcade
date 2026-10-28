@@ -467,6 +467,41 @@ function registerIpcHandlers(ctx) {
     return { isWayland, displayServer: isWayland ? 'wayland' : 'x11' };
   });
 
+  ipcMain.handle('get-device-status', async () => {
+    try {
+      const si = require('systeminformation');
+      const [netIfaces, battery] = await Promise.all([
+        si.networkInterfaces(),
+        si.battery()
+      ]);
+      const ifaces = Array.isArray(netIfaces) ? netIfaces : [];
+      const defIface = ifaces.find(n => n.default && n.operstate === 'up')
+        || ifaces.find(n => n.operstate === 'up' && n.type !== 'virtual')
+        || ifaces[0] || null;
+
+      const netType = defIface ? (defIface.type === 'wireless' ? 'wifi' : (defIface.type === 'wired' ? 'ethernet' : 'unknown')) : 'unknown';
+
+      return {
+        network: {
+          type: netType,
+          iface: defIface ? defIface.iface : '',
+          online: !!defIface
+        },
+        battery: {
+          hasBattery: !!battery.hasBattery,
+          isCharging: !!battery.isCharging,
+          percent: typeof battery.percent === 'number' && battery.hasBattery ? battery.percent : null,
+          acConnected: !!battery.acConnected
+        }
+      };
+    } catch (e) {
+      return {
+        network: { type: 'unknown', iface: '', online: true },
+        battery: { hasBattery: false, isCharging: false, percent: null, acConnected: true }
+      };
+    }
+  });
+
   ipcMain.handle('get-app-version', () => {
     const pkgPath = path.join(ROOT_DIR, 'package.json');
     let version = '1.0.0';
