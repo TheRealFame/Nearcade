@@ -1362,8 +1362,9 @@ html.handheld-mode .handheld-status-bar {
   padding-left: 10px;
 }
 
-/* Handheld & TV Layout Adjustments (Optimized for 16:10 Aspect Ratio, e.g. 1280x800) */
+/* Handheld & TV Layout Adjustments (Optimized for 16:9 Aspect Ratio, e.g. 1280x720, 1600x900, 1080p TVs) */
 html.handheld-mode {
+  zoom: 1.2;
   --sidebar-width: 220px;
 }
 html.handheld-mode #docsFloatBtn,
@@ -1371,7 +1372,7 @@ html.handheld-mode #gamesLibraryBtn {
   display: none !important;
 }
 html.handheld-mode .companion-dock {
-  top: 106px;
+  top: 96px;
 }
 html.handheld-mode #version-display {
   left: 24px;
@@ -1385,10 +1386,10 @@ html.handheld-mode #main-content {
 }
 html.handheld-mode .connect-container {
   max-width: 900px;
-  padding: 56px 36px 56px 36px;
+  padding: 38px 36px 44px 36px;
 }
 html.handheld-mode .settings-container {
-  padding: 56px 36px 56px 36px;
+  padding: 38px 36px 44px 36px;
 }
 html.handheld-mode h1 {
   font-size: 26px;

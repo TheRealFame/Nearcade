@@ -431,7 +431,16 @@ let tray = null;
 const isGamescopeEnv = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
   (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
   process.env.SteamDeck === '1' ||
-  process.env.SteamGamepadUI === '1';
+  process.env.SteamGamepadUI === '1' ||
+  (process.platform === 'linux' && (
+    fs.existsSync('/sys/class/dmi/id/product_name') && (() => {
+      try {
+        const board = fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim();
+        const vendor = fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim();
+        return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
+      } catch (_) { return false; }
+    })()
+  ));
 
 async function createWindow() {
   settings = loadSettings();

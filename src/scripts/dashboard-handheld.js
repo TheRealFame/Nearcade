@@ -196,6 +196,14 @@ function applyLayoutMode(mode) {
 }
 
 function detectDeviceLayout() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('handheld') || params.has('tv')) {
+    return 'handheld';
+  }
+  if (params.has('portrait')) {
+    return 'portrait';
+  }
+
   if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
     const pads = navigator.getGamepads();
     for (const p of pads) {
@@ -251,6 +259,15 @@ function initLayoutMode() {
     applyLayoutMode(detected);
   } else {
     applyLayoutMode(saved);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('gamepadconnected', () => {
+      const currentSaved = localStorage.getItem('ns_layout_mode');
+      if (currentSaved === 'auto' || !currentSaved) {
+        applyLayoutMode('handheld');
+      }
+    });
   }
 }
 
