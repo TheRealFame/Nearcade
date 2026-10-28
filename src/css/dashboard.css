@@ -93,59 +93,121 @@
 
     #app { flex: 1; min-height: 0; display: flex; }
 
-    .lang-switcher {
+    .sidebar-footer {
       display: flex;
       align-items: center;
-      gap: 16px;
-      padding: 14px;
-      margin-top: 8px;
-      border-radius: 12px;
+      justify-content: space-between;
+      margin-top: auto;
+      padding: 0 4px;
+      margin-bottom: 8px;
+      height: 36px;
+    }
+    .sidebar-footer .mobile-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
       transition: all 0.2s;
     }
+    .sidebar-footer .mobile-btn:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+    .sidebar-footer .mobile-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+    .lang-switcher {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 8px;
+      height: 32px;
+      border-radius: 8px;
+      background: transparent;
+      transition: all 0.2s;
+    }
+    .lang-switcher:hover {
+      background: var(--surface-hover);
+    }
     .globe-icon {
-      width: 22px;
-      height: 22px;
+      width: 18px;
+      height: 18px;
       flex-shrink: 0;
       filter: invert(1);
-      opacity: 0.9;
+      opacity: 0.85;
       transition: filter 0.2s, opacity 0.2s;
     }
     #langSelect {
-      flex: 1;
       background: transparent;
       border: none;
       color: var(--muted);
       font-family: inherit;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       outline: none;
-      transition: opacity 0.2s, color 0.2s;
+      padding: 0;
+      padding-right: 14px;
+      margin: 0;
       -webkit-appearance: none;
       appearance: none;
-      padding-right: 18px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23888888' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
-      background-position: right 2px center;
-      background-size: 10px;
-      line-height: 1.2;
+      background-position: right center;
+      background-size: 9px 5px;
+      line-height: 1;
+      transition: color 0.2s;
     }
     #langSelect option {
       background: var(--surface);
       color: var(--text);
     }
-    #langSelect:hover {
+    #langSelect:hover,
+    .lang-switcher:hover #langSelect {
       color: var(--text);
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23ffffff' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
-    .lang-switcher:hover .globe-icon { filter: invert(1); opacity: 1; }
+    .lang-switcher:hover .globe-icon {
+      opacity: 1;
+    }
 
+    #version-display {
+      position: fixed;
+      bottom: 12px;
+      right: 16px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: right;
+      z-index: 100;
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+    }
+    #version-display * {
+      user-select: none;
+      -webkit-user-select: none;
+      pointer-events: none;
+    }
+    #version-display #commit-hash {
+      font-size: 9px;
+      opacity: 0.7;
+    }
     #version-display:hover {
-      color: var(--text) !important;
+      color: var(--text);
     }
 
     #sidebar.collapsed #langSelect,
-    #sidebar.collapsed #version-display {
+    #sidebar.collapsed .sidebar-footer {
       opacity: 0;
       pointer-events: none;
     }
@@ -1250,6 +1312,16 @@ html.handheld-mode {
 html.handheld-mode #sidebar .sidebar-orange-btn,
 html.handheld-mode #gamesLibraryBtn {
   display: none !important;
+}
+html.handheld-mode .companion-dock {
+  top: 106px;
+}
+html.handheld-mode #version-display {
+  left: 24px;
+  right: auto;
+  bottom: 18px;
+  text-align: left;
+  z-index: 990;
 }
 html.handheld-mode #main-content {
   padding-bottom: 56px;

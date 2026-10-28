@@ -151,12 +151,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (_) {}
   }
   if (urlParams.has('portrait')) {
-    document.documentElement.classList.add('portrait-mode');
-  }
-  const isHandheld = urlParams.has('handheld') || urlParams.has('tv') || localStorage.getItem('ns_handheld_mode') === 'true';
-  if (isHandheld) {
-    document.documentElement.classList.add('handheld-mode');
-    if (typeof initHandheldStatusBar === 'function') initHandheldStatusBar();
+    if (typeof applyLayoutMode === 'function') applyLayoutMode('portrait');
+    else document.documentElement.classList.add('portrait-mode');
+  } else if (urlParams.has('handheld') || urlParams.has('tv')) {
+    if (typeof applyLayoutMode === 'function') applyLayoutMode('handheld');
+    else document.documentElement.classList.add('handheld-mode');
+  } else if (typeof initLayoutMode === 'function') {
+    initLayoutMode();
   }
   const tabParam = urlParams.get('tab');
   if (tabParam && typeof switchTab === 'function') {
@@ -896,6 +897,10 @@ function syncSettingsUI() {
   document.getElementById('settingTrackWindowsExperimental')?.classList.toggle('on', !!appConfig.windowsExperimental);
   document.getElementById('settingTrackAndroidExperimental')?.classList.toggle('on', !!appConfig.androidExperimental);
   document.getElementById('settingTrackHandheldMode')?.classList.toggle('on', document.documentElement.classList.contains('handheld-mode'));
+  const layoutSel = document.getElementById('settingSelectLayoutMode');
+  if (layoutSel) {
+    layoutSel.value = localStorage.getItem('ns_layout_mode') || 'auto';
+  }
 
   const brandText = document.querySelector('.brand-text');
   if (brandText) {

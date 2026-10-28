@@ -181,18 +181,83 @@ function initHandheldStatusBar() {
   handheldBarInitialized = true;
 }
 
+function applyLayoutMode(mode) {
+  const root = document.documentElement;
+  if (mode === 'handheld') {
+    root.classList.add('handheld-mode');
+    root.classList.remove('portrait-mode');
+    initHandheldStatusBar();
+  } else if (mode === 'portrait') {
+    root.classList.add('portrait-mode');
+    root.classList.remove('handheld-mode');
+  } else {
+    root.classList.remove('handheld-mode', 'portrait-mode');
+  }
+}
+
+function detectDeviceLayout() {
+  if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+    const pads = navigator.getGamepads();
+    for (const p of pads) {
+      if (p && p.connected) {
+        return 'handheld';
+      }
+    }
+  }
+
+  const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
+  if (ua.includes('steam deck') || ua.includes('valve') || ua.includes('smart-tv') || ua.includes('googletv') || ua.includes('crkey') || ua.includes('firetv') || ua.includes('tizen') || ua.includes('webos')) {
+    return 'handheld';
+  }
+
+  const isPortraitScreen = window.innerWidth < window.innerHeight || (window.matchMedia && window.matchMedia('(orientation: portrait)').matches);
+  const isMobileOrTablet = /android|iphone|ipad|ipod|mobile|tablet|fold/i.test(ua) || (typeof navigator !== 'undefined' && navigator.maxTouchPoints && navigator.maxTouchPoints > 1 && window.innerWidth <= 1024);
+
+  if (isPortraitScreen && (isMobileOrTablet || window.innerWidth <= 768)) {
+    return 'portrait';
+  }
+
+  return 'default';
+}
+
+function changeLayoutMode(mode) {
+  localStorage.setItem('ns_layout_mode', mode);
+  const select = document.getElementById('settingSelectLayoutMode');
+  if (select && select.value !== mode) select.value = mode;
+
+  if (mode === 'auto') {
+    const detected = detectDeviceLayout();
+    applyLayoutMode(detected);
+  } else {
+    applyLayoutMode(mode);
+  }
+}
+
+function initLayoutMode() {
+  let saved = localStorage.getItem('ns_layout_mode');
+  if (!saved) {
+    if (localStorage.getItem('ns_handheld_mode') === 'true') {
+      saved = 'handheld';
+    } else {
+      saved = 'auto';
+    }
+  }
+
+  const select = document.getElementById('settingSelectLayoutMode');
+  if (select) select.value = saved;
+
+  if (saved === 'auto') {
+    const detected = detectDeviceLayout();
+    applyLayoutMode(detected);
+  } else {
+    applyLayoutMode(saved);
+  }
+}
+
 function toggleHandheldMode() {
   const current = document.documentElement.classList.contains('handheld-mode');
-  const next = !current;
-  localStorage.setItem('ns_handheld_mode', next ? 'true' : 'false');
-  if (next) {
-    document.documentElement.classList.add('handheld-mode');
-    initHandheldStatusBar();
-  } else {
-    document.documentElement.classList.remove('handheld-mode');
-  }
-  const track = document.getElementById('settingTrackHandheldMode');
-  if (track) track.classList.toggle('on', next);
+  const nextMode = current ? 'default' : 'handheld';
+  changeLayoutMode(nextMode);
 }
 
 function handleHandheldBack() {
@@ -282,14 +347,36 @@ window.detectGamepadLayout = detectGamepadLayout;
 window.updateHandheldPromptGlyphs = updateHandheldPromptGlyphs;
 window.triggerHandheldSelect = triggerHandheldSelect;
 window.getActiveGamepadLayout = () => currentGamepadLayout;
+window.applyLayoutMode = applyLayoutMode;
+window.detectDeviceLayout = detectDeviceLayout;
+window.changeLayoutMode = changeLayoutMode;
+window.initLayoutMode = initLayoutMode;
 
 window.addEventListener('gamepadconnected', (e) => {
   const layout = detectGamepadLayout(e.gamepad);
   updateHandheldPromptGlyphs(layout);
+  const saved = localStorage.getItem('ns_layout_mode') || 'auto';
+  if (saved === 'auto') {
+    applyLayoutMode('handheld');
+  }
 });
 
 window.addEventListener('gamepaddisconnected', () => {
   const layout = detectGamepadLayout();
   updateHandheldPromptGlyphs(layout);
+  const saved = localStorage.getItem('ns_layout_mode') || 'auto';
+  if (saved === 'auto') {
+    const detected = detectDeviceLayout();
+    applyLayoutMode(detected);
+  }
 });
+
+window.addEventListener('resize', () => {
+  const saved = localStorage.getItem('ns_layout_mode') || 'auto';
+  if (saved === 'auto') {
+    const detected = detectDeviceLayout();
+    applyLayoutMode(detected);
+  }
+});
+
 
