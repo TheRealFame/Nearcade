@@ -1955,6 +1955,13 @@ async function launchHostSession(opts = {}) {
   if (uiVer === 'new') uiVer = 'default';
   if (uiVer === 'old') uiVer = 'minimal';
 
+  if (window.AndroidClipboard && typeof window.AndroidClipboard.setOrientation === 'function') {
+    try { window.AndroidClipboard.setOrientation('landscape'); } catch (_) {}
+  }
+  if (screen.orientation && typeof screen.orientation.lock === 'function') {
+    screen.orientation.lock('landscape').catch(() => {});
+  }
+
   if (window.electronAPI && window.electronAPI.openHost) {
     window.electronAPI.openHost(uiVer);
   } else {
@@ -2053,9 +2060,15 @@ function openAutoHostTerminal() {
   const isLinux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
   if (isLinux) { const b = document.getElementById('btnOpenTerminal'); if (b) b.style.display = 'block'; }
   if (!isLinux) { const v = document.getElementById('settingRowVrMode'); if (v) v.style.display = 'none'; }
-  const isAndroid = navigator.userAgent.includes('Android') || (typeof window.Capacitor !== 'undefined' && window.Capacitor?.getPlatform() === 'android');
+  const isAndroid = navigator.userAgent.includes('Android') || (typeof window.Capacitor !== 'undefined' && window.Capacitor?.getPlatform() === 'android') || !!window.AndroidClipboard;
   const androidRow = document.getElementById('settingRowAndroidExperimental');
   if (androidRow && !isAndroid) androidRow.style.display = 'none';
+  if (isAndroid) {
+    const tabContainers = document.getElementById('tab-containers');
+    if (tabContainers) tabContainers.style.display = 'none';
+    const moreCardAutoHosts = document.getElementById('moreCardAutoHosts');
+    if (moreCardAutoHosts) moreCardAutoHosts.style.display = 'none';
+  }
 })();
 
 async function killGame() {

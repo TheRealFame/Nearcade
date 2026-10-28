@@ -2,6 +2,13 @@ function closeAllModals() {
     document.querySelectorAll(".modal-bg").forEach(m => m.classList.add("gone"));
 }
 
+if (window.AndroidClipboard && typeof window.AndroidClipboard.setOrientation === 'function') {
+    try { window.AndroidClipboard.setOrientation('landscape'); } catch (_) {}
+}
+if (screen.orientation && typeof screen.orientation.lock === 'function') {
+    screen.orientation.lock('landscape').catch(() => {});
+}
+
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 let ws, currentStream, peerConnections = {}, knownViewers = new Set(), vrActiveViewers = new Set(), viewerCount = 0;
 let audioCtx, analyser, animFrame;

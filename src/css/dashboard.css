@@ -217,6 +217,57 @@
     .info-card h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
     .info-card p { font-size: 13px; color: #aaa; line-height: 1.5; }
 
+    .companion-dock {
+      position: absolute;
+      top: 90px;
+      right: 30px;
+      width: 64px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 32px;
+      padding: 12px 0;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+    #pairNewDeviceBtn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: transparent;
+      border: 1px dashed var(--accent);
+      color: var(--accent);
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    #pairNewDeviceBtn:hover {
+      background: var(--accent-dim, rgba(192, 132, 252, 0.1));
+      color: #fff;
+    }
+    .companion-dock-label {
+      display: none;
+    }
+    .companion-dock-divider {
+      width: 32px;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .companion-empty-hint {
+      display: none;
+    }
+    #companionDevicesList {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
     .settings-container { padding: 50px; max-width: 800px; }
     .settings-section { margin-bottom: 30px; }
     .settings-section h2 { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
@@ -497,6 +548,9 @@ input[type="range"].form-range::-webkit-slider-thumb {
   gap: 10px;
   margin-top: 8px;
 }
+.more-grid .more-card:last-child {
+  margin-bottom: 28px;
+}
 .more-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -683,7 +737,7 @@ input[type="range"].form-range::-webkit-slider-thumb {
   .connect-container,
   .settings-container,
   .more-container {
-    padding: 20px 16px calc(76px + env(safe-area-inset-bottom, 16px)) !important;
+    padding: 20px 16px calc(110px + env(safe-area-inset-bottom, 24px)) !important;
     max-width: 100% !important;
     height: auto !important;
   }
@@ -722,9 +776,51 @@ input[type="range"].form-range::-webkit-slider-thumb {
     min-width: 72px;
   }
 
-  /* Clean up Home tab: companion dock and giant library button hidden from Home */
+  /* Responsive in-flow Companion Dock for Mobile */
   .companion-dock {
-    display: none !important;
+    display: flex !important;
+    position: static !important;
+    top: auto !important;
+    right: auto !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 12px 16px !important;
+    border-radius: 12px !important;
+    margin-bottom: 16px !important;
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25) !important;
+  }
+  .companion-dock-label {
+    display: block !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--text) !important;
+    cursor: pointer !important;
+    white-space: nowrap !important;
+  }
+  .companion-dock-divider {
+    width: 1px !important;
+    height: 24px !important;
+    background: rgba(255, 255, 255, 0.12) !important;
+    flex-shrink: 0 !important;
+  }
+  .companion-empty-hint {
+    display: inline !important;
+    font-size: 12px !important;
+    color: var(--muted) !important;
+    font-style: italic !important;
+  }
+  #companionDevicesList {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    flex: 1 !important;
+    align-items: center !important;
   }
   #gamesLibraryBtn {
     display: none !important;
@@ -843,7 +939,7 @@ html.portrait-mode #main-content {
 html.portrait-mode .connect-container,
 html.portrait-mode .settings-container,
 html.portrait-mode .more-container {
-  padding: 20px 16px calc(76px + env(safe-area-inset-bottom, 16px)) !important;
+  padding: 20px 16px calc(110px + env(safe-area-inset-bottom, 24px)) !important;
   max-width: 100% !important;
   height: auto !important;
 }
@@ -852,7 +948,49 @@ html.portrait-mode .connect-card {
   margin-bottom: 16px !important;
 }
 html.portrait-mode .companion-dock {
-  display: none !important;
+  display: flex !important;
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 12px 16px !important;
+  border-radius: 12px !important;
+  margin-bottom: 16px !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25) !important;
+}
+html.portrait-mode .companion-dock-label {
+  display: block !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+}
+html.portrait-mode .companion-dock-divider {
+  width: 1px !important;
+  height: 24px !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  flex-shrink: 0 !important;
+}
+html.portrait-mode .companion-empty-hint {
+  display: inline !important;
+  font-size: 12px !important;
+  color: var(--muted) !important;
+  font-style: italic !important;
+}
+html.portrait-mode #companionDevicesList {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 8px !important;
+  overflow-x: auto !important;
+  flex: 1 !important;
+  align-items: center !important;
 }
 html.portrait-mode #gamesLibraryBtn {
   display: none !important;

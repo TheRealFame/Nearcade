@@ -4729,10 +4729,33 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // -- FULLSCREEN & IMMERSIVE ----------------------------------------------------
+function landscape() {
+    if (window.AndroidClipboard && typeof window.AndroidClipboard.setOrientation === 'function') {
+        try { window.AndroidClipboard.setOrientation('landscape'); } catch (_) {}
+    }
+    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+        screen.orientation.lock('landscape').catch(() => {});
+    }
+}
+
+function restoreOrientation() {
+    if (window.AndroidClipboard && typeof window.AndroidClipboard.setOrientation === 'function') {
+        try { window.AndroidClipboard.setOrientation('unspecified'); } catch (_) {}
+    }
+    if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+        try { screen.orientation.unlock(); } catch (_) {}
+    }
+}
+
 function updateAndroidImmersive(active) {
     window._androidImmersive = !!active;
     if (window.AndroidClipboard && typeof window.AndroidClipboard.setImmersive === 'function') {
         window.AndroidClipboard.setImmersive(!!active);
+    }
+    if (active) {
+        landscape();
+    } else {
+        restoreOrientation();
     }
     const immBtn = document.getElementById('immersiveBtn');
     if (immBtn && window.AndroidClipboard) {
@@ -4740,7 +4763,6 @@ function updateAndroidImmersive(active) {
     }
 }
 
-function landscape() { if (screen.orientation?.lock) screen.orientation.lock('landscape').catch(() => { }); }
 function toggleFS() {
     if (window.AndroidClipboard && typeof window.AndroidClipboard.setImmersive === 'function') {
         updateAndroidImmersive(!window._androidImmersive);

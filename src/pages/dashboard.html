@@ -190,13 +190,15 @@
                </div>`;
 
                // Circular bubble for dashboard sidebar
-               bubbleHtml += `<div title="Click to view device stream" onclick="joinCompanion(${index})" style="position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--surface-hover); border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+               bubbleHtml += `<div title="Click to view device stream" onclick="joinCompanion(${index})" style="position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--surface-hover); border: 2px solid var(--border); display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s; flex-shrink: 0;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
                  <i class="fas fa-desktop" style="color: var(--muted); font-size: 16px;"></i>
                  <div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #34d399; border-radius: 50%; border: 2px solid var(--surface);"></div>
                </div>`;
              });
              
-             if (list) list.innerHTML = bubbleHtml;
+             if (list) {
+               list.innerHTML = bubbleHtml || '<span class="companion-empty-hint" style="font-size: 11px; color: var(--muted); font-style: italic;">No devices paired</span>';
+             }
              modalLists.forEach(l => {
                if (l) {
                  if (devices.length === 0) {
@@ -279,11 +281,6 @@
         <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
       </svg>
       Enable Friends
-    </button>
-    <button onclick="openAbout()" title="About Nearcade"
-      style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; font-family: inherit;">
-      <img src="../../assets/icons/info.svg" style="width: 20px; filter: invert(1);"
-        onerror="this.style.display='none'; this.parentElement.textContent='?'" />
     </button>
     <button onclick="openDocs()" title="Documentation & Help"
       style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
@@ -772,6 +769,22 @@
             <div class="error-msg" id="directLinkErr"></div>
           </div>
   
+          <div class="companion-dock" id="companionDock">
+            <!-- Add Button -->
+            <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();" title="Pair Companion Device">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <div class="companion-dock-label" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();">Pair Companion Device</div>
+            <div class="companion-dock-divider"></div>
+            <!-- Dynamic Devices List Container -->
+            <div id="companionDevicesList">
+              <!-- Devices will be injected here after pairing -->
+            </div>
+          </div>
+
           <div class="info-grid">
             <div class="info-card">
               <h3>Quick Tip</h3>
@@ -783,24 +796,6 @@
               <p>Your Discord status automatically updates when you host or join a session, showing the game you are
                 playing.</p>
             </div>
-          </div>
-        </div>
-        
-        <div class="companion-dock" id="companionDock" style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
-          
-          <!-- Add Button -->
-          <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
-
-          <div style="width: 32px; height: 1px; background: rgba(255,255,255,0.1);"></div>
-
-          <!-- Dynamic Devices List Container -->
-          <div id="companionDevicesList" style="display: flex; flex-direction: column; gap: 8px;">
-            <!-- Devices will be injected here after pairing -->
           </div>
         </div>
         
@@ -1306,7 +1301,7 @@
             </div>
 
             <!-- Auto-Hosts (host-only) -->
-            <div class="more-card host-only" onclick="switchTab('containers')">
+            <div class="more-card host-only" id="moreCardAutoHosts" onclick="switchTab('containers')">
               <div class="more-card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
               </div>

@@ -3,6 +3,7 @@ package org.cutefame.nearsectogether;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -46,6 +47,7 @@ public class MainActivity extends BridgeActivity {
                             String appUrl = bridge.getAppUrl();
                             if (currentUrl != null && appUrl != null && !currentUrl.startsWith(appUrl)) {
                                 applyImmersiveMode(false);
+                                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
                                 bridge.getWebView().loadUrl(appUrl);
                                 return;
                             }
@@ -115,6 +117,7 @@ public class MainActivity extends BridgeActivity {
                 String appUrl = this.bridge.getAppUrl();
                 if (currentUrl != null && appUrl != null && !currentUrl.startsWith(appUrl)) {
                     applyImmersiveMode(false);
+                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
                     this.bridge.getWebView().loadUrl(appUrl);
                     return;
                 }
@@ -199,12 +202,31 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public void setOrientation(final String mode) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if ("landscape".equalsIgnoreCase(mode)) {
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+                        } else if ("portrait".equalsIgnoreCase(mode)) {
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                        } else {
+                            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void backToDashboard() {
             applyImmersiveMode(false);
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     try {
+                        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
                         if (bridge != null && bridge.getWebView() != null) {
                             String appUrl = bridge.getAppUrl();
                             if (appUrl != null) {

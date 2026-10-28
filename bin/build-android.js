@@ -28,7 +28,7 @@ function processHtml(srcPath, destPath, extraHead = '') {
 
 // Copy pages
 console.log('Copying HTML pages...');
-processHtml(path.join(src, 'pages', 'dashboard.html'), path.join(dist, 'index.html'), '<style>#tab-host, #tab-containers, #settingRowOldUI, #settingRowAutoHost, #settingRowTray, #settingRowAlwaysOnTop, #settingRowHidePreview, #settingRowMic { display: none !important; }</style>');
+processHtml(path.join(src, 'pages', 'dashboard.html'), path.join(dist, 'index.html'), '<style>#tab-host, #tab-containers, #moreCardAutoHosts, #settingRowOldUI, #settingRowAutoHost, #settingRowTray, #settingRowAlwaysOnTop, #settingRowHidePreview, #settingRowMic { display: none !important; }</style>');
 processHtml(path.join(src, 'pages', 'index.html'), path.join(dist, 'viewer.html'));
 processHtml(path.join(src, 'pages', 'gamepad-popup.html'), path.join(dist, 'gamepad-popup.html'), '<style>.host-only, [id*="driver"], [id*="Driver"], [class*="driver"] { display: none !important; }</style>');
 
