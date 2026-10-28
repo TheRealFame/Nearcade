@@ -309,8 +309,15 @@ function switchTab(name) {
   }
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.bnav-btn').forEach(b => b.classList.remove('active'));
   panel.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
+  const bnavBtn = document.getElementById('bnav-' + name);
+  if (bnavBtn) {
+    bnavBtn.classList.add('active');
+  } else {
+    document.getElementById('bnav-more')?.classList.add('active');
+  }
 
   const docsBtn = document.getElementById('docsFloatBtn');
   if (docsBtn) {

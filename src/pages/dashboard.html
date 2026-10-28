@@ -613,14 +613,7 @@
   <div id="virtual-cursor"></div>
 
   <div id="mobileTopBar">
-    <button class="mobile-menu-btn" onclick="toggleMobileDrawer()" title="Open Navigation">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="3" y1="12" x2="21" y2="12"></line>
-        <line x1="3" y1="6" x2="21" y2="6"></line>
-        <line x1="3" y1="18" x2="21" y2="18"></line>
-      </svg>
-    </button>
-    <div class="mobile-brand" onclick="toggleMobileDrawer()">
+    <div class="mobile-brand">
       <img src="../../assets/NearcadeLogo.png" alt="Logo" class="mobile-logo" onerror="this.style.display='none'">
       <span class="mobile-title">Nearcade</span>
     </div>
@@ -1232,6 +1225,124 @@
           </div>
         </div>
       </div>
+
+      <div class="panel" id="panel-more">
+        <div class="more-container">
+          <h1>More Options</h1>
+          <p class="sub">Manage sessions, companion devices, and app settings.</p>
+
+          <div class="more-grid">
+            <!-- Host Session (host-only) -->
+            <div class="more-card host-only" onclick="launchHostSession()">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="8" y1="21" x2="16" y2="21"></line>
+                  <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+              </div>
+              <div class="more-card-content">
+                <h3>Host Session</h3>
+                <p>Stream your PC desktop or game to friends</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- App Settings -->
+            <div class="more-card" onclick="switchTab('settings')">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+              </div>
+              <div class="more-card-content">
+                <h3>App Settings</h3>
+                <p>Configure bitrate, themes, audio, and controls</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- Companion Device Link -->
+            <div class="more-card" onclick="document.getElementById('mobileLinkModal').classList.remove('gone'); document.getElementById('mobileLinkModal').classList.add('open'); startCompanionPairingGen();">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                  <line x1="10" y1="19" x2="14" y2="19"></line>
+                </svg>
+              </div>
+              <div class="more-card-content">
+                <h3>Companion Link</h3>
+                <p>Pair a mobile phone or tablet as a touch controller</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- Test Controller -->
+            <div class="more-card" onclick="document.getElementById('gpModal').classList.add('open')">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                  <path d="M6 12h4m-2-2v4m10-4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-2 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"></path>
+                </svg>
+              </div>
+              <div class="more-card-content">
+                <h3>Test Controller</h3>
+                <p>Gamepad input visualizer and calibration</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- Community TURN (host-only) -->
+            <div class="more-card host-only" onclick="switchTab('turnlist')">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+              </div>
+              <div class="more-card-content">
+                <h3>Community TURN</h3>
+                <p>Global WebRTC relay ladder servers</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- Auto-Hosts (host-only) -->
+            <div class="more-card host-only" onclick="switchTab('containers')">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+              </div>
+              <div class="more-card-content">
+                <h3>Auto-Hosts</h3>
+                <p>Automated headless background lobbies</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- Documentation & Guide -->
+            <div class="more-card" onclick="openDocs()">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+              </div>
+              <div class="more-card-content">
+                <h3>Documentation & Guide</h3>
+                <p>Troubleshooting, FAQs, and setup guides</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+
+            <!-- About Nearcade -->
+            <div class="more-card" onclick="openAbout()">
+              <div class="more-card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              </div>
+              <div class="more-card-content">
+                <h3>About Nearcade</h3>
+                <p>Release information and licenses</p>
+              </div>
+              <svg class="more-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1249,7 +1360,32 @@
       <iframe src="gamepad-popup.html" style="flex:1; border:none;"></iframe>
     </div>
   </div>
-  </div>
+
+  <!-- Mobile Bottom Navigation (Portrait / Narrow Mobile) -->
+  <nav id="mobileBottomNav">
+    <button class="bnav-btn active" onclick="switchTab('connect')" id="bnav-connect">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+      </svg>
+      <span>Home</span>
+    </button>
+    <button class="bnav-btn" onclick="switchTab('arcade')" id="bnav-arcade">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+      </svg>
+      <span>Live Arcade</span>
+    </button>
+    <button class="bnav-btn" onclick="switchTab('more')" id="bnav-more">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="1.5"></circle>
+        <circle cx="19" cy="12" r="1.5"></circle>
+        <circle cx="5" cy="12" r="1.5"></circle>
+      </svg>
+      <span>More</span>
+    </button>
+  </nav>
 
   <div id="version-display"
     style="position:fixed; bottom: 12px; right: 16px; font-size: 11px; color: var(--muted); cursor: pointer; text-align: right; z-index: 100; user-select: none;"

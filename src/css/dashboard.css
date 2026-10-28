@@ -471,21 +471,131 @@ input[type="range"].form-range::-webkit-slider-thumb {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PORTRAIT & MOBILE RESPONSIVE DASHBOARD
+   MOBILE BOTTOM NAVIGATION & 'MORE' PANEL STYLES
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Default desktop state for mobile bar and backdrop */
 #mobileTopBar {
+  display: none;
+}
+#mobileBottomNav {
   display: none;
 }
 #sidebarBackdrop {
   display: none;
 }
 
+/* More Panel styling */
+.more-container {
+  padding: 30px 24px calc(76px + env(safe-area-inset-bottom, 16px));
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+}
+.more-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.more-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  -webkit-app-region: no-drag;
+}
+.more-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.more-card:active {
+  transform: scale(0.99);
+}
+.more-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.more-card-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.more-card-content {
+  flex: 1;
+  min-width: 0;
+}
+.more-card-content h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.more-card-content p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.more-arrow {
+  width: 16px;
+  height: 16px;
+  color: var(--muted2);
+  flex-shrink: 0;
+}
+
+/* Bottom Nav Button Styles */
+.bnav-btn {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s;
+  -webkit-app-region: no-drag;
+  padding: 0;
+}
+.bnav-btn svg {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.15s;
+}
+.bnav-btn.active {
+  color: var(--accent);
+}
+.bnav-btn.active svg {
+  transform: translateY(-1px);
+  filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), 0.5));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PORTRAIT MODE (Vertical Phone / -portrait window)
+   ═══════════════════════════════════════════════════════════════════════════ */
 @media screen and (max-width: 680px), (orientation: portrait) {
-  /* Activate mobile top bar */
+  #sidebar {
+    display: none !important;
+  }
+
   #mobileTopBar {
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: space-between;
     position: fixed;
@@ -495,39 +605,14 @@ input[type="range"].form-range::-webkit-slider-thumb {
     height: 52px;
     background: var(--sidebar);
     border-bottom: 1px solid var(--border);
-    padding: 0 14px;
+    padding: 0 16px;
     z-index: 600;
     -webkit-app-region: drag;
   }
-
-  .mobile-menu-btn {
-    background: transparent;
-    border: none;
-    color: var(--text);
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    -webkit-app-region: no-drag;
-    transition: background 0.2s, color 0.2s;
-  }
-  .mobile-menu-btn:hover {
-    background: var(--surface-hover);
-    color: var(--accent);
-  }
-  .mobile-menu-btn svg {
-    width: 22px;
-    height: 22px;
-  }
-
   .mobile-brand {
     display: flex;
     align-items: center;
     gap: 8px;
-    cursor: pointer;
     -webkit-app-region: no-drag;
   }
   .mobile-logo {
@@ -542,13 +627,13 @@ input[type="range"].form-range::-webkit-slider-thumb {
     color: var(--accent);
   }
 
-  /* Right header actions from docsFloatBtn */
+  /* Right actions inside top bar: safely inset, 3rd button hidden to avoid clipping */
   #docsFloatBtn {
     position: fixed !important;
     top: 8px !important;
-    right: 12px !important;
+    right: 14px !important;
     z-index: 601 !important;
-    gap: 6px !important;
+    gap: 8px !important;
   }
   #docsFloatBtn button {
     width: 36px !important;
@@ -556,45 +641,31 @@ input[type="range"].form-range::-webkit-slider-thumb {
     padding: 6px !important;
     -webkit-app-region: no-drag;
   }
+  #docsFloatBtn button:last-child {
+    display: none !important;
+  }
   #docsFloatBtn svg, #docsFloatBtn img {
     width: 18px !important;
     height: 18px !important;
   }
 
-  /* Sidebar transformed into slide-out drawer */
-  #sidebar {
-    position: fixed !important;
-    top: 0 !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    width: min(84vw, 300px) !important;
-    max-width: 300px !important;
-    height: 100% !important;
-    z-index: 2000 !important;
-    transform: translateX(-100%);
-    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-    box-shadow: 4px 0 30px rgba(0, 0, 0, 0.8) !important;
-    padding: 24px 16px 20px !important;
-  }
-  #sidebar.mobile-open {
-    transform: translateX(0) !important;
-  }
-
-  /* Backdrop overlay when drawer is open */
-  #sidebarBackdrop {
-    display: none;
+  /* 3-Icon Bottom Nav */
+  #mobileBottomNav {
+    display: flex !important;
     position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.68);
-    backdrop-filter: blur(3px);
-    z-index: 1999;
-  }
-  #sidebarBackdrop.open {
-    display: block;
-    animation: fadeIn 0.2s ease;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(58px + env(safe-area-inset-bottom, 0px));
+    background: var(--sidebar);
+    border-top: 1px solid var(--border);
+    z-index: 1000;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    align-items: center;
+    justify-content: space-around;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
   }
 
-  /* Content area occupies full width below top bar */
   #app {
     flex-direction: column;
     width: 100%;
@@ -608,9 +679,11 @@ input[type="range"].form-range::-webkit-slider-thumb {
     min-width: 0 !important;
   }
 
-  /* Connect container fluid formatting */
-  .connect-container {
-    padding: 20px 16px 36px !important;
+  /* Fluid, unblocked containers with safe bottom clearance */
+  .connect-container,
+  .settings-container,
+  .more-container {
+    padding: 20px 16px calc(76px + env(safe-area-inset-bottom, 16px)) !important;
     max-width: 100% !important;
     height: auto !important;
   }
@@ -634,7 +707,6 @@ input[type="range"].form-range::-webkit-slider-thumb {
     margin-bottom: 12px !important;
   }
 
-  /* Input fields full sizing */
   .input-row {
     flex-direction: row;
     gap: 8px;
@@ -650,41 +722,18 @@ input[type="range"].form-range::-webkit-slider-thumb {
     min-width: 72px;
   }
 
-  /* Companion Dock in-flow below connect card */
+  /* Clean up Home tab: companion dock and giant library button hidden from Home */
   .companion-dock {
-    position: static !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    flex-direction: row !important;
-    justify-content: flex-start !important;
-    border-radius: 12px !important;
-    padding: 10px 14px !important;
-    margin-bottom: 16px !important;
-    box-shadow: none !important;
+    display: none !important;
   }
-
-  /* Games Library button responsive layout */
   #gamesLibraryBtn {
-    position: static !important;
-    width: 100% !important;
-    height: 44px !important;
-    margin-bottom: 16px !important;
-    border-radius: 8px !important;
-    box-shadow: none !important;
-  }
-
-  /* Games overlay on mobile */
-  #gamesOverlay {
-    width: 95vw !important;
-    right: 2.5vw !important;
-    bottom: 20px !important;
-    height: 85vh !important;
+    display: none !important;
   }
   #gamesTab {
     display: none !important;
   }
 
-  /* Info cards stacked */
+  /* Info cards stacked vertically */
   .info-grid {
     grid-template-columns: 1fr !important;
     gap: 12px !important;
@@ -694,11 +743,6 @@ input[type="range"].form-range::-webkit-slider-thumb {
     padding: 14px !important;
   }
 
-  /* Settings panel mobile formatting */
-  .settings-container {
-    padding: 20px 16px 36px !important;
-    max-width: 100% !important;
-  }
   .setting-row {
     flex-wrap: wrap;
     gap: 12px;
@@ -714,15 +758,17 @@ input[type="range"].form-range::-webkit-slider-thumb {
     font-size: 11px !important;
   }
 
-  /* Auto-hosts & community tunnel lists */
   .tunnel-grid {
     grid-template-columns: 1fr !important;
   }
 }
 
 /* Also apply same portrait rules when .portrait-mode class is explicit on html */
+html.portrait-mode #sidebar {
+  display: none !important;
+}
 html.portrait-mode #mobileTopBar {
-  display: flex;
+  display: flex !important;
   align-items: center;
   justify-content: space-between;
   position: fixed;
@@ -732,28 +778,14 @@ html.portrait-mode #mobileTopBar {
   height: 52px;
   background: var(--sidebar);
   border-bottom: 1px solid var(--border);
-  padding: 0 14px;
+  padding: 0 16px;
   z-index: 600;
   -webkit-app-region: drag;
-}
-html.portrait-mode .mobile-menu-btn {
-  background: transparent;
-  border: none;
-  color: var(--text);
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
 }
 html.portrait-mode .mobile-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
   -webkit-app-region: no-drag;
 }
 html.portrait-mode .mobile-logo {
@@ -769,9 +801,9 @@ html.portrait-mode .mobile-title {
 html.portrait-mode #docsFloatBtn {
   position: fixed !important;
   top: 8px !important;
-  right: 12px !important;
+  right: 14px !important;
   z-index: 601 !important;
-  gap: 6px !important;
+  gap: 8px !important;
 }
 html.portrait-mode #docsFloatBtn button {
   width: 36px !important;
@@ -779,25 +811,23 @@ html.portrait-mode #docsFloatBtn button {
   padding: 6px !important;
   -webkit-app-region: no-drag;
 }
-html.portrait-mode #sidebar {
-  position: fixed !important;
-  top: 0 !important;
-  bottom: 0 !important;
-  left: 0 !important;
-  width: min(84vw, 300px) !important;
-  max-width: 300px !important;
-  height: 100% !important;
-  z-index: 2000 !important;
-  transform: translateX(-100%);
-  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  box-shadow: 4px 0 30px rgba(0, 0, 0, 0.8) !important;
-  padding: 24px 16px 20px !important;
+html.portrait-mode #docsFloatBtn button:last-child {
+  display: none !important;
 }
-html.portrait-mode #sidebar.mobile-open {
-  transform: translateX(0) !important;
-}
-html.portrait-mode #sidebarBackdrop.open {
-  display: block;
+html.portrait-mode #mobileBottomNav {
+  display: flex !important;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(58px + env(safe-area-inset-bottom, 0px));
+  background: var(--sidebar);
+  border-top: 1px solid var(--border);
+  z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  align-items: center;
+  justify-content: space-around;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
 }
 html.portrait-mode #app {
   flex-direction: column;
@@ -810,8 +840,10 @@ html.portrait-mode #main-content {
   padding-top: 52px !important;
   min-width: 0 !important;
 }
-html.portrait-mode .connect-container {
-  padding: 20px 16px 36px !important;
+html.portrait-mode .connect-container,
+html.portrait-mode .settings-container,
+html.portrait-mode .more-container {
+  padding: 20px 16px calc(76px + env(safe-area-inset-bottom, 16px)) !important;
   max-width: 100% !important;
   height: auto !important;
 }
@@ -820,28 +852,66 @@ html.portrait-mode .connect-card {
   margin-bottom: 16px !important;
 }
 html.portrait-mode .companion-dock {
-  position: static !important;
-  width: 100% !important;
-  flex-direction: row !important;
-  border-radius: 12px !important;
-  padding: 10px 14px !important;
-  margin-bottom: 16px !important;
+  display: none !important;
 }
 html.portrait-mode #gamesLibraryBtn {
-  position: static !important;
-  width: 100% !important;
-  height: 44px !important;
-  margin-bottom: 16px !important;
-  border-radius: 8px !important;
+  display: none !important;
 }
 html.portrait-mode .info-grid {
   grid-template-columns: 1fr !important;
   gap: 12px !important;
 }
-html.portrait-mode .settings-container {
-  padding: 20px 16px 36px !important;
-  max-width: 100% !important;
-}
 html.portrait-mode .tunnel-grid {
   grid-template-columns: 1fr !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDSCAPE ON PHONES (Side-rail navigation without page reloads)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media screen and (max-height: 550px) and (orientation: landscape) {
+  #mobileBottomNav {
+    display: none !important;
+  }
+  #mobileTopBar {
+    display: none !important;
+  }
+  #sidebar {
+    display: flex !important;
+    position: static !important;
+    width: 68px !important;
+    height: 100% !important;
+    transform: none !important;
+    box-shadow: none !important;
+    padding: 12px 6px !important;
+    z-index: 100 !important;
+  }
+  #sidebar .brand-wrap {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  #sidebar .nav-btn .btn-text {
+    display: none !important;
+  }
+  #sidebar .nav-btn {
+    padding: 10px !important;
+    justify-content: center !important;
+    margin-bottom: 4px !important;
+  }
+  #sidebar .sidebar-header {
+    margin-top: 4px !important;
+    margin-bottom: 10px !important;
+    justify-content: center !important;
+  }
+  #sidebar .collapse-btn {
+    display: none !important;
+  }
+  #main-content {
+    padding-top: 0 !important;
+  }
+  .connect-container,
+  .settings-container,
+  .more-container {
+    padding: 16px 24px !important;
+  }
+}
+
