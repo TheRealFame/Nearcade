@@ -184,13 +184,16 @@ function initHandheldStatusBar() {
 function applyLayoutMode(mode) {
   const root = document.documentElement;
   if (mode === 'handheld') {
+    try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
     root.classList.add('handheld-mode');
     root.classList.remove('portrait-mode');
     initHandheldStatusBar();
   } else if (mode === 'portrait') {
+    try { sessionStorage.removeItem('ns_handheld_session'); } catch (_) {}
     root.classList.add('portrait-mode');
     root.classList.remove('handheld-mode');
   } else {
+    try { sessionStorage.removeItem('ns_handheld_session'); } catch (_) {}
     root.classList.remove('handheld-mode', 'portrait-mode');
   }
 }
@@ -198,16 +201,36 @@ function applyLayoutMode(mode) {
 function detectDeviceLayout() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('handheld') || params.has('tv')) {
+    try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
     return 'handheld';
   }
   if (params.has('portrait')) {
     return 'portrait';
   }
 
+  // Check Electron API flags
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    if (window.electronAPI.isHandheld) {
+      try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
+      return 'handheld';
+    }
+    if (window.electronAPI.isPortrait) {
+      return 'portrait';
+    }
+  }
+
+  // Retain active handheld session
+  try {
+    if (sessionStorage.getItem('ns_handheld_session') === 'true') {
+      return 'handheld';
+    }
+  } catch (_) {}
+
   if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
     const pads = navigator.getGamepads();
     for (const p of pads) {
       if (p && p.connected) {
+        try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
         return 'handheld';
       }
     }
@@ -215,6 +238,7 @@ function detectDeviceLayout() {
 
   const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
   if (ua.includes('steam deck') || ua.includes('valve') || ua.includes('smart-tv') || ua.includes('googletv') || ua.includes('crkey') || ua.includes('firetv') || ua.includes('tizen') || ua.includes('webos')) {
+    try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
     return 'handheld';
   }
 
@@ -244,7 +268,9 @@ function changeLayoutMode(mode) {
 function initLayoutMode() {
   let saved = localStorage.getItem('ns_layout_mode');
   if (!saved) {
-    if (localStorage.getItem('ns_handheld_mode') === 'true') {
+    let sessionIsHandheld = false;
+    try { sessionIsHandheld = sessionStorage.getItem('ns_handheld_session') === 'true'; } catch (_) {}
+    if (localStorage.getItem('ns_handheld_mode') === 'true' || sessionIsHandheld) {
       saved = 'handheld';
     } else {
       saved = 'auto';
@@ -277,7 +303,138 @@ function toggleHandheldMode() {
   changeLayoutMode(nextMode);
 }
 
+function getOrCreateSelectPickerModal() {
+  let modal = document.getElementById('selectPickerModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'selectPickerModal';
+    modal.className = 'modal-bg';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);display:none;align-items:center;justify-content:center;z-index:999999;backdrop-filter:blur(6px);';
+    modal.innerHTML = `
+      <div class="modal-content select-picker-content" style="background:var(--surface,#141414);border:1px solid var(--border,#333);border-radius:14px;width:90%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.8);overflow:hidden;">
+        <div style="padding:16px 20px;background:#0d0d0d;border-bottom:1px solid var(--border,#262626);display:flex;align-items:center;justify-content:space-between;">
+          <span id="selectPickerTitle" style="font-weight:700;font-size:16px;color:var(--text,#fff);letter-spacing:0.02em;">Select Option</span>
+          <button type="button" class="close-modal" id="closeSelectPickerBtn" style="background:transparent;border:none;color:var(--muted,#888);font-size:20px;cursor:pointer;padding:4px 8px;">✕</button>
+        </div>
+        <div id="selectPickerList" style="padding:14px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;max-height:calc(80vh - 70px);"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeSelectPickerModal();
+    });
+    const closeBtn = modal.querySelector('#closeSelectPickerBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeSelectPickerModal);
+  }
+  return modal;
+}
+
+function openHandheldSelectModal(selectEl) {
+  if (!selectEl || !selectEl.options || selectEl.options.length === 0) return;
+  const modal = getOrCreateSelectPickerModal();
+  const titleEl = modal.querySelector('#selectPickerTitle');
+  const listEl = modal.querySelector('#selectPickerList');
+
+  let title = selectEl.getAttribute('aria-label') || selectEl.title;
+  if (!title) {
+    const parentRow = selectEl.closest('.setting-row, .form-group, .input-row, label') || selectEl.parentElement;
+    if (parentRow) {
+      const label = parentRow.querySelector('label, h3, h4, .setting-label, span');
+      if (label && label !== selectEl) title = label.textContent.trim();
+    }
+  }
+  if (!title) {
+    title = selectEl.id || 'Select Option';
+  }
+  if (titleEl) titleEl.textContent = title;
+
+  listEl.innerHTML = '';
+  const currentVal = selectEl.value;
+
+  Array.from(selectEl.options).forEach((opt, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'select-picker-item nav-btn clickable';
+    const isSelected = opt.value === currentVal || opt.selected;
+    btn.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 14px 18px;
+      background: ${isSelected ? 'rgba(var(--accent-rgb, 192, 132, 252), 0.18)' : '#1e1e1e'};
+      border: 1px solid ${isSelected ? 'var(--accent, #c084fc)' : 'var(--border, #333)'};
+      border-radius: 10px;
+      color: ${isSelected ? '#fff' : '#ccc'};
+      font-size: 15px;
+      font-weight: ${isSelected ? '700' : '500'};
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    `;
+    btn.innerHTML = `
+      <span>${opt.text || opt.value}</span>
+      ${isSelected ? '<span style="color:var(--accent, #c084fc);font-weight:bold;font-size:16px;">✓</span>' : ''}
+    `;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectEl.value = opt.value;
+      selectEl.selectedIndex = idx;
+      selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+      selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+      if (typeof selectEl.onchange === 'function') {
+        selectEl.onchange();
+      }
+      closeSelectPickerModal();
+    });
+
+    listEl.appendChild(btn);
+  });
+
+  modal.classList.add('open');
+  modal.style.display = 'flex';
+
+  const selectedBtn = listEl.querySelector('.select-picker-item');
+  if (selectedBtn) {
+    const rect = selectedBtn.getBoundingClientRect();
+    if (typeof window.setVirtualCursorPos === 'function') {
+      window.setVirtualCursorPos(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+  }
+}
+
+function closeSelectPickerModal() {
+  const modal = document.getElementById('selectPickerModal');
+  if (modal && (modal.classList.contains('open') || modal.style.display === 'flex')) {
+    modal.classList.remove('open');
+    modal.style.display = 'none';
+    return true;
+  }
+  return false;
+}
+
+function cycleSelectOption(selectEl, direction) {
+  if (!selectEl || !selectEl.options || selectEl.options.length === 0) return;
+  let idx = selectEl.selectedIndex;
+  if (direction > 0) {
+    idx = (idx + 1) % selectEl.options.length;
+  } else {
+    idx = (idx - 1 + selectEl.options.length) % selectEl.options.length;
+  }
+  selectEl.selectedIndex = idx;
+  selectEl.value = selectEl.options[idx].value;
+  selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+  selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof selectEl.onchange === 'function') {
+    selectEl.onchange();
+  }
+}
+
 function closeActivePopupOrModal() {
+  if (closeSelectPickerModal()) {
+    return true;
+  }
   const gpModal = document.getElementById('gpModal');
   if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
     gpModal.classList.remove('open');
@@ -433,6 +590,9 @@ window.applyLayoutMode = applyLayoutMode;
 window.detectDeviceLayout = detectDeviceLayout;
 window.changeLayoutMode = changeLayoutMode;
 window.initLayoutMode = initLayoutMode;
+window.openHandheldSelectModal = openHandheldSelectModal;
+window.closeSelectPickerModal = closeSelectPickerModal;
+window.cycleSelectOption = cycleSelectOption;
 
 window.addEventListener('gamepadconnected', (e) => {
   const layout = detectGamepadLayout(e.gamepad);
@@ -456,6 +616,12 @@ window.addEventListener('gamepaddisconnected', () => {
 window.addEventListener('resize', () => {
   const saved = localStorage.getItem('ns_layout_mode') || 'auto';
   if (saved === 'auto') {
+    let sessionIsHandheld = false;
+    try { sessionIsHandheld = sessionStorage.getItem('ns_handheld_session') === 'true'; } catch (_) {}
+    if (sessionIsHandheld) {
+      applyLayoutMode('handheld');
+      return;
+    }
     const detected = detectDeviceLayout();
     applyLayoutMode(detected);
   }

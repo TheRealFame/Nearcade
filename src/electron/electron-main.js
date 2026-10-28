@@ -565,12 +565,22 @@ async function createWindow() {
     console.error('[electron] failed to load:', code, desc);
     setTimeout(() => {
       if (isArcadeWorker) win.loadURL(`http://localhost:${port}/host?auto=1`);
-      else if (!settings.firstRunComplete && !settings.neverBotherSetup) win.loadURL(`http://localhost:${port}/setup`);
-      else win.loadURL(`http://localhost:${port}/dashboard?port=${port}`);
+      else if (!settings.firstRunComplete && !settings.neverBotherSetup) win.loadURL(`http://localhost:${port}/setup${paramStr}`);
+      else win.loadURL(`http://localhost:${port}/dashboard?port=${port}${modeParam}`);
     }, 1000);
   });
 
   win.webContents.on('did-navigate', (e, url) => {
+    if (isHandheld || isGamescopeEnv) {
+      setTimeout(() => {
+        if (win && !win.isDestroyed()) {
+          try {
+            win.focus();
+            if (win.webContents) win.webContents.focus();
+          } catch (_) {}
+        }
+      }, 50);
+    }
     if (url.includes('/host')) {
       win.webContents.insertCSS(`
         body { animation: nsFadeIn 1.5s ease both; }
@@ -644,7 +654,7 @@ async function createWindow() {
   win.webContents.session.setPermissionCheckHandler(() => true);
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
 
-  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC };
+  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC, isHandheld, isPortrait, isGamescopeEnv };
   registerIpcHandlers(ctx);
 
   win.on('resize', () => {

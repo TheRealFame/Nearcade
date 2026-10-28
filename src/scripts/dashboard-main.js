@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (urlParams.has('portrait')) {
     if (typeof applyLayoutMode === 'function') applyLayoutMode('portrait');
     else document.documentElement.classList.add('portrait-mode');
-  } else if (urlParams.has('handheld') || urlParams.has('tv')) {
+  } else if (urlParams.has('handheld') || urlParams.has('tv') || (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.isHandheld)) {
     if (typeof applyLayoutMode === 'function') applyLayoutMode('handheld');
     else document.documentElement.classList.add('handheld-mode');
   } else if (typeof initLayoutMode === 'function') {

@@ -540,17 +540,33 @@ function registerIpcHandlers(ctx) {
     return fs.promises.readFile(docPath, 'utf8');
   });
 
+  function getDashboardUrl(extraParams) {
+    let modeParam = '';
+    if (ctx.isPortrait) modeParam = '&portrait=1';
+    else if (ctx.isHandheld) modeParam = '&handheld=1';
+    const extras = extraParams ? extraParams : '';
+    return `http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}${modeParam}${extras}`;
+  }
+
   ipcMain.on('back-to-dashboard-from-host', (_, tab) => {
     if (ctx.win && !ctx.win.isDestroyed()) {
       const t = tab ? `&tab=${tab}` : '';
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1${t}`);
+      ctx.win.loadURL(getDashboardUrl(`&noAutoHost=1${t}`));
+      try {
+        ctx.win.focus();
+        if (ctx.win.webContents) ctx.win.webContents.focus();
+      } catch (_) {}
     }
   });
 
   ipcMain.on('back-to-dashboard', (_, tab) => {
     if (ctx.win && !ctx.win.isDestroyed()) {
       const t = tab ? `&tab=${tab}` : '';
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1${t}`);
+      ctx.win.loadURL(getDashboardUrl(`&noAutoHost=1${t}`));
+      try {
+        ctx.win.focus();
+        if (ctx.win.webContents) ctx.win.webContents.focus();
+      } catch (_) {}
     }
   });
 
@@ -562,7 +578,11 @@ function registerIpcHandlers(ctx) {
           `if (typeof stopArcadeOnly === 'function') stopArcadeOnly();`
         );
       } catch (_) { }
-      await ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}&noAutoHost=1`);
+      await ctx.win.loadURL(getDashboardUrl('&noAutoHost=1'));
+      try {
+        ctx.win.focus();
+        if (ctx.win.webContents) ctx.win.webContents.focus();
+      } catch (_) {}
     }
     return true;
   });
@@ -592,7 +612,11 @@ function registerIpcHandlers(ctx) {
     ctx.settings.neverBotherSetup = true;
     saveSettings({ firstRunComplete: true, neverBotherSetup: true });
     if (ctx.win && !ctx.win.isDestroyed()) {
-      ctx.win.loadURL(`http://localhost:${ctx.serverPort}/dashboard?port=${ctx.serverPort}`);
+      ctx.win.loadURL(getDashboardUrl());
+      try {
+        ctx.win.focus();
+        if (ctx.win.webContents) ctx.win.webContents.focus();
+      } catch (_) {}
     }
   });
 

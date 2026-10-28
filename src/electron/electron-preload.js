@@ -112,4 +112,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSpoutStatus: (cb) => ipcRenderer.on('spout-status', (_e, s) => cb(s)),
 
   isElectron: true,
+  isHandheld: (
+    process.argv.includes('-handheld') ||
+    process.argv.includes('--handheld') ||
+    process.argv.includes('-tv') ||
+    process.argv.includes('--tv') ||
+    (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+    process.env.SteamDeck === '1' ||
+    process.env.SteamGamepadUI === '1' ||
+    (process.platform === 'linux' && (
+      require('os').hostname() === 'steamdeck' ||
+      require('fs').existsSync('/sys/class/dmi/id/product_name')
+    ))
+  ),
+  isPortrait: (
+    process.argv.includes('-portrait') ||
+    process.argv.includes('--portrait')
+  ),
 });

@@ -9,6 +9,61 @@ let lastTime = performance.now();
 let vx = 0, vy = 0;
 const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
+try {
+  window.focus();
+  if (document.body) document.body.focus();
+} catch (_) {}
+
+function showCursor() {
+  if (cursor) {
+    cursor.style.display = 'block';
+    cursor.style.left = cx + 'px';
+    cursor.style.top = cy + 'px';
+  }
+}
+
+// In handheld mode or active handheld session, display virtual cursor immediately
+if (document.documentElement.classList.contains('handheld-mode') ||
+    new URLSearchParams(window.location.search).has('handheld') ||
+    (() => { try { return sessionStorage.getItem('ns_handheld_session') === 'true'; } catch (_) { return false; } })()) {
+  showCursor();
+}
+
+window.addEventListener('gamepadconnected', () => {
+  try { window.focus(); } catch (_) {}
+  showCursor();
+});
+
+window.setVirtualCursorPos = function(x, y) {
+  cx = Math.max(0, Math.min(window.innerWidth, x));
+  cy = Math.max(0, Math.min(window.innerHeight, y));
+  showCursor();
+};
+
+window.addEventListener('mousemove', (e) => {
+  cx = e.clientX;
+  cy = e.clientY;
+  if (cursor && cursor.style.display !== 'none') {
+    cursor.style.left = cx + 'px';
+    cursor.style.top = cy + 'px';
+  }
+}, { passive: true });
+
+window.addEventListener('touchstart', (e) => {
+  if (e.touches && e.touches[0]) {
+    cx = e.touches[0].clientX;
+    cy = e.touches[0].clientY;
+    if (cursor && cursor.style.display !== 'none') {
+      cursor.style.left = cx + 'px';
+      cursor.style.top = cy + 'px';
+    }
+  }
+}, { passive: true });
+
+window.addEventListener('click', () => {
+  try { window.focus(); } catch (_) {}
+}, { passive: true });
+
 // Persistent per-gamepad button states across animation frames
 const gpButtonStates = new Map();
 
@@ -20,21 +75,29 @@ function getClickTargetAt(x, y) {
 }
 
 window.triggerSpatialNavClick = function() {
+  showCursor();
   if (cursor) {
     cursor.classList.add('clicking');
     setTimeout(() => { if (cursor) cursor.classList.remove('clicking'); }, 150);
   }
 
-  let target = null;
-  if (cursor && cursor.style.display !== 'none') {
-    target = getClickTargetAt(cx, cy);
-  }
+  let target = getClickTargetAt(cx, cy);
 
   if (!target && document.activeElement && document.activeElement !== document.body) {
     target = document.activeElement;
   }
 
   if (target) {
+    if (target.tagName === 'SELECT') {
+      if (typeof window.openHandheldSelectModal === 'function') {
+        window.openHandheldSelectModal(target);
+        return;
+      }
+      if (typeof target.showPicker === 'function') {
+        try { target.showPicker(); return; } catch (_) {}
+      }
+    }
+
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
       target.focus();
     }
@@ -84,7 +147,7 @@ function updateGamepad(time) {
 
     let state = gpButtonStates.get(p.index);
     if (!state) {
-      state = { select: false, back: false, docs: false, friends: false, start: false };
+      state = { select: false, back: false, docs: false, friends: false, start: false, dpadLR: false };
       gpButtonStates.set(p.index, state);
     }
 
@@ -105,12 +168,39 @@ function updateGamepad(time) {
     totalDx += sx * speed * dt;
     totalDy += sy * speed * dt;
 
+    // D-Pad Left / Right option cycling when on a select element
+    const dpadLeft = !!(p.buttons[14] && (p.buttons[14].pressed || p.buttons[14].value > 0.5));
+    const dpadRight = !!(p.buttons[15] && (p.buttons[15].pressed || p.buttons[15].value > 0.5));
+
+    if (dpadLeft || dpadRight) {
+      const hoverEl = getClickTargetAt(cx, cy);
+      const selTarget = (hoverEl && hoverEl.tagName === 'SELECT') ? hoverEl : (document.activeElement && document.activeElement.tagName === 'SELECT' ? document.activeElement : null);
+      if (selTarget && !state.dpadLR) {
+        state.dpadLR = true;
+        if (typeof window.cycleSelectOption === 'function') {
+          window.cycleSelectOption(selTarget, dpadRight ? 1 : -1);
+        }
+      }
+    } else {
+      state.dpadLR = false;
+    }
+
     // Face buttons: Nintendo swaps Confirm (A / button 1) and Cancel (B / button 0)
     const selectBtn = (layout === 'nintendo') ? p.buttons[1] : p.buttons[0];
     const backBtn = (layout === 'nintendo') ? p.buttons[0] : p.buttons[1];
     const docsBtn = p.buttons[2];
     const friendsBtn = p.buttons[3];
     const pauseBtn = p.buttons[9];
+
+    // Show cursor on any button or stick interaction
+    if (sx !== 0 || sy !== 0 ||
+        (selectBtn && (selectBtn.pressed || selectBtn.value > 0.5)) ||
+        (backBtn && (backBtn.pressed || backBtn.value > 0.5)) ||
+        (docsBtn && (docsBtn.pressed || docsBtn.value > 0.5)) ||
+        (friendsBtn && (friendsBtn.pressed || friendsBtn.value > 0.5)) ||
+        (pauseBtn && (pauseBtn.pressed || pauseBtn.value > 0.5))) {
+      showCursor();
+    }
 
     // Select / Confirm
     const selectPressed = !!(selectBtn && (selectBtn.pressed || selectBtn.value > 0.5));
@@ -205,11 +295,7 @@ function updateGamepad(time) {
   cy = Math.max(0, Math.min(window.innerHeight, cy));
 
   if (Math.abs(totalDx) > 0.05 || Math.abs(totalDy) > 0.05) {
-    if (cursor) {
-      cursor.style.display = 'block';
-      cursor.style.left = cx + 'px';
-      cursor.style.top = cy + 'px';
-    }
+    showCursor();
   }
 
   requestAnimationFrame(updateGamepad);
