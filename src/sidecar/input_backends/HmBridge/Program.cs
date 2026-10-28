@@ -99,9 +99,89 @@ class Program
         var captured = padId;
         controller.OutputReceived += (_, packet) =>
         {
-            var data = packet.Data.Span;
-            if (data.Length >= 4)
-                Emit(new { type = "rumble", pad_id = captured, strong = data[2] / 255.0, weak = data[3] / 255.0, duration = 250 });
+            if (packet.Source == HMOutputSource.XInput)
+            {
+                var data = packet.Data.Span;
+                if (data.Length >= 4)
+                {
+                    Emit(new
+                    {
+                        type = "rumble",
+                        pad_id = captured,
+                        viewer_id = captured,
+                        strong = data[2] / 255.0,
+                        weak = data[3] / 255.0,
+                        duration = 250
+                    });
+                }
+            }
+            else if (packet.Source == HMOutputSource.HidOutput && profile.VendorId == 0x045E)
+            {
+                // Xbox One S / GIP Bluetooth output report 0x03
+                var data = packet.Data.Span;
+                if (packet.ReportId == 0x03 && data.Length >= 5)
+                {
+                    byte mask = data[0];
+                    double strong = (mask & 0x02) != 0 ? Math.Clamp(data[3] / 100.0, 0.0, 1.0) : 0.0;
+                    double weak = (mask & 0x01) != 0 ? Math.Clamp(data[4] / 100.0, 0.0, 1.0) : 0.0;
+                    Emit(new
+                    {
+                        type = "rumble",
+                        pad_id = captured,
+                        viewer_id = captured,
+                        strong,
+                        weak,
+                        duration = 250
+                    });
+                }
+            }
+        };
+
+        controller.OutputDecoded += (_, e) =>
+        {
+            if (!e.Fields.TryGetValue("leftMotor", out var leftObj) ||
+                !e.Fields.TryGetValue("rightMotor", out var rightObj))
+                return;
+
+            // Sony DualSense and DualShock 4 reports multiplex lightbar, trigger,
+            // and audio writes. Verify rumble update flags to prevent false rumble.
+            if (profile.VendorId == 0x054C)
+            {
+                bool hasRumbleFlag = false;
+
+                // DualShock 4: validFlag0 bit 0 (0x01: motor enable)
+                // DualSense: validFlag0 bit 0 (0x01: compatible vibration)
+                if (e.Fields.TryGetValue("validFlag0", out var vf0))
+                {
+                    byte flag0 = Convert.ToByte(vf0);
+                    if ((flag0 & 0x01) != 0)
+                        hasRumbleFlag = true;
+                }
+
+                // DualSense: validFlag2 bit 0 (0x01: compatible vibration v2)
+                if (e.Fields.TryGetValue("validFlag2", out var vf2))
+                {
+                    byte flag2 = Convert.ToByte(vf2);
+                    if ((flag2 & 0x01) != 0)
+                        hasRumbleFlag = true;
+                }
+
+                if (!hasRumbleFlag)
+                    return;
+            }
+
+            byte leftMotor = Convert.ToByte(leftObj);
+            byte rightMotor = Convert.ToByte(rightObj);
+
+            Emit(new
+            {
+                type = "rumble",
+                pad_id = captured,
+                viewer_id = captured,
+                strong = leftMotor / 255.0,
+                weak = rightMotor / 255.0,
+                duration = 250
+            });
         };
 
         _controllers[padId] = controller;

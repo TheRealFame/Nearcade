@@ -1,7 +1,7 @@
 /// windows_hidmaestro.rs — Nearcade Windows HIDMaestro Input Backend (Rust)
 ///
 /// Replaces the Python hidmaestro sidecar. Acts as the bridge between
-/// InputOrchestrator.js (Node.js) and HmBridge.exe (the C# HIDMaestro kernel driver client).
+/// InputOrchestrator.js (Node.js) and HmBridge.exe (the C# HIDMaestro UMDF2 driver client).
 ///
 /// Transport:
 ///   IN  JSON (stdin):   allocate_slot | free_slot | state | gamepad | flush_neutral | destroy_all

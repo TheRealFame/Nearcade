@@ -472,7 +472,7 @@ function init(screenWidth, screenHeight) {
                     // Python sidecar detected an EV_FF event on the uinput device.
                     // Forward it through events so server.js can route it to the viewer.
                     events.emit('rumble', {
-                        viewerId: msg.viewerId || '',
+                        viewerId: msg.viewerId || msg.viewer_id || msg.pad_id || '',
                         strong:   msg.strong   || 0,
                         weak:     msg.weak     || 0,
                         duration: msg.duration || 200,
