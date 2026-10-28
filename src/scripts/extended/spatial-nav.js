@@ -9,11 +9,41 @@ let lastTime = performance.now();
 let vx = 0, vy = 0;
 const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
+// Persistent per-gamepad button states across animation frames
+const gpButtonStates = new Map();
+
+function getClickTargetAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const clickable = el.closest('button, a, input, select, textarea, [onclick], .nav-btn, .clickable, .more-card, .radio-card, .toggle, .custom-select');
+  return clickable || el;
+}
+
 window.triggerSpatialNavClick = function() {
-  if (cursor) cursor.classList.add('clicking');
-  const el = document.elementFromPoint(cx, cy);
-  if (el && typeof el.click === 'function') el.click();
-  setTimeout(() => { if (cursor) cursor.classList.remove('clicking'); }, 150);
+  if (cursor) {
+    cursor.classList.add('clicking');
+    setTimeout(() => { if (cursor) cursor.classList.remove('clicking'); }, 150);
+  }
+
+  let target = null;
+  if (cursor && cursor.style.display !== 'none') {
+    target = getClickTargetAt(cx, cy);
+  }
+
+  if (!target && document.activeElement && document.activeElement !== document.body) {
+    target = document.activeElement;
+  }
+
+  if (target) {
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+      target.focus();
+    }
+    if (typeof target.click === 'function') {
+      target.click();
+    } else {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    }
+  }
 };
 
 function updateGamepad(time) {
@@ -23,7 +53,7 @@ function updateGamepad(time) {
   // TV Remote (Keyboard) Acceleration
   const accel = 3500;
   const maxSpeed = 1200;
-  const friction = 0.8; // Apply per frame approximation
+  const friction = 0.8;
 
   if (keys.ArrowUp) vy -= accel * dt;
   if (keys.ArrowDown) vy += accel * dt;
@@ -33,10 +63,10 @@ function updateGamepad(time) {
   if (!keys.ArrowUp && !keys.ArrowDown) vy *= Math.pow(friction, dt * 60);
   if (!keys.ArrowLeft && !keys.ArrowRight) vx *= Math.pow(friction, dt * 60);
 
-  const currentSpeed = Math.sqrt(vx*vx + vy*vy);
+  const currentSpeed = Math.sqrt(vx * vx + vy * vy);
   if (currentSpeed > maxSpeed) {
-      vx = (vx / currentSpeed) * maxSpeed;
-      vy = (vy / currentSpeed) * maxSpeed;
+    vx = (vx / currentSpeed) * maxSpeed;
+    vy = (vy / currentSpeed) * maxSpeed;
   }
 
   let totalDx = vx * dt;
@@ -52,86 +82,120 @@ function updateGamepad(time) {
       window.updateHandheldPromptGlyphs(layout);
     }
 
-    const gdx = p.axes[0], gdy = p.axes[1];
-    const speed = 840;
+    let state = gpButtonStates.get(p.index);
+    if (!state) {
+      state = { select: false, back: false, docs: false, friends: false, start: false };
+      gpButtonStates.set(p.index, state);
+    }
 
-    if (Math.abs(gdx) > 0.15) totalDx += gdx * speed * dt;
-    if (Math.abs(gdy) > 0.15) totalDy += gdy * speed * dt;
+    // Read Thumbsticks and D-Pad
+    const gdx = p.axes[0] || 0;
+    const gdy = p.axes[1] || 0;
+    const deadzone = 0.18;
+    const speed = 900;
+
+    let sx = Math.abs(gdx) > deadzone ? gdx : 0;
+    let sy = Math.abs(gdy) > deadzone ? gdy : 0;
+
+    if (p.buttons[12] && p.buttons[12].pressed) sy = -1;
+    if (p.buttons[13] && p.buttons[13].pressed) sy = 1;
+    if (p.buttons[14] && p.buttons[14].pressed) sx = -1;
+    if (p.buttons[15] && p.buttons[15].pressed) sx = 1;
+
+    totalDx += sx * speed * dt;
+    totalDy += sy * speed * dt;
 
     // Face buttons: Nintendo swaps Confirm (A / button 1) and Cancel (B / button 0)
     const selectBtn = (layout === 'nintendo') ? p.buttons[1] : p.buttons[0];
     const backBtn = (layout === 'nintendo') ? p.buttons[0] : p.buttons[1];
     const docsBtn = p.buttons[2];
     const friendsBtn = p.buttons[3];
+    const pauseBtn = p.buttons[9];
 
-    if (selectBtn && selectBtn.pressed && !p._wasPressed) {
-      cursor.classList.add('clicking');
-      const el = document.elementFromPoint(cx, cy);
-      if (el && typeof el.click === 'function') el.click();
-      p._wasPressed = true;
-    } else if (selectBtn && !selectBtn.pressed) {
-      cursor.classList.remove('clicking');
-      p._wasPressed = false;
+    // Select / Confirm
+    const selectPressed = !!(selectBtn && (selectBtn.pressed || selectBtn.value > 0.5));
+    if (selectPressed) {
+      if (!state.select) {
+        state.select = true;
+        window.triggerSpatialNavClick();
+      }
+    } else {
+      state.select = false;
     }
 
-    if (backBtn && backBtn.pressed && !p._wasBPressed) {
-      if (typeof handleHandheldBack === 'function') handleHandheldBack();
-      p._wasBPressed = true;
-    } else if (backBtn && !backBtn.pressed) {
-      p._wasBPressed = false;
+    // Back / Cancel
+    const backPressed = !!(backBtn && (backBtn.pressed || backBtn.value > 0.5));
+    if (backPressed) {
+      if (!state.back) {
+        state.back = true;
+        if (typeof handleHandheldBack === 'function') handleHandheldBack();
+      }
+    } else {
+      state.back = false;
     }
 
-    if (docsBtn && docsBtn.pressed && !p._wasXPressed) {
-      if (typeof openDocs === 'function') openDocs();
-      p._wasXPressed = true;
-    } else if (docsBtn && !docsBtn.pressed) {
-      p._wasXPressed = false;
+    // Docs (X)
+    const docsPressed = !!(docsBtn && (docsBtn.pressed || docsBtn.value > 0.5));
+    if (docsPressed) {
+      if (!state.docs) {
+        state.docs = true;
+        if (typeof openDocs === 'function') openDocs();
+      }
+    } else {
+      state.docs = false;
     }
 
-    if (friendsBtn && friendsBtn.pressed && !p._wasYPressed) {
-      if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
-      p._wasYPressed = true;
-    } else if (friendsBtn && !friendsBtn.pressed) {
-      p._wasYPressed = false;
+    // Friends (Y)
+    const friendsPressed = !!(friendsBtn && (friendsBtn.pressed || friendsBtn.value > 0.5));
+    if (friendsPressed) {
+      if (!state.friends) {
+        state.friends = true;
+        if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
+      }
+    } else {
+      state.friends = false;
     }
 
-    if (p.buttons[9] && p.buttons[9].pressed && !p._wasStartPressed) {
-      if (typeof exitNearcadeApp === 'function') exitNearcadeApp();
-      p._wasStartPressed = true;
-    } else if (p.buttons[9] && !p.buttons[9].pressed) {
-      p._wasStartPressed = false;
+    // Pause / Start (Button 9)
+    const pausePressed = !!(pauseBtn && (pauseBtn.pressed || pauseBtn.value > 0.5));
+    if (pausePressed) {
+      if (!state.start) {
+        state.start = true;
+        const gpModal = document.getElementById('gpModal');
+        if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
+          gpModal.classList.remove('open');
+          gpModal.style.display = 'none';
+        } else {
+          let closed = false;
+          if (typeof handleHandheldBack === 'function') {
+            closed = handleHandheldBack();
+          }
+          if (!closed && typeof exitNearcadeApp === 'function') {
+            exitNearcadeApp();
+          }
+        }
+      }
+    } else {
+      state.start = false;
     }
   }
 
-  // Magnetism (Snap to buttons)
-  if (Math.abs(totalDx) > 0.5 || Math.abs(totalDy) > 0.5) {
-      const clickables = document.querySelectorAll('button, input, select, a, .nav-btn, .clickable');
-      let closestDist = 120; // Magnetic radius
-      let mx = 0, my = 0;
-      
-      for (const el of clickables) {
-        if (!el.offsetParent) continue; // skip hidden elements
-        const rect = el.getBoundingClientRect();
-        
-        // Element center
-        const ex = rect.left + rect.width / 2;
-        const ey = rect.top + rect.height / 2;
-        
-        const dx = ex - cx;
-        const dy = ey - cy;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        
-        if (dist < closestDist) {
-            closestDist = dist;
-            // Stronger pull when closer
-            const pullStrength = 15 * Math.pow(1 - dist/120, 2);
-            mx = (dx / dist) * pullStrength;
-            my = (dy / dist) * pullStrength;
-        }
+  // Hover precision friction (no reverse magnetism so pointer never jumps)
+  if (Math.abs(totalDx) > 0.1 || Math.abs(totalDy) > 0.1) {
+    const clickables = document.querySelectorAll('button, input, select, a, .nav-btn, .clickable, .more-card');
+    let hovered = false;
+    for (const el of clickables) {
+      if (!el.offsetParent) continue;
+      const rect = el.getBoundingClientRect();
+      if (cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom) {
+        hovered = true;
+        break;
       }
-      
-      totalDx += mx;
-      totalDy += my;
+    }
+    if (hovered) {
+      totalDx *= 0.65;
+      totalDy *= 0.65;
+    }
   }
 
   cx += totalDx;
@@ -139,11 +203,13 @@ function updateGamepad(time) {
 
   cx = Math.max(0, Math.min(window.innerWidth, cx));
   cy = Math.max(0, Math.min(window.innerHeight, cy));
-  
-  if (Math.abs(totalDx) > 0.1 || Math.abs(totalDy) > 0.1) {
-    cursor.style.display = 'block';
-    cursor.style.left = cx + 'px';
-    cursor.style.top = cy + 'px';
+
+  if (Math.abs(totalDx) > 0.05 || Math.abs(totalDy) > 0.05) {
+    if (cursor) {
+      cursor.style.display = 'block';
+      cursor.style.left = cx + 'px';
+      cursor.style.top = cy + 'px';
+    }
   }
 
   requestAnimationFrame(updateGamepad);
@@ -156,14 +222,19 @@ window.addEventListener('keydown', (e) => {
   if (keys.hasOwnProperty(e.key)) {
     e.preventDefault();
     keys[e.key] = true;
-    cursor.style.display = 'block';
+    if (cursor) cursor.style.display = 'block';
   } else if (e.key === 'Enter') {
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+      const btnConnect = document.getElementById('btnConnect');
+      if (btnConnect && typeof btnConnect.click === 'function') {
+        btnConnect.click();
+      }
+      return;
+    }
     e.preventDefault();
-    cursor.classList.add('clicking');
-    setTimeout(() => cursor.classList.remove('clicking'), 150);
-    const el = document.elementFromPoint(cx, cy);
-    if (el && typeof el.click === 'function') el.click();
+    window.triggerSpatialNavClick();
   } else if (e.key === 'Escape') {
+    e.preventDefault();
     if (typeof handleHandheldBack === 'function') handleHandheldBack();
   }
 });

@@ -277,22 +277,73 @@ function toggleHandheldMode() {
   changeLayoutMode(nextMode);
 }
 
-function handleHandheldBack() {
-  const openModal = document.querySelector('.modal.open');
-  if (openModal) {
-    openModal.classList.remove('open');
-    return;
+function closeActivePopupOrModal() {
+  const gpModal = document.getElementById('gpModal');
+  if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
+    gpModal.classList.remove('open');
+    gpModal.style.display = 'none';
+    return true;
+  }
+  const docsModal = document.getElementById('docsModal');
+  if (docsModal && docsModal.style.display !== 'none' && docsModal.style.display !== '') {
+    if (typeof closeDocs === 'function') closeDocs();
+    else docsModal.style.display = 'none';
+    return true;
+  }
+  const aboutModal = document.getElementById('aboutModal');
+  if (aboutModal && aboutModal.style.display !== 'none' && aboutModal.style.display !== '') {
+    if (typeof closeAbout === 'function') closeAbout();
+    else aboutModal.style.display = 'none';
+    return true;
+  }
+  const mobileAuthModal = document.getElementById('mobileAuthModal');
+  if (mobileAuthModal && (mobileAuthModal.classList.contains('open') || !mobileAuthModal.classList.contains('gone'))) {
+    mobileAuthModal.classList.add('gone');
+    mobileAuthModal.classList.remove('open');
+    return true;
+  }
+  const mobileLinkModal = document.getElementById('mobileLinkModal');
+  if (mobileLinkModal && (mobileLinkModal.classList.contains('open') || !mobileLinkModal.classList.contains('gone'))) {
+    mobileLinkModal.classList.add('gone');
+    mobileLinkModal.classList.remove('open');
+    return true;
+  }
+  const wivrnModal = document.getElementById('wivrnModal');
+  if (wivrnModal && (wivrnModal.classList.contains('open') || !wivrnModal.classList.contains('gone'))) {
+    wivrnModal.classList.add('gone');
+    wivrnModal.classList.remove('open');
+    return true;
+  }
+  const updateModal = document.getElementById('updateModal');
+  if (updateModal && (updateModal.classList.contains('open') || (updateModal.style.display !== 'none' && updateModal.style.display !== ''))) {
+    updateModal.classList.remove('open');
+    updateModal.style.display = 'none';
+    return true;
+  }
+  const openModals = document.querySelectorAll('.modal-bg.open, .modal.open');
+  for (const m of openModals) {
+    m.classList.remove('open');
+    m.classList.add('gone');
+    return true;
   }
   const fPanel = document.getElementById('friendPanel');
-  if (fPanel && fPanel.style.transform === 'translateX(0%)') {
+  if (fPanel && (fPanel.style.transform === 'translateX(0%)' || fPanel.style.transform === 'translateX(0px)')) {
     if (typeof closeFriendPanel === 'function') closeFriendPanel();
-    return;
+    return true;
+  }
+  return false;
+}
+
+function handleHandheldBack() {
+  if (closeActivePopupOrModal()) {
+    return true;
   }
   const currentTab = document.querySelector('.panel.active');
   if (currentTab && currentTab.id !== 'panel-connect') {
     if (typeof switchTab === 'function') switchTab('connect');
-    return;
+    return true;
   }
+  return false;
 }
 
 function triggerHandheldSelect() {
@@ -338,6 +389,7 @@ function updateHandheldPromptGlyphs(layout) {
   const bSelect = document.getElementById('promptBadgeSelect');
   const bBack = document.getElementById('promptBadgeBack');
   const bQuit = document.getElementById('promptBadgeQuit');
+  const bGpClose = document.getElementById('gpModalBadgePause');
 
   if (layout === 'playstation') {
     if (bFriends) { bFriends.textContent = '△'; bFriends.className = 'btn-badge btn-ps-triangle'; }
@@ -345,20 +397,33 @@ function updateHandheldPromptGlyphs(layout) {
     if (bSelect) { bSelect.textContent = '×'; bSelect.className = 'btn-badge btn-ps-cross'; }
     if (bBack) { bBack.textContent = '○'; bBack.className = 'btn-badge btn-ps-circle'; }
     if (bQuit) { bQuit.textContent = '≡'; bQuit.className = 'btn-badge btn-menu'; }
+    if (bGpClose) { bGpClose.textContent = '≡'; bGpClose.className = 'btn-badge btn-menu'; }
   } else if (layout === 'nintendo') {
     if (bFriends) { bFriends.textContent = 'X'; bFriends.className = 'btn-badge btn-nin-x'; }
     if (bDocs) { bDocs.textContent = 'Y'; bDocs.className = 'btn-badge btn-nin-y'; }
     if (bSelect) { bSelect.textContent = 'A'; bSelect.className = 'btn-badge btn-nin-a'; }
     if (bBack) { bBack.textContent = 'B'; bBack.className = 'btn-badge btn-nin-b'; }
     if (bQuit) { bQuit.textContent = '+'; bQuit.className = 'btn-badge btn-nin-plus'; }
+    if (bGpClose) { bGpClose.textContent = '+'; bGpClose.className = 'btn-badge btn-nin-plus'; }
   } else {
     if (bFriends) { bFriends.textContent = 'Y'; bFriends.className = 'btn-badge btn-y'; }
     if (bDocs) { bDocs.textContent = 'X'; bDocs.className = 'btn-badge btn-x'; }
     if (bSelect) { bSelect.textContent = 'A'; bSelect.className = 'btn-badge btn-a'; }
     if (bBack) { bBack.textContent = 'B'; bBack.className = 'btn-badge btn-b'; }
     if (bQuit) { bQuit.textContent = '≡'; bQuit.className = 'btn-badge btn-menu'; }
+    if (bGpClose) { bGpClose.textContent = '≡'; bGpClose.className = 'btn-badge btn-menu'; }
   }
 }
+
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'NEARCADE_CLOSE_GP_MODAL') {
+    const gpModal = document.getElementById('gpModal');
+    if (gpModal) {
+      gpModal.classList.remove('open');
+      gpModal.style.display = 'none';
+    }
+  }
+});
 
 window.detectGamepadLayout = detectGamepadLayout;
 window.updateHandheldPromptGlyphs = updateHandheldPromptGlyphs;

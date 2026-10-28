@@ -1583,10 +1583,47 @@ html.handheld-mode .handheld-prompt-bar {
 .handheld-prompt-bar .btn-nin-y {
   background: #555866;
 }
-.handheld-prompt-bar .btn-nin-plus {
+.handheld-prompt-bar .btn-nin-plus,
+.btn-nin-plus {
   background: #555866;
   border-radius: 4px;
   font-weight: 900;
+}
+
+.handheld-close-prompt {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  user-select: none;
+}
+.handheld-close-prompt .btn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.handheld-close-prompt .btn-menu {
+  background: #6e7681;
+  border-radius: 4px;
+  width: 18px;
+  height: 16px;
+  font-size: 11px;
+}
+html.handheld-mode .handheld-close-prompt {
+  display: flex;
+}
+html.handheld-mode #gpModal .close-modal {
+  display: none;
 }
 
 

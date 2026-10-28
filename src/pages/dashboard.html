@@ -1309,12 +1309,17 @@
     <div class="modal-content">
       <div class="modal-head">
         <span>Controller Settings</span>
-        <button class="close-modal" onclick="document.getElementById('gpModal').classList.remove('open')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="handheld-close-prompt" id="gpModalHandheldClosePrompt">
+            Press <span class="btn-badge btn-menu" id="gpModalBadgePause">≡</span> to close
+          </span>
+          <button class="close-modal" onclick="document.getElementById('gpModal').classList.remove('open')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
       <iframe src="gamepad-popup.html" style="flex:1; border:none;"></iframe>
     </div>
