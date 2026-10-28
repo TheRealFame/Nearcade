@@ -361,8 +361,23 @@ function filterCards() {
     const activePill = document.querySelector('.cat-pill.active');
     const cat = activePill ? activePill.innerText.trim() : 'All Sessions';
     filteredSessions = sessions.filter(s => {
-        const matchesSearch = !q || s.game.toLowerCase().includes(q) || (s.region || '').toLowerCase().includes(q);
-        const matchesCat = cat === 'All Sessions' || (s.category || '') === cat || (s.category || '') === cat.replace(' &amp; ', ' & ');
+        const codecType = (s.codecType || 'WebRTC').toLowerCase();
+        const matchesSearch = !q 
+            || (s.game || '').toLowerCase().includes(q) 
+            || (s.region || '').toLowerCase().includes(q)
+            || (s.hostName || '').toLowerCase().includes(q)
+            || (s.category || '').toLowerCase().includes(q)
+            || codecType.includes(q);
+
+        let matchesCat = cat === 'All Sessions';
+        if (!matchesCat) {
+            const catLower = cat.toLowerCase();
+            if (['webcodecs', 'webrtc', 'hybrid'].includes(catLower)) {
+                matchesCat = codecType === catLower;
+            } else {
+                matchesCat = (s.category || '') === cat || (s.category || '') === cat.replace(' &amp; ', ' & ');
+            }
+        }
         return matchesSearch && matchesCat;
     });
     renderGrid();
@@ -475,11 +490,15 @@ function buildCard(s, index) {
     const customTagsHtml = safeTags.map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
     // --------------------------------
 
-    const codecBadge = s.codecType === 'WebCodecs'
-    ? `<span class="tag" style="background:var(--accent-dim);color:var(--accent);border-color:var(--accent);">WC</span>`
-    : s.codecType
-    ? `<span class="tag" style="background:rgba(68,204,68,0.15);color:var(--green);border-color:var(--green);">RT</span>`
-    : '';
+    const codecTypeNormalized = (s.codecType || 'WebRTC');
+    let codecBadge = '';
+    if (codecTypeNormalized.toLowerCase() === 'webcodecs') {
+        codecBadge = `<span class="tag" style="background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);font-weight:700;">WebCodecs</span>`;
+    } else if (codecTypeNormalized.toLowerCase() === 'hybrid') {
+        codecBadge = `<span class="tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid #c084fc;font-weight:700;">Hybrid</span>`;
+    } else {
+        codecBadge = `<span class="tag" style="background:rgba(34,197,94,0.15);color:var(--green);border:1px solid var(--green);font-weight:700;">WebRTC</span>`;
+    }
 
     card.innerHTML = thumbHtml + `
     <div class="card-body">
@@ -521,7 +540,7 @@ function openJoin(session) {
     meta.innerHTML = '';
 
     // Add tags to modal...
-    [session.region, (latencyMap[session.id]?.ms ? latencyMap[session.id].ms + 'ms' : null), (session.hasPin ? 'PIN Required' : 'Open')]
+    [session.region, (latencyMap[session.id]?.ms ? latencyMap[session.id].ms + 'ms' : null), (session.hasPin ? 'PIN Required' : 'Open'), (session.codecType || 'WebRTC')]
     .filter(val => val)
     .forEach(text => {
         const t = document.createElement('div');

@@ -100,7 +100,7 @@
     .icon-btn.active.muted { color: var(--red); background: rgba(239, 68, 68, 0.1); }
 
     .lang-switcher { display: flex; align-items: center; gap: 8px; }
-    .globe-icon { width: 20px; height: 20px; opacity: 0.8; }
+    .globe-icon { width: 20px; height: 20px; opacity: 0.9; filter: invert(1); }
     #langSelect {
       background: transparent; border: none; color: var(--text-sec);
       font-family: inherit; font-size: 14px; font-weight: 700;
@@ -317,7 +317,7 @@
     html.ns-embed .thumb { height: 140px; }
     html.ns-embed .live-badge { padding: 6px 12px; font-size: 12px; }
     html.ns-embed .icon-btn { width: 34px; height: 34px; }
-    html.ns-embed .gamepad-btn { bottom: 20px; right: 20px; width: 48px; height: 48px; font-size: 20px; }
+    html.ns-embed .gamepad-btn { bottom: calc(76px + env(safe-area-inset-bottom, 16px)); right: 18px; width: 48px; height: 48px; font-size: 20px; }
 
     @media (max-width: 768px) {
       .search-wrap { display: none; }
@@ -326,20 +326,31 @@
       .hero-inner h1 { font-size: 32px; }
     }
 
-    @media (orientation: portrait) {
-      .top-bar { padding: 0 16px; height: 64px; }
-      .logo img { height: 22px; }
-      .hero-inner { padding: 24px 20px; text-align: center; }
-      .hero-inner h1 { font-size: 28px; }
-      .hero-inner p { max-width: 100%; }
-      .main-grid { grid-template-columns: 1fr; padding: 12px 16px 32px; gap: 16px; }
-      .category-nav { padding: 0 16px; gap: 8px; }
-      .cat-pill { padding: 8px 16px; font-size: 13px; }
-      .nav-controls { gap: 10px; }
-      .icon-btn { width: 36px; height: 36px; }
-      .live-badge { padding: 6px 12px; font-size: 12px; }
-      .lang-switcher .globe-icon { width: 16px; height: 16px; }
+    @media (orientation: portrait), (max-width: 600px) {
+      body { padding-top: 56px; }
+      .top-bar { padding: 0 12px; height: 56px; }
+      .logo img { height: 22px !important; max-width: 110px; object-fit: contain; }
+      .logo span { display: none !important; }
+      .hero-banner { margin: 8px auto 6px; padding: 0 12px; }
+      .hero-inner { padding: 12px 14px; border-radius: 12px; text-align: left; }
+      .hero-tag { font-size: 9px; margin-bottom: 2px; }
+      .hero-inner h1 { font-size: 18px; margin-bottom: 2px; }
+      .hero-inner p { display: none; }
+      .main-grid { grid-template-columns: 1fr; padding: 8px 12px 24px; gap: 12px; }
+      .category-nav { padding: 0 12px; gap: 6px; margin-bottom: 8px; }
+      .cat-pill { padding: 6px 12px; font-size: 12px; }
+      .nav-controls { gap: 6px; }
+      .icon-btn { width: 34px; height: 34px; }
+      .live-badge { padding: 4px 10px; font-size: 11px; }
+      .lang-switcher .globe-icon { width: 16px; height: 16px; filter: invert(1); opacity: 0.9; }
       #langSelect { font-size: 12px; }
+      .gamepad-btn {
+        bottom: calc(76px + env(safe-area-inset-bottom, 16px)) !important;
+        right: 18px !important;
+        width: 48px !important;
+        height: 48px !important;
+        font-size: 20px !important;
+      }
     }
   /* ─── CONTROLLER GUIDE MODAL ───────────────────────── */
 
@@ -516,6 +527,9 @@
 
   <div class="category-nav">
     <button class="cat-pill active">All Sessions</button>
+    <button class="cat-pill">WebCodecs</button>
+    <button class="cat-pill">WebRTC</button>
+    <button class="cat-pill">Hybrid</button>
     <button class="cat-pill">Fighting</button>
     <button class="cat-pill">Party Games</button>
     <button class="cat-pill">Retro & Emulation</button>

@@ -259,6 +259,16 @@
         </select>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;">
+        <label style="font-size:11px;font-weight:600;color:var(--text);">Stream Protocol</label>
+        <select id="arcadePipelineSelect"
+          style="width:100%;padding:8px 10px;background:rgba(0,0,0,0.4);color:var(--text);border:1px solid var(--border2);border-radius:8px;font-size:11px;font-family:inherit;outline:none;">
+          <option value="auto">Auto (Match Host Pipeline)</option>
+          <option value="WebCodecs">WebCodecs</option>
+          <option value="WebRTC">WebRTC</option>
+          <option value="Hybrid">Hybrid</option>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
         <div style="display:flex; justify-content:space-between; width:100%;">
           <label style="font-size:11px;font-weight:600;color:var(--text);">Max Players</label>
           <span id="arcadeMaxPlayersVal" style="font-size:11px; color:var(--accent); font-weight:bold;">4 Players</span>

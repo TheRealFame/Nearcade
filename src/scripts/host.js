@@ -6632,7 +6632,8 @@ const arcadeConfig = {
     thumbnail: localStorage.getItem('ns_arcade_thumb') || '',
     maxPlayers: localStorage.getItem('ns_arcade_maxPlayers') || '4',
     requirePin: localStorage.getItem('ns_arcade_requirePin') === 'true',
-    category: localStorage.getItem('ns_arcade_category') || ''
+    category: localStorage.getItem('ns_arcade_category') || '',
+    pipeline: localStorage.getItem('ns_arcade_pipeline') || 'auto'
 };
 
 function showArcadeModal(skipRules = false) {
@@ -6652,6 +6653,9 @@ function showArcadeModal(skipRules = false) {
     document.getElementById('arcadeRequirePin').checked = arcadeConfig.requirePin;
     if (arcadeConfig.category) {
         document.getElementById('arcadeCategory').value = arcadeConfig.category;
+    }
+    if (document.getElementById('arcadePipelineSelect')) {
+        document.getElementById('arcadePipelineSelect').value = arcadeConfig.pipeline || 'auto';
     }
     document.getElementById('arcadeModal').classList.remove('gone');
 }
@@ -6712,6 +6716,7 @@ async function startArcadeSession() {
     arcadeConfig.maxPlayers = document.getElementById('arcadeMaxPlayers').value;
     arcadeConfig.requirePin = document.getElementById('arcadeRequirePin').checked;
     arcadeConfig.category = document.getElementById('arcadeCategory').value;
+    arcadeConfig.pipeline = document.getElementById('arcadePipelineSelect')?.value || 'auto';
 
     arcadeConfig.thumbnail = await fetchGameThumbnail(arcadeConfig.title);
 
@@ -6721,6 +6726,7 @@ async function startArcadeSession() {
     localStorage.setItem('ns_arcade_maxPlayers', arcadeConfig.maxPlayers);
     localStorage.setItem('ns_arcade_requirePin', arcadeConfig.requirePin);
     localStorage.setItem('ns_arcade_category', arcadeConfig.category);
+    localStorage.setItem('ns_arcade_pipeline', arcadeConfig.pipeline);
 
     closeArcadeModal();
 
@@ -6781,6 +6787,17 @@ function _doArcadeRegister() {
         const getPingData = () => {
             const pipelineVal = document.getElementById('pipelineSelect')?.value;
             const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+            const arcadeProtocol = arcadeConfig.pipeline || document.getElementById('arcadePipelineSelect')?.value || 'auto';
+            let codecType;
+            if (arcadeProtocol && arcadeProtocol !== 'auto') {
+                codecType = arcadeProtocol;
+            } else if (pipelineVal === 'encoded_transform' || pipelineVal === 'hybrid') {
+                codecType = 'Hybrid';
+            } else if (forceWc) {
+                codecType = 'WebCodecs';
+            } else {
+                codecType = 'WebRTC';
+            }
             const codec = localStorage.getItem('ns_codec') || document.getElementById('codecSelect')?.value || 'Auto';
             return {
                 id: hostSessionId,
@@ -6793,7 +6810,7 @@ function _doArcadeRegister() {
                 version: window.NEARCADE_VERSION || '0.0.0',
                 hostRegion,
                 os: getHostOS(),
-                codecType: forceWc ? 'WebCodecs' : 'WebRTC',
+                codecType,
                 codec,
                 category: arcadeConfig.category,
                 players: knownViewers.size + 1,
