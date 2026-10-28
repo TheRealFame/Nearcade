@@ -201,14 +201,94 @@ public class MainActivity extends BridgeActivity {
         public String getSystemAccentColor() {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    int color = getColor(android.R.color.system_accent1_500);
-                    return String.format("#%06X", (0xFFFFFF & color));
-                } else {
-                    android.util.TypedValue typedValue = new android.util.TypedValue();
-                    if (getTheme().resolveAttribute(android.R.attr.colorAccent, typedValue, true)) {
-                        return String.format("#%06X", (0xFFFFFF & typedValue.data));
-                    }
+                    try {
+                        int color = getColor(android.R.color.system_accent1_500);
+                        if ((0xFFFFFF & color) != 0) {
+                            return String.format("#%06X", (0xFFFFFF & color));
+                        }
+                    } catch (Exception ignored) {}
+                    try {
+                        int color = getColor(android.R.color.system_accent1_600);
+                        if ((0xFFFFFF & color) != 0) {
+                            return String.format("#%06X", (0xFFFFFF & color));
+                        }
+                    } catch (Exception ignored) {}
+                    try {
+                        int resId = getResources().getIdentifier("system_accent1_500", "color", "android");
+                        if (resId != 0) {
+                            int color = getResources().getColor(resId, getTheme());
+                            if ((0xFFFFFF & color) != 0) {
+                                return String.format("#%06X", (0xFFFFFF & color));
+                            }
+                        }
+                    } catch (Exception ignored) {}
                 }
+                android.util.TypedValue typedValue = new android.util.TypedValue();
+                if (getTheme().resolveAttribute(android.R.attr.colorAccent, typedValue, true) && typedValue.data != 0) {
+                    return String.format("#%06X", (0xFFFFFF & typedValue.data));
+                }
+                int attrId = getResources().getIdentifier("colorAccent", "attr", getPackageName());
+                if (attrId != 0 && getTheme().resolveAttribute(attrId, typedValue, true) && typedValue.data != 0) {
+                    return String.format("#%06X", (0xFFFFFF & typedValue.data));
+                }
+            } catch (Exception ignored) {}
+            return "";
+        }
+
+        @JavascriptInterface
+        public String getNativeThemeJson() {
+            try {
+                boolean isDark = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+                String accent = getSystemAccentColor();
+                if (accent == null || accent.isEmpty() || !accent.startsWith("#")) {
+                    accent = "#c084fc";
+                }
+                String bg, surface, surfaceHover, sidebar, text, muted, border;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        if (isDark) {
+                            int cBg = getColor(android.R.color.system_neutral1_900);
+                            int cSurf = getColor(android.R.color.system_neutral1_800);
+                            int cSurfHover = getColor(android.R.color.system_neutral1_700);
+                            bg = String.format("#%06X", (0xFFFFFF & cBg));
+                            surface = String.format("#%06X", (0xFFFFFF & cSurf));
+                            surfaceHover = String.format("#%06X", (0xFFFFFF & cSurfHover));
+                            sidebar = surface;
+                            text = "#f3f4f6";
+                            muted = "#9ca3af";
+                            border = "rgba(255,255,255,0.1)";
+                        } else {
+                            int cBg = getColor(android.R.color.system_neutral1_50);
+                            int cSurf = getColor(android.R.color.system_neutral1_100);
+                            int cSurfHover = getColor(android.R.color.system_neutral1_200);
+                            bg = String.format("#%06X", (0xFFFFFF & cBg));
+                            surface = String.format("#%06X", (0xFFFFFF & cSurf));
+                            surfaceHover = String.format("#%06X", (0xFFFFFF & cSurfHover));
+                            sidebar = surface;
+                            text = "#111827";
+                            muted = "#4b5563";
+                            border = "rgba(0,0,0,0.1)";
+                        }
+                    } catch (Exception e) {
+                        bg = isDark ? "#121214" : "#f8f9fa";
+                        surface = isDark ? "#1e1e24" : "#ffffff";
+                        surfaceHover = isDark ? "#282830" : "#f1f3f5";
+                        sidebar = surface;
+                        text = isDark ? "#f3f4f6" : "#111827";
+                        muted = isDark ? "#9ca3af" : "#4b5563";
+                        border = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)";
+                    }
+                } else {
+                    bg = isDark ? "#121214" : "#f8f9fa";
+                    surface = isDark ? "#1e1e24" : "#ffffff";
+                    surfaceHover = isDark ? "#282830" : "#f1f3f5";
+                    sidebar = surface;
+                    text = isDark ? "#f3f4f6" : "#111827";
+                    muted = isDark ? "#9ca3af" : "#4b5563";
+                    border = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)";
+                }
+                return String.format("{\"bg\":\"%s\",\"surface\":\"%s\",\"surfaceHover\":\"%s\",\"sidebar\":\"%s\",\"text\":\"%s\",\"muted\":\"%s\",\"border\":\"%s\",\"accent\":\"%s\"}",
+                    bg, surface, surfaceHover, sidebar, text, muted, border, accent);
             } catch (Exception ignored) {}
             return "";
         }

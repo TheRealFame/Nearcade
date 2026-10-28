@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const vEl = document.getElementById('version-text');
   const cEl = document.getElementById('commit-hash');
 
-  await applySystemAccent();
+  await loadAndSyncSettings();
   __bootMark('accent+version-ready');
 
   // Handle ?tab= URL parameter for deep-linking from web viewer
@@ -337,6 +337,10 @@ function switchTab(name) {
     docsBtn.style.display = (name === 'arcade' || name === 'settings') ? 'none' : 'flex';
   }
 
+  if (name === 'settings') {
+    syncSettingsUI();
+  }
+
   const versionDisplay = document.getElementById('version-display');
   if (versionDisplay) {
     versionDisplay.style.display = (name === 'arcade') ? 'none' : 'block';
@@ -528,7 +532,8 @@ async function applyNativeTheme() {
   const indicator = document.getElementById('nativeThemeIndicator');
   const root = document.documentElement;
 
-  if (!window.electronAPI || !useNative) {
+  if (!useNative) {
+    localStorage.removeItem('ns_native_theme_payload');
     root.style.removeProperty('--bg');
     root.style.removeProperty('--sidebar');
     root.style.removeProperty('--surface');
@@ -548,7 +553,50 @@ async function applyNativeTheme() {
   }
 
   try {
-    const theme = await window.electronAPI.getNativeTheme();
+    let theme = null;
+    if (window.electronAPI && typeof window.electronAPI.getNativeTheme === 'function') {
+      try {
+        theme = await window.electronAPI.getNativeTheme();
+      } catch (_) {}
+    } else if (window.AndroidClipboard && typeof window.AndroidClipboard.getNativeThemeJson === 'function') {
+      try {
+        const raw = window.AndroidClipboard.getNativeThemeJson();
+        if (raw) theme = JSON.parse(raw);
+      } catch (_) {}
+    } else {
+      // iOS / Web probe fallback
+      try {
+        const isDark = !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
+        let accent = null;
+        if (window.AndroidClipboard && typeof window.AndroidClipboard.getSystemAccentColor === 'function') {
+          accent = window.AndroidClipboard.getSystemAccentColor();
+        }
+        if (!accent) {
+          const testEl = document.createElement('div');
+          testEl.style.color = 'AccentColor';
+          testEl.style.display = 'none';
+          document.head.appendChild(testEl);
+          const comp = getComputedStyle(testEl).color;
+          document.head.removeChild(testEl);
+          const m = comp && comp.match(/^rgb(?:a)?\((\d+),\s*(\d+),\s*(\d+)/);
+          if (m) {
+            const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
+            if (hex !== '#000000' && hex !== '#ffffff') accent = hex;
+          }
+        }
+        accent = accent || '#c084fc';
+        theme = {
+          bg: isDark ? '#121214' : '#f8f9fa',
+          surface: isDark ? '#1e1e24' : '#ffffff',
+          surfaceHover: isDark ? '#282830' : '#f1f3f5',
+          sidebar: isDark ? '#1e1e24' : '#ffffff',
+          text: isDark ? '#f3f4f6' : '#111827',
+          muted: isDark ? '#9ca3af' : '#4b5563',
+          border: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+          accent: accent
+        };
+      } catch (_) {}
+    }
     if (theme) {
       root.style.setProperty('--bg', theme.bg);
       root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
@@ -707,11 +755,8 @@ function saveAppConfigToElectron() {
   if (window.electronAPI) window.electronAPI.saveSettings(_cfgWithoutTunnel());
 }
 let _syncTimer = null;
-let _bootTime = Date.now();
 function syncToNode() {
   clearTimeout(_syncTimer);
-  const elapsed = Date.now() - _bootTime;
-  const delay = Math.max(500, 3000 - elapsed); // Delay until 3s after boot, then 500ms debounce
   _syncTimer = setTimeout(() => {
     const port = _getServerPort();
     fetch(`http://localhost:${port}/api/config`, {
@@ -719,15 +764,73 @@ function syncToNode() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(_cfgWithoutTunnel())
     }).catch(() => { });
-  }, delay);
+  }, 300);
 }
 
 async function loadAndSyncSettings() {
-  if (!window.electronAPI) return;
-  appConfig = await window.electronAPI.getSettings();
+  // 1. Immediately load synchronous cached settings from localStorage
+  try {
+    const raw = localStorage.getItem('ns_app_config');
+    if (raw) {
+      Object.assign(appConfig, JSON.parse(raw));
+    }
+  } catch (_) {}
+
+  if (localStorage.getItem('ns_use_system_accent') !== null) {
+    appConfig.useSystemAccent = localStorage.getItem('ns_use_system_accent') === 'true';
+  }
+  if (localStorage.getItem('ns_use_native_theme') !== null) {
+    appConfig.useNativeTheme = localStorage.getItem('ns_use_native_theme') === 'true';
+  }
+  if (localStorage.getItem('ns_override_logo')) {
+    appConfig.overrideLogo = localStorage.getItem('ns_override_logo');
+  }
+  if (localStorage.getItem('ns_name')) {
+    appConfig.hostName = localStorage.getItem('ns_name');
+  }
+  if (localStorage.getItem('ns_custom_url')) {
+    appConfig.customUrl = localStorage.getItem('ns_custom_url');
+  }
+  if (localStorage.getItem('ns_host_avatar')) {
+    appConfig.hostAvatar = localStorage.getItem('ns_host_avatar');
+  }
+
+  // Sync UI immediately with zero delay!
   syncSettingsUI();
   await applySystemAccent();
   if (appConfig.useNativeTheme) await applyNativeTheme();
+
+  // 2. Asynchronously fetch authoritative configuration if available
+  if (window.electronAPI && typeof window.electronAPI.getSettings === 'function') {
+    try {
+      const elecConfig = await window.electronAPI.getSettings();
+      if (elecConfig) {
+        Object.assign(appConfig, elecConfig);
+        try { localStorage.setItem('ns_app_config', JSON.stringify(appConfig)); } catch (_) {}
+        syncSettingsUI();
+        await applySystemAccent();
+        if (appConfig.useNativeTheme) await applyNativeTheme();
+      }
+    } catch (_) {}
+  } else {
+    // Fast non-blocking fetch from /api/config for web/remote
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1000);
+      const res = await fetch(`http://localhost:${_getServerPort()}/api/config`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const netConfig = await res.json();
+        if (netConfig && typeof netConfig === 'object') {
+          Object.assign(appConfig, netConfig);
+          try { localStorage.setItem('ns_app_config', JSON.stringify(appConfig)); } catch (_) {}
+          syncSettingsUI();
+          await applySystemAccent();
+          if (appConfig.useNativeTheme) await applyNativeTheme();
+        }
+      }
+    } catch (_) {}
+  }
 }
 
 function syncSettingsUI() {
@@ -752,7 +855,7 @@ function syncSettingsUI() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ hostAvatar: String(savedHostAvatar) })
         }).catch(() => { });
-      }, 3000);
+      }, 300);
     }
 
     const hostAvatarPreview = document.getElementById('hostAvatarPreview');
@@ -804,12 +907,15 @@ function syncSettingsUI() {
     brandText.textContent = appConfig.vrMode ? 'NEARCADE VR' : 'NEARCADE';
   }
   
-  const brandLogo = document.querySelector('.brand-logo');
-  if (brandLogo) {
+  const brandLogos = document.querySelectorAll('.brand-logo, .mobile-logo');
+  if (brandLogos.length) {
     let use3D = !!appConfig.vrMode;
     if (appConfig.overrideLogo === '3d') use3D = true;
     if (appConfig.overrideLogo === '2d') use3D = false;
-    brandLogo.src = use3D ? '../../assets/NearcadeIcon3D.png' : '../../assets/NearcadeLogo.png';
+    const src = use3D ? '../../assets/NearcadeIcon3D.png' : '../../assets/NearcadeLogo.png';
+    brandLogos.forEach(logo => {
+      logo.src = src;
+    });
   }
   const gamesTabSpan = document.getElementById('gamesTab');
   if (gamesTabSpan) {
@@ -864,8 +970,18 @@ function saveHostName(val) {
 }
 
 function toggleBrandLogo() {
-  const isCurrently3D = document.querySelector('.brand-logo').src.includes('NearcadeIcon3D');
+  const logoEl = document.querySelector('.brand-logo') || document.querySelector('.mobile-logo');
+  let isCurrently3D = false;
+  if (logoEl && logoEl.src) {
+    isCurrently3D = logoEl.src.includes('NearcadeIcon3D');
+  } else if (appConfig.overrideLogo === '3d') {
+    isCurrently3D = true;
+  }
   appConfig.overrideLogo = isCurrently3D ? '2d' : '3d';
+  localStorage.setItem('ns_override_logo', appConfig.overrideLogo);
+  try {
+    localStorage.setItem('ns_app_config', JSON.stringify(appConfig));
+  } catch (_) {}
   saveAppConfigToElectron();
   syncToNode();
   syncSettingsUI();
@@ -1016,8 +1132,14 @@ function toggleAppSetting(key) {
     if (tr) tr.classList.toggle('on', appConfig[key]);
     if (window.electronAPI) window.electronAPI.saveSettings(appConfig);
 
-    if (key === 'useSystemAccent') applySystemAccent();
-    if (key === 'useNativeTheme') applyNativeTheme();
+    if (key === 'useSystemAccent') {
+      localStorage.setItem('ns_use_system_accent', appConfig.useSystemAccent ? 'true' : 'false');
+      applySystemAccent();
+    }
+    if (key === 'useNativeTheme') {
+      localStorage.setItem('ns_use_native_theme', appConfig.useNativeTheme ? 'true' : 'false');
+      applyNativeTheme();
+    }
     if (key === 'vrMode' && appConfig.vrMode && window.electronAPI && window.electronAPI.startWivrn) {
       window.electronAPI.startWivrn().then(res => {
         const modal = document.getElementById('wivrnModal');
@@ -1053,6 +1175,9 @@ function toggleAppSetting(key) {
     appConfig[key] = !appConfig[key];
   }
   syncSettingsUI();
+  try {
+    localStorage.setItem('ns_app_config', JSON.stringify(appConfig));
+  } catch (_) {}
   if (window.electronAPI) {
     saveAppConfigToElectron();
     if (key === 'alwaysOnTop') window.electronAPI.toggleAlwaysOnTop();
@@ -1185,7 +1310,7 @@ setTimeout(() => {
       }
     }).catch(() => { });
   }, 1000);
-}, 3000);
+}, 500);
 
 // Load saved settings on boot
 document.addEventListener('DOMContentLoaded', () => {

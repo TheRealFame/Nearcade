@@ -4,7 +4,13 @@
 
   if (useNative) {
     try {
-      const themeStr = localStorage.getItem('ns_native_theme_payload');
+      let themeStr = localStorage.getItem('ns_native_theme_payload');
+      if (!themeStr && window.AndroidClipboard && typeof window.AndroidClipboard.getNativeThemeJson === 'function') {
+        try {
+          themeStr = window.AndroidClipboard.getNativeThemeJson();
+          if (themeStr) localStorage.setItem('ns_native_theme_payload', themeStr);
+        } catch (_) {}
+      }
       if (themeStr) {
         const theme = JSON.parse(themeStr);
         // Freshest accent wins: ns_chat_color is rewritten on every dashboard
@@ -110,10 +116,11 @@
 
   // Self-sufficiency: pages that never visit the dashboard (host-first flows)
   // would otherwise sit on the CSS default forever when no stored color
-  // exists. If nothing above applied an accent, ask the OS directly
-  // (Electron, Android Material You, or iOS system accent) and persist it.
+  // exists. If nothing above applied an accent and the setting is not disabled,
+  // ask the OS directly (Electron, Android Material You, or iOS system accent).
   try {
-    if (!document.documentElement.dataset.nsAccent) {
+    const systemAccentSetting = localStorage.getItem('ns_use_system_accent');
+    if (systemAccentSetting !== 'false' && !document.documentElement.dataset.nsAccent) {
       const applyResolvedAccent = (accent) => {
         try {
           if (!accent || !/^#[0-9a-fA-F]{6}$/.test(accent)) return;
@@ -148,7 +155,7 @@
           document.head.appendChild(testEl);
           const comp = getComputedStyle(testEl).color;
           document.head.removeChild(testEl);
-          const m = comp && comp.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+          const m = comp && comp.match(/^rgb(?:a)?\((\d+),\s*(\d+),\s*(\d+)/);
           if (m) {
             const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
             if (hex !== '#000000' && hex !== '#ffffff') applyResolvedAccent(hex);
