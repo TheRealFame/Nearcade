@@ -440,6 +440,8 @@ async function createWindow() {
   console.log('[electron] server ready on port', port);
 
   const isPortrait = process.argv.includes('-portrait') || process.argv.includes('--portrait');
+  const isHandheld = process.argv.includes('-handheld') || process.argv.includes('--handheld') || process.argv.includes('-tv') || process.argv.includes('--tv') || isGamescopeEnv;
+  const isFullscreen = isGamescopeEnv || process.argv.includes('-fullscreen') || process.argv.includes('--fullscreen') || process.argv.includes('-tv') || process.argv.includes('--tv');
   const safeW = isPortrait ? 420 : ((typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280);
   const safeH = isPortrait ? 880 : ((typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800);
 
@@ -453,7 +455,7 @@ async function createWindow() {
     backgroundColor: require('electron').nativeTheme.shouldUseDarkColors ? '#111111' : '#e2e8f0',
     alwaysOnTop: settings.alwaysOnTop,
     show: isGamescopeEnv ? true : false,
-    fullscreen: isGamescopeEnv ? true : false,
+    fullscreen: isFullscreen ? true : false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -509,11 +511,15 @@ async function createWindow() {
     win.loadURL(`http://localhost:${port}/host?auto=1&title=${encodeURIComponent(gameName)}&tunnel=${encodeURIComponent(tunnelProv)}`);
   } else {
     // Show setup wizard on first run instead of dashboard
-    const pParam = isPortrait ? (settings.firstRunComplete && !settings.neverBotherSetup ? '&portrait=1' : '?portrait=1') : '';
+    let modeParam = '';
+    if (isPortrait) modeParam = '&portrait=1';
+    else if (isHandheld) modeParam = '&handheld=1';
+
     if (!settings.firstRunComplete && !settings.neverBotherSetup) {
-      win.loadURL(`http://localhost:${port}/setup${pParam}`);
+      const paramStr = modeParam ? modeParam.replace(/^&/, '?') : '';
+      win.loadURL(`http://localhost:${port}/setup${paramStr}`);
     } else {
-      win.loadURL(`http://localhost:${port}/dashboard?port=${port}${pParam}`);
+      win.loadURL(`http://localhost:${port}/dashboard?port=${port}${modeParam}`);
     }
   }
 

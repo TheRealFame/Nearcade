@@ -1058,3 +1058,188 @@ html.portrait-mode .tunnel-grid {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   HANDHELD & TV CONSOLE MODE (-handheld, --handheld, -tv, --tv)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.handheld-status-bar {
+  display: none;
+}
+
+html.handheld-mode .handheld-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(18, 18, 18, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 14px;
+  height: 38px;
+  color: var(--text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  user-select: none;
+}
+
+@media screen and (orientation: portrait) {
+  .handheld-status-bar {
+    display: none !important;
+  }
+}
+
+.handheld-status-bar .status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Network Signal Bars */
+.handheld-status-bar .wifi-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2.5px;
+  height: 14px;
+  padding: 0 2px;
+}
+.handheld-status-bar .w-bar {
+  width: 3.5px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 1px;
+  transition: background-color 0.25s ease;
+}
+.handheld-status-bar .bar-1 { height: 4px; }
+.handheld-status-bar .bar-2 { height: 7px; }
+.handheld-status-bar .bar-3 { height: 10px; }
+.handheld-status-bar .bar-4 { height: 13px; }
+
+/* Network quality states */
+.handheld-status-bar .wifi-bars.q-4 .w-bar {
+  background: var(--green, #44cc44);
+}
+.handheld-status-bar .wifi-bars.q-3 .bar-1,
+.handheld-status-bar .wifi-bars.q-3 .bar-2,
+.handheld-status-bar .wifi-bars.q-3 .bar-3 {
+  background: #3fb950;
+}
+.handheld-status-bar .wifi-bars.q-2 .bar-1,
+.handheld-status-bar .wifi-bars.q-2 .bar-2 {
+  background: #d29922;
+}
+.handheld-status-bar .wifi-bars.q-1 .bar-1 {
+  background: var(--danger, #ff4444);
+}
+
+/* Battery Indicator */
+.handheld-status-bar .battery-shell {
+  width: 24px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  padding: 1.5px;
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+}
+.handheld-status-bar .battery-shell::after {
+  content: '';
+  position: absolute;
+  right: -3.5px;
+  top: 2.5px;
+  width: 2px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 0 1px 1px 0;
+}
+.handheld-status-bar .battery-fill {
+  height: 100%;
+  background: currentColor;
+  border-radius: 1px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+  min-width: 2px;
+}
+.handheld-status-bar .battery-bolt {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 9px;
+  height: 9px;
+  color: #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+  z-index: 2;
+}
+.handheld-status-bar .battery-bolt.gone {
+  display: none;
+}
+.handheld-status-bar .battery-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Battery thresholds */
+.handheld-status-bar .status-battery.lvl-green {
+  color: #3fb950;
+}
+.handheld-status-bar .status-battery.lvl-yellow {
+  color: #d29922;
+}
+.handheld-status-bar .status-battery.lvl-red {
+  color: var(--danger, #ff4444);
+}
+
+/* Real-time Clock */
+.handheld-status-bar .status-clock {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+  padding-left: 10px;
+}
+
+/* Handheld & TV Layout Adjustments */
+html.handheld-mode {
+  --sidebar-width: 240px;
+}
+html.handheld-mode .connect-container {
+  max-width: 960px;
+  padding: 40px 48px;
+}
+html.handheld-mode .connect-card {
+  padding: 32px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+html.handheld-mode .input-wrapper input {
+  font-size: 16px;
+  padding: 16px 20px;
+}
+html.handheld-mode .btn-connect {
+  font-size: 15px;
+  padding: 0 32px;
+  min-height: 48px;
+}
+html.handheld-mode .nav-btn {
+  padding: 16px;
+  font-size: 15px;
+  border-radius: 14px;
+}
+html.handheld-mode .nav-btn svg {
+  width: 24px;
+  height: 24px;
+}
+html.handheld-mode .nav-btn:focus-visible,
+html.handheld-mode .connect-card:focus-within,
+html.handheld-mode button:focus-visible {
+  outline: 2px solid var(--accent);
+  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.5);
+}
+

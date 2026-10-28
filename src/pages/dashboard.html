@@ -260,7 +260,29 @@
       document.getElementById('ns-splash-screen').style.display = 'none';
     }
   </script>
-  <div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex; gap: 8px;">
+  <div id="docsFloatBtn" style="position: fixed; top: 24px; right: 24px; z-index: 999; display: flex; gap: 8px; align-items: center;">
+    <div id="handheldStatusBar" class="handheld-status-bar" aria-label="Device Status">
+      <div class="status-item status-wifi" id="handheldWifi" title="Network Connection">
+        <div class="wifi-bars" id="handheldWifiBars">
+          <span class="w-bar bar-1"></span>
+          <span class="w-bar bar-2"></span>
+          <span class="w-bar bar-3"></span>
+          <span class="w-bar bar-4"></span>
+        </div>
+      </div>
+      <div class="status-item status-battery" id="handheldBattery" title="Battery Status">
+        <div class="battery-shell">
+          <div class="battery-fill" id="handheldBatteryFill" style="width: 100%;"></div>
+          <svg class="battery-bolt gone" id="handheldBatteryBolt" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <span class="battery-text" id="handheldBatteryText">--%</span>
+      </div>
+      <div class="status-item status-clock" id="handheldClock">
+        <span id="handheldClockText">--:--</span>
+      </div>
+    </div>
     <button id="friendFloatBtn" onclick="toggleFriendPanel()" title="Friends"
       style="background: var(--accent); border: none; border-radius: 8px; padding: 10px; cursor: pointer; color: #fff; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; position: relative; font-family: inherit;">
       <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" style="width: 20px;">
@@ -973,6 +995,15 @@
                 <p>Enable VR head tracking and input routing. WiVRn backend will be started automatically.</p>
               </div>
               <div class="toggle" id="settingTrackVrMode">
+                <div class="toggle-thumb"></div>
+              </div>
+            </div>
+            <div class="setting-row" onclick="toggleHandheldMode()" id="settingRowHandheldMode">
+              <div class="setting-info">
+                <h4>Handheld & TV Mode</h4>
+                <p>Console-optimized layout with battery, connection signal, and clock status bar.</p>
+              </div>
+              <div class="toggle" id="settingTrackHandheldMode">
                 <div class="toggle-thumb"></div>
               </div>
             </div>
