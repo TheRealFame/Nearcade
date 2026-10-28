@@ -644,7 +644,7 @@ input[type="range"].form-range::-webkit-slider-thumb {
 /* ═══════════════════════════════════════════════════════════════════════════
    PORTRAIT MODE (Vertical Phone / -portrait window)
    ═══════════════════════════════════════════════════════════════════════════ */
-@media screen and (max-width: 680px), (orientation: portrait) {
+@media screen and (orientation: portrait) {
   #sidebar {
     display: none !important;
   }
