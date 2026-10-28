@@ -612,6 +612,21 @@
   <div id="titlebar"></div>
   <div id="virtual-cursor"></div>
 
+  <div id="mobileTopBar">
+    <button class="mobile-menu-btn" onclick="toggleMobileDrawer()" title="Open Navigation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+    <div class="mobile-brand" onclick="toggleMobileDrawer()">
+      <img src="../../assets/NearcadeLogo.png" alt="Logo" class="mobile-logo" onerror="this.style.display='none'">
+      <span class="mobile-title">Nearcade</span>
+    </div>
+  </div>
+  <div id="sidebarBackdrop" onclick="closeMobileDrawer()"></div>
+
   <div id="app">
     <div id="sidebar">
       <div class="sidebar-header">
@@ -778,7 +793,7 @@
           </div>
         </div>
         
-        <div style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
+        <div class="companion-dock" id="companionDock" style="position: absolute; top: 90px; right: 30px; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 12px; z-index: 10; background: var(--surface); border: 1px solid var(--border); border-radius: 32px; padding: 12px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.15);">
           
           <!-- Add Button -->
           <button id="pairNewDeviceBtn" onclick="document.getElementById('mobileAuthModal').classList.remove('gone'); document.getElementById('mobileAuthModal').classList.add('open'); startCompanionPairingAuth();" title="Pair New Device" style="width: 40px; height: 40px; border-radius: 50%; background: transparent; border: 1px dashed var(--accent); color: var(--accent); cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(192,132,252,0.1)'; this.style.color='#fff'" onmouseout="this.style.background='transparent'; this.style.color='var(--accent)'">

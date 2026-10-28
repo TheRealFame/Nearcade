@@ -142,6 +142,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Handle ?tab= URL parameter for deep-linking from web viewer
   const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('portrait')) {
+    document.documentElement.classList.add('portrait-mode');
+  }
   const tabParam = urlParams.get('tab');
   if (tabParam && typeof switchTab === 'function') {
     // Delay slightly to ensure tabs are initialized
@@ -268,7 +271,36 @@ async function checkClientVersion() {
 
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 
+function toggleMobileDrawer() {
+  const sb = document.getElementById('sidebar');
+  if (!sb) return;
+  if (sb.classList.contains('mobile-open')) {
+    closeMobileDrawer();
+  } else {
+    openMobileDrawer();
+  }
+}
+
+function openMobileDrawer() {
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebarBackdrop');
+  if (sb) sb.classList.add('mobile-open');
+  if (bd) bd.classList.add('open');
+}
+
+function closeMobileDrawer() {
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebarBackdrop');
+  if (sb) sb.classList.remove('mobile-open');
+  if (bd) bd.classList.remove('open');
+}
+
+window.toggleMobileDrawer = toggleMobileDrawer;
+window.openMobileDrawer = openMobileDrawer;
+window.closeMobileDrawer = closeMobileDrawer;
+
 function switchTab(name) {
+  closeMobileDrawer();
   // Null-safe panel swap — if a panel doesn't exist, log and bail rather than crash
   const panel = document.getElementById('panel-' + name);
   if (!panel) {

@@ -469,3 +469,379 @@ input[type="range"].form-range::-webkit-slider-thumb {
   margin-top: -6px;
   box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.5);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PORTRAIT & MOBILE RESPONSIVE DASHBOARD
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Default desktop state for mobile bar and backdrop */
+#mobileTopBar {
+  display: none;
+}
+#sidebarBackdrop {
+  display: none;
+}
+
+@media screen and (max-width: 680px), (orientation: portrait) {
+  /* Activate mobile top bar */
+  #mobileTopBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    background: var(--sidebar);
+    border-bottom: 1px solid var(--border);
+    padding: 0 14px;
+    z-index: 600;
+    -webkit-app-region: drag;
+  }
+
+  .mobile-menu-btn {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition: background 0.2s, color 0.2s;
+  }
+  .mobile-menu-btn:hover {
+    background: var(--surface-hover);
+    color: var(--accent);
+  }
+  .mobile-menu-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .mobile-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  .mobile-logo {
+    height: 24px;
+    filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), 0.4));
+  }
+  .mobile-title {
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* Right header actions from docsFloatBtn */
+  #docsFloatBtn {
+    position: fixed !important;
+    top: 8px !important;
+    right: 12px !important;
+    z-index: 601 !important;
+    gap: 6px !important;
+  }
+  #docsFloatBtn button {
+    width: 36px !important;
+    height: 36px !important;
+    padding: 6px !important;
+    -webkit-app-region: no-drag;
+  }
+  #docsFloatBtn svg, #docsFloatBtn img {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  /* Sidebar transformed into slide-out drawer */
+  #sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: min(84vw, 300px) !important;
+    max-width: 300px !important;
+    height: 100% !important;
+    z-index: 2000 !important;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+    box-shadow: 4px 0 30px rgba(0, 0, 0, 0.8) !important;
+    padding: 24px 16px 20px !important;
+  }
+  #sidebar.mobile-open {
+    transform: translateX(0) !important;
+  }
+
+  /* Backdrop overlay when drawer is open */
+  #sidebarBackdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(3px);
+    z-index: 1999;
+  }
+  #sidebarBackdrop.open {
+    display: block;
+    animation: fadeIn 0.2s ease;
+  }
+
+  /* Content area occupies full width below top bar */
+  #app {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  #main-content {
+    width: 100% !important;
+    flex: 1 !important;
+    padding-top: 52px !important;
+    min-width: 0 !important;
+  }
+
+  /* Connect container fluid formatting */
+  .connect-container {
+    padding: 20px 16px 36px !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  h1 {
+    font-size: 22px !important;
+    margin-bottom: 6px !important;
+  }
+  p.sub {
+    font-size: 13px !important;
+    margin-bottom: 20px !important;
+    line-height: 1.4 !important;
+  }
+
+  .connect-card {
+    padding: 20px 16px !important;
+    margin-bottom: 16px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+  }
+  .connect-card h2 {
+    font-size: 15px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Input fields full sizing */
+  .input-row {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .input-wrapper input {
+    padding: 12px 14px !important;
+    padding-right: 44px !important;
+    font-size: 13px !important;
+  }
+  .btn-connect {
+    padding: 0 20px !important;
+    font-size: 13px !important;
+    min-width: 72px;
+  }
+
+  /* Companion Dock in-flow below connect card */
+  .companion-dock {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    border-radius: 12px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 16px !important;
+    box-shadow: none !important;
+  }
+
+  /* Games Library button responsive layout */
+  #gamesLibraryBtn {
+    position: static !important;
+    width: 100% !important;
+    height: 44px !important;
+    margin-bottom: 16px !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+  }
+
+  /* Games overlay on mobile */
+  #gamesOverlay {
+    width: 95vw !important;
+    right: 2.5vw !important;
+    bottom: 20px !important;
+    height: 85vh !important;
+  }
+  #gamesTab {
+    display: none !important;
+  }
+
+  /* Info cards stacked */
+  .info-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    margin-top: 16px !important;
+  }
+  .info-card {
+    padding: 14px !important;
+  }
+
+  /* Settings panel mobile formatting */
+  .settings-container {
+    padding: 20px 16px 36px !important;
+    max-width: 100% !important;
+  }
+  .setting-row {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px !important;
+  }
+  .setting-info {
+    margin-right: 0 !important;
+  }
+  .setting-info h4 {
+    font-size: 13px !important;
+  }
+  .setting-info p {
+    font-size: 11px !important;
+  }
+
+  /* Auto-hosts & community tunnel lists */
+  .tunnel-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Also apply same portrait rules when .portrait-mode class is explicit on html */
+html.portrait-mode #mobileTopBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  padding: 0 14px;
+  z-index: 600;
+  -webkit-app-region: drag;
+}
+html.portrait-mode .mobile-menu-btn {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+html.portrait-mode .mobile-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+html.portrait-mode .mobile-logo {
+  height: 24px;
+}
+html.portrait-mode .mobile-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+html.portrait-mode #docsFloatBtn {
+  position: fixed !important;
+  top: 8px !important;
+  right: 12px !important;
+  z-index: 601 !important;
+  gap: 6px !important;
+}
+html.portrait-mode #docsFloatBtn button {
+  width: 36px !important;
+  height: 36px !important;
+  padding: 6px !important;
+  -webkit-app-region: no-drag;
+}
+html.portrait-mode #sidebar {
+  position: fixed !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: min(84vw, 300px) !important;
+  max-width: 300px !important;
+  height: 100% !important;
+  z-index: 2000 !important;
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 4px 0 30px rgba(0, 0, 0, 0.8) !important;
+  padding: 24px 16px 20px !important;
+}
+html.portrait-mode #sidebar.mobile-open {
+  transform: translateX(0) !important;
+}
+html.portrait-mode #sidebarBackdrop.open {
+  display: block;
+}
+html.portrait-mode #app {
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+html.portrait-mode #main-content {
+  width: 100% !important;
+  flex: 1 !important;
+  padding-top: 52px !important;
+  min-width: 0 !important;
+}
+html.portrait-mode .connect-container {
+  padding: 20px 16px 36px !important;
+  max-width: 100% !important;
+  height: auto !important;
+}
+html.portrait-mode .connect-card {
+  padding: 20px 16px !important;
+  margin-bottom: 16px !important;
+}
+html.portrait-mode .companion-dock {
+  position: static !important;
+  width: 100% !important;
+  flex-direction: row !important;
+  border-radius: 12px !important;
+  padding: 10px 14px !important;
+  margin-bottom: 16px !important;
+}
+html.portrait-mode #gamesLibraryBtn {
+  position: static !important;
+  width: 100% !important;
+  height: 44px !important;
+  margin-bottom: 16px !important;
+  border-radius: 8px !important;
+}
+html.portrait-mode .info-grid {
+  grid-template-columns: 1fr !important;
+  gap: 12px !important;
+}
+html.portrait-mode .settings-container {
+  padding: 20px 16px 36px !important;
+  max-width: 100% !important;
+}
+html.portrait-mode .tunnel-grid {
+  grid-template-columns: 1fr !important;
+}

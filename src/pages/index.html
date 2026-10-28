@@ -291,15 +291,218 @@
       z-index: 1;
     }
 
-    /* Portrait: video fills naturally, no forced rotation */
-    @media (orientation:portrait) {
-
+    /* Portrait: split handheld console layout when touch UI is active */
+    @media (orientation: portrait) {
       #video,
       #frameCanvas {
         width: 100%;
         height: 100%;
         object-fit: contain;
       }
+
+      body.touch-active #video-container,
+      body:has(#touchUI:not(.gone)) #video-container {
+        position: absolute;
+        top: env(safe-area-inset-top, 0);
+        left: 0;
+        right: 0;
+        height: 46vh;
+        bottom: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        z-index: 10;
+      }
+
+      body.touch-active #video,
+      body.touch-active #frameCanvas,
+      body.touch-active #webcodecs-canvas,
+      body.touch-active #upscale-canvas,
+      body.touch-active canvas[id*="gpuCanvas"],
+      body:has(#touchUI:not(.gone)) #video,
+      body:has(#touchUI:not(.gone)) #frameCanvas,
+      body:has(#touchUI:not(.gone)) #webcodecs-canvas,
+      body:has(#touchUI:not(.gone)) #upscale-canvas,
+      body:has(#touchUI:not(.gone)) canvas[id*="gpuCanvas"] {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center bottom;
+      }
+
+      /* Controller deck occupying lower screen */
+      body.touch-active #touchUI,
+      body:has(#touchUI:not(.gone)) #touchUI {
+        position: absolute;
+        top: 46vh;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 54vh;
+        background: radial-gradient(circle at 50% 10%, rgba(20, 20, 32, 0.95), #0a0a0f 85%);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      #touchUI .top-buttons {
+        top: 1.5vh;
+        padding: 0 4vw;
+      }
+
+      #touchUI .trigger {
+        width: min(24vw, 92px);
+        height: min(6.5vh, 44px);
+        font-size: 13px;
+        border-radius: 12px;
+      }
+
+      #touchUI .center-ui {
+        top: 1.5vh;
+        padding: 6px 14px;
+        font-size: 11px;
+      }
+
+      #touchUI .controls-left,
+      #touchUI .controls-right {
+        bottom: calc(2vh + env(safe-area-inset-bottom, 8px));
+        width: 48vw;
+        height: 40vh;
+      }
+
+      #touchUI .joystick-base {
+        width: min(38vw, 150px);
+        height: min(38vw, 150px);
+      }
+
+      #touchUI .buttons {
+        width: min(38vw, 160px);
+        height: min(38vw, 160px);
+      }
+
+      #touchUI .button {
+        width: min(11vw, 48px);
+        height: min(11vw, 48px);
+        font-size: clamp(13px, 2.2vh, 17px);
+      }
+
+      #touchUI .y {
+        top: 3px;
+        left: calc(50% - min(5.5vw, 24px));
+      }
+      #touchUI .a {
+        bottom: 3px;
+        left: calc(50% - min(5.5vw, 24px));
+      }
+      #touchUI .x {
+        left: 3px;
+        top: calc(50% - min(5.5vw, 24px));
+      }
+      #touchUI .b {
+        right: 3px;
+        top: calc(50% - min(5.5vw, 24px));
+      }
+
+      #touchUI .dpad {
+        width: min(38vw, 160px);
+        height: min(38vw, 160px);
+      }
+
+      /* In-stream sidebar fills nicely in portrait */
+      #nsBar {
+        width: min(88vw, 360px) !important;
+      }
+    }
+
+    html.portrait-mode body.touch-active #video-container,
+    html.portrait-mode body:has(#touchUI:not(.gone)) #video-container {
+      position: absolute;
+      top: env(safe-area-inset-top, 0);
+      left: 0;
+      right: 0;
+      height: 46vh;
+      bottom: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      z-index: 10;
+    }
+    html.portrait-mode body.touch-active #video,
+    html.portrait-mode body.touch-active #frameCanvas,
+    html.portrait-mode body.touch-active #webcodecs-canvas,
+    html.portrait-mode body.touch-active #upscale-canvas,
+    html.portrait-mode body.touch-active canvas[id*="gpuCanvas"],
+    html.portrait-mode body:has(#touchUI:not(.gone)) #video,
+    html.portrait-mode body:has(#touchUI:not(.gone)) #frameCanvas,
+    html.portrait-mode body:has(#touchUI:not(.gone)) #webcodecs-canvas,
+    html.portrait-mode body:has(#touchUI:not(.gone)) #upscale-canvas,
+    html.portrait-mode body:has(#touchUI:not(.gone)) canvas[id*="gpuCanvas"] {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      object-position: center bottom;
+    }
+    html.portrait-mode body.touch-active #touchUI,
+    html.portrait-mode body:has(#touchUI:not(.gone)) #touchUI {
+      position: absolute;
+      top: 46vh;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 54vh;
+      background: radial-gradient(circle at 50% 10%, rgba(20, 20, 32, 0.95), #0a0a0f 85%);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    html.portrait-mode #touchUI .top-buttons {
+      top: 1.5vh;
+      padding: 0 4vw;
+    }
+    html.portrait-mode #touchUI .trigger {
+      width: min(24vw, 92px);
+      height: min(6.5vh, 44px);
+      font-size: 13px;
+      border-radius: 12px;
+    }
+    html.portrait-mode #touchUI .center-ui {
+      top: 1.5vh;
+      padding: 6px 14px;
+      font-size: 11px;
+    }
+    html.portrait-mode #touchUI .controls-left,
+    html.portrait-mode #touchUI .controls-right {
+      bottom: calc(2vh + env(safe-area-inset-bottom, 8px));
+      width: 48vw;
+      height: 40vh;
+    }
+    html.portrait-mode #touchUI .joystick-base {
+      width: min(38vw, 150px);
+      height: min(38vw, 150px);
+    }
+    html.portrait-mode #touchUI .buttons {
+      width: min(38vw, 160px);
+      height: min(38vw, 160px);
+    }
+    html.portrait-mode #touchUI .button {
+      width: min(11vw, 48px);
+      height: min(11vw, 48px);
+      font-size: clamp(13px, 2.2vh, 17px);
+    }
+    html.portrait-mode #touchUI .dpad {
+      width: min(38vw, 160px);
+      height: min(38vw, 160px);
+    }
+    html.portrait-mode #nsBar {
+      width: min(88vw, 360px) !important;
     }
 
     /* ─── PIN SCREEN ────────────────────────────────────────────────────── */

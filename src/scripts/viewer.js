@@ -236,6 +236,10 @@ const standbyWs = isVpsSession ? new WebSocket(`${proto}://${host}/vps?standby=t
 if (document.getElementById('quickHostBtn')) document.getElementById('quickHostBtn').style.display = 'none';
 if (document.getElementById('disconnectBtn')) document.getElementById('disconnectBtn').style.display = 'none';
 
+if (urlParamsGlobal.has('portrait')) {
+    document.documentElement.classList.add('portrait-mode');
+}
+
 // ?preview=1 opens standalone lobby preview window
 if (urlParamsGlobal.has('preview')) {
     import('./lobby.js').then(m => {
@@ -1769,6 +1773,7 @@ const touchState = {
 
 function toggleTouch() {
     touchMode = !touchMode;
+    document.body.classList.toggle('touch-active', touchMode);
     document.getElementById('touchUI').classList.toggle('gone', !touchMode);
     const btn = document.getElementById('vTouchToggle');
     if (btn) { if (touchMode) btn.classList.add('on'); else btn.classList.remove('on'); }
@@ -1915,9 +1920,10 @@ window.openSidebarFromHint = function() {
 })();
 
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-if (isMobileDevice) {
+if (isMobileDevice || urlParamsGlobal.has('portrait')) {
     touchMode = true;
     document.addEventListener('DOMContentLoaded', () => {
+        document.body.classList.add('touch-active');
         const tUI = document.getElementById('touchUI');
         const tBtn = document.getElementById('touchToggleBtn');
         if (tUI) tUI.classList.remove('gone');
