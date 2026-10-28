@@ -928,12 +928,12 @@
                 <div class="toggle-thumb"></div>
               </div>
             </div>
-            <div class="setting-row" id="settingRowLayoutMode">
-              <div class="setting-info">
+            <div class="setting-row" id="settingRowLayoutMode" style="gap: 16px;">
+              <div class="setting-info" style="flex: 1; min-width: 0; margin-right: 16px;">
                 <h4>Display Layout Mode</h4>
-                <p>Force a display layout or auto-switch on connected gamepads, mobile, or foldables.</p>
+                <p>Force a layout or auto-switch for gamepads, mobile, and foldables.</p>
               </div>
-              <select id="settingSelectLayoutMode" onchange="changeLayoutMode(this.value)" class="form-select" style="width: 170px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 8px; font-weight: 600; cursor: pointer;">
+              <select id="settingSelectLayoutMode" onchange="changeLayoutMode(this.value)" class="form-select" style="flex-shrink: 0; width: 170px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 8px; font-weight: 600; cursor: pointer;">
                 <option value="handheld">Handheld / TV</option>
                 <option value="portrait">Portrait</option>
                 <option value="default">Default</option>
