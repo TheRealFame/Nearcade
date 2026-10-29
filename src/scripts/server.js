@@ -2222,7 +2222,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       _dobroadcastRoster();
     }, 50);
   }
-  function _dobroadcastRoster() {
+  function getCurrentRoster() {
     const roster = [];
     const hCfgAtConnect = loadConfig();
     const hostAvatar = hCfgAtConnect.hostAvatar || '';
@@ -2247,6 +2247,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
         const vname = viewerNames.get(id) || '';
         roster.push({
           id: rosterId,
+          realId: id,
           name: vname + nameSuffix,
           color: viewerColors.get(id) || '',
           avatar: viewerAvatars.get(id) || '',
@@ -2259,11 +2260,65 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
         });
       });
     });
+    return roster;
+  }
+
+  function _dobroadcastRoster() {
+    const roster = getCurrentRoster();
     const count = controllerViewerCount();
     const msg = JSON.stringify({ type: "roster", viewers: roster, controllerCount: count });
     broadcast(msg);
     if (hostWS && hostWS.readyState === 1) hostWS.send(msg);
   }
+
+  app.get("/api/decky/status", adminMiddleware, (req, res) => {
+    const cfg = loadConfig();
+    const lan = getLanIP();
+    res.json({
+      online: !!hostWS,
+      streaming: hostStreaming,
+      viewersCount: viewers.size,
+      controllersCount: controllerViewerCount(),
+      pin: PIN,
+      pinEnabled: pinEnabled,
+      tunnelUrl: tunnelUrl || null,
+      lanIp: lan,
+      lanUrl: `http://${lan}:${PORT}/`,
+      inviteUrl: `http://${lan}:${PORT}/?pin=${PIN}`,
+      roster: getCurrentRoster(),
+      fps: cfg.targetFps || 60,
+      resolution: cfg.resolution || '1280x800',
+      bitrate: cfg.bitrate || 4000000,
+      volumeDesktop: cfg.volumeDesktop ?? 100,
+      volumeViewers: cfg.volumeViewers ?? 100
+    });
+  });
+
+  app.post('/api/viewer-kick', adminMiddleware, express.json(), (req, res) => {
+    const { viewerId } = req.body || {};
+    if (!viewerId) return res.status(400).json({ ok: false, reason: 'missing viewerId' });
+    const realId = viewerId.split('_')[0];
+    const targetWs = viewers.get(realId);
+    viewers.delete(realId);
+    viewerNames.delete(realId);
+    inputPerms.delete(realId);
+    if (targetWs) {
+      try { targetWs.send(JSON.stringify({ type: "pin-rejected", reason: "kicked" })); } catch { }
+      targetWs.close(4003, "KICKED");
+    }
+    broadcastRoster();
+    res.json({ ok: true, viewerId: realId });
+  });
+
+  app.post('/api/decky/regenerate-pin', adminMiddleware, (req, res) => {
+    if (!sessionPassword) {
+      PIN = makePin();
+      console.log("[decky] PIN regenerated:", PIN);
+    }
+    broadcast(JSON.stringify({ type: 'pin-changed', pin: PIN }));
+    if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "regen-pin", pin: PIN }));
+    res.json({ ok: true, pin: PIN });
+  });
 
   wss.on("connection", (ws, req) => {
     ws.isAlive = true;
