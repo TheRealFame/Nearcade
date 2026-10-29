@@ -153,14 +153,17 @@ def build_ffmpeg_args(a, w, h):
             "-f", "rawvideo", "-pix_fmt", "nv12", "-s", f"{w}x{h}",
             "-framerate", str(a.fps), "-i", "-"]
     if a.encoder == "vaapi":
-        args += ["-vf", "format=nv12,hwupload", "-vaapi_device", a.vaapi_device,
+        args += ["-init_hw_device", f"vaapi=va:{a.vaapi_device}",
+                 "-filter_hw_device", "va",
+                 "-vf", "format=nv12,hwupload",
                  "-c:v", "h264_vaapi", "-profile:v", "high", "-level", "4.2",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g)]
     elif a.encoder == "nvenc":
         args += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g), "-cq", "20"]
     else:
-        args += ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+        args += ["-c:v", "libx264", "-profile:v", "high", "-level", "4.2",
+                 "-preset", "ultrafast", "-tune", "zerolatency",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g)]
     args += ["-f", "mp4", "-movflags", "empty_moov+default_base_moof+frag_keyframe+skip_sidx", "pipe:1"]
     return args
@@ -227,7 +230,28 @@ def main():
         raw_r, raw_w = gst.stdout, None
         threading.Thread(target=_forward_gst_err, args=(gst,),
                          daemon=True).start()
-    else:
+    is_gamescope = (
+        os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gamescope" or
+        os.environ.get("DESKTOP_SESSION", "").lower() == "gamescope-wayland" or
+        os.environ.get("SteamDeck") == "1" or
+        os.environ.get("GAMESCOPE_WAYLAND_DISPLAY") is not None or
+        os.path.exists("/run/user/1000/gamescope-0")
+    )
+    if is_gamescope and not a.test:
+        w, h = (1280, 800) if (a.width == 960 and a.height == 540) else (a.width, a.height)
+        raw_r, raw_w = os.pipe()
+        gst = subprocess.Popen(
+            ["gst-launch-1.0", "--quiet",
+             "pipewiresrc", "target-object=gamescope", "always-copy=true", "do-timestamp=true", "!",
+             "videoconvert", "!", "videoscale", "!", "videorate", "!",
+             f"video/x-raw,format=NV12,width={w},height={h},framerate={a.fps}/1", "!",
+             "fdsink", "sync=false", f"fd={raw_w}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            pass_fds=(raw_w,), preexec_fn=_die_with_parent)
+        CHILDREN.append(gst)
+        threading.Thread(target=_forward_gst_err, args=(gst,), daemon=True).start()
+        os.close(raw_w)
+    elif not a.test:
         fd, node, pw, ph = request_portal_monitor()
         if fd is None or node is None:
             jem({"type": "error", "message": "portal produced no stream (denied/timeout)"})
@@ -258,7 +282,7 @@ def main():
     CHILDREN.append(ff)
     if not a.test:
         try:
-            raw_r.close()
+            os.close(raw_r)
         except Exception:
             pass
 

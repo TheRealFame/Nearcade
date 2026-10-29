@@ -2921,6 +2921,13 @@ async function startCapture() {
                 _selPipe = 'sidecapture';
             }
 
+            // On Steam Deck / Handheld under Gamescope, X11 root window is black.
+            // Force sidecar capture via ffmpeg-portal (Gamescope PipeWire source).
+            if (isDeckOrHandheld) {
+                _method = 'ffmpeg-portal';
+                _selPipe = 'ffmpeg-portal';
+            }
+
             if (_method === 'ffmpeg' || _method === 'windows_dxgi' || _method === 'ffmpeg-portal' || _method === 'sidecapture') {
                 const _ffRes = document.getElementById('resSelect')?.value || '';
                 const _ffFps = parseInt(document.getElementById('fpsSelect')?.value, 10) || 0;
@@ -2931,6 +2938,12 @@ async function startCapture() {
                 if (_ffFps > 0) _ffOpts.fps = _ffFps;
                 if (_ffBr > 0) _ffOpts.bitrate = _ffBr;
                 
+                if (isDeckOrHandheld) {
+                    if (!_ffOpts.width) _ffOpts.width = 1280;
+                    if (!_ffOpts.height) _ffOpts.height = 800;
+                    if (!_ffOpts.fps) _ffOpts.fps = 60;
+                }
+
                 if (_method === 'sidecapture') {
                     _ffOpts.sourceId = selectedSourceId;
                 }
@@ -2950,11 +2963,13 @@ async function startCapture() {
         // ── 1. NATIVE SIDECAR INTERCEPTOR (DXGI / FFmpeg) ──
         let backendSidecarActive = false;
         let backendMethod = null;
+        let backendPort = null;
         try {
             const statusRes = await fetch('/api/capture/status').then(r => r.json());
             if (statusRes.active && (statusRes.method === 'ffmpeg' || statusRes.method === 'windows_dxgi' || statusRes.method === 'ffmpeg-portal' || statusRes.method === 'sidecapture')) {
                 backendSidecarActive = true;
                 backendMethod = statusRes.method;
+                backendPort = statusRes.port;
             }
         } catch (e) { }
 
@@ -2968,7 +2983,7 @@ async function startCapture() {
             log(`Routing capture through native sidecar pipeline (${backendMethod})...`, 'warn');
             try {
                 const sidecarTrack = await withTimeout(
-                    startSidecarCapture(backendMethod, selectedSourceId, selectedSourceName),
+                    startSidecarCapture(backendMethod, selectedSourceId, selectedSourceName, backendPort),
                     75000,
                     'Sidecar timed out waiting for video frames (75s portal timeout)'
                 );
@@ -2978,9 +2993,9 @@ async function startCapture() {
                 log(`Sidecar failed (${e.message}).`, 'err');
                 await fetch('/api/capture/stop', { method: 'POST' }).catch(()=>{});
                 
-                // If we explicitly picked an android or v4l2 device, DO NOT fall back to desktop capture,
-                // because it will trigger the XDG portal or crash Electron.
-                if (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:'))) {
+                // If on Steam Deck or we explicitly picked an android or v4l2 device, DO NOT fall back to desktop capture,
+                // because it will trigger the XDG portal, show a black screen, or crash Electron.
+                if (isDeckOrHandheld || (selectedSourceId && (selectedSourceId.startsWith('android:') || selectedSourceId.startsWith('v4l2:')))) {
                     _forceKillStream(currentStream);
                     _elDisabled('btnStart', false);
                     _elDisabled('btnSwitch', false);
@@ -3666,6 +3681,11 @@ function stopCapture() {
 
     // Stop backend pipeline if it was running (FFmpeg/GStreamer/WiVRn)
     fetch(`/api/capture/stop`, { method: 'POST' }).catch(() => { });
+    const ffmpegVid = document.getElementById('ffmpeg-hidden-video');
+    if (ffmpegVid) {
+        try { ffmpegVid.pause(); ffmpegVid.src = ''; ffmpegVid.load(); } catch (_) {}
+        ffmpegVid.remove();
+    }
     if (window._ffmpegHealthInterval) { clearInterval(window._ffmpegHealthInterval); window._ffmpegHealthInterval = null; }
     const prevEl = document.getElementById('preview');
     if (prevEl) prevEl.srcObject = null;
@@ -3859,27 +3879,33 @@ async function restoreTunnelAfterP2PInvite(provider) {
 }
 
 
-async function startSidecarCapture(methodName, sourceId, sourceName) {
+async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) {
     return new Promise(async (resolve, reject) => {
         try {
-            // 1. Tell the backend to spin up the hardware encoder
-            const capRes = await fetch('/api/capture/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    method: methodName || 'ffmpeg',
-                    options: { sourceId, sourceName } 
-                })
-            });
-            const capData = await capRes.json();
-            if (!capData.ok || (!capData.port && !capData.streamPort)) {
-                return reject(new Error('Failed to start sidecar capture on backend'));
+            let activePort = knownPort;
+            if (!activePort) {
+                // 1. Tell the backend to spin up the hardware encoder
+                const capRes = await fetch('/api/capture/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        method: methodName || 'ffmpeg',
+                        options: { sourceId, sourceName } 
+                    })
+                });
+                const capData = await capRes.json();
+                if (!capData.ok || (!capData.port && !capData.streamPort)) {
+                    return reject(new Error('Failed to start sidecar capture on backend: ' + (capData.reason || 'no port')));
+                }
+                activePort = capData.streamPort || capData.port;
             }
-            const activePort = capData.streamPort || capData.port;
 
             // Clean up any old instances
             let oldVideo = document.getElementById('ffmpeg-hidden-video');
-            if (oldVideo) oldVideo.remove();
+            if (oldVideo) {
+                try { oldVideo.pause(); oldVideo.src = ''; oldVideo.load(); } catch (_) {}
+                oldVideo.remove();
+            }
 
             // 2. Create an invisible video element to decode the stream natively
             // (It MUST be attached to the DOM for captureStream to work in Electron)
@@ -3887,19 +3913,49 @@ async function startSidecarCapture(methodName, sourceId, sourceName) {
             video.id = 'ffmpeg-hidden-video';
             video.autoplay = true;
             video.muted = true;
+            video.playsInline = true;
             video.style.position = 'fixed';
-            video.style.top = '-9999px';
-            video.style.opacity = '0';
+            video.style.top = '0';
+            video.style.left = '0';
+            video.style.width = '1px';
+            video.style.height = '1px';
+            video.style.opacity = '0.01';
+            video.style.pointerEvents = 'none';
+            video.style.zIndex = '-9999';
             document.body.appendChild(video);
 
             const ms = new MediaSource();
             video.src = URL.createObjectURL(ms);
 
-            ms.addEventListener('sourceopen', async () => {
-                const sourceBuffer = ms.addSourceBuffer('video/mp4; codecs="avc1.64002a"');
+            let settled = false;
+            const finishWithTrack = () => {
+                if (settled) return;
+                try {
+                    const tracks = video.captureStream ? video.captureStream(60).getVideoTracks() : [];
+                    if (tracks && tracks.length > 0) {
+                        settled = true;
+                        log(`FFmpeg stream hooked successfully (${video.videoWidth || '?'}x${video.videoHeight || '?'})`, 'ok');
+                        resolve(tracks[0]);
+                    }
+                } catch (e) {
+                    console.error('[Host] captureStream error:', e);
+                }
+            };
 
-                // 3. Connect to our new dedicated HTTP stream port
+            ms.addEventListener('sourceopen', async () => {
+                const mimeType = 'video/mp4; codecs="avc1.64002a"';
+                let sourceBuffer;
+                try {
+                    sourceBuffer = ms.addSourceBuffer(mimeType);
+                } catch (sbErr) {
+                    return reject(new Error('MediaSource addSourceBuffer failed: ' + sbErr.message));
+                }
+
+                // 3. Connect to our dedicated HTTP stream port
                 const response = await fetch(`http://127.0.0.1:${activePort}/`);
+                if (!response.body) {
+                    return reject(new Error('HTTP stream body unavailable from port ' + activePort));
+                }
                 const reader = response.body.getReader();
 
                 const pushChunk = async () => {
@@ -3911,6 +3967,9 @@ async function startSidecarCapture(methodName, sourceId, sourceName) {
                         const { value, done } = await reader.read();
                         if (done) return;
                         sourceBuffer.appendBuffer(value);
+                        if (video.paused) {
+                            video.play().catch(() => {});
+                        }
                     } catch (err) {
                         console.error('Stream read error', err);
                     }
@@ -3919,14 +3978,22 @@ async function startSidecarCapture(methodName, sourceId, sourceName) {
                 sourceBuffer.addEventListener('updateend', pushChunk);
                 pushChunk(); // Kick off the loop
 
-                video.onplaying = () => {
-                    log('FFmpeg Fragmented MP4 stream hooked successfully!', 'ok');
-                    // Extract the raw WebRTC track!
-                    resolve(video.captureStream(60).getVideoTracks()[0]);
+                video.onplaying = finishWithTrack;
+                video.ontimeupdate = () => {
+                    if (video.currentTime > 0) finishWithTrack();
+                };
+                video.onloadeddata = () => {
+                    video.play().catch(() => {});
+                    setTimeout(finishWithTrack, 50);
                 };
             });
 
-            video.onerror = () => reject(new Error("Video decode error"));
+            video.onerror = () => {
+                if (!settled) {
+                    settled = true;
+                    reject(new Error("Video decode error"));
+                }
+            };
 
         } catch (err) {
             reject(err);

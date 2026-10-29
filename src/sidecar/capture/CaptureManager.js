@@ -107,6 +107,7 @@ class CaptureManager {
         return {
             active: this._activeMethod !== null,
             method: this._activeMethod,
+            port: this._ffmpegPort || this._pipewirePort || this._wivrnPort,
             details: this._activeMethod === 'ffmpeg' ? `FFmpeg via ${this._ffmpegEncoder || '?'}${this._ffmpegStats ? ` · ${this._ffmpegStats.frames}f @ ${Math.round(this._ffmpegStats.fps || 0)}fps · ${this._ffmpegStats.restarts} restarts` : ''}${this._ffmpegWarning ? ' · WAYLAND (x11grab blind to native apps)' : ''}` :
                      this._activeMethod === 'ffmpeg-portal' ? `Portal via ${this._ffmpegEncoder || '?'}${this._ffmpegStats ? ` · ${this._ffmpegStats.frames}f @ ${Math.round(this._ffmpegStats.fps || 0)}fps · ${this._ffmpegStats.restarts} restarts` : ''}` :
                      this._activeMethod === 'pipewire' ? `PipeWire node: ${this._pipewireNodeName || 'auto'}` :
