@@ -351,18 +351,28 @@ function refocusGamescopeWindow(targetWin) {
   const displays = process.env.DISPLAY ? [process.env.DISPLAY, ':1', ':0'] : [':1', ':0'];
   const uniqueDisplays = Array.from(new Set(displays));
 
+  let foundWid = null;
   for (const d of uniqueDisplays) {
     try {
       const widStr = execSync(
-        `DISPLAY=${d} xdotool search --onlyvisible --class nearcade 2>/dev/null | head -n 1`,
+        `DISPLAY=${d} xdotool search --onlyvisible --class nearcade 2>/dev/null | tail -n 1`,
         { encoding: 'utf8', timeout: 500 }
       ).trim();
       if (widStr) {
-        execSync(`DISPLAY=${d} xdotool windowactivate ${widStr} windowfocus ${widStr} 2>/dev/null || true`, { timeout: 500 });
-        execSync(`DISPLAY=${d} xprop -root -f GAMESCOPECTRL_BASELAYER_WINDOW 32c -set GAMESCOPECTRL_BASELAYER_WINDOW ${widStr} 2>/dev/null || true`, { timeout: 500 });
-        break;
+        foundWid = widStr;
+        try {
+          execSync(`DISPLAY=${d} xdotool windowactivate ${widStr} windowfocus ${widStr} 2>/dev/null || true`, { timeout: 500 });
+        } catch (_) {}
       }
     } catch (_) {}
+  }
+
+  if (foundWid) {
+    for (const d of [':0', ':1']) {
+      try {
+        execSync(`DISPLAY=${d} xprop -root -f GAMESCOPECTRL_BASELAYER_WINDOW 32c -set GAMESCOPECTRL_BASELAYER_WINDOW ${foundWid} 2>/dev/null || true`, { timeout: 500 });
+      } catch (_) {}
+    }
   }
 }
 
@@ -370,13 +380,26 @@ function scheduleGamescopeRefocus(targetWin) {
   if (targetWin && !targetWin.isDestroyed()) {
     try {
       targetWin.focus();
-      if (targetWin.webContents) targetWin.webContents.focus();
+      if (targetWin.webContents) {
+        targetWin.webContents.focus();
+        targetWin.webContents.executeJavaScript(`
+          try {
+            window.focus();
+            if (document.body) document.body.focus();
+            const c = document.getElementById('virtual-cursor');
+            if (c && document.documentElement.classList.contains('handheld-mode')) {
+              c.style.display = 'block';
+            }
+          } catch (_) {}
+        `).catch(() => {});
+      }
     } catch (_) {}
   }
   refocusGamescopeWindow(targetWin);
   setTimeout(() => refocusGamescopeWindow(targetWin), 80);
   setTimeout(() => refocusGamescopeWindow(targetWin), 250);
   setTimeout(() => refocusGamescopeWindow(targetWin), 600);
+  setTimeout(() => refocusGamescopeWindow(targetWin), 1200);
 }
 
 if (isArcadeWorker && process.platform === 'linux') {

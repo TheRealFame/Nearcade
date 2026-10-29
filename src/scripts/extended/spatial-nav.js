@@ -71,22 +71,43 @@ const isHandheldActive = document.documentElement.classList.contains('handheld-m
   (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
   (() => {
     try {
-      return localStorage.getItem('ns_handheld_session') === 'true' || sessionStorage.getItem('ns_handheld_session') === 'true';
+      return localStorage.getItem('ns_handheld_mode') === 'true' ||
+        localStorage.getItem('ns_handheld_session') === 'true' ||
+        sessionStorage.getItem('ns_handheld_session') === 'true';
     } catch (_) { return false; }
   })();
 
 if (isHandheldActive) {
   document.documentElement.classList.add('handheld-mode');
   try {
+    localStorage.setItem('ns_handheld_mode', 'true');
     localStorage.setItem('ns_handheld_session', 'true');
     sessionStorage.setItem('ns_handheld_session', 'true');
   } catch (_) {}
   showCursor();
 }
 
+if (window.electronAPI && typeof window.electronAPI.getCursorPos === 'function') {
+  window.electronAPI.getCursorPos().then(pos => {
+    if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+      cx = Math.max(0, Math.min(window.innerWidth, pos.x));
+      cy = Math.max(0, Math.min(window.innerHeight, pos.y));
+      showCursor();
+      updateVirtualCursorHover(cx, cy);
+    }
+  }).catch(() => {});
+}
+
 window.addEventListener('gamepadconnected', () => {
   try { window.focus(); } catch (_) {}
   showCursor();
+});
+
+window.addEventListener('focus', () => {
+  if (document.documentElement.classList.contains('handheld-mode') || isHandheldActive) {
+    showCursor();
+    updateVirtualCursorHover(cx, cy);
+  }
 });
 
 let currentHoverTarget = null;

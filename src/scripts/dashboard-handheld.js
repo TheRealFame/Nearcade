@@ -184,7 +184,11 @@ function initHandheldStatusBar() {
 function applyLayoutMode(mode) {
   const root = document.documentElement;
   if (mode === 'handheld') {
-    try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
+    try {
+      localStorage.setItem('ns_handheld_mode', 'true');
+      localStorage.setItem('ns_handheld_session', 'true');
+      sessionStorage.setItem('ns_handheld_session', 'true');
+    } catch (_) {}
     root.classList.add('handheld-mode');
     root.classList.remove('portrait-mode');
     initHandheldStatusBar();
@@ -193,7 +197,10 @@ function applyLayoutMode(mode) {
     root.classList.add('portrait-mode');
     root.classList.remove('handheld-mode');
   } else {
-    try { sessionStorage.removeItem('ns_handheld_session'); } catch (_) {}
+    try {
+      localStorage.removeItem('ns_handheld_mode');
+      sessionStorage.removeItem('ns_handheld_session');
+    } catch (_) {}
     root.classList.remove('handheld-mode', 'portrait-mode');
   }
 }
@@ -201,7 +208,10 @@ function applyLayoutMode(mode) {
 function detectDeviceLayout() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('handheld') || params.has('tv')) {
-    try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
+    try {
+      localStorage.setItem('ns_handheld_mode', 'true');
+      sessionStorage.setItem('ns_handheld_session', 'true');
+    } catch (_) {}
     return 'handheld';
   }
   if (params.has('portrait')) {
@@ -211,7 +221,10 @@ function detectDeviceLayout() {
   // Check Electron API flags
   if (typeof window !== 'undefined' && window.electronAPI) {
     if (window.electronAPI.isHandheld) {
-      try { sessionStorage.setItem('ns_handheld_session', 'true'); } catch (_) {}
+      try {
+        localStorage.setItem('ns_handheld_mode', 'true');
+        sessionStorage.setItem('ns_handheld_session', 'true');
+      } catch (_) {}
       return 'handheld';
     }
     if (window.electronAPI.isPortrait) {
@@ -221,7 +234,9 @@ function detectDeviceLayout() {
 
   // Retain active handheld session
   try {
-    if (sessionStorage.getItem('ns_handheld_session') === 'true') {
+    if (localStorage.getItem('ns_handheld_mode') === 'true' ||
+        localStorage.getItem('ns_handheld_session') === 'true' ||
+        sessionStorage.getItem('ns_handheld_session') === 'true') {
       return 'handheld';
     }
   } catch (_) {}

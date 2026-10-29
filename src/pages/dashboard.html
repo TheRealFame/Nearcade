@@ -7,6 +7,28 @@
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Nearcade</title>
   <script src="/js/extended/ui/native-theme.js"></script>
+  <script>
+    (function checkHandheldEarly() {
+      const params = new URLSearchParams(window.location.search);
+      const isHandheld = params.has('handheld') ||
+        (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
+        (() => {
+          try {
+            return localStorage.getItem('ns_handheld_mode') === 'true' ||
+              localStorage.getItem('ns_handheld_session') === 'true' ||
+              sessionStorage.getItem('ns_handheld_session') === 'true';
+          } catch (_) { return false; }
+        })();
+      if (isHandheld) {
+        document.documentElement.classList.add('handheld-mode');
+        try {
+          localStorage.setItem('ns_handheld_mode', 'true');
+          localStorage.setItem('ns_handheld_session', 'true');
+          sessionStorage.setItem('ns_handheld_session', 'true');
+        } catch (_) {}
+      }
+    })();
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
