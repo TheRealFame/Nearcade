@@ -555,9 +555,13 @@ class CaptureManager {
     async _ensureFFmpegServer() {
         if (this._ffmpegServer) return;
         this._ffmpegServer = http.createServer((req, res) => {
+            if (res.socket) {
+                try { res.socket.setNoDelay(true); res.socket.setKeepAlive(true); } catch (_) {}
+            }
             res.writeHead(200, {
                 'Content-Type': 'video/mp4',
-                'Cache-Control': 'no-cache',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Connection': 'keep-alive',
                 'Access-Control-Allow-Origin': '*'
             });
             this._ffmpegStreamRes = res;

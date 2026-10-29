@@ -148,8 +148,10 @@ def request_portal_monitor():
 
 def build_ffmpeg_args(a, w, h):
     kb = max(100, round(a.bitrate / 1000))
-    g = max(1, a.fps)  # 1s GOP mirrors CaptureManager (MSE/join latency)
+    g = max(1, int(a.fps / 2))  # 0.5s GOP for fast sync and minimal buffer latency
     args = ["-hide_banner", "-loglevel", "info",
+            "-fflags", "nobuffer", "-flags", "low_delay",
+            "-probesize", "32", "-analyzeduration", "0",
             "-f", "rawvideo", "-pix_fmt", "nv12", "-s", f"{w}x{h}",
             "-framerate", str(a.fps), "-i", "-"]
     if a.encoder == "vaapi":
@@ -157,16 +159,18 @@ def build_ffmpeg_args(a, w, h):
                  "-filter_hw_device", "va",
                  "-vf", "format=nv12,hwupload",
                  "-c:v", "h264_vaapi", "-profile:v", "high", "-level", "4.2",
+                 "-async_depth", "1",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g)]
     elif a.encoder == "nvenc":
         args += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll",
+                 "-delay", "0",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g), "-cq", "20"]
     else:
         args += ["-c:v", "libx264", "-profile:v", "high", "-level", "4.2",
                  "-preset", "ultrafast", "-tune", "zerolatency",
                  "-pix_fmt", "yuv420p",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g)]
-    args += ["-f", "mp4", "-movflags", "empty_moov+default_base_moof+frag_keyframe+skip_sidx", "pipe:1"]
+    args += ["-f", "mp4", "-movflags", "empty_moov+default_base_moof+frag_every_frame+skip_sidx", "-flush_packets", "1", "pipe:1"]
     return args
 
 
@@ -198,7 +202,7 @@ def build_gst_args(fd, node, w, h, fps, raw_w):
         "pipewiresrc", f"fd={fd}", f"path={node}",
         "always-copy=true", f"keepalive-time={keepalive}", "do-timestamp=true", "!",
         "video/x-raw", "!",
-        "videoconvert", "!", "videoscale", "!", "videorate", "!",
+        "videoconvert", "!", "videoscale", "!", "videorate", "drop-only=true", "!",
         f"video/x-raw,format=NV12,width={w},height={h},framerate={fps}/1", "!",
         "fdsink", "sync=false", f"fd={raw_w}"
     ]
@@ -309,17 +313,18 @@ def main():
         except Exception:
             pass
 
-    # Pump compressed MP4 to OUR stdout (the Node relay). ~0.5 MB/s: trivial.
-    out = sys.stdout.buffer
+    # Pump compressed MP4 to OUR stdout (the Node relay) using raw descriptor reads
+    # to avoid io.BufferedReader 64KB fill latency.
+    out_fd = sys.stdout.fileno()
+    in_fd = ff.stdout.fileno()
 
     def pump():
         try:
             while True:
-                chunk = ff.stdout.read(65536)
+                chunk = os.read(in_fd, 65536)
                 if not chunk:
                     break
-                out.write(chunk)
-                out.flush()
+                os.write(out_fd, chunk)
         except Exception:
             pass
 

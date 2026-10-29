@@ -3934,6 +3934,7 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
                     const tracks = video.captureStream ? video.captureStream(60).getVideoTracks() : [];
                     if (tracks && tracks.length > 0) {
                         settled = true;
+                        try { tracks[0].contentHint = 'motion'; } catch (_) {}
                         log(`FFmpeg stream hooked successfully (${video.videoWidth || '?'}x${video.videoHeight || '?'})`, 'ok');
                         resolve(tracks[0]);
                     }
@@ -3972,13 +3973,20 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
 
                 let reading = false;
                 let cleaningBuffer = false;
+                let syncLoopActive = true;
                 const syncPlaybackToBuffer = () => {
                     try {
                         if (video.buffered && video.buffered.length > 0) {
                             const bStart = video.buffered.start(0);
                             const bEnd = video.buffered.end(video.buffered.length - 1);
-                            if (video.currentTime < bStart || (bEnd - video.currentTime > 1.5)) {
-                                video.currentTime = Math.max(bStart, bEnd - 0.05);
+                            const drift = bEnd - video.currentTime;
+                            if (video.currentTime < bStart || drift > 0.12) {
+                                video.currentTime = Math.max(bStart, bEnd - 0.03);
+                                video.playbackRate = 1.0;
+                            } else if (drift > 0.05) {
+                                video.playbackRate = 1.06;
+                            } else if (drift < 0.03) {
+                                video.playbackRate = 1.0;
                             }
                             if (video.paused) {
                                 video.play().catch(() => {});
@@ -3986,6 +3994,17 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
                         }
                     } catch (_) {}
                 };
+
+                const runSyncLoop = () => {
+                    if (!syncLoopActive || !video.isConnected) return;
+                    syncPlaybackToBuffer();
+                    if (typeof video.requestVideoFrameCallback === 'function') {
+                        video.requestVideoFrameCallback(runSyncLoop);
+                    } else {
+                        requestAnimationFrame(runSyncLoop);
+                    }
+                };
+                runSyncLoop();
 
                 const pushChunk = async () => {
                     if (reading || !sourceBuffer || sourceBuffer.updating) {
@@ -4018,9 +4037,9 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
                         if (video.buffered && video.buffered.length > 0 && !sourceBuffer.updating) {
                             const bStart = video.buffered.start(0);
                             const bEnd = video.buffered.end(video.buffered.length - 1);
-                            if (bEnd - bStart > 15.0) {
+                            if (bEnd - bStart > 3.0) {
                                 cleaningBuffer = true;
-                                sourceBuffer.remove(bStart, bEnd - 4.0);
+                                sourceBuffer.remove(bStart, bEnd - 1.0);
                                 return;
                             }
                         }
