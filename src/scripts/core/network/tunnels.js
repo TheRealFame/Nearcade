@@ -355,6 +355,16 @@ const FALLBACK_PATHS = {
     '/usr/local/bin/zerotier-cli',
     path.join(os.homedir(), 'bin', 'zerotier-cli'),
   ],
+  outray: [
+    path.join(appDataBinDir, 'outray.exe'),
+    path.join(appDataBinDir, 'outray'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'outray.exe'),
+    path.join(os.homedir(), '.config', 'Nearcade', 'bin', 'outray'),
+    path.join(os.homedir(), '.local', 'bin', 'outray'),
+    path.join(os.homedir(), 'bin', 'outray'),
+    '/usr/local/bin/outray',
+    '/usr/bin/outray',
+  ],
   wg: ['/usr/bin/wg', '/usr/local/bin/wg'],
   'wg-quick': ['/usr/bin/wg-quick', '/usr/local/bin/wg-quick'],
 };
@@ -1006,6 +1016,50 @@ function startTunnelFrp(port) {
   });
 }
 
+function startTunnelOutray(port, options = {}) {
+  return new Promise(resolve => {
+    findBinaryPath('outray').then(outrayPath => {
+      if (!outrayPath) { resolve({ error: 'NOT_FOUND', provider: 'outray' }); return; }
+      ensureExecutable(outrayPath);
+
+      const key = process.env.OUTRAY_KEY || process.env.OUTRAY_TOKEN || readEnv('OUTRAY_KEY') || readEnv('OUTRAY_TOKEN');
+      const subdomain = process.env.OUTRAY_SUBDOMAIN || readEnv('OUTRAY_SUBDOMAIN');
+
+      console.log("  \x1b[33m~\x1b[0m Starting OutRay tunnel...");
+      const args = ['http', String(port), '--no-logs'];
+      if (key) args.push('--key', key);
+      if (subdomain) args.push('--subdomain', subdomain);
+
+      const proc = spawn(outrayPath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      let done = false;
+      const check = data => {
+        const str = data.toString();
+        const urlMatch = str.match(/https?:\/\/[a-zA-Z0-9\-._]+\.outray\.app[^\s]*/);
+        if (urlMatch && !done) {
+          done = true;
+          const cleanUrl = urlMatch[0].replace(/[\x1b\x07]/g, '').trim();
+          resolve({ url: cleanUrl, proc });
+          console.log("  \x1b[32m✓\x1b[0m Tunnel URL: \x1b[1m" + cleanUrl + "\x1b[0m");
+        }
+      };
+      proc.stdout.on("data", check);
+      proc.stderr.on("data", check);
+      proc.on("close", (code) => {
+        if (!done) {
+          resolve({ error: 'EXITED', details: `outray process closed with code ${code}`, provider: 'outray' });
+        }
+      });
+      setTimeout(() => {
+        if (!done) {
+          done = true;
+          resolve({ error: 'TIMEOUT', details: 'OutRay timed out waiting for tunnel URL', provider: 'outray' });
+          console.log("  \x1b[33m!\x1b[0m outray timeout");
+        }
+      }, 45000);
+    }).catch(err => resolve({ error: err ? err.message : 'Unknown error', provider: 'outray' }));
+  });
+}
+
 function startTunnelTailscaleFunnel(port) {
   return new Promise(resolve => {
     findBinaryPath('tailscale').then(tailscalePath => {
@@ -1314,6 +1368,7 @@ async function startTunnel(port, provider, options = {}) {
       vps: (p) => startTunnelVps(p, process.env.VPS_HOST || ''),
       bore: startTunnelBore,
       ngrok: startTunnelNgrok,
+      outray: (p) => startTunnelOutray(p, options),
       frp: startTunnelFrp,
       'tailscale-funnel': startTunnelTailscaleFunnel,
       'tailscale-serve': startTunnelTailscaleServe,
@@ -1509,6 +1564,19 @@ const PROVIDERS = [
       return { found: !!p, path: p };
     },
   },
+  {
+    id: 'outray', name: 'OutRay', type: 'reverse', category: 'extra', integrated: false,
+    pricing: 'free', difficulty: 'easy',
+    description: 'Open-source reverse tunneling solution and ngrok alternative. Exposes local port over secure HTTPS.',
+    tags: ['binary', 'open-source', 'reverse'],
+    binaryNames: ['outray'],
+    start: (port, options) => startTunnelOutray(port, options),
+    detect: async () => {
+      const p = await findBinaryPath('outray');
+      const hasKey = !!(readEnv('OUTRAY_KEY') || readEnv('OUTRAY_TOKEN'));
+      return { found: !!p, path: p, authenticated: hasKey };
+    },
+  },
 
   // ── Mesh VPN ──
 
@@ -1532,6 +1600,7 @@ module.exports = {
   startTunnelVps,
   startTunnelBore,
   startTunnelNgrok,
+  startTunnelOutray,
   startTunnelFrp,
   startTunnelTailscaleFunnel,
   startTunnelTailscaleServe,
