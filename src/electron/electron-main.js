@@ -805,7 +805,7 @@ async function createWindow() {
   win.webContents.session.setPermissionCheckHandler(() => true);
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
 
-  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC, isHandheld, isPortrait, isGamescopeEnv, scheduleGamescopeRefocus, refocusGamescopeWindow };
+  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC, isHandheld, isPortrait, isGamescopeEnv, isSteamDeckHardware, scheduleGamescopeRefocus, refocusGamescopeWindow };
   registerIpcHandlers(ctx);
 
   win.on('resize', () => {

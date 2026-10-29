@@ -314,8 +314,15 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-window-sources', async () => {
     try {
+      const isDeckOrHandheld = Boolean(
+        ctx.isHandheld ||
+        ctx.isGamescopeEnv ||
+        ctx.isSteamDeckHardware ||
+        (process.platform === 'linux' && (process.env.SteamDeck === '1' || process.env.SteamGamepadUI === '1'))
+      );
+      const types = isDeckOrHandheld ? ['screen'] : ['screen', 'window'];
       const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
+        types,
         thumbnailSize: { width: 320, height: 180 },
         fetchWindowIcons: false,
       });
@@ -1149,8 +1156,15 @@ function registerIpcHandlers(ctx) {
     // window/application source (regression introduced in refactor from 3.0.1).
     // Fix: always call getSources() first, then find the selected source by ID.
     ctx.win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+      const isDeckOrHandheld = Boolean(
+        ctx.isHandheld ||
+        ctx.isGamescopeEnv ||
+        ctx.isSteamDeckHardware ||
+        (process.platform === 'linux' && (process.env.SteamDeck === '1' || process.env.SteamGamepadUI === '1'))
+      );
+      const types = isDeckOrHandheld ? ['screen'] : ['screen', 'window'];
       // Thumbnail size 1x1 is sufficient — we just need the real source objects.
-      desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 1, height: 1 } }).then(sources => {
+      desktopCapturer.getSources({ types, thumbnailSize: { width: 1, height: 1 } }).then(sources => {
         if (!sources || sources.length === 0) {
           console.log('[electron] Capture blocked or no sources found. Cancelling.');
           callback();
@@ -1164,6 +1178,13 @@ function registerIpcHandlers(ctx) {
             }
             `).catch(() => { });
           }
+          return;
+        }
+
+        if (isDeckOrHandheld) {
+          const screenSource = sources.find(s => s.id.startsWith('screen:')) || sources[0];
+          console.log(`[electron] Steam Deck / Handheld: Enforcing entire display capture - ID: ${screenSource.id} | Name: ${screenSource.name}`);
+          callback({ video: screenSource });
           return;
         }
 

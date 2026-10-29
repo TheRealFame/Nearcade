@@ -2263,6 +2263,24 @@ async function showSourceSelectionModal(forceGrid = false) {
     const ua = navigator.userAgent.toLowerCase();
     const isLinux = ua.includes('linux');
     const isMac = ua.includes('mac os x');
+    const isDeckOrHandheld = Boolean(
+        window.electronAPI?.isHandheld ||
+        document.documentElement.classList.contains('handheld-mode') ||
+        sessionStorage.getItem('ns_handheld_session') === 'true' ||
+        new URLSearchParams(window.location.search).get('handheld') === '1'
+    );
+
+    // Steam Deck / handheld mode: always capture the entire display directly without any window picker modal
+    if (isDeckOrHandheld) {
+        log(I18N.t('Steam Deck / Handheld mode: Capturing entire display'), 'ok');
+        selectedSourceId = 'screen:0:0';
+        selectedSourceName = 'Entire Display';
+        if (window.electronAPI?.setSelectedSource) {
+            window.electronAPI.setSelectedSource('screen:0:0', 'Entire Display').catch(() => {});
+        }
+        startCapture();
+        return;
+    }
 
     // Default Linux/Mac behavior: skip the HTML grid entirely and go straight to native picker (XDG Portal/SCK)
     if (!forceGrid && (!window.electronAPI || !window.electronAPI.getWindowSources || isLinux || isMac)) {
@@ -2710,6 +2728,21 @@ async function startCapture() {
     window._portalAttemptFailed = false;
     streamActive = true;
     _updateDiscordRPC();
+
+    const isDeckOrHandheld = Boolean(
+        window.electronAPI?.isHandheld ||
+        document.documentElement.classList.contains('handheld-mode') ||
+        sessionStorage.getItem('ns_handheld_session') === 'true' ||
+        new URLSearchParams(window.location.search).get('handheld') === '1'
+    );
+    if (isDeckOrHandheld && !selectedSourceId) {
+        selectedSourceId = 'screen:0:0';
+        selectedSourceName = 'Entire Display';
+        if (window.electronAPI?.setSelectedSource) {
+            window.electronAPI.setSelectedSource('screen:0:0', 'Entire Display').catch(() => {});
+        }
+    }
+
     // ── HANG PROTECTION: Forces hanging OS promises to reject after 20 seconds ──
     const withTimeout = (promise, ms, msg) => Promise.race([
         promise,
@@ -3010,12 +3043,14 @@ async function startCapture() {
             // Fallback: portal with instruction hint (skipped when Zero-Copy forces DRM-only capture)
             // Non-blocking hint (pointer-events:none) so the user can still reach the system dialog.
             if (!screenStream && !zeroCopyOn && isLinux) {
-                const portalMsg = document.createElement('div');
-                portalMsg.id = 'ns-portal-msg';
-                const rawGameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
-                const gameName = String(rawGameName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-                portalMsg.innerHTML = 'Screen Selection Required — select ' + (gameName ? '<strong>' + gameName + '</strong>' : 'your screen or game window') + ' in the system dialog that just appeared.<br><span style="color:#888;font-size:11px;">Required once per session on Wayland.</span>';
-                document.body.appendChild(portalMsg);
+                if (!isDeckOrHandheld) {
+                    const portalMsg = document.createElement('div');
+                    portalMsg.id = 'ns-portal-msg';
+                    const rawGameName = (typeof launchGameData !== 'undefined' && launchGameData && launchGameData.name) || '';
+                    const gameName = String(rawGameName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+                    portalMsg.innerHTML = 'Screen Selection Required — select ' + (gameName ? '<strong>' + gameName + '</strong>' : 'your screen or game window') + ' in the system dialog that just appeared.<br><span style="color:#888;font-size:11px;">Required once per session on Wayland.</span>';
+                    document.body.appendChild(portalMsg);
+                }
                 try {
                     await window.electronAPI.setSelectedSource('screen:0:0');
                     const abortCtrl = new AbortController();
@@ -3067,7 +3102,15 @@ async function startCapture() {
 
                 // VALIDATE SOURCE ID
                 const currentSources = await window.electronAPI.getWindowSources({ types: ['window', 'screen'] });
-                const isValid = currentSources.some(s => s.id === selectedSourceId);
+                let isValid = currentSources.some(s => s.id === selectedSourceId);
+                if (!isValid && (isDeckOrHandheld || selectedSourceId.startsWith('screen:'))) {
+                    const screenMatch = currentSources.find(s => s.isScreen || s.id.startsWith('screen:'));
+                    if (screenMatch) {
+                        selectedSourceId = screenMatch.id;
+                        selectedSourceName = screenMatch.name;
+                        isValid = true;
+                    }
+                }
                 
                 if (!isValid) {
                     log(I18N.t('Selected window or screen is no longer available. Reverting to OS picker.'), 'warn');
