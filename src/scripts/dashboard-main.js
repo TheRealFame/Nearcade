@@ -441,7 +441,7 @@ async function applySystemAccent() {
     root.style.setProperty('--accent-dim', DEFAULT_ACCENT_DIM);
     root.style.setProperty('--accent-glow', DEFAULT_ACCENT_GLOW);
     root.style.setProperty('--accent-ink', '#ffffff');
-    root.style.removeProperty('accent-color');
+    root.style.setProperty('accent-color', DEFAULT_ACCENT);
     delete root.dataset.nsAccent;
     if (indicator) indicator.style.display = 'none';
 
@@ -499,6 +499,7 @@ async function applySystemAccent() {
     const g = parseInt(accent.slice(3, 5), 16);
     const b = parseInt(accent.slice(5, 7), 16);
     root.style.setProperty('--accent', accent);
+    root.style.setProperty('accent-color', accent);
     root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
     root.style.setProperty('--accent2', accent);
     root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);

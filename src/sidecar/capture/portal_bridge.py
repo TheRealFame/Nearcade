@@ -164,9 +164,44 @@ def build_ffmpeg_args(a, w, h):
     else:
         args += ["-c:v", "libx264", "-profile:v", "high", "-level", "4.2",
                  "-preset", "ultrafast", "-tune", "zerolatency",
+                 "-pix_fmt", "yuv420p",
                  "-b:v", f"{kb}k", "-bf", "0", "-g", str(g)]
     args += ["-f", "mp4", "-movflags", "empty_moov+default_base_moof+frag_keyframe+skip_sidx", "pipe:1"]
     return args
+
+
+def ensure_clean_pipewire_node(node_id):
+    """
+    Cleans up any dead or dormant link (like an inactive Steam Remote Play link)
+    attached to the PipeWire video node that could cause buffer exhaustion.
+    """
+    try:
+        res = subprocess.run(["pw-cli", "list-objects", "Link"], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0:
+            current_id = None
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("id "):
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1].rstrip(',').isdigit():
+                        current_id = parts[1].rstrip(',')
+                elif f'link.output.node = "{node_id}"' in line and current_id:
+                    subprocess.run(["pw-cli", "destroy", current_id], capture_output=True, timeout=2)
+    except Exception:
+        pass
+
+
+def build_gst_args(fd, node, w, h, fps, raw_w):
+    keepalive = max(1, int(1000 / fps))
+    return [
+        "gst-launch-1.0", "--quiet",
+        "pipewiresrc", f"fd={fd}", f"path={node}",
+        "always-copy=true", f"keepalive-time={keepalive}", "do-timestamp=true", "!",
+        "video/x-raw", "!",
+        "videoconvert", "!", "videoscale", "!", "videorate", "!",
+        f"video/x-raw,format=NV12,width={w},height={h},framerate={fps}/1", "!",
+        "fdsink", "sync=false", f"fd={raw_w}"
+    ]
 
 
 def teardown(signum=None, frame=None):
@@ -230,41 +265,29 @@ def main():
         raw_r, raw_w = gst.stdout, None
         threading.Thread(target=_forward_gst_err, args=(gst,),
                          daemon=True).start()
-    is_gamescope = (
-        os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gamescope" or
-        os.environ.get("DESKTOP_SESSION", "").lower() == "gamescope-wayland" or
-        os.environ.get("SteamDeck") == "1" or
-        os.environ.get("GAMESCOPE_WAYLAND_DISPLAY") is not None or
-        os.path.exists("/run/user/1000/gamescope-0")
-    )
-    if is_gamescope and not a.test:
-        w, h = (1280, 800) if (a.width == 960 and a.height == 540) else (a.width, a.height)
-        raw_r, raw_w = os.pipe()
-        gst = subprocess.Popen(
-            ["gst-launch-1.0", "--quiet",
-             "pipewiresrc", "target-object=gamescope", "always-copy=true", "do-timestamp=true", "!",
-             "videoconvert", "!", "videoscale", "!", "videorate", "!",
-             f"video/x-raw,format=NV12,width={w},height={h},framerate={a.fps}/1", "!",
-             "fdsink", "sync=false", f"fd={raw_w}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-            pass_fds=(raw_w,), preexec_fn=_die_with_parent)
-        CHILDREN.append(gst)
-        threading.Thread(target=_forward_gst_err, args=(gst,), daemon=True).start()
-        os.close(raw_w)
-    elif not a.test:
+    else:
         fd, node, pw, ph = request_portal_monitor()
         if fd is None or node is None:
             jem({"type": "error", "message": "portal produced no stream (denied/timeout)"})
             return 2
+
+        is_gamescope = (
+            os.environ.get("XDG_CURRENT_DESKTOP", "").lower() == "gamescope" or
+            os.environ.get("DESKTOP_SESSION", "").lower() == "gamescope-wayland" or
+            os.environ.get("SteamDeck") == "1" or
+            os.environ.get("GAMESCOPE_WAYLAND_DISPLAY") is not None or
+            os.path.exists("/run/user/1000/gamescope-0")
+        )
         if pw > 0 and ph > 0:
             w, h = pw, ph
+        elif is_gamescope:
+            w, h = (1280, 800) if (a.width == 960 and a.height == 540) else (a.width, a.height)
+
+        ensure_clean_pipewire_node(node)
+
         raw_r, raw_w = os.pipe()
         gst = subprocess.Popen(
-            ["gst-launch-1.0", "--quiet", 
-             "pipewiresrc", f"fd={fd}", f"path={node}", "always-copy=true", f"keepalive-time={int(1000/a.fps)}", "do-timestamp=true", "!",
-             "videoconvert", "!", "videoscale", "!", "videorate", "!",
-             f"video/x-raw,format=NV12,width={w},height={h},framerate={a.fps}/1", "!",
-             "fdsink", "sync=false", f"fd={raw_w}"],
+            build_gst_args(fd, node, w, h, a.fps, raw_w),
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             pass_fds=(fd, raw_w), preexec_fn=_die_with_parent)
         CHILDREN.append(gst)
@@ -273,7 +296,7 @@ def main():
         os.close(raw_w)
 
     jem({"type": "portal-ready" if not a.test else "test-ready",
-         "width": w, "height": h, "fps": a.fps, "node": -1})
+         "width": w, "height": h, "fps": a.fps, "node": node if not a.test else -1})
 
     ff = subprocess.Popen(
         [a.ffmpeg_bin] + build_ffmpeg_args(a, w, h),

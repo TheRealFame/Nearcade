@@ -404,13 +404,7 @@ class CaptureManager {
         try { hasAmd = /amd/i.test(execSync('lspci 2>/dev/null', { encoding: 'utf8' })); } catch (_) {}
         const cands = [];
         if (hasNvidia) cands.push('nvenc');
-        
-        // AMD VAAPI H.264 encoders output bitstreams that Chromium's Linux MSE 
-        // aggressively rejects, causing "Video decode error". We strictly blacklist 
-        // VAAPI for AMD hardware to force the highly compatible libx264 software fallback.
-        if (!hasAmd) {
-            cands.push('vaapi');
-        }
+        cands.push('vaapi');
         
         for (const c of cands) {
             if (this._testEncode(ff, c)) chain.push(c);
@@ -510,21 +504,39 @@ class CaptureManager {
         proc.stdout.on('data', this._ffmpegNullDrainFn);
     }
 
-    _pipeRelay(proc) {
-        if (!proc || !proc.stdout || !this._ffmpegStreamRes) return;
-        // NOTE: the counting null-drain stays attached (it also feeds the
-        // byte watchdog). Each relay reader gets its OWN data listener —
-        // NEVER proc.stdout.pipe(res): pipe() pauses the SHARED source when
-        // any single reader is slow, stalling encoding for everyone. A slow
-        // reader is dropped instead (correct live-edge semantics: it freezes,
-        // the stream doesn't).
-        const res = this._ffmpegStreamRes;
+    _pipeRelay(proc, streamRes) {
+        const res = streamRes || this._ffmpegStreamRes;
+        if (!proc || !proc.stdout || !res) return;
+
+        let synced = false;
+        const moofPattern = Buffer.from('moof');
+        let pendingBuf = Buffer.alloc(0);
+
         const onData = (chunk) => {
-            let ok = true;
-            try { ok = res.write(chunk); } catch (_) { ok = false; }
-            if (!ok) {
+            if (res.destroyed || res.writableEnded) {
                 try { proc.stdout.removeListener('data', onData); } catch (_) {}
-                try { res.end(); } catch (_) {}
+                return;
+            }
+            if (!synced) {
+                pendingBuf = Buffer.concat([pendingBuf, chunk]);
+                const idx = pendingBuf.indexOf(moofPattern);
+                if (idx >= 4) {
+                    const boxStart = idx - 4;
+                    synced = true;
+                    const syncedChunk = pendingBuf.slice(boxStart);
+                    pendingBuf = null;
+                    try { res.write(syncedChunk); } catch (_) {
+                        try { proc.stdout.removeListener('data', onData); } catch (_) {}
+                    }
+                } else if (pendingBuf.length > 524288) {
+                    pendingBuf = pendingBuf.slice(-16384);
+                }
+                return;
+            }
+            try {
+                res.write(chunk);
+            } catch (_) {
+                try { proc.stdout.removeListener('data', onData); } catch (_) {}
             }
         };
         try {
@@ -533,6 +545,9 @@ class CaptureManager {
         } catch (_) {}
         // Dead sockets must not accumulate.
         res.on('close', () => {
+            try { proc.stdout.removeListener('data', onData); } catch (_) {}
+        });
+        res.on('error', () => {
             try { proc.stdout.removeListener('data', onData); } catch (_) {}
         });
     }
@@ -546,7 +561,7 @@ class CaptureManager {
                 'Access-Control-Allow-Origin': '*'
             });
             this._ffmpegStreamRes = res;
-            if (this._ffmpegProc && this._ffmpegProc.stdout) this._pipeRelay(this._ffmpegProc);
+            if (this._ffmpegProc && this._ffmpegProc.stdout) this._pipeRelay(this._ffmpegProc, res);
         });
         await new Promise((resolve) => {
             this._ffmpegServer.listen(0, '127.0.0.1', () => {
@@ -881,7 +896,9 @@ class CaptureManager {
     _attemptPortalBridge(enc, { width, height, fps, bitrate }) {
         return new Promise((resolve, reject) => {
             const ff = this._resolveFFmpegBinary();
-            const script = path.join(__dirname, 'portal_bridge.py');
+            let base = __dirname;
+            if (base.includes('app.asar')) base = base.replace('app.asar', 'app.asar.unpacked');
+            const script = path.join(base, 'portal_bridge.py');
             const args = ['-u', script,
                 '--width', String(width), '--height', String(height),
                 '--fps', String(fps), '--bitrate', String(bitrate),
@@ -945,7 +962,7 @@ class CaptureManager {
             proc.stderr.on('data', (d) => {
                 const s = d.toString();
                 errTail = (errTail + s).slice(-2000);
-                for (const line of s.split('\n')) {
+                for (const line of s.split(/[\r\n]+/)) {
                     const t = line.trim();
                     if (!t) continue;
                     if (t.startsWith('{')) {
@@ -1146,7 +1163,7 @@ class CaptureManager {
         const rustBin = path.join(sidecarBase, 'gst-nearcade', 'target', 'release', 'gst-nearcade');
         let useRust = false;
         try { fs.accessSync(rustBin, fs.constants.X_OK); useRust = true; } catch (_) {}
-        const pyScript = path.join(__dirname, 'gstreamer_webrtc.py');
+        const pyScript = path.join(sidecarBase, 'gstreamer_webrtc.py');
 
         // Resolve the capture node once — shared by both backends.
         let nodeStr = null;

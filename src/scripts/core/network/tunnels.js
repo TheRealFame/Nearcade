@@ -1044,6 +1044,13 @@ function startTunnelOutray(port, options = {}) {
 
       const proc = spawn(binCmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
+      proc.on("error", (err) => {
+        if (!done) {
+          done = true;
+          console.error("  \x1b[31m!\x1b[0m OutRay spawn error:", err.message);
+          resolve({ error: 'NOT_FOUND', details: `Failed to spawn outray: ${err.message}`, provider: 'outray' });
+        }
+      });
       const check = data => {
         const str = data.toString();
         const urlMatch = str.match(/https?:\/\/[a-zA-Z0-9\-._]+\.outray\.app[^\s]*/);

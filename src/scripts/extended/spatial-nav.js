@@ -65,26 +65,24 @@ function showCursor() {
   }
 }
 
+let lastInputType = 'mouse';
+
+try {
+  localStorage.removeItem('ns_handheld_mode');
+  localStorage.removeItem('ns_handheld_session');
+} catch (_) {}
+
 // In handheld mode or active handheld session, display virtual cursor immediately
 const isHandheldActive = document.documentElement.classList.contains('handheld-mode') ||
   new URLSearchParams(window.location.search).has('handheld') ||
-  (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
-  (() => {
-    try {
-      return localStorage.getItem('ns_handheld_mode') === 'true' ||
-        localStorage.getItem('ns_handheld_session') === 'true' ||
-        sessionStorage.getItem('ns_handheld_session') === 'true';
-    } catch (_) { return false; }
-  })();
+  (typeof window.electronAPI !== 'undefined' && Boolean(window.electronAPI.isHandheld)) ||
+  sessionStorage.getItem('ns_handheld_session') === 'true';
 
 if (isHandheldActive) {
   document.documentElement.classList.add('handheld-mode');
   try {
-    localStorage.setItem('ns_handheld_mode', 'true');
-    localStorage.setItem('ns_handheld_session', 'true');
     sessionStorage.setItem('ns_handheld_session', 'true');
   } catch (_) {}
-  showCursor();
 }
 
 if (window.electronAPI && typeof window.electronAPI.getCursorPos === 'function') {
@@ -92,7 +90,7 @@ if (window.electronAPI && typeof window.electronAPI.getCursorPos === 'function')
     if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
       cx = Math.max(0, Math.min(window.innerWidth, pos.x));
       cy = Math.max(0, Math.min(window.innerHeight, pos.y));
-      showCursor();
+      if (lastInputType === 'gamepad') showCursor();
       updateVirtualCursorHover(cx, cy);
     }
   }).catch(() => {});
@@ -100,11 +98,10 @@ if (window.electronAPI && typeof window.electronAPI.getCursorPos === 'function')
 
 window.addEventListener('gamepadconnected', () => {
   try { window.focus(); } catch (_) {}
-  showCursor();
 });
 
 window.addEventListener('focus', () => {
-  if (document.documentElement.classList.contains('handheld-mode') || isHandheldActive) {
+  if (lastInputType === 'gamepad' && (document.documentElement.classList.contains('handheld-mode') || isHandheldActive)) {
     showCursor();
     updateVirtualCursorHover(cx, cy);
   }
@@ -188,6 +185,7 @@ window.setVirtualCursorPos = function(x, y) {
 };
 
 window.addEventListener('mousemove', (e) => {
+  lastInputType = 'mouse';
   // If recent gamepad movement occurred, ignore synthetic mousemove recentering / jitter
   if (performance.now() - lastGamepadInputTime < 350) {
     if (Math.hypot(e.movementX || 0, e.movementY || 0) < 10) return;
@@ -202,6 +200,7 @@ window.addEventListener('mousemove', (e) => {
 }, { passive: true });
 
 window.addEventListener('touchstart', (e) => {
+  lastInputType = 'mouse';
   if (e.touches && e.touches[0]) {
     cx = e.touches[0].clientX;
     cy = e.touches[0].clientY;
@@ -209,6 +208,15 @@ window.addEventListener('touchstart', (e) => {
       cursor.style.display = 'none';
     }
     updateVirtualCursorHover(cx, cy);
+  }
+}, { passive: true });
+
+window.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' || e.pointerType === 'touch' || e.pointerType === 'pen') {
+    lastInputType = 'mouse';
+    if (cursor && cursor.style.display !== 'none') {
+      cursor.style.display = 'none';
+    }
   }
 }, { passive: true });
 
@@ -229,11 +237,13 @@ function handleHardwareGamepadMessage(d) {
   if (d.type === 'axis') {
     hardwareGamepad.axes[d.num] = d.val;
     if (Math.abs(d.val) > 0.18) {
+      lastInputType = 'gamepad';
       showCursor();
     }
   } else if (d.type === 'button') {
     hardwareGamepad.buttons[d.num] = d.pressed;
     if (d.pressed) {
+      lastInputType = 'gamepad';
       showCursor();
     }
   }
@@ -487,13 +497,16 @@ window.triggerSpatialNavClick = function() {
 
 // Intercept clicks and pointerdown on native select elements and language switchers in handheld mode / Gamescope
 function interceptSelectActivation(e) {
-  // If user clicked with a physical mouse on desktop, do not intercept with the handheld modal
-  if (e.pointerType === 'mouse' && !document.documentElement.classList.contains('handheld-mode') && !window.location.search.includes('handheld=1')) {
+  // If user clicked with a physical mouse or is on desktop, do not intercept with the handheld modal
+  if (lastInputType === 'mouse' || e.pointerType === 'mouse') {
+    return;
+  }
+  if (!document.documentElement.classList.contains('handheld-mode') && !window.location.search.includes('handheld=1')) {
     return;
   }
 
   const isHandheldActive = document.documentElement.classList.contains('handheld-mode') ||
-    (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
+    (typeof window.electronAPI !== 'undefined' && Boolean(window.electronAPI.isHandheld)) ||
     window.location.search.includes('handheld=1') ||
     sessionStorage.getItem('ns_handheld_session') === 'true';
 

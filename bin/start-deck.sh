@@ -22,6 +22,7 @@ exec "$DIR/nearcade" \
   --no-sandbox \
   --handheld \
   --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
   --enable-features=WebRTCPipeWireCapturer,VaapiVideoEncoder,VaapiVideoDecoder \
   --enable-zero-copy \
   "$@" >> /tmp/nearcade-deck.log 2>&1

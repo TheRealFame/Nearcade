@@ -2999,7 +2999,7 @@ async function startCapture() {
                     _forceKillStream(currentStream);
                     _elDisabled('btnStart', false);
                     _elDisabled('btnSwitch', false);
-                    alert("Capture failed: " + e.message);
+                    if (!isDeckOrHandheld) alert("Capture failed: " + e.message);
                     return;
                 }
                 
@@ -3917,8 +3917,8 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
             video.style.position = 'fixed';
             video.style.top = '0';
             video.style.left = '0';
-            video.style.width = '1px';
-            video.style.height = '1px';
+            video.style.width = '16px';
+            video.style.height = '16px';
             video.style.opacity = '0.01';
             video.style.pointerEvents = 'none';
             video.style.zIndex = '-9999';
@@ -3943,7 +3943,14 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
             };
 
             ms.addEventListener('sourceopen', async () => {
-                const mimeType = 'video/mp4; codecs="avc1.64002a"';
+                if (ms.sourceBuffers.length > 0) return;
+                const candidates = [
+                    'video/mp4; codecs="avc1.42e02a"',
+                    'video/mp4; codecs="avc1.64002a"',
+                    'video/mp4; codecs="avc1.42002a"',
+                    'video/mp4; codecs="avc1.4d402a"'
+                ];
+                const mimeType = candidates.find(m => MediaSource.isTypeSupported(m)) || 'video/mp4; codecs="avc1.64002a"';
                 let sourceBuffer;
                 try {
                     sourceBuffer = ms.addSourceBuffer(mimeType);
@@ -3952,46 +3959,98 @@ async function startSidecarCapture(methodName, sourceId, sourceName, knownPort) 
                 }
 
                 // 3. Connect to our dedicated HTTP stream port
-                const response = await fetch(`http://127.0.0.1:${activePort}/`);
+                let response;
+                try {
+                    response = await fetch(`http://127.0.0.1:${activePort}/`);
+                } catch (fetchErr) {
+                    return reject(new Error('Failed to connect to stream port ' + activePort + ': ' + fetchErr.message));
+                }
                 if (!response.body) {
                     return reject(new Error('HTTP stream body unavailable from port ' + activePort));
                 }
                 const reader = response.body.getReader();
 
+                let reading = false;
+                let cleaningBuffer = false;
+                const syncPlaybackToBuffer = () => {
+                    try {
+                        if (video.buffered && video.buffered.length > 0) {
+                            const bStart = video.buffered.start(0);
+                            const bEnd = video.buffered.end(video.buffered.length - 1);
+                            if (video.currentTime < bStart || (bEnd - video.currentTime > 1.5)) {
+                                video.currentTime = Math.max(bStart, bEnd - 0.05);
+                            }
+                            if (video.paused) {
+                                video.play().catch(() => {});
+                            }
+                        }
+                    } catch (_) {}
+                };
+
                 const pushChunk = async () => {
-                    if (sourceBuffer.updating) {
-                        setTimeout(pushChunk, 10);
+                    if (reading || !sourceBuffer || sourceBuffer.updating) {
                         return;
                     }
+                    reading = true;
                     try {
                         const { value, done } = await reader.read();
                         if (done) return;
                         sourceBuffer.appendBuffer(value);
-                        if (video.paused) {
-                            video.play().catch(() => {});
+                        syncPlaybackToBuffer();
+                        if (video.videoWidth > 0 && !settled) {
+                            setTimeout(finishWithTrack, 20);
                         }
                     } catch (err) {
-                        console.error('Stream read error', err);
+                        console.error('[Host] Stream read error:', err);
+                    } finally {
+                        reading = false;
                     }
                 };
 
-                sourceBuffer.addEventListener('updateend', pushChunk);
+                sourceBuffer.addEventListener('updateend', () => {
+                    syncPlaybackToBuffer();
+                    if (cleaningBuffer) {
+                        cleaningBuffer = false;
+                        pushChunk();
+                        return;
+                    }
+                    try {
+                        if (video.buffered && video.buffered.length > 0 && !sourceBuffer.updating) {
+                            const bStart = video.buffered.start(0);
+                            const bEnd = video.buffered.end(video.buffered.length - 1);
+                            if (bEnd - bStart > 15.0) {
+                                cleaningBuffer = true;
+                                sourceBuffer.remove(bStart, bEnd - 4.0);
+                                return;
+                            }
+                        }
+                    } catch (_) {}
+                    pushChunk();
+                });
+                sourceBuffer.addEventListener('error', (e) => {
+                    console.error('[Host] SourceBuffer error:', e);
+                });
                 pushChunk(); // Kick off the loop
 
                 video.onplaying = finishWithTrack;
-                video.ontimeupdate = () => {
-                    if (video.currentTime > 0) finishWithTrack();
-                };
-                video.onloadeddata = () => {
-                    video.play().catch(() => {});
+                video.onloadedmetadata = () => {
+                    syncPlaybackToBuffer();
                     setTimeout(finishWithTrack, 50);
                 };
-            });
+                video.ontimeupdate = () => {
+                    finishWithTrack();
+                };
+                video.onloadeddata = () => {
+                    syncPlaybackToBuffer();
+                    setTimeout(finishWithTrack, 50);
+                };
+            }, { once: true });
 
             video.onerror = () => {
                 if (!settled) {
                     settled = true;
-                    reject(new Error("Video decode error"));
+                    const errDetail = video.error ? `${video.error.message} (code ${video.error.code})` : 'unknown';
+                    reject(new Error("Video decode error: " + errDetail));
                 }
             };
 

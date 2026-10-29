@@ -112,6 +112,7 @@ const viewerSlots = new Map();
 const slotViewers = new Map();
 const viewerCtrlType = new Map(); // maps padId -> profileKey
 const viewerHostSlots = new Map(); // maps padId -> requested slot (0..15)
+const viewerModes = new Map(); // maps viewerId -> mode ('gamepad', 'kbm', 'kbm_emulated')
 
 // KBM Emulation State
 const kbmStates = new Map();

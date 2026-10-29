@@ -697,9 +697,9 @@
             <line x1="10" y1="19" x2="14" y2="19"></line>
           </svg>
         </button>
-        <div class="lang-switcher clickable" onclick="document.getElementById('langSelect').focus(); if(typeof document.getElementById('langSelect').showPicker === 'function') { try { document.getElementById('langSelect').showPicker(); } catch(_) {} }">
+        <div class="lang-switcher clickable" onclick="if(event.target.id!=='langSelect'){const s=document.getElementById('langSelect');s.focus();if(typeof s.showPicker==='function'){try{s.showPicker();}catch(_){}}}}">
           <img src="../../assets/icons/globe.svg" class="globe-icon" alt="Lang" onerror="this.style.display='none'">
-          <select id="langSelect" aria-label="Language" title="Language" onchange="saveLangAndReload(this.value)">
+          <select id="langSelect" aria-label="Language" title="Language" onclick="event.stopPropagation()" onchange="saveLangAndReload(this.value)">
           </select>
         </div>
       </div>

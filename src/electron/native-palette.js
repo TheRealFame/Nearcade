@@ -151,7 +151,7 @@ function linuxAccentColor() {
             return execSync(cmd, { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         } catch (_) { return ''; }
     };
-    const de = ((process.env.XDG_CURRENT_DESKTOP || '') + ' ' + (process.env.XDG_SESSION_DESKTOP || '')).toLowerCase();
+    const de = ((process.env.XDG_CURRENT_DESKTOP || '') + ' ' + (process.env.XDG_SESSION_DESKTOP || '') + ' ' + (process.env.DESKTOP_SESSION || '')).toLowerCase();
     const isKde = /(^|[:;])kde|plasma/.test(de);
     const gnomeReader = () => {
         // Honored ONLY on stock Adwaita — Yaru/Windows-11/custom themes
@@ -172,8 +172,10 @@ function linuxAccentColor() {
         // `accentColor` returns empty and the app wrongly falls back to purple.
         const k = run('kreadconfig6 --group General --key AccentColor').trim()
             || run('kreadconfig6 --group General --key accentColor').trim()
+            || run('kreadconfig6 --group "Colors:Selection" --key BackgroundNormal').trim()
             || run('kreadconfig5 --group General --key AccentColor').trim()
-            || run('kreadconfig5 --group General --key accentColor').trim();
+            || run('kreadconfig5 --group General --key accentColor').trim()
+            || run('kreadconfig5 --group "Colors:Selection" --key BackgroundNormal').trim();
         const km = k.match(/^(\d{1,3}),(\d{1,3}),(\d{1,3})$/);
         if (!km) return null;
         const hx = (n) => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0');
