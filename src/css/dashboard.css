@@ -182,6 +182,10 @@
     .lang-switcher:hover .globe-icon {
       opacity: 1;
     }
+    .handheld-mode .lang-switcher #langSelect,
+    html[data-handheld="1"] .lang-switcher #langSelect {
+      pointer-events: none;
+    }
 
     #version-display {
       position: fixed;

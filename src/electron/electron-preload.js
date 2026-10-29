@@ -125,17 +125,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
     process.env.SteamDeck === '1' ||
     process.env.SteamGamepadUI === '1' ||
-    (process.platform === 'linux' && (
-      require('os').hostname() === 'steamdeck' ||
-      (() => {
-        try {
-          const fs = require('fs');
-          const board = fs.existsSync('/sys/class/dmi/id/board_name') ? fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim() : '';
-          const vendor = fs.existsSync('/sys/class/dmi/id/sys_vendor') ? fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim() : '';
-          return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
-        } catch (_) { return false; }
-      })()
-    ))
+    process.env.USER === 'deck' ||
+    (typeof location !== 'undefined' && location.search.includes('handheld=1')) ||
+    (process.platform === 'linux' && (() => {
+      try {
+        const os = require('os');
+        if (os && os.hostname && os.hostname() === 'steamdeck') return true;
+      } catch (_) {}
+      try {
+        const fs = require('fs');
+        const board = fs.existsSync('/sys/class/dmi/id/board_name') ? fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim() : '';
+        const vendor = fs.existsSync('/sys/class/dmi/id/sys_vendor') ? fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim() : '';
+        return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
+      } catch (_) {}
+      return false;
+    })())
   ),
   isPortrait: (
     process.argv.includes('-portrait') ||

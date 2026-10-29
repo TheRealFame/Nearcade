@@ -194,9 +194,9 @@ window.addEventListener('mousemove', (e) => {
   }
   cx = e.clientX;
   cy = e.clientY;
+  // Physical mouse moved: hide the virtual gamepad cursor so it does not render on top of the OS mouse
   if (cursor && cursor.style.display !== 'none') {
-    cursor.style.left = cx + 'px';
-    cursor.style.top = cy + 'px';
+    cursor.style.display = 'none';
   }
   updateVirtualCursorHover(cx, cy);
 }, { passive: true });
@@ -206,8 +206,7 @@ window.addEventListener('touchstart', (e) => {
     cx = e.touches[0].clientX;
     cy = e.touches[0].clientY;
     if (cursor && cursor.style.display !== 'none') {
-      cursor.style.left = cx + 'px';
-      cursor.style.top = cy + 'px';
+      cursor.style.display = 'none';
     }
     updateVirtualCursorHover(cx, cy);
   }
@@ -413,7 +412,9 @@ function openHandheldSelectModal(selectEl) {
     if (selectedBtn) {
       const rect = selectedBtn.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        window.setVirtualCursorPos(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        if (performance.now() - lastGamepadInputTime < 3000) {
+          window.setVirtualCursorPos(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        }
       }
     }
   });
@@ -486,6 +487,11 @@ window.triggerSpatialNavClick = function() {
 
 // Intercept clicks and pointerdown on native select elements and language switchers in handheld mode / Gamescope
 function interceptSelectActivation(e) {
+  // If user clicked with a physical mouse on desktop, do not intercept with the handheld modal
+  if (e.pointerType === 'mouse' && !document.documentElement.classList.contains('handheld-mode') && !window.location.search.includes('handheld=1')) {
+    return;
+  }
+
   const isHandheldActive = document.documentElement.classList.contains('handheld-mode') ||
     (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
     window.location.search.includes('handheld=1') ||

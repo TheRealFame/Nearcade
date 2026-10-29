@@ -430,27 +430,11 @@ const DEFAULT_ACCENT_GLOW = 'rgba(192,132,252,0.35)';
 
 async function applySystemAccent() {
   const indicator = document.getElementById('sysAccentIndicator');
-  if (appConfig.useNativeTheme) {
-    if (indicator) indicator.style.display = 'none';
-    return;
-  }
-
   const useAccent = appConfig.useSystemAccent !== undefined ? appConfig.useSystemAccent : (localStorage.getItem('ns_use_system_accent') === 'true');
   localStorage.setItem('ns_use_system_accent', useAccent ? 'true' : 'false');
   const root = document.documentElement;
 
   const applyDefault = () => {
-    // If native theme is active, let it govern the accent color instead of falling back to purple
-    if (appConfig.useNativeTheme) {
-      const stored = localStorage.getItem('ns_native_theme_payload');
-      if (stored) {
-        try {
-          const t = JSON.parse(stored);
-          if (t.accent) return; // Native theme has an accent, do not overwrite it
-        } catch (_) {}
-      }
-    }
-
     root.style.setProperty('--accent', DEFAULT_ACCENT);
     root.style.setProperty('--accent-rgb', '192, 132, 252');
     root.style.setProperty('--accent2', DEFAULT_ACCENT2);
@@ -603,20 +587,10 @@ async function applyNativeTheme() {
             muted: isDark ? '#9ca3af' : '#4b5563',
             border: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
             accent: accent
-          };
-        } catch (_) {}
-      }
-    }
-          surface: isDark ? '#1e1e24' : '#ffffff',
-          surfaceHover: isDark ? '#282830' : '#f1f3f5',
-          sidebar: isDark ? '#1e1e24' : '#ffffff',
-          text: isDark ? '#f3f4f6' : '#111827',
-          muted: isDark ? '#9ca3af' : '#4b5563',
-          border: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-          accent: accent
         };
       } catch (_) {}
     }
+  }
     if (theme) {
       root.style.setProperty('--bg', theme.bg);
       root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
@@ -648,7 +622,7 @@ async function applyNativeTheme() {
         root.style.setProperty('--bg-rgb', `${bgRgb.r}, ${bgRgb.g}, ${bgRgb.b}`);
       }
 
-      if (theme.accent) {
+      if (theme.accent && appConfig.useSystemAccent !== false && localStorage.getItem('ns_use_system_accent') !== 'false') {
         root.style.setProperty('--accent', theme.accent);
         root.style.setProperty('--accent2', theme.accent);
         const r = parseInt(theme.accent.slice(1, 3), 16);
@@ -658,6 +632,7 @@ async function applyNativeTheme() {
         root.style.setProperty('--accent-dim', `rgba(${r},${g},${b},0.15)`);
         root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},0.35)`);
         root.style.setProperty('--accent-ink', ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) > 0.45 ? '#111116' : '#ffffff');
+        root.dataset.nsAccent = '1';
         
         if (appConfig.hostColor !== theme.accent) {
           appConfig.hostColor = theme.accent;

@@ -54,22 +54,15 @@
           return lum > 0.45 ? '#111116' : '#ffffff';
         };
 
-        r.style.setProperty('--accent', theme.accent);
-        if (theme.accent) {
+        if (useSystemAccent && theme.accent) {
+          r.style.setProperty('--accent', theme.accent);
           const acc = hexToRgb(theme.accent);
-          if (acc) r.style.setProperty('--accent-rgb', `${acc.r}, ${acc.g}, ${acc.b}`);
+          if (acc) {
+            r.style.setProperty('--accent-rgb', `${acc.r}, ${acc.g}, ${acc.b}`);
+            r.style.setProperty('--accent-dim', `rgba(${acc.r},${acc.g},${acc.b},0.15)`);
+            r.style.setProperty('--accent-glow', `rgba(${acc.r},${acc.g},${acc.b},0.35)`);
+          }
           r.style.setProperty('--accent-ink', accentInk(theme.accent));
-        }
-
-        // Compute dims for accent
-        const acc = hexToRgb(theme.accent);
-        if (acc) {
-          r.style.setProperty('--accent-dim', `rgba(${acc.r},${acc.g},${acc.b},0.15)`);
-          r.style.setProperty('--accent-glow', `rgba(${acc.r},${acc.g},${acc.b},0.35)`);
-        }
-        // --accent2 was never set on this branch: anything using it fell back
-        // to the light-purple default even with a live OS accent.
-        if (theme.accent) {
           r.style.setProperty('--accent2', theme.accent);
           r.dataset.nsAccent = '1';
         }
