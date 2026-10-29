@@ -134,6 +134,7 @@
       height: 32px;
       border-radius: 8px;
       background: transparent;
+      cursor: pointer;
       transition: all 0.2s;
     }
     .lang-switcher:hover {

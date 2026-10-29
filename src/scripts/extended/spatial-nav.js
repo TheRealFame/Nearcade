@@ -119,7 +119,8 @@ const CLICKABLE_SELECTOR = [
   '.setting-item',
   '.close-modal',
   '.modal-btn',
-  '.card-clickable'
+  '.card-clickable',
+  '.lang-switcher'
 ].join(', ');
 
 function getClickTargetAt(x, y) {
@@ -127,6 +128,7 @@ function getClickTargetAt(x, y) {
   if (!el || el === document.body || el === document.documentElement) return null;
   const clickable = el.closest(CLICKABLE_SELECTOR);
   if (clickable) return clickable;
+  if (el.closest('.lang-switcher')) return el.closest('.lang-switcher');
   if (typeof el.onclick === 'function' || el.hasAttribute('onclick') || el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'SELECT' || el.tagName === 'INPUT') {
     return el;
   }
@@ -291,14 +293,18 @@ function openHandheldSelectModal(selectEl) {
 
   let title = selectEl.getAttribute('aria-label') || selectEl.title;
   if (!title) {
-    const parentRow = selectEl.closest('.setting-row, .form-group, .input-row, label') || selectEl.parentElement;
-    if (parentRow) {
-      const label = parentRow.querySelector('label, h3, h4, .setting-label, span');
-      if (label && label !== selectEl) title = label.textContent.trim();
+    if (selectEl.id === 'langSelect' || selectEl.classList.contains('lang-select')) {
+      title = 'Language';
+    } else {
+      const parentRow = selectEl.closest('.setting-row, .form-group, .input-row, label') || selectEl.parentElement;
+      if (parentRow) {
+        const label = parentRow.querySelector('label, h3, h4, .setting-label, span');
+        if (label && label !== selectEl) title = label.textContent.trim();
+      }
     }
   }
-  if (!title) {
-    title = selectEl.id || 'Select Option';
+  if (!title || title === 'langSelect') {
+    title = (selectEl.id === 'langSelect') ? 'Language' : (selectEl.id || 'Choose Option');
   }
   if (titleEl) titleEl.textContent = title;
 
@@ -402,7 +408,9 @@ window.triggerSpatialNavClick = function() {
   const target = getClickTargetAt(cx, cy);
   if (!target) return;
 
-  const sel = (target.tagName === 'SELECT') ? target : target.closest('select');
+  const sel = (target.tagName === 'SELECT')
+    ? target
+    : (target.closest('select') || (target.closest('.lang-switcher') ? target.closest('.lang-switcher').querySelector('select') : null) || (target.querySelector ? target.querySelector('select') : null));
   if (sel) {
     openHandheldSelectModal(sel);
     return;
@@ -423,6 +431,27 @@ window.triggerSpatialNavClick = function() {
     try { target.dispatchEvent(new MouseEvent('click', opts)); } catch (_) {}
   }
 };
+
+// Intercept clicks and pointerdown on native select elements and language switchers in handheld mode / Gamescope
+function interceptSelectActivation(e) {
+  const isHandheldActive = document.documentElement.classList.contains('handheld-mode') ||
+    (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
+    window.location.search.includes('handheld=1') ||
+    sessionStorage.getItem('ns_handheld_session') === 'true';
+
+  if (!isHandheldActive) return;
+
+  const switcher = e.target.closest('.lang-switcher');
+  const sel = switcher ? (switcher.querySelector('select') || document.getElementById('langSelect')) : e.target.closest('select');
+  if (sel) {
+    e.preventDefault();
+    e.stopPropagation();
+    openHandheldSelectModal(sel);
+  }
+}
+
+document.addEventListener('pointerdown', interceptSelectActivation, true);
+document.addEventListener('click', interceptSelectActivation, true);
 
 function updateGamepad(time) {
   const dt = Math.min((time - lastTime) / 1000, 0.1); // Cap delta time at 100ms
