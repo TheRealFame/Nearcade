@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSpoutStatus: (cb) => ipcRenderer.on('spout-status', (_e, s) => cb(s)),
 
   refocusWindow: () => ipcRenderer.send('refocus-gamescope-window'),
+  onHardwareGamepad: (cb) => ipcRenderer.on('hardware-gamepad-event', (_e, data) => cb(data)),
 
   isElectron: true,
   isHandheld: (
@@ -140,4 +141,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     process.argv.includes('-portrait') ||
     process.argv.includes('--portrait')
   ),
+});
+
+ipcRenderer.on('hardware-gamepad-event', (_e, data) => {
+  try {
+    window.postMessage({ type: 'NEARCADE_HARDWARE_GAMEPAD', data }, '*');
+  } catch (_) {}
 });

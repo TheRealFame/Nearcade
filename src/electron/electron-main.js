@@ -402,6 +402,83 @@ function scheduleGamescopeRefocus(targetWin) {
   setTimeout(() => refocusGamescopeWindow(targetWin), 1200);
 }
 
+function startLinuxJoystickBridge(targetWin) {
+  if (process.platform !== 'linux') return;
+  const fs = require('fs');
+
+  let activeStream = null;
+  let retryTimer = null;
+
+  function tryOpenJoystick() {
+    if (!targetWin || targetWin.isDestroyed()) return;
+    const jsPath = '/dev/input/js0';
+    if (!fs.existsSync(jsPath)) {
+      retryTimer = setTimeout(tryOpenJoystick, 2000);
+      return;
+    }
+
+    try {
+      const stream = fs.createReadStream(jsPath);
+      activeStream = stream;
+      let lastAxes = {};
+
+      stream.on('data', (chunk) => {
+        if (!targetWin || targetWin.isDestroyed()) return;
+        for (let i = 0; i + 8 <= chunk.length; i += 8) {
+          const val = chunk.readInt16LE(i + 4);
+          const type = chunk.readUInt8(i + 6);
+          const num = chunk.readUInt8(i + 7);
+          const isInit = (type & 0x80) !== 0;
+          const actualType = type & ~0x80;
+
+          if (actualType === 2) {
+            // Axis event
+            const norm = Math.max(-1, Math.min(1, val / 32767.0));
+            if (!isInit) {
+              if (Math.abs((lastAxes[num] || 0) - norm) > 0.015 || (norm === 0 && lastAxes[num] !== 0)) {
+                lastAxes[num] = norm;
+                try {
+                  targetWin.webContents.send('hardware-gamepad-event', { type: 'axis', num, val: norm });
+                } catch (_) {}
+              }
+            }
+          } else if (actualType === 1) {
+            // Button event
+            if (!isInit) {
+              try {
+                targetWin.webContents.send('hardware-gamepad-event', { type: 'button', num, pressed: val === 1 });
+              } catch (_) {}
+            }
+          }
+        }
+      });
+
+      stream.on('error', () => {
+        try { stream.destroy(); } catch (_) {}
+        activeStream = null;
+        retryTimer = setTimeout(tryOpenJoystick, 2000);
+      });
+
+      stream.on('close', () => {
+        activeStream = null;
+        retryTimer = setTimeout(tryOpenJoystick, 2000);
+      });
+    } catch (_) {
+      retryTimer = setTimeout(tryOpenJoystick, 2000);
+    }
+  }
+
+  tryOpenJoystick();
+
+  targetWin.on('closed', () => {
+    if (retryTimer) clearTimeout(retryTimer);
+    if (activeStream) {
+      try { activeStream.destroy(); } catch (_) {}
+      activeStream = null;
+    }
+  });
+}
+
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
@@ -550,6 +627,10 @@ async function createWindow() {
     },
     autoHideMenuBar: true,
   });
+
+  if (process.platform === 'linux') {
+    startLinuxJoystickBridge(win);
+  }
 
   if (isGamescopeEnv) {
     applyGamescopeScaler();

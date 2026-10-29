@@ -220,6 +220,37 @@ window.addEventListener('click', () => {
 // Persistent per-gamepad button states across animation frames
 const gpButtonStates = new Map();
 
+const hardwareGamepad = {
+  axes: [0, 0, 0, 0, 0, 0, 0, 0],
+  buttons: {}
+};
+
+function handleHardwareGamepadMessage(d) {
+  if (!d) return;
+  if (d.type === 'axis') {
+    hardwareGamepad.axes[d.num] = d.val;
+    if (Math.abs(d.val) > 0.18) {
+      showCursor();
+    }
+  } else if (d.type === 'button') {
+    hardwareGamepad.buttons[d.num] = d.pressed;
+    if (d.pressed) {
+      showCursor();
+    }
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'NEARCADE_HARDWARE_GAMEPAD') {
+      handleHardwareGamepadMessage(e.data.data);
+    }
+  });
+  if (window.electronAPI && typeof window.electronAPI.onHardwareGamepad === 'function') {
+    window.electronAPI.onHardwareGamepad(handleHardwareGamepadMessage);
+  }
+}
+
 // ── Gamepad Layout & Prompts ────────────────────────────────────────────────
 function detectGamepadLayout(gamepad) {
   if (!gamepad && typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
@@ -504,8 +535,10 @@ function updateGamepad(time) {
   let hasGamepadActivity = false;
 
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let foundPad = false;
   for (const p of pads) {
     if (!p) continue;
+    foundPad = true;
 
     const layout = detectGamepadLayout(p);
     if (window._lastNavLayout !== layout) {
@@ -633,6 +666,137 @@ function updateGamepad(time) {
         state.start = true;
         if (closeSelectPickerModal()) {
           // Closed select picker modal
+        } else {
+          const gpModal = document.getElementById('gpModal');
+          if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
+            gpModal.classList.remove('open');
+            gpModal.style.display = '';
+          } else {
+            let closed = false;
+            if (typeof handleHandheldBack === 'function') {
+              closed = handleHandheldBack();
+            }
+            if (!closed && typeof exitNearcadeApp === 'function') {
+              exitNearcadeApp();
+            }
+          }
+        }
+      }
+    } else {
+      state.start = false;
+    }
+
+    if (Math.abs(sx) > 0 || Math.abs(sy) > 0 || selectPressed || backPressed || docsPressed || friendsPressed || pausePressed) {
+      hasGamepadActivity = true;
+    }
+  }
+
+  // Direct Linux hardware joystick bridge fallback when Web Gamepad API has no pads (e.g. Steam Deck gesture requirement)
+  if (!foundPad) {
+    const hwAxes = hardwareGamepad.axes;
+    const hwButtons = hardwareGamepad.buttons;
+
+    const layout = 'xbox';
+    if (window._lastNavLayout !== layout) {
+      window._lastNavLayout = layout;
+      updateHandheldPromptGlyphs(layout);
+    }
+
+    let state = gpButtonStates.get('hardware');
+    if (!state) {
+      state = { select: false, back: false, docs: false, friends: false, start: false, dpadLR: false };
+      gpButtonStates.set('hardware', state);
+    }
+
+    const deadzone = 0.18;
+    const lx = hwAxes[0] || 0;
+    const ly = hwAxes[1] || 0;
+    const rx = hwAxes[3] || 0;
+    const ry = hwAxes[4] || 0;
+
+    let sx = Math.abs(lx) > deadzone ? lx : 0;
+    let sy = Math.abs(ly) > deadzone ? ly : 0;
+
+    if (Math.abs(sx) === 0 && Math.abs(sy) === 0) {
+      if (Math.abs(rx) > deadzone) sx = rx;
+      if (Math.abs(ry) > deadzone) sy = ry;
+    }
+
+    // D-Pad (axes 6 & 7)
+    const dpx = hwAxes[6] || 0;
+    const dpy = hwAxes[7] || 0;
+    if (Math.abs(dpx) > 0.5 && Math.abs(sx) === 0) sx = Math.sign(dpx);
+    if (Math.abs(dpy) > 0.5 && Math.abs(sy) === 0) sy = Math.sign(dpy);
+
+    activeSx = sx;
+    activeSy = sy;
+
+    // D-Pad Left / Right option cycling when on a select element
+    const dpadLeft = dpx < -0.5;
+    const dpadRight = dpx > 0.5;
+
+    if (dpadLeft || dpadRight) {
+      const hoverEl = getClickTargetAt(cx, cy);
+      const selTarget = (hoverEl && (hoverEl.tagName === 'SELECT' || hoverEl.closest('select'))) ? (hoverEl.tagName === 'SELECT' ? hoverEl : hoverEl.closest('select')) : (document.activeElement && document.activeElement.tagName === 'SELECT' ? document.activeElement : null);
+      if (selTarget && !state.dpadLR) {
+        state.dpadLR = true;
+        cycleSelectOption(selTarget, dpadRight ? 1 : -1);
+      }
+    } else {
+      state.dpadLR = false;
+    }
+
+    const selectPressed = !!hwButtons[0]; // A
+    const backPressed = !!hwButtons[1];   // B
+    const docsPressed = !!hwButtons[2];   // X
+    const friendsPressed = !!hwButtons[3];// Y
+    const pausePressed = !!hwButtons[7];  // Start/Menu
+
+    if (selectPressed) {
+      if (!state.select) {
+        state.select = true;
+        window.triggerSpatialNavClick();
+      }
+    } else {
+      state.select = false;
+    }
+
+    if (backPressed) {
+      if (!state.back) {
+        state.back = true;
+        if (closeSelectPickerModal()) {
+        } else if (typeof handleHandheldBack === 'function') {
+          handleHandheldBack();
+        }
+      }
+    } else {
+      state.back = false;
+    }
+
+    if (docsPressed) {
+      if (!state.docs) {
+        state.docs = true;
+        if (typeof handleHandheldX === 'function') handleHandheldX();
+        else if (typeof openDocs === 'function') openDocs();
+      }
+    } else {
+      state.docs = false;
+    }
+
+    if (friendsPressed) {
+      if (!state.friends) {
+        state.friends = true;
+        if (typeof handleHandheldY === 'function') handleHandheldY();
+        else if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
+      }
+    } else {
+      state.friends = false;
+    }
+
+    if (pausePressed) {
+      if (!state.start) {
+        state.start = true;
+        if (closeSelectPickerModal()) {
         } else {
           const gpModal = document.getElementById('gpModal');
           if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
