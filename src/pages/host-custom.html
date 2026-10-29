@@ -458,7 +458,7 @@
         window.electronAPI.backToDashboard();
         return true;
       } else {
-        window.location.href = '/dashboard';
+        window.location.href = '/dashboard' + (document.documentElement.classList.contains('handheld-mode') ? '?handheld=1&noAutoHost=1' : '');
         return true;
       }
     }

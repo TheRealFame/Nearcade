@@ -31,6 +31,17 @@ if (!document.getElementById('virtual-cursor-style')) {
       transform: scale(0.6);
       background: var(--text, #fff);
     }
+    .spatial-hover,
+    button.spatial-hover,
+    .nav-btn.spatial-hover,
+    .clickable.spatial-hover,
+    .radio-card.spatial-hover,
+    .more-card.spatial-hover,
+    .select-picker-item.spatial-hover {
+      outline: 2px solid var(--accent, #c084fc) !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
+    }
   `;
   document.head.appendChild(st);
 }
@@ -78,10 +89,79 @@ window.addEventListener('gamepadconnected', () => {
   showCursor();
 });
 
+let currentHoverTarget = null;
+
+const CLICKABLE_SELECTOR = [
+  'button',
+  'a[href]',
+  'input',
+  'select',
+  'textarea',
+  '[onclick]',
+  '[role="button"]',
+  '[tabindex]',
+  '.nav-btn',
+  '.clickable',
+  '.more-card',
+  '.radio-card',
+  '.toggle',
+  '.custom-select',
+  '.select-picker-item',
+  '.chip',
+  '.prompt-chip',
+  '.sidebar-item',
+  '.setting-row',
+  '.device-row',
+  '.action-btn',
+  '.btn',
+  '.icon-btn',
+  '.tab',
+  '.setting-item',
+  '.close-modal',
+  '.modal-btn',
+  '.card-clickable'
+].join(', ');
+
+function getClickTargetAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el || el === document.body || el === document.documentElement) return null;
+  const clickable = el.closest(CLICKABLE_SELECTOR);
+  if (clickable) return clickable;
+  if (typeof el.onclick === 'function' || el.hasAttribute('onclick') || el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'SELECT' || el.tagName === 'INPUT') {
+    return el;
+  }
+  return null;
+}
+
+function updateVirtualCursorHover(x, y) {
+  const target = getClickTargetAt(x, y);
+  if (target !== currentHoverTarget) {
+    if (currentHoverTarget) {
+      currentHoverTarget.classList.remove('spatial-hover', 'virtual-hover');
+      try {
+        currentHoverTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, clientX: x, clientY: y }));
+        currentHoverTarget.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: x, clientY: y }));
+      } catch (_) {}
+    }
+    currentHoverTarget = target;
+    if (currentHoverTarget) {
+      currentHoverTarget.classList.add('spatial-hover', 'virtual-hover');
+      try {
+        currentHoverTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: x, clientY: y }));
+        currentHoverTarget.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
+      } catch (_) {}
+    }
+  }
+}
+
 window.setVirtualCursorPos = function(x, y) {
   cx = Math.max(0, Math.min(window.innerWidth, x));
   cy = Math.max(0, Math.min(window.innerHeight, y));
   showCursor();
+  updateVirtualCursorHover(cx, cy);
+  if (window.electronAPI && typeof window.electronAPI.syncCursorPos === 'function') {
+    window.electronAPI.syncCursorPos(cx, cy);
+  }
 };
 
 window.addEventListener('mousemove', (e) => {
@@ -95,6 +175,7 @@ window.addEventListener('mousemove', (e) => {
     cursor.style.left = cx + 'px';
     cursor.style.top = cy + 'px';
   }
+  updateVirtualCursorHover(cx, cy);
 }, { passive: true });
 
 window.addEventListener('touchstart', (e) => {
@@ -105,6 +186,7 @@ window.addEventListener('touchstart', (e) => {
       cursor.style.left = cx + 'px';
       cursor.style.top = cy + 'px';
     }
+    updateVirtualCursorHover(cx, cy);
   }
 }, { passive: true });
 
@@ -114,13 +196,6 @@ window.addEventListener('click', () => {
 
 // Persistent per-gamepad button states across animation frames
 const gpButtonStates = new Map();
-
-function getClickTargetAt(x, y) {
-  const el = document.elementFromPoint(x, y);
-  if (!el) return null;
-  const clickable = el.closest('button, a, input, select, textarea, [onclick], .nav-btn, .clickable, .more-card, .radio-card, .toggle, .custom-select');
-  return clickable || el;
-}
 
 // ── Gamepad Layout & Prompts ────────────────────────────────────────────────
 function detectGamepadLayout(gamepad) {
@@ -324,27 +399,28 @@ window.triggerSpatialNavClick = function() {
     setTimeout(() => { if (cursor) cursor.classList.remove('clicking'); }, 150);
   }
 
-  let target = getClickTargetAt(cx, cy);
+  const target = getClickTargetAt(cx, cy);
+  if (!target) return;
 
-  if (!target && document.activeElement && document.activeElement !== document.body) {
-    target = document.activeElement;
+  const sel = (target.tagName === 'SELECT') ? target : target.closest('select');
+  if (sel) {
+    openHandheldSelectModal(sel);
+    return;
   }
 
-  if (target) {
-    const sel = (target.tagName === 'SELECT') ? target : target.closest('select');
-    if (sel) {
-      openHandheldSelectModal(sel);
-      return;
-    }
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+    target.focus();
+  }
 
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-      target.focus();
-    }
-    if (typeof target.click === 'function') {
-      target.click();
-    } else {
-      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    }
+  const opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
+  try { target.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
+  try { target.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (_) {}
+  try { target.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
+  try { target.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (_) {}
+  if (typeof target.click === 'function') {
+    target.click();
+  } else {
+    try { target.dispatchEvent(new MouseEvent('click', opts)); } catch (_) {}
   }
 };
 
@@ -393,18 +469,34 @@ function updateGamepad(time) {
       gpButtonStates.set(p.index, state);
     }
 
-    // Read Thumbsticks and D-Pad
-    const gdx = p.axes[0] || 0;
-    const gdy = p.axes[1] || 0;
+    // Read Thumbsticks: Left Stick (axes 0 & 1) and Right Stick / Trackpad (axes 2 & 3)
     const deadzone = 0.18;
+    const lx = p.axes[0] || 0;
+    const ly = p.axes[1] || 0;
+    const rx = (p.axes.length >= 4) ? (p.axes[2] || 0) : 0;
+    const ry = (p.axes.length >= 4) ? (p.axes[3] || 0) : 0;
 
-    let sx = Math.abs(gdx) > deadzone ? gdx : 0;
-    let sy = Math.abs(gdy) > deadzone ? gdy : 0;
+    let sx = Math.abs(lx) > deadzone ? lx : 0;
+    let sy = Math.abs(ly) > deadzone ? ly : 0;
+
+    // If left stick is idle, fall back to right stick / trackpad
+    if (Math.abs(sx) === 0 && Math.abs(sy) === 0) {
+      if (Math.abs(rx) > deadzone) sx = rx;
+      if (Math.abs(ry) > deadzone) sy = ry;
+    }
 
     if (p.buttons[12] && (p.buttons[12].pressed || p.buttons[12].value > 0.5)) sy = -1;
     if (p.buttons[13] && (p.buttons[13].pressed || p.buttons[13].value > 0.5)) sy = 1;
     if (p.buttons[14] && (p.buttons[14].pressed || p.buttons[14].value > 0.5)) sx = -1;
     if (p.buttons[15] && (p.buttons[15].pressed || p.buttons[15].value > 0.5)) sx = 1;
+
+    // Linux evdev/xpad D-Pad axes fallback (axes 6 & 7)
+    if (p.axes.length >= 8) {
+      const dpx = p.axes[6] || 0;
+      const dpy = p.axes[7] || 0;
+      if (Math.abs(dpx) > 0.5 && Math.abs(sx) === 0) sx = Math.sign(dpx);
+      if (Math.abs(dpy) > 0.5 && Math.abs(sy) === 0) sy = Math.sign(dpy);
+    }
 
     // Pick maximum stick deflection across controllers without summing drift
     if (Math.hypot(sx, sy) > Math.hypot(activeSx, activeSy)) {
@@ -548,8 +640,13 @@ function updateGamepad(time) {
   cx = Math.max(0, Math.min(window.innerWidth, cx));
   cy = Math.max(0, Math.min(window.innerHeight, cy));
 
+  updateVirtualCursorHover(cx, cy);
+
   if (Math.abs(totalDx) > 0.05 || Math.abs(totalDy) > 0.05) {
     showCursor();
+    if (window.electronAPI && typeof window.electronAPI.syncCursorPos === 'function') {
+      window.electronAPI.syncCursorPos(cx, cy);
+    }
   }
 
   requestAnimationFrame(updateGamepad);

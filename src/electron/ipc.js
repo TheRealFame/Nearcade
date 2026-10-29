@@ -275,6 +275,23 @@ function registerIpcHandlers(ctx) {
     return screen.getCursorScreenPoint();
   });
 
+  let lastCursorSyncTime = 0;
+  ipcMain.on('sync-cursor-pos', (_event, pos) => {
+    if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
+    const now = Date.now();
+    if (now - lastCursorSyncTime < 32) return;
+    lastCursorSyncTime = now;
+    if (ctx.win && !ctx.win.isDestroyed() && ctx.win.webContents) {
+      try {
+        ctx.win.webContents.sendInputEvent({
+          type: 'mouseMove',
+          x: Math.round(pos.x),
+          y: Math.round(pos.y),
+        });
+      } catch (_) {}
+    }
+  });
+
   ipcMain.handle('check-gstreamer-deps', () => {
     if (process.platform !== 'linux') return false;
     // Native Rust backend counts too — no Python needed for it.

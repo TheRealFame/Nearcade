@@ -1430,6 +1430,9 @@ async function launchHostSession(opts = {}) {
     else if (uiVer === 'playground') path = '/host-playground';
     else if (uiVer === 'custom') path = '/host-custom';
     const targetUrl = new URL(path, `http://127.0.0.1:${port}`);
+    if (document.documentElement.classList.contains('handheld-mode')) {
+      targetUrl.searchParams.set('handheld', '1');
+    }
     window.location.href = targetUrl.href;
   }
 }

@@ -286,7 +286,7 @@
             style="background:var(--surface);border:1px solid var(--border);padding:4px 8px;border-radius:6px;color:var(--muted);cursor:pointer;font-size:10px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
             onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
             onmouseleave="this.style.color='var(--muted)'; this.style.borderColor='var(--border)';">VIEWERS</button>
-          <button onclick="if (window.electronAPI && typeof window.electronAPI.backToDashboard === 'function') { window.electronAPI.backToDashboard(); } else { window.location.href='/dashboard'; }" title="Back to Dashboard"
+          <button onclick="if (window.electronAPI && typeof window.electronAPI.backToDashboard === 'function') { window.electronAPI.backToDashboard(); } else { window.location.href='/dashboard' + (document.documentElement.classList.contains('handheld-mode') ? '?handheld=1&noAutoHost=1' : ''); }" title="Back to Dashboard"
             style="background: var(--surface); border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: bold; font-family: var(--mono); transition: all 0.2s;"
             onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
             onmouseleave="this.style.color='var(--muted)'; this.style.borderColor='var(--border)';">
@@ -576,7 +576,7 @@
         window.electronAPI.backToDashboard();
         return true;
       } else {
-        window.location.href = '/dashboard';
+        window.location.href = '/dashboard' + (document.documentElement.classList.contains('handheld-mode') ? '?handheld=1&noAutoHost=1' : '');
         return true;
       }
     }

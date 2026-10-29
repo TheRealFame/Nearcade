@@ -1180,7 +1180,7 @@
 
 <body>
   <!-- DASHBOARD BACK BUTTON -->
-  <button onclick="if(window.electronAPI) window.electronAPI.backToDashboard(); else window.location.href='/dashboard';" 
+  <button onclick="if(window.electronAPI) window.electronAPI.backToDashboard(); else window.location.href='/dashboard' + (document.documentElement.classList.contains('handheld-mode') ? '?handheld=1&noAutoHost=1' : '');" 
     style="position:fixed; bottom:24px; left:0; opacity:0.8; z-index:999999; padding:12px 20px; background:#141414; color:#aaa; border:1px solid #252525; border-left:none; border-radius:0 8px 8px 0; font-family:monospace; font-weight:bold; cursor:pointer; transition:all 0.2s;"
     onmouseover="this.style.opacity='1'; this.style.color='#c084fc'; this.style.borderColor='#c084fc';"
     onmouseleave="this.style.opacity='0.8'; this.style.color='#aaa'; this.style.borderColor='#252525';">
@@ -1544,7 +1544,7 @@
         window.electronAPI.backToDashboard();
         return true;
       } else {
-        window.location.href = '/dashboard';
+        window.location.href = '/dashboard' + (document.documentElement.classList.contains('handheld-mode') ? '?handheld=1&noAutoHost=1' : '');
         return true;
       }
     }

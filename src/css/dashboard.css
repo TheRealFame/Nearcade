@@ -1364,8 +1364,20 @@ html.handheld-mode .handheld-status-bar {
 
 /* Handheld & TV Layout Adjustments (Optimized for 16:10 and 16:9 Aspect Ratios, e.g. 1280x800 Steam Deck, 1280x720, 1080p TVs) */
 html.handheld-mode {
-  zoom: 1.2;
   --sidebar-width: 220px;
+}
+html.handheld-mode .spatial-hover,
+html.handheld-mode button.spatial-hover,
+html.handheld-mode .nav-btn.spatial-hover,
+html.handheld-mode .clickable.spatial-hover,
+html.handheld-mode .connect-card.spatial-hover,
+html.handheld-mode .info-card.spatial-hover,
+html.handheld-mode .radio-card.spatial-hover,
+html.handheld-mode .more-card.spatial-hover,
+html.handheld-mode .select-picker-item.spatial-hover {
+  outline: 2px solid var(--accent, #c084fc) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
 }
 html.handheld-mode #docsFloatBtn,
 html.handheld-mode #gamesLibraryBtn {
