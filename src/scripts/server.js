@@ -2164,6 +2164,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
   });
 
   let hostStreaming = false;
+  let lastStreamThumbnail = null;
+  let currentRoomCode = null;
   let _hostDisplayName = 'Host';
   const audioViewers = new Set();
   const viewerGamepads = new Map();
@@ -2274,6 +2276,12 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
   app.get("/api/decky/status", adminMiddleware, (req, res) => {
     const cfg = loadConfig();
     const lan = getLanIP();
+    const friendsCfg = getFriendsConfig();
+    const now = Date.now();
+    const ONLINE_WINDOW_MS = 10 * 60 * 1000;
+    const onlineFriends = (friendsCfg.friends || []).filter(f => f.lastAt && (now - f.lastAt) <= ONLINE_WINDOW_MS);
+    const effectiveRoomCode = currentRoomCode || (cfg.tunnelProvider === 'p2p' ? cfg.p2pRoomCode : null) || null;
+
     res.json({
       online: !!hostWS,
       streaming: hostStreaming,
@@ -2282,9 +2290,17 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       pin: PIN,
       pinEnabled: pinEnabled,
       tunnelUrl: tunnelUrl || null,
+      tunnelProvider: cfg.tunnelProvider || 'none',
       lanIp: lan,
       lanUrl: `http://${lan}:${PORT}/`,
       inviteUrl: `http://${lan}:${PORT}/?pin=${PIN}`,
+      roomCode: effectiveRoomCode,
+      p2pJoinUrl: effectiveRoomCode ? `https://nearcade.cutefame.net/?room=${effectiveRoomCode}` : null,
+      hasPreview: !!lastStreamThumbnail,
+      preview: lastStreamThumbnail,
+      friendsCount: (friendsCfg.friends || []).length,
+      onlineFriendsCount: onlineFriends.length,
+      pendingInvitesCount: pendingP2PInvites.size,
       roster: getCurrentRoster(),
       fps: cfg.targetFps || 60,
       resolution: cfg.resolution || '1280x800',
@@ -2292,6 +2308,79 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       volumeDesktop: cfg.volumeDesktop ?? 100,
       volumeViewers: cfg.volumeViewers ?? 100
     });
+  });
+
+  app.get("/api/decky/preview", adminMiddleware, (req, res) => {
+    if (!lastStreamThumbnail) {
+      return res.status(204).end();
+    }
+    const match = lastStreamThumbnail.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      const mime = match[1];
+      const buf = Buffer.from(match[2], 'base64');
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.send(buf);
+    }
+    res.status(204).end();
+  });
+
+  app.get("/api/decky/friends", adminMiddleware, (req, res) => {
+    const { enabled, myUuid, friends } = getFriendsConfig();
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (const [k, v] of pendingP2PInvites) {
+      if (v.at < cutoff) pendingP2PInvites.delete(k);
+    }
+    const invites = [...pendingP2PInvites.values()].sort((a, b) => b.at - a.at);
+    const ONLINE_WINDOW_MS = 10 * 60 * 1000;
+    const now = Date.now();
+    const friendsWithStatus = (friends || []).map(f => {
+      const { secret, ...rest } = f;
+      return {
+        ...rest,
+        lastAt: f.lastAt || 0,
+        online: !!f.lastAt && (now - f.lastAt) <= ONLINE_WINDOW_MS
+      };
+    });
+    res.json({
+      enabled,
+      myUuid,
+      friends: friendsWithStatus,
+      invites
+    });
+  });
+
+  app.post("/api/decky/invite-friend", adminMiddleware, express.json(), async (req, res) => {
+    const { uuid } = req.body || {};
+    const code = currentRoomCode || req.body.roomCode;
+    if (!code) {
+      return res.status(400).json({ ok: false, error: 'No active P2P room code to invite with' });
+    }
+    const { myUuid, friends } = getFriendsConfig();
+    const friend = friends.find(f => f.uuid === uuid);
+    if (!friend) return res.status(404).json({ ok: false, error: 'friend not found' });
+    if (!friend.secret) return res.status(400).json({ ok: false, error: 'friend not paired yet' });
+    const target = String(friend.url || '').trim();
+    if (!target || !/^https?:\/\//i.test(target)) return res.status(400).json({ ok: false, error: 'friend has no session link yet' });
+
+    try {
+      const endpoint = target.replace(/\/+$/, '') + '/api/p2p-invite';
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const ts = Date.now();
+      const sig = _friendSig(friend.secret, [myUuid, ts, code]);
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromUuid: myUuid, fromName: _hostDisplayName || 'Host', roomCode: code, ts, sig }),
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+      const data = await r.json().catch(() => ({}));
+      res.json({ ok: true, delivered: r.ok && data.ok === true });
+    } catch (e) {
+      res.json({ ok: true, delivered: false, error: e.message });
+    }
   });
 
   app.post('/api/viewer-kick', adminMiddleware, express.json(), (req, res) => {
@@ -2788,6 +2877,17 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
             return;
           }
 
+          if (msg.type === "stream-thumbnail") {
+            lastStreamThumbnail = msg.thumbnail || null;
+            if (msg.roomCode) currentRoomCode = msg.roomCode;
+            return;
+          }
+
+          if (msg.type === "p2p-room-code") {
+            currentRoomCode = msg.roomCode || null;
+            return;
+          }
+
           if (msg.type === "host-stream-ready") {
             hostStreaming = true;
             hostStreamTitle = msg.title || "";
@@ -2795,6 +2895,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
           if (msg.type === "host-stream-stopped") {
             hostStreaming = false;
             hostStreamTitle = "";
+            lastStreamThumbnail = null;
+            currentRoomCode = null;
             for (const [id, s] of arcadeSessions) {
               arcadeSessions.delete(id);
               broadcastToArcade({ type: 'arcade-session-stopped', id });
@@ -2944,6 +3046,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
         console.log("[host] disconnected");
         hostWS = null;
         hostStreaming = false;
+        lastStreamThumbnail = null;
+        currentRoomCode = null;
         for (const [id] of arcadeSessions) {
           arcadeSessions.delete(id);
           broadcastToArcade({ type: 'arcade-session-stopped', id });

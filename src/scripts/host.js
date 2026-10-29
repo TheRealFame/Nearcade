@@ -2723,6 +2723,71 @@ async function swapPipeline(newPipeline) {
     }
 }
 
+let _deckyPreviewCanvas = null;
+let _deckyPreviewInterval = null;
+
+function setHostP2PCode(code) {
+    window._p2pCode = code;
+    if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'p2p-room-code', roomCode: code }));
+    }
+}
+
+function _captureStreamThumbnail() {
+    try {
+        const vid = document.getElementById('preview') || document.getElementById('ffmpeg-hidden-video');
+        const mjpeg = document.getElementById('ns-gstreamer-mjpeg');
+        const srcEl = (vid && vid.readyState >= 2 && vid.videoWidth) ? vid : ((mjpeg && mjpeg.naturalWidth) ? mjpeg : null);
+        if (!srcEl) return null;
+        const srcW = srcEl.videoWidth || srcEl.naturalWidth;
+        const srcH = srcEl.videoHeight || srcEl.naturalHeight;
+        if (!srcW || !srcH) return null;
+        if (!_deckyPreviewCanvas) _deckyPreviewCanvas = document.createElement('canvas');
+        const w = 320;
+        const h = Math.round((srcH / srcW) * w) || 180;
+        _deckyPreviewCanvas.width = w;
+        _deckyPreviewCanvas.height = h;
+        const ctx = _deckyPreviewCanvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(srcEl, 0, 0, w, h);
+        return _deckyPreviewCanvas.toDataURL('image/jpeg', 0.55);
+    } catch (_) {
+        return null;
+    }
+}
+
+function _startStreamThumbnailLoop() {
+    if (_deckyPreviewInterval) return;
+    _deckyPreviewInterval = setInterval(() => {
+        if (!streamActive && !currentStream) {
+            _stopStreamThumbnailLoop();
+            return;
+        }
+        const thumb = _captureStreamThumbnail();
+        if (thumb && ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({
+                type: 'stream-thumbnail',
+                thumbnail: thumb,
+                roomCode: window._p2pCode || null
+            }));
+        }
+    }, 2500);
+}
+
+function _stopStreamThumbnailLoop() {
+    if (_deckyPreviewInterval) {
+        clearInterval(_deckyPreviewInterval);
+        _deckyPreviewInterval = null;
+    }
+    if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({
+            type: 'stream-thumbnail',
+            thumbnail: null,
+            roomCode: window._p2pCode || null
+        }));
+    }
+}
+
 async function startCapture() {
     // A fresh attempt must never inherit suppress flags from a previous one.
     window._portalAttemptFailed = false;
@@ -2856,6 +2921,7 @@ async function startCapture() {
                     log(`GStreamer WebRTC Pipeline Running (${hwStr})!`, 'ok');
                     setCapDot('live', 'GStreamer WebRTC');
                     ws.send(JSON.stringify({ type: 'host-stream-ready', title: selectedSourceName || '' }));
+                    _startStreamThumbnailLoop();
                     sysChat('Native WebRTC daemon started.');
 
                     // Update UI: Connect to the new GStreamer MJPEG local server!
@@ -3501,6 +3567,7 @@ async function startCapture() {
         }, 500);
 
         ws.send(JSON.stringify({ type: 'host-stream-ready', title: (vTrack.label?.split('(')[0].trim() || '') }));
+        _startStreamThumbnailLoop();
         sysChat(I18N.t('Stream started.'));
         [...knownViewers].forEach(id => sendOfferToViewer(id));
 
@@ -3721,6 +3788,7 @@ function stopCapture() {
             ws.send(JSON.stringify({ type: 'arcade-session-stop' }));
         }
         ws.send(JSON.stringify({ type: 'host-stream-stopped' }));
+        _stopStreamThumbnailLoop();
     }
     
     if (window.P2PManager && window.P2PManager.hostSession) {
@@ -3835,7 +3903,7 @@ async function restoreTunnelAfterP2PInvite(provider) {
         crypto.getRandomValues(array);
         const code = array[0].toString(36).padStart(6, '0') + '-' + array[1].toString(36).padStart(6, '0');
         window._isP2P = true;
-        window._p2pCode = code;
+        setHostP2PCode(code);
         window._p2pInviteUuid = null;
         window._p2pInviteAt = null;
         window._p2pPeerCount = 0;
@@ -3843,7 +3911,7 @@ async function restoreTunnelAfterP2PInvite(provider) {
         log(I18N.t('P2P session over — new P2P room ready'), 'ok');
     } else {
         window._isP2P = false;
-        window._p2pCode = null;
+        setHostP2PCode(null);
         window._p2pInviteUuid = null;
         window._p2pInviteAt = null;
         window._p2pPeerCount = 0;
@@ -5657,7 +5725,7 @@ function doStartTunnel(provider, remember, zrokToken, cfToken, bypassCustomUrl =
 
         // Clear P2P UI locks
         window._isP2P = false;
-        window._p2pCode = null;
+        setHostP2PCode(null);
         const pinRow = document.querySelector('.pin-row');
         if (pinRow) {
             pinRow.style.opacity = '1';
@@ -5694,7 +5762,7 @@ function doStartTunnel(provider, remember, zrokToken, cfToken, bypassCustomUrl =
 
     // Clear any active P2P flags so renderUrls displays the HTTPS link again
     window._isP2P = false;
-    window._p2pCode = null;
+    setHostP2PCode(null);
     window._globalTunnelUrl = '';
 
     const pinRow2 = document.querySelector('.pin-row');
@@ -5749,7 +5817,7 @@ function proceedP2POnly() {
 
     // Set the global P2P flags for renderUrls to consume
     window._isP2P = true;
-    window._p2pCode = code;
+    setHostP2PCode(code);
 
     // Force PIN off for P2P mode (the 12-char room code acts as the security)
     pinEnabled = false;
@@ -5956,7 +6024,7 @@ async function inviteFriendToP2P(uuid) {
 
     // Set the global P2P flags so renderUrls shows the room code instead of the tunnel
     window._isP2P = true;
-    window._p2pCode = code;
+    setHostP2PCode(code);
     window._p2pInviteUuid = uuid;
     window._p2pInviteAt = Date.now();
     window._p2pPeerCount = 0;
