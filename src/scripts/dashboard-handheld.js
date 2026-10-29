@@ -356,6 +356,7 @@ function openHandheldSelectModal(selectEl) {
     btn.type = 'button';
     btn.className = 'select-picker-item nav-btn clickable';
     const isSelected = opt.value === currentVal || opt.selected;
+    if (isSelected) btn.classList.add('selected');
     btn.style.cssText = `
       display: flex;
       align-items: center;
@@ -395,13 +396,15 @@ function openHandheldSelectModal(selectEl) {
   modal.classList.add('open');
   modal.style.display = 'flex';
 
-  const selectedBtn = listEl.querySelector('.select-picker-item');
-  if (selectedBtn) {
-    const rect = selectedBtn.getBoundingClientRect();
-    if (typeof window.setVirtualCursorPos === 'function') {
-      window.setVirtualCursorPos(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  requestAnimationFrame(() => {
+    const selectedBtn = listEl.querySelector('.select-picker-item.selected') || listEl.querySelector('.select-picker-item');
+    if (selectedBtn) {
+      const rect = selectedBtn.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && typeof window.setVirtualCursorPos === 'function') {
+        window.setVirtualCursorPos(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
     }
-  }
+  });
 }
 
 function closeSelectPickerModal() {
@@ -438,7 +441,7 @@ function closeActivePopupOrModal() {
   const gpModal = document.getElementById('gpModal');
   if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
     gpModal.classList.remove('open');
-    gpModal.style.display = 'none';
+    gpModal.style.display = '';
     return true;
   }
   const docsModal = document.getElementById('docsModal');
@@ -477,10 +480,12 @@ function closeActivePopupOrModal() {
     updateModal.style.display = 'none';
     return true;
   }
-  const openModals = document.querySelectorAll('.modal-bg.open, .modal.open');
+  const openModals = document.querySelectorAll('.modal-bg.open, .modal.open, .modal-bg:not(.gone):not([style*="display: none"])');
   for (const m of openModals) {
+    if (m.id === 'handheldPromptBar') continue;
     m.classList.remove('open');
     m.classList.add('gone');
+    m.style.display = 'none';
     return true;
   }
   const fPanel = document.getElementById('friendPanel');

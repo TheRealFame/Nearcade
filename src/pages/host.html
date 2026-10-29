@@ -9,6 +9,21 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Nearcade</title>
   <script src="/js/extended/ui/native-theme.js"></script>
+  <script>
+    (function checkHandheldEarly() {
+      const params = new URLSearchParams(window.location.search);
+      const isHandheld = params.has('handheld') ||
+        (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
+        (() => { try { return localStorage.getItem('ns_handheld_session') === 'true' || sessionStorage.getItem('ns_handheld_session') === 'true'; } catch (_) { return false; } })();
+      if (isHandheld) {
+        document.documentElement.classList.add('handheld-mode');
+        try {
+          localStorage.setItem('ns_handheld_session', 'true');
+          sessionStorage.setItem('ns_handheld_session', 'true');
+        } catch (_) {}
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="/css/host.css">
   <link rel="stylesheet" href="/css/scrollbars.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -271,7 +286,7 @@
             style="background:var(--surface);border:1px solid var(--border);padding:4px 8px;border-radius:6px;color:var(--muted);cursor:pointer;font-size:10px;font-weight:bold;font-family:var(--mono);transition:all 0.2s;"
             onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
             onmouseleave="this.style.color='var(--muted)'; this.style.borderColor='var(--border)';">VIEWERS</button>
-          <button onclick="window.electronAPI && window.electronAPI.backToDashboard()" title="Back to Dashboard"
+          <button onclick="if (window.electronAPI && typeof window.electronAPI.backToDashboard === 'function') { window.electronAPI.backToDashboard(); } else { window.location.href='/dashboard'; }" title="Back to Dashboard"
             style="background: var(--surface); border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: bold; font-family: var(--mono); transition: all 0.2s;"
             onmouseover="this.style.color='#fff'; this.style.borderColor='var(--accent)';"
             onmouseleave="this.style.color='var(--muted)'; this.style.borderColor='var(--border)';">
@@ -508,6 +523,71 @@
       } catch (e) {
         if (window.showError) window.showError("Network error: " + e.message);
       }
+    }
+  </script>
+
+  <div id="virtual-cursor"></div>
+
+  <div id="handheldPromptBar" class="handheld-prompt-bar" aria-label="Gamepad Input Prompts">
+    <button class="prompt-chip" onclick="showSettingsModal('viewers')" title="Viewers">
+      <span id="promptBadgeFriends" class="btn-badge btn-y">Y</span>
+      <span class="prompt-label">Viewers</span>
+    </button>
+    <button class="prompt-chip" onclick="showSettingsModal('video')" title="Settings">
+      <span id="promptBadgeDocs" class="btn-badge btn-x">X</span>
+      <span class="prompt-label">Settings</span>
+    </button>
+    <div class="prompt-chip prompt-select" onclick="if (typeof window.triggerSpatialNavClick === 'function') window.triggerSpatialNavClick();">
+      <span id="promptBadgeSelect" class="btn-badge btn-a">A</span>
+      <span class="prompt-label">Select</span>
+    </div>
+    <div class="prompt-chip prompt-back" onclick="handleHandheldBack()">
+      <span id="promptBadgeBack" class="btn-badge btn-b">B</span>
+      <span class="prompt-label">Dashboard</span>
+    </div>
+  </div>
+
+  <script src="/js/extended/spatial-nav.js"></script>
+
+  <script>
+    function handleHandheldBack() {
+      if (typeof window.closeSelectPickerModal === 'function' && window.closeSelectPickerModal()) {
+        return true;
+      }
+      const openModals = document.querySelectorAll('.modal-bg:not(.gone), .modal-overlay:not(.gone), .modal.open');
+      for (const modal of openModals) {
+        if (modal.id === 'settingsModal') {
+          if (typeof closeSettingsModal === 'function') {
+            closeSettingsModal();
+            return true;
+          }
+        }
+        if (modal.id === 'externalSourcesModal' && typeof closeExternalSourcesModal === 'function') {
+          closeExternalSourcesModal();
+          return true;
+        }
+        modal.classList.add('gone');
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+        return true;
+      }
+      // No modal open: return to dashboard
+      if (window.electronAPI && typeof window.electronAPI.backToDashboard === 'function') {
+        window.electronAPI.backToDashboard();
+        return true;
+      } else {
+        window.location.href = '/dashboard';
+        return true;
+      }
+    }
+
+    function handleHandheldX() {
+      if (typeof showAppSettings === 'function') showAppSettings();
+      else if (typeof showSettingsModal === 'function') showSettingsModal('video');
+    }
+
+    function handleHandheldY() {
+      if (typeof showSettingsModal === 'function') showSettingsModal('viewers');
     }
   </script>
 

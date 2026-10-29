@@ -111,6 +111,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   spoutStop: () => ipcRenderer.send('spout:stop'),
   onSpoutStatus: (cb) => ipcRenderer.on('spout-status', (_e, s) => cb(s)),
 
+  refocusWindow: () => ipcRenderer.send('refocus-gamescope-window'),
+
   isElectron: true,
   isHandheld: (
     process.argv.includes('-handheld') ||
@@ -123,7 +125,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     process.env.SteamGamepadUI === '1' ||
     (process.platform === 'linux' && (
       require('os').hostname() === 'steamdeck' ||
-      require('fs').existsSync('/sys/class/dmi/id/product_name')
+      (() => {
+        try {
+          const fs = require('fs');
+          const board = fs.existsSync('/sys/class/dmi/id/board_name') ? fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim() : '';
+          const vendor = fs.existsSync('/sys/class/dmi/id/sys_vendor') ? fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim() : '';
+          return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
+        } catch (_) { return false; }
+      })()
     ))
   ),
   isPortrait: (

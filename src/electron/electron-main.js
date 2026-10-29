@@ -336,6 +336,49 @@ function applyGamescopeScaler() {
   } catch (_) {}
 }
 
+function refocusGamescopeWindow(targetWin) {
+  if (process.platform !== 'linux') return;
+  const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+    process.env.SteamDeck === '1' ||
+    process.env.SteamGamepadUI === '1' ||
+    process.env.DISPLAY === ':1' ||
+    Boolean(isGamescopeEnv);
+
+  if (!isGamescope) return;
+
+  const { execSync } = require('child_process');
+  const displays = process.env.DISPLAY ? [process.env.DISPLAY, ':1', ':0'] : [':1', ':0'];
+  const uniqueDisplays = Array.from(new Set(displays));
+
+  for (const d of uniqueDisplays) {
+    try {
+      const widStr = execSync(
+        `DISPLAY=${d} xdotool search --onlyvisible --class nearcade 2>/dev/null | head -n 1`,
+        { encoding: 'utf8', timeout: 500 }
+      ).trim();
+      if (widStr) {
+        execSync(`DISPLAY=${d} xdotool windowactivate ${widStr} windowfocus ${widStr} 2>/dev/null || true`, { timeout: 500 });
+        execSync(`DISPLAY=${d} xprop -root -f GAMESCOPECTRL_BASELAYER_WINDOW 32c -set GAMESCOPECTRL_BASELAYER_WINDOW ${widStr} 2>/dev/null || true`, { timeout: 500 });
+        break;
+      }
+    } catch (_) {}
+  }
+}
+
+function scheduleGamescopeRefocus(targetWin) {
+  if (targetWin && !targetWin.isDestroyed()) {
+    try {
+      targetWin.focus();
+      if (targetWin.webContents) targetWin.webContents.focus();
+    } catch (_) {}
+  }
+  refocusGamescopeWindow(targetWin);
+  setTimeout(() => refocusGamescopeWindow(targetWin), 80);
+  setTimeout(() => refocusGamescopeWindow(targetWin), 250);
+  setTimeout(() => refocusGamescopeWindow(targetWin), 600);
+}
+
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
@@ -487,10 +530,18 @@ async function createWindow() {
 
   if (isGamescopeEnv) {
     applyGamescopeScaler();
-    win.on('focus', applyGamescopeScaler);
+    scheduleGamescopeRefocus(win);
+    win.on('focus', () => {
+      applyGamescopeScaler();
+      scheduleGamescopeRefocus(win);
+    });
     const gsInterval = setInterval(() => {
-      if (win && !win.isDestroyed()) applyGamescopeScaler();
-      else clearInterval(gsInterval);
+      if (win && !win.isDestroyed()) {
+        applyGamescopeScaler();
+        refocusGamescopeWindow(win);
+      } else {
+        clearInterval(gsInterval);
+      }
     }, 3000);
   } else {
     win.once('ready-to-show', () => { if (!isArcadeWorker) win.show(); });
@@ -572,14 +623,7 @@ async function createWindow() {
 
   win.webContents.on('did-navigate', (e, url) => {
     if (isHandheld || isGamescopeEnv) {
-      setTimeout(() => {
-        if (win && !win.isDestroyed()) {
-          try {
-            win.focus();
-            if (win.webContents) win.webContents.focus();
-          } catch (_) {}
-        }
-      }, 50);
+      scheduleGamescopeRefocus(win);
     }
     if (url.includes('/host')) {
       win.webContents.insertCSS(`
@@ -595,6 +639,9 @@ async function createWindow() {
   });
 
   win.webContents.on('did-finish-load', () => {
+    if (isHandheld || isGamescopeEnv) {
+      scheduleGamescopeRefocus(win);
+    }
     const currentURL = win.webContents.getURL();
     if (currentURL.includes('/old_host') || currentURL.includes('client=1')) {
       win.webContents.executeJavaScript(`
@@ -654,7 +701,7 @@ async function createWindow() {
   win.webContents.session.setPermissionCheckHandler(() => true);
   win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(true));
 
-  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC, isHandheld, isPortrait, isGamescopeEnv };
+  const ctx = { win, tray, serverPort: port, settings, isWebCodecs, isFFmpegCapture, isGstWebRTC, isHandheld, isPortrait, isGamescopeEnv, scheduleGamescopeRefocus, refocusGamescopeWindow };
   registerIpcHandlers(ctx);
 
   win.on('resize', () => {

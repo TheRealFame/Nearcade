@@ -650,7 +650,7 @@
 
 
 
-      <button class="nav-btn" onclick="document.getElementById('gpModal').classList.add('open')">
+      <button class="nav-btn" onclick="const m=document.getElementById('gpModal'); if(m){ m.style.display=''; m.classList.add('open'); }">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="2" y="6" width="20" height="12" rx="2"></rect>
           <path d="M6 12h4m-2-2v4m10-4a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-2 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"></path>
@@ -1238,7 +1238,7 @@
             </div>
 
             <!-- Test Controller -->
-            <div class="more-card" onclick="document.getElementById('gpModal').classList.add('open')">
+            <div class="more-card" onclick="const m=document.getElementById('gpModal'); if(m){ m.style.display=''; m.classList.add('open'); }">
               <div class="more-card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="2" y="6" width="20" height="12" rx="2"></rect>
@@ -1310,10 +1310,10 @@
       <div class="modal-head">
         <span>Controller Settings</span>
         <div style="display:flex; align-items:center; gap:12px;">
-          <span class="handheld-close-prompt" id="gpModalHandheldClosePrompt">
+          <span class="handheld-close-prompt" id="gpModalHandheldClosePrompt" onclick="const m=document.getElementById('gpModal'); if(m){ m.classList.remove('open'); m.style.display=''; }" style="cursor:pointer;" title="Close controller settings">
             Press <span class="btn-badge btn-menu" id="gpModalBadgePause">≡</span> to close
           </span>
-          <button class="close-modal" onclick="document.getElementById('gpModal').classList.remove('open')">
+          <button class="close-modal" onclick="const m=document.getElementById('gpModal'); if(m){ m.classList.remove('open'); m.style.display=''; }">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>

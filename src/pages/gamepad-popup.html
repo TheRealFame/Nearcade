@@ -611,13 +611,26 @@
         if (state.calibStep > 0) { runCalibration(gp); continue; }
 
         // Pause/Start button (button 9) closes the modal
-        if (gp.buttons[9]?.pressed) {
+        const isPause = !!(gp.buttons[9] && (gp.buttons[9].pressed || gp.buttons[9].value > 0.5));
+        if (isPause) {
           if (!state._pauseCloseTriggered) {
             state._pauseCloseTriggered = true;
             try { window.parent.postMessage({ type: 'NEARCADE_CLOSE_GP_MODAL' }, '*'); } catch (_) {}
           }
         } else {
           state._pauseCloseTriggered = false;
+        }
+
+        // Back / Cancel button (B on Xbox/PS is 1, B on Nintendo is 0) also closes modal when not calibrating
+        const isBack = !!((gp.buttons[1] && (gp.buttons[1].pressed || gp.buttons[1].value > 0.5)) ||
+          ((gp.id || '').toLowerCase().includes('nintendo') && gp.buttons[0] && (gp.buttons[0].pressed || gp.buttons[0].value > 0.5)));
+        if (isBack) {
+          if (!state._backCloseTriggered) {
+            state._backCloseTriggered = true;
+            try { window.parent.postMessage({ type: 'NEARCADE_CLOSE_GP_MODAL' }, '*'); } catch (_) {}
+          }
+        } else {
+          state._backCloseTriggered = false;
         }
 
         if (!state.mapCache) continue;
@@ -670,6 +683,11 @@
 
     window.addEventListener('gamepadconnected',    e => addController(e.gamepad));
     window.addEventListener('gamepaddisconnected', e => removeController(e.gamepad.index));
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        try { window.parent.postMessage({ type: 'NEARCADE_CLOSE_GP_MODAL' }, '*'); } catch (_) {}
+      }
+    });
     update();
   </script>
 </body>

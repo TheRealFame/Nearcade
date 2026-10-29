@@ -1528,5 +1528,27 @@
     });
   </script>
 
+  <div id="virtual-cursor"></div>
+  <script src="/js/extended/spatial-nav.js"></script>
+  <script>
+    function handleHandheldBack() {
+      if (typeof window.closeSelectPickerModal === 'function' && window.closeSelectPickerModal()) return true;
+      const openModals = document.querySelectorAll('.modal-bg:not(.gone), .modal-overlay:not(.gone), .modal.open');
+      for (const modal of openModals) {
+        modal.classList.add('gone');
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+        return true;
+      }
+      if (window.electronAPI && typeof window.electronAPI.backToDashboard === 'function') {
+        window.electronAPI.backToDashboard();
+        return true;
+      } else {
+        window.location.href = '/dashboard';
+        return true;
+      }
+    }
+  </script>
+
 </body>
 </html>

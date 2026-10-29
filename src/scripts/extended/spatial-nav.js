@@ -3,9 +3,41 @@
  * Gamepad & TV Remote Virtual Cursor Engine
  */
 
-const cursor = document.getElementById('virtual-cursor');
+let cursor = document.getElementById('virtual-cursor');
+if (!cursor) {
+  cursor = document.createElement('div');
+  cursor.id = 'virtual-cursor';
+  document.body.appendChild(cursor);
+}
+
+if (!document.getElementById('virtual-cursor-style')) {
+  const st = document.createElement('style');
+  st.id = 'virtual-cursor-style';
+  st.textContent = `
+    #virtual-cursor {
+      position: fixed;
+      width: 20px;
+      height: 20px;
+      background: rgba(var(--accent-rgb, 192, 132, 252), 0.6);
+      border: 2px solid var(--text, #fff);
+      border-radius: 50%;
+      z-index: 9999999;
+      pointer-events: none;
+      display: none;
+      box-shadow: 0 0 15px var(--accent, #c084fc);
+      transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    #virtual-cursor.clicking {
+      transform: scale(0.6);
+      background: var(--text, #fff);
+    }
+  `;
+  document.head.appendChild(st);
+}
+
 let cx = window.innerWidth / 2, cy = window.innerHeight / 2;
 let lastTime = performance.now();
+let lastGamepadInputTime = 0;
 let vx = 0, vy = 0;
 const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
@@ -23,9 +55,21 @@ function showCursor() {
 }
 
 // In handheld mode or active handheld session, display virtual cursor immediately
-if (document.documentElement.classList.contains('handheld-mode') ||
-    new URLSearchParams(window.location.search).has('handheld') ||
-    (() => { try { return sessionStorage.getItem('ns_handheld_session') === 'true'; } catch (_) { return false; } })()) {
+const isHandheldActive = document.documentElement.classList.contains('handheld-mode') ||
+  new URLSearchParams(window.location.search).has('handheld') ||
+  (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||
+  (() => {
+    try {
+      return localStorage.getItem('ns_handheld_session') === 'true' || sessionStorage.getItem('ns_handheld_session') === 'true';
+    } catch (_) { return false; }
+  })();
+
+if (isHandheldActive) {
+  document.documentElement.classList.add('handheld-mode');
+  try {
+    localStorage.setItem('ns_handheld_session', 'true');
+    sessionStorage.setItem('ns_handheld_session', 'true');
+  } catch (_) {}
   showCursor();
 }
 
@@ -41,6 +85,10 @@ window.setVirtualCursorPos = function(x, y) {
 };
 
 window.addEventListener('mousemove', (e) => {
+  // If recent gamepad movement occurred, ignore synthetic mousemove recentering / jitter
+  if (performance.now() - lastGamepadInputTime < 350) {
+    if (Math.hypot(e.movementX || 0, e.movementY || 0) < 10) return;
+  }
   cx = e.clientX;
   cy = e.clientY;
   if (cursor && cursor.style.display !== 'none') {
@@ -74,6 +122,201 @@ function getClickTargetAt(x, y) {
   return clickable || el;
 }
 
+// ── Gamepad Layout & Prompts ────────────────────────────────────────────────
+function detectGamepadLayout(gamepad) {
+  if (!gamepad && typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+    const pads = navigator.getGamepads();
+    for (const p of pads) {
+      if (p) {
+        gamepad = p;
+        break;
+      }
+    }
+  }
+  const id = (gamepad && gamepad.id ? gamepad.id : '').toLowerCase();
+  if (id.includes('playstation') || id.includes('dualshock') || id.includes('dualsense') || id.includes('054c') || id.includes('sony')) {
+    return 'playstation';
+  }
+  if (id.includes('nintendo') || id.includes('joy-con') || id.includes('switch') || id.includes('057e')) {
+    return 'nintendo';
+  }
+  if (id.includes('xbox') || id.includes('x-box') || id.includes('xinput') || id.includes('microsoft') || id.includes('045e') || id.includes('valve') || id.includes('steam')) {
+    return 'xbox';
+  }
+  return 'xbox';
+}
+
+function updateHandheldPromptGlyphs(layout) {
+  const bFriends = document.getElementById('promptBadgeFriends');
+  const bDocs = document.getElementById('promptBadgeDocs');
+  const bSelect = document.getElementById('promptBadgeSelect');
+  const bBack = document.getElementById('promptBadgeBack');
+  const bQuit = document.getElementById('promptBadgeQuit');
+  const bGpClose = document.getElementById('gpModalBadgePause');
+
+  if (layout === 'playstation') {
+    if (bFriends) { bFriends.textContent = '△'; bFriends.className = 'btn-badge btn-ps-triangle'; }
+    if (bDocs) { bDocs.textContent = '□'; bDocs.className = 'btn-badge btn-ps-square'; }
+    if (bSelect) { bSelect.textContent = '×'; bSelect.className = 'btn-badge btn-ps-cross'; }
+    if (bBack) { bBack.textContent = '○'; bBack.className = 'btn-badge btn-ps-circle'; }
+    if (bQuit) { bQuit.textContent = '≡'; bQuit.className = 'btn-badge btn-menu'; }
+    if (bGpClose) { bGpClose.textContent = '≡'; bGpClose.className = 'btn-badge btn-menu'; }
+  } else if (layout === 'nintendo') {
+    if (bFriends) { bFriends.textContent = 'X'; bFriends.className = 'btn-badge btn-nin-x'; }
+    if (bDocs) { bDocs.textContent = 'Y'; bDocs.className = 'btn-badge btn-nin-y'; }
+    if (bSelect) { bSelect.textContent = 'A'; bSelect.className = 'btn-badge btn-nin-a'; }
+    if (bBack) { bBack.textContent = 'B'; bBack.className = 'btn-badge btn-nin-b'; }
+    if (bQuit) { bQuit.textContent = '+'; bQuit.className = 'btn-badge btn-nin-plus'; }
+    if (bGpClose) { bGpClose.textContent = '+'; bGpClose.className = 'btn-badge btn-nin-plus'; }
+  } else {
+    if (bFriends) { bFriends.textContent = 'Y'; bFriends.className = 'btn-badge btn-y'; }
+    if (bDocs) { bDocs.textContent = 'X'; bDocs.className = 'btn-badge btn-x'; }
+    if (bSelect) { bSelect.textContent = 'A'; bSelect.className = 'btn-badge btn-a'; }
+    if (bBack) { bBack.textContent = 'B'; bBack.className = 'btn-badge btn-b'; }
+    if (bQuit) { bQuit.textContent = '≡'; bQuit.className = 'btn-badge btn-menu'; }
+    if (bGpClose) { bGpClose.textContent = '≡'; bGpClose.className = 'btn-badge btn-menu'; }
+  }
+}
+
+window.detectGamepadLayout = detectGamepadLayout;
+window.updateHandheldPromptGlyphs = updateHandheldPromptGlyphs;
+
+// ── Handheld Select Picker Modal ────────────────────────────────────────────
+function getOrCreateSelectPickerModal() {
+  let modal = document.getElementById('selectPickerModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'selectPickerModal';
+    modal.className = 'modal-bg';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:999999;';
+    modal.innerHTML = `
+      <div class="modal" style="width:420px;max-width:92vw;max-height:85vh;display:flex;flex-direction:column;background:#141416;border:1px solid rgba(255,255,255,0.15);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.8);overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.1);background:#1a1a1f;">
+          <h3 id="selectPickerTitle" style="margin:0;font-size:16px;font-weight:700;color:#fff;">Choose Option</h3>
+          <button type="button" id="closeSelectPickerBtn" class="close-modal nav-btn clickable" style="background:none;border:none;color:#aaa;font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px;">✕</button>
+        </div>
+        <div id="selectPickerList" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeSelectPickerModal();
+    });
+    const closeBtn = modal.querySelector('#closeSelectPickerBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeSelectPickerModal);
+  }
+  return modal;
+}
+
+function openHandheldSelectModal(selectEl) {
+  if (!selectEl || !selectEl.options || selectEl.options.length === 0) return;
+  const modal = getOrCreateSelectPickerModal();
+  const titleEl = modal.querySelector('#selectPickerTitle');
+  const listEl = modal.querySelector('#selectPickerList');
+
+  let title = selectEl.getAttribute('aria-label') || selectEl.title;
+  if (!title) {
+    const parentRow = selectEl.closest('.setting-row, .form-group, .input-row, label') || selectEl.parentElement;
+    if (parentRow) {
+      const label = parentRow.querySelector('label, h3, h4, .setting-label, span');
+      if (label && label !== selectEl) title = label.textContent.trim();
+    }
+  }
+  if (!title) {
+    title = selectEl.id || 'Select Option';
+  }
+  if (titleEl) titleEl.textContent = title;
+
+  listEl.innerHTML = '';
+  const currentVal = selectEl.value;
+
+  Array.from(selectEl.options).forEach((opt, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'select-picker-item nav-btn clickable';
+    const isSelected = opt.value === currentVal || opt.selected;
+    if (isSelected) btn.classList.add('selected');
+    btn.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 14px 18px;
+      background: ${isSelected ? 'rgba(var(--accent-rgb, 192, 132, 252), 0.18)' : '#1e1e1e'};
+      border: 1px solid ${isSelected ? 'var(--accent, #c084fc)' : 'var(--border, #333)'};
+      border-radius: 10px;
+      color: ${isSelected ? '#fff' : '#ccc'};
+      font-size: 15px;
+      font-weight: ${isSelected ? '700' : '500'};
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    `;
+    btn.innerHTML = `
+      <span>${opt.text || opt.value}</span>
+      ${isSelected ? '<span style="color:var(--accent, #c084fc);font-weight:bold;font-size:16px;">✓</span>' : ''}
+    `;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectEl.value = opt.value;
+      selectEl.selectedIndex = idx;
+      selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+      selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+      if (typeof selectEl.onchange === 'function') {
+        selectEl.onchange();
+      }
+      closeSelectPickerModal();
+    });
+
+    listEl.appendChild(btn);
+  });
+
+  modal.classList.add('open');
+  modal.style.display = 'flex';
+
+  requestAnimationFrame(() => {
+    const selectedBtn = listEl.querySelector('.select-picker-item.selected') || listEl.querySelector('.select-picker-item');
+    if (selectedBtn) {
+      const rect = selectedBtn.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        window.setVirtualCursorPos(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+    }
+  });
+}
+
+function closeSelectPickerModal() {
+  const modal = document.getElementById('selectPickerModal');
+  if (modal && (modal.classList.contains('open') || modal.style.display === 'flex')) {
+    modal.classList.remove('open');
+    modal.style.display = 'none';
+    return true;
+  }
+  return false;
+}
+
+function cycleSelectOption(selectEl, direction) {
+  if (!selectEl || !selectEl.options || selectEl.options.length === 0) return;
+  let idx = selectEl.selectedIndex;
+  if (direction > 0) {
+    idx = (idx + 1) % selectEl.options.length;
+  } else {
+    idx = (idx - 1 + selectEl.options.length) % selectEl.options.length;
+  }
+  selectEl.selectedIndex = idx;
+  selectEl.value = selectEl.options[idx].value;
+  selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+  selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof selectEl.onchange === 'function') {
+    selectEl.onchange();
+  }
+}
+
+window.openHandheldSelectModal = openHandheldSelectModal;
+window.closeSelectPickerModal = closeSelectPickerModal;
+window.cycleSelectOption = cycleSelectOption;
+
 window.triggerSpatialNavClick = function() {
   showCursor();
   if (cursor) {
@@ -88,14 +331,10 @@ window.triggerSpatialNavClick = function() {
   }
 
   if (target) {
-    if (target.tagName === 'SELECT') {
-      if (typeof window.openHandheldSelectModal === 'function') {
-        window.openHandheldSelectModal(target);
-        return;
-      }
-      if (typeof target.showPicker === 'function') {
-        try { target.showPicker(); return; } catch (_) {}
-      }
+    const sel = (target.tagName === 'SELECT') ? target : target.closest('select');
+    if (sel) {
+      openHandheldSelectModal(sel);
+      return;
     }
 
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
@@ -135,14 +374,17 @@ function updateGamepad(time) {
   let totalDx = vx * dt;
   let totalDy = vy * dt;
 
+  let activeSx = 0, activeSy = 0;
+  let hasGamepadActivity = false;
+
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   for (const p of pads) {
     if (!p) continue;
 
-    const layout = typeof window.detectGamepadLayout === 'function' ? window.detectGamepadLayout(p) : 'xbox';
-    if (typeof window.updateHandheldPromptGlyphs === 'function' && window._lastNavLayout !== layout) {
+    const layout = detectGamepadLayout(p);
+    if (window._lastNavLayout !== layout) {
       window._lastNavLayout = layout;
-      window.updateHandheldPromptGlyphs(layout);
+      updateHandheldPromptGlyphs(layout);
     }
 
     let state = gpButtonStates.get(p.index);
@@ -155,18 +397,20 @@ function updateGamepad(time) {
     const gdx = p.axes[0] || 0;
     const gdy = p.axes[1] || 0;
     const deadzone = 0.18;
-    const speed = 900;
 
     let sx = Math.abs(gdx) > deadzone ? gdx : 0;
     let sy = Math.abs(gdy) > deadzone ? gdy : 0;
 
-    if (p.buttons[12] && p.buttons[12].pressed) sy = -1;
-    if (p.buttons[13] && p.buttons[13].pressed) sy = 1;
-    if (p.buttons[14] && p.buttons[14].pressed) sx = -1;
-    if (p.buttons[15] && p.buttons[15].pressed) sx = 1;
+    if (p.buttons[12] && (p.buttons[12].pressed || p.buttons[12].value > 0.5)) sy = -1;
+    if (p.buttons[13] && (p.buttons[13].pressed || p.buttons[13].value > 0.5)) sy = 1;
+    if (p.buttons[14] && (p.buttons[14].pressed || p.buttons[14].value > 0.5)) sx = -1;
+    if (p.buttons[15] && (p.buttons[15].pressed || p.buttons[15].value > 0.5)) sx = 1;
 
-    totalDx += sx * speed * dt;
-    totalDy += sy * speed * dt;
+    // Pick maximum stick deflection across controllers without summing drift
+    if (Math.hypot(sx, sy) > Math.hypot(activeSx, activeSy)) {
+      activeSx = sx;
+      activeSy = sy;
+    }
 
     // D-Pad Left / Right option cycling when on a select element
     const dpadLeft = !!(p.buttons[14] && (p.buttons[14].pressed || p.buttons[14].value > 0.5));
@@ -174,12 +418,10 @@ function updateGamepad(time) {
 
     if (dpadLeft || dpadRight) {
       const hoverEl = getClickTargetAt(cx, cy);
-      const selTarget = (hoverEl && hoverEl.tagName === 'SELECT') ? hoverEl : (document.activeElement && document.activeElement.tagName === 'SELECT' ? document.activeElement : null);
+      const selTarget = (hoverEl && (hoverEl.tagName === 'SELECT' || hoverEl.closest('select'))) ? (hoverEl.tagName === 'SELECT' ? hoverEl : hoverEl.closest('select')) : (document.activeElement && document.activeElement.tagName === 'SELECT' ? document.activeElement : null);
       if (selTarget && !state.dpadLR) {
         state.dpadLR = true;
-        if (typeof window.cycleSelectOption === 'function') {
-          window.cycleSelectOption(selTarget, dpadRight ? 1 : -1);
-        }
+        cycleSelectOption(selTarget, dpadRight ? 1 : -1);
       }
     } else {
       state.dpadLR = false;
@@ -191,16 +433,6 @@ function updateGamepad(time) {
     const docsBtn = p.buttons[2];
     const friendsBtn = p.buttons[3];
     const pauseBtn = p.buttons[9];
-
-    // Show cursor on any button or stick interaction
-    if (sx !== 0 || sy !== 0 ||
-        (selectBtn && (selectBtn.pressed || selectBtn.value > 0.5)) ||
-        (backBtn && (backBtn.pressed || backBtn.value > 0.5)) ||
-        (docsBtn && (docsBtn.pressed || docsBtn.value > 0.5)) ||
-        (friendsBtn && (friendsBtn.pressed || friendsBtn.value > 0.5)) ||
-        (pauseBtn && (pauseBtn.pressed || pauseBtn.value > 0.5))) {
-      showCursor();
-    }
 
     // Select / Confirm
     const selectPressed = !!(selectBtn && (selectBtn.pressed || selectBtn.value > 0.5));
@@ -218,29 +450,35 @@ function updateGamepad(time) {
     if (backPressed) {
       if (!state.back) {
         state.back = true;
-        if (typeof handleHandheldBack === 'function') handleHandheldBack();
+        if (closeSelectPickerModal()) {
+          // Handled closing select picker
+        } else if (typeof handleHandheldBack === 'function') {
+          handleHandheldBack();
+        }
       }
     } else {
       state.back = false;
     }
 
-    // Docs (X)
+    // Docs / Settings (X)
     const docsPressed = !!(docsBtn && (docsBtn.pressed || docsBtn.value > 0.5));
     if (docsPressed) {
       if (!state.docs) {
         state.docs = true;
-        if (typeof openDocs === 'function') openDocs();
+        if (typeof handleHandheldX === 'function') handleHandheldX();
+        else if (typeof openDocs === 'function') openDocs();
       }
     } else {
       state.docs = false;
     }
 
-    // Friends (Y)
+    // Friends / Viewers (Y)
     const friendsPressed = !!(friendsBtn && (friendsBtn.pressed || friendsBtn.value > 0.5));
     if (friendsPressed) {
       if (!state.friends) {
         state.friends = true;
-        if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
+        if (typeof handleHandheldY === 'function') handleHandheldY();
+        else if (typeof toggleFriendPanel === 'function') toggleFriendPanel();
       }
     } else {
       state.friends = false;
@@ -251,24 +489,40 @@ function updateGamepad(time) {
     if (pausePressed) {
       if (!state.start) {
         state.start = true;
-        const gpModal = document.getElementById('gpModal');
-        if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
-          gpModal.classList.remove('open');
-          gpModal.style.display = 'none';
+        if (closeSelectPickerModal()) {
+          // Closed select picker modal
         } else {
-          let closed = false;
-          if (typeof handleHandheldBack === 'function') {
-            closed = handleHandheldBack();
-          }
-          if (!closed && typeof exitNearcadeApp === 'function') {
-            exitNearcadeApp();
+          const gpModal = document.getElementById('gpModal');
+          if (gpModal && (gpModal.classList.contains('open') || gpModal.style.display === 'flex')) {
+            gpModal.classList.remove('open');
+            gpModal.style.display = '';
+          } else {
+            let closed = false;
+            if (typeof handleHandheldBack === 'function') {
+              closed = handleHandheldBack();
+            }
+            if (!closed && typeof exitNearcadeApp === 'function') {
+              exitNearcadeApp();
+            }
           }
         }
       }
     } else {
       state.start = false;
     }
+
+    if (Math.abs(sx) > 0 || Math.abs(sy) > 0 || selectPressed || backPressed || docsPressed || friendsPressed || pausePressed) {
+      hasGamepadActivity = true;
+    }
   }
+
+  if (hasGamepadActivity) {
+    lastGamepadInputTime = performance.now();
+    showCursor();
+  }
+
+  totalDx += activeSx * 900 * dt;
+  totalDy += activeSy * 900 * dt;
 
   // Hover precision friction (no reverse magnetism so pointer never jumps)
   if (Math.abs(totalDx) > 0.1 || Math.abs(totalDy) > 0.1) {
@@ -321,6 +575,9 @@ window.addEventListener('keydown', (e) => {
     window.triggerSpatialNavClick();
   } else if (e.key === 'Escape') {
     e.preventDefault();
+    if (closeSelectPickerModal()) {
+      return;
+    }
     if (typeof handleHandheldBack === 'function') handleHandheldBack();
   }
 });

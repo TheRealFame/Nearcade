@@ -21,6 +21,7 @@ echo "=== Starting Nearcade on Steam Deck: $(date) ===" >> /tmp/nearcade-deck.lo
 exec "$DIR/nearcade" \
   --no-sandbox \
   --handheld \
+  --remote-debugging-port=9222 \
   --enable-features=WebRTCPipeWireCapturer,VaapiVideoEncoder,VaapiVideoDecoder \
   --enable-zero-copy \
   "$@" >> /tmp/nearcade-deck.log 2>&1

@@ -96,6 +96,7 @@ function registerIpcHandlers(ctx) {
           if (data?.pin) viewerUrl += `&pin=${encodeURIComponent(data.pin)}`;
       }
       ctx.win.loadURL(viewerUrl);
+      if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
     }
     return true;
   });
@@ -519,6 +520,9 @@ function registerIpcHandlers(ctx) {
     else if (version === 'custom') route = '/host-custom';
 
     const captureParams = [];
+    if (ctx.isHandheld) captureParams.push('handheld=1');
+    else if (ctx.isPortrait) captureParams.push('portrait=1');
+
     if (ctx.settings.captureMethod) {
       captureParams.push(`pipeline=${encodeURIComponent(ctx.settings.captureMethod)}`);
     }
@@ -528,7 +532,14 @@ function registerIpcHandlers(ctx) {
     if (ctx.settings.captureMethod === 'ffmpeg' || ctx.isFFmpegCapture) captureParams.push('ff=1');
     if (ctx.settings.captureMethod === 'gstreamer_webrtc' || ctx.isGstWebRTC) captureParams.push('gst=1');
     const qs = captureParams.length ? '?' + captureParams.join('&') : '';
-    if (ctx.win && !ctx.win.isDestroyed()) ctx.win.loadURL(`http://localhost:${ctx.serverPort}${route}${qs}`);
+    if (ctx.win && !ctx.win.isDestroyed()) {
+      ctx.win.loadURL(`http://localhost:${ctx.serverPort}${route}${qs}`);
+      if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
+    }
+  });
+
+  ipcMain.on('refocus-gamescope-window', () => {
+    if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
   });
 
   ipcMain.handle('read-doc', async (event, filename) => {
@@ -552,6 +563,7 @@ function registerIpcHandlers(ctx) {
     if (ctx.win && !ctx.win.isDestroyed()) {
       const t = tab ? `&tab=${tab}` : '';
       ctx.win.loadURL(getDashboardUrl(`&noAutoHost=1${t}`));
+      if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
       try {
         ctx.win.focus();
         if (ctx.win.webContents) ctx.win.webContents.focus();
@@ -563,6 +575,7 @@ function registerIpcHandlers(ctx) {
     if (ctx.win && !ctx.win.isDestroyed()) {
       const t = tab ? `&tab=${tab}` : '';
       ctx.win.loadURL(getDashboardUrl(`&noAutoHost=1${t}`));
+      if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
       try {
         ctx.win.focus();
         if (ctx.win.webContents) ctx.win.webContents.focus();
@@ -579,6 +592,7 @@ function registerIpcHandlers(ctx) {
         );
       } catch (_) { }
       await ctx.win.loadURL(getDashboardUrl('&noAutoHost=1'));
+      if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
       try {
         ctx.win.focus();
         if (ctx.win.webContents) ctx.win.webContents.focus();
@@ -613,6 +627,7 @@ function registerIpcHandlers(ctx) {
     saveSettings({ firstRunComplete: true, neverBotherSetup: true });
     if (ctx.win && !ctx.win.isDestroyed()) {
       ctx.win.loadURL(getDashboardUrl());
+      if (typeof ctx.scheduleGamescopeRefocus === 'function') ctx.scheduleGamescopeRefocus(ctx.win);
       try {
         ctx.win.focus();
         if (ctx.win.webContents) ctx.win.webContents.focus();

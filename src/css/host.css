@@ -1434,3 +1434,113 @@ body.client-only .host-only { display: none !important; }
     from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ── Virtual Cursor & Handheld Console Navigation ──────────────── */
+#virtual-cursor {
+    position: fixed;
+    width: 20px;
+    height: 20px;
+    background: rgba(var(--accent-rgb, 192, 132, 252), 0.6);
+    border: 2px solid var(--text, #fff);
+    border-radius: 50%;
+    z-index: 9999999;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 0 15px var(--accent, #c084fc);
+    transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+#virtual-cursor.clicking {
+    transform: scale(0.6);
+    background: var(--text, #fff);
+}
+
+.handheld-prompt-bar {
+    display: none;
+}
+
+html.handheld-mode .handheld-prompt-bar {
+    display: flex;
+    position: fixed;
+    bottom: 18px;
+    right: 24px;
+    gap: 8px;
+    align-items: center;
+    z-index: 999999;
+    user-select: none;
+    pointer-events: auto;
+}
+
+@media screen and (orientation: portrait) {
+    .handheld-prompt-bar {
+        display: none !important;
+    }
+}
+
+.handheld-prompt-bar .prompt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(18, 18, 22, 0.82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 4px 12px;
+    color: var(--text, #fff);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    transition: all 0.2s ease;
+    line-height: 1;
+}
+
+.handheld-prompt-bar .prompt-chip:hover {
+    background: rgba(30, 30, 38, 0.95);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+}
+
+.handheld-prompt-bar .btn-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.handheld-prompt-bar .btn-a { background: #2ea043; }
+.handheld-prompt-bar .btn-b { background: #da3633; }
+.handheld-prompt-bar .btn-x { background: #1f6feb; }
+.handheld-prompt-bar .btn-y { background: #d29922; }
+.handheld-prompt-bar .btn-menu {
+    background: #6e7681;
+    border-radius: 4px;
+    width: 18px;
+    height: 16px;
+    font-size: 11px;
+}
+
+/* PlayStation Glyph Badges */
+.handheld-prompt-bar .btn-ps-cross { background: #2e75d3; }
+.handheld-prompt-bar .btn-ps-circle { background: #e53935; }
+.handheld-prompt-bar .btn-ps-square { background: #d81b60; }
+.handheld-prompt-bar .btn-ps-triangle { background: #00897b; }
+
+/* Nintendo Glyph Badges */
+.handheld-prompt-bar .btn-nin-a { background: #da3633; }
+.handheld-prompt-bar .btn-nin-b,
+.handheld-prompt-bar .btn-nin-x,
+.handheld-prompt-bar .btn-nin-y { background: #555866; }
+.handheld-prompt-bar .btn-nin-plus {
+    background: #555866;
+    border-radius: 4px;
+    font-weight: 900;
+}
