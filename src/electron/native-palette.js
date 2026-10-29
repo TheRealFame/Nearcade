@@ -1,7 +1,15 @@
 // Local replacement for @nearcade/native-palette
-// Provides native theme/accent colors using Electron's native APIs
+// Provides native theme/accent colors using Electron's native APIs and OS fallback readers
 
-const { nativeTheme, systemPreferences } = require('electron');
+let electronNativeTheme = null;
+let electronSystemPreferences = null;
+try {
+    const electron = require('electron');
+    if (electron && typeof electron === 'object') {
+        electronNativeTheme = electron.nativeTheme || null;
+        electronSystemPreferences = electron.systemPreferences || null;
+    }
+} catch (_) {}
 
 /**
  * Get theme colors from the OS
@@ -13,12 +21,17 @@ function getThemeColors() {
         let accent = '#c084fc'; // default purple
         
         if (process.platform === 'win32' || process.platform === 'darwin') {
-            if (typeof systemPreferences.getAccentColor === 'function') {
-                const color = systemPreferences.getAccentColor();
+            if (electronSystemPreferences && typeof electronSystemPreferences.getAccentColor === 'function') {
+                const color = electronSystemPreferences.getAccentColor();
                 if (color) {
-                    // systemPreferences.getAccentColor returns RGB hex like "aabbcc"
                     accent = '#' + color.slice(0, 6);
                 }
+            } else if (process.platform === 'win32') {
+                const w = windowsAccentColor();
+                if (w) accent = w;
+            } else if (process.platform === 'darwin') {
+                const m = darwinAccentColor();
+                if (m) accent = m;
             }
         } else if (process.platform === 'linux') {
             // The GNOME accent-color key is only meaningful on stock Adwaita;
@@ -30,7 +43,12 @@ function getThemeColors() {
         }
         
         // Determine if dark mode
-        const isDark = nativeTheme.shouldUseDarkColors;
+        let isDark = true;
+        if (electronNativeTheme && typeof electronNativeTheme.shouldUseDarkColors === 'boolean') {
+            isDark = electronNativeTheme.shouldUseDarkColors;
+        } else if (process.platform === 'linux') {
+            isDark = linuxIsDark();
+        }
         
         // Base theme colors
         const theme = {
@@ -61,6 +79,62 @@ function getThemeColors() {
         console.error('[native-palette] Error getting theme colors:', e);
         return null;
     }
+}
+
+function windowsAccentColor() {
+    try {
+        const { execSync } = require('child_process');
+        const out = execSync('reg query "HKCU\\Software\\Microsoft\\Windows\\DWM" /v AccentColor', { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+        const m = out.match(/AccentColor\s+REG_DWORD\s+0x([0-9a-fA-F]+)/);
+        if (m) {
+            const hex = m[1].padStart(8, '0');
+            const r = hex.slice(6, 8);
+            const g = hex.slice(4, 6);
+            const b = hex.slice(2, 4);
+            return '#' + r + g + b;
+        }
+    } catch (_) {}
+    return null;
+}
+
+function darwinAccentColor() {
+    try {
+        const { execSync } = require('child_process');
+        const out = execSync('defaults read -g AppleAccentColor', { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        const macAccents = {
+            '-1': '#8c8c8c', '0': '#ec5f67', '1': '#f99157', '2': '#fac863',
+            '3': '#99c794', '4': '#6699cc', '5': '#c594c5', '6': '#e67399'
+        };
+        return macAccents[out] || null;
+    } catch (_) {}
+    return null;
+}
+
+function linuxIsDark() {
+    try {
+        const { execSync } = require('child_process');
+        const run = (cmd) => {
+            try { return execSync(cmd, { encoding: 'utf8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
+            catch (_) { return ''; }
+        };
+        const colorScheme = run('gsettings get org.gnome.desktop.interface color-scheme').replace(/'/g, '');
+        if (colorScheme) return colorScheme.includes('dark');
+
+        const kdeBg = run('kreadconfig6 --group "Colors:Window" --key BackgroundNormal')
+            || run('kreadconfig5 --group "Colors:Window" --key BackgroundNormal');
+        const m = kdeBg.match(/^(\d{1,3}),(\d{1,3}),(\d{1,3})$/);
+        if (m) {
+            const lum = 0.2126 * parseInt(m[1], 10) + 0.7152 * parseInt(m[2], 10) + 0.0722 * parseInt(m[3], 10);
+            return lum < 128;
+        }
+
+        const scheme = run('kreadconfig6 --group General --key ColorScheme') || run('kreadconfig5 --group General --key ColorScheme');
+        if (scheme) return /dark/i.test(scheme);
+
+        const gtkTheme = run('gsettings get org.gnome.desktop.interface gtk-theme').replace(/'/g, '');
+        if (gtkTheme) return /dark/i.test(gtkTheme);
+    } catch (_) {}
+    return true;
 }
 
 // Linux accent via desktop settings. The ACTIVE desktop goes first

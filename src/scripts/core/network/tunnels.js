@@ -1017,20 +1017,32 @@ function startTunnelFrp(port) {
 }
 
 function startTunnelOutray(port, options = {}) {
-  return new Promise(resolve => {
-    findBinaryPath('outray').then(outrayPath => {
-      if (!outrayPath) { resolve({ error: 'NOT_FOUND', provider: 'outray' }); return; }
-      ensureExecutable(outrayPath);
+  return new Promise(async resolve => {
+    try {
+      let outrayPath = await findBinaryPath('outray');
+      const localBin = path.join(__dirname, '..', '..', '..', 'node_modules', '.bin', process.platform === 'win32' ? 'outray.cmd' : 'outray');
+      if (!outrayPath && fs.existsSync(localBin)) {
+        outrayPath = localBin;
+      }
+
+      let binCmd = outrayPath;
+      let extraArgs = [];
+      if (!binCmd) {
+        binCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        extraArgs = ['-y', 'outray'];
+      } else {
+        ensureExecutable(binCmd);
+      }
 
       const key = process.env.OUTRAY_KEY || process.env.OUTRAY_TOKEN || readEnv('OUTRAY_KEY') || readEnv('OUTRAY_TOKEN');
       const subdomain = process.env.OUTRAY_SUBDOMAIN || readEnv('OUTRAY_SUBDOMAIN');
 
-      console.log("  \x1b[33m~\x1b[0m Starting OutRay tunnel...");
-      const args = ['http', String(port), '--no-logs'];
+      console.log("  \x1b[33m~\x1b[0m Starting OutRay tunnel via " + (outrayPath ? 'package executable' : 'npx') + "...");
+      const args = [...extraArgs, 'http', String(port), '--no-logs'];
       if (key) args.push('--key', key);
       if (subdomain) args.push('--subdomain', subdomain);
 
-      const proc = spawn(outrayPath, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      const proc = spawn(binCmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let done = false;
       const check = data => {
         const str = data.toString();
@@ -1056,7 +1068,9 @@ function startTunnelOutray(port, options = {}) {
           console.log("  \x1b[33m!\x1b[0m outray timeout");
         }
       }, 45000);
-    }).catch(err => resolve({ error: err ? err.message : 'Unknown error', provider: 'outray' }));
+    } catch (err) {
+      resolve({ error: err ? err.message : 'Unknown error', provider: 'outray' });
+    }
   });
 }
 
@@ -1567,14 +1581,16 @@ const PROVIDERS = [
   {
     id: 'outray', name: 'OutRay', type: 'reverse', category: 'extra', integrated: false,
     pricing: 'free', difficulty: 'easy',
-    description: 'Open-source reverse tunneling solution and ngrok alternative. Exposes local port over secure HTTPS.',
-    tags: ['binary', 'open-source', 'reverse'],
+    description: 'Open-source reverse tunneling npm package and ngrok alternative. Runs via npx or global npm package.',
+    tags: ['npm', 'open-source', 'reverse'],
+    requiresBinary: false,
     binaryNames: ['outray'],
     start: (port, options) => startTunnelOutray(port, options),
     detect: async () => {
       const p = await findBinaryPath('outray');
+      const npxPath = await findBinaryPath(process.platform === 'win32' ? 'npx.cmd' : 'npx');
       const hasKey = !!(readEnv('OUTRAY_KEY') || readEnv('OUTRAY_TOKEN'));
-      return { found: !!p, path: p, authenticated: hasKey };
+      return { found: !!(p || npxPath), path: p || npxPath || 'npx', authenticated: hasKey };
     },
   },
 

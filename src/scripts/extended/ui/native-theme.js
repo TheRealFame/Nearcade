@@ -1,5 +1,6 @@
 (function() {
   const useNative = localStorage.getItem('ns_use_native_theme') === 'true';
+  const useSystemAccent = localStorage.getItem('ns_use_system_accent') === 'true';
   const savedAccent = localStorage.getItem('ns_chat_color');
 
   if (useNative) {
@@ -87,7 +88,7 @@
         }
       }
     } catch(e) {}
-  } else if (savedAccent) {
+  } else if (useSystemAccent && savedAccent && savedAccent !== '#c084fc') {
     const root = document.documentElement;
     const _inkFor = (hex) => {
       if (!hex || !hex.startsWith('#') || hex.length !== 7) return '#fff';
@@ -116,11 +117,11 @@
 
   // Self-sufficiency: pages that never visit the dashboard (host-first flows)
   // would otherwise sit on the CSS default forever when no stored color
-  // exists. If nothing above applied an accent and the setting is not disabled,
-  // ask the OS directly (Electron, Android Material You, or iOS system accent).
+  // exists. If nothing above applied an accent and the setting is enabled,
+  // ask the OS directly (Electron, Android Material You, server API, or iOS system accent).
   try {
     const systemAccentSetting = localStorage.getItem('ns_use_system_accent');
-    if (systemAccentSetting !== 'false' && !document.documentElement.dataset.nsAccent) {
+    if (systemAccentSetting === 'true' && !document.documentElement.dataset.nsAccent) {
       const applyResolvedAccent = (accent) => {
         try {
           if (!accent || !/^#[0-9a-fA-F]{6}$/.test(accent)) return;
@@ -147,20 +148,30 @@
         const androidColor = window.AndroidClipboard.getSystemAccentColor();
         if (androidColor) applyResolvedAccent(androidColor);
       } else {
-        // iOS / WebKit system AccentColor probe
-        try {
-          const testEl = document.createElement('div');
-          testEl.style.color = 'AccentColor';
-          testEl.style.display = 'none';
-          document.head.appendChild(testEl);
-          const comp = getComputedStyle(testEl).color;
-          document.head.removeChild(testEl);
-          const m = comp && comp.match(/^rgb(?:a)?\((\d+),\s*(\d+),\s*(\d+)/);
-          if (m) {
-            const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
-            if (hex !== '#000000' && hex !== '#ffffff') applyResolvedAccent(hex);
-          }
-        } catch (_) {}
+        // Try server endpoint first
+        fetch('/api/system-accent')
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d && d.accent && d.accent !== '#c084fc') {
+              applyResolvedAccent(d.accent);
+            } else if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+              // iOS / WebKit system AccentColor probe only (desktop browsers return browser-default blue)
+              try {
+                const testEl = document.createElement('div');
+                testEl.style.color = 'AccentColor';
+                testEl.style.display = 'none';
+                document.head.appendChild(testEl);
+                const comp = getComputedStyle(testEl).color;
+                document.head.removeChild(testEl);
+                const m = comp && comp.match(/^rgb(?:a)?\((\d+),\s*(\d+),\s*(\d+)/);
+                if (m) {
+                  const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
+                  if (hex !== '#000000' && hex !== '#ffffff') applyResolvedAccent(hex);
+                }
+              } catch (_) {}
+            }
+          })
+          .catch(() => {});
       }
     }
   } catch (_) {}

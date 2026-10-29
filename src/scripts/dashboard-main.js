@@ -456,13 +456,14 @@ async function applySystemAccent() {
     root.style.setProperty('--accent2', DEFAULT_ACCENT2);
     root.style.setProperty('--accent-dim', DEFAULT_ACCENT_DIM);
     root.style.setProperty('--accent-glow', DEFAULT_ACCENT_GLOW);
+    root.style.setProperty('--accent-ink', '#ffffff');
+    root.style.removeProperty('accent-color');
+    delete root.dataset.nsAccent;
     if (indicator) indicator.style.display = 'none';
 
-    if (appConfig.hostColor !== '#c084fc') {
-      appConfig.hostColor = '#c084fc';
-      localStorage.setItem('ns_chat_color', '#c084fc');
-      syncToNode();
-    }
+    appConfig.hostColor = '#c084fc';
+    localStorage.setItem('ns_chat_color', '#c084fc');
+    syncToNode();
   };
 
   if (!useAccent) {
@@ -482,6 +483,15 @@ async function applySystemAccent() {
       } catch (_) {}
     }
     if (!accent) {
+      try {
+        const res = await fetch('/api/system-accent');
+        if (res.ok) {
+          const d = await res.json();
+          if (d && d.accent && d.accent !== '#c084fc') accent = d.accent;
+        }
+      } catch (_) {}
+    }
+    if (!accent && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
       try {
         const testEl = document.createElement('div');
         testEl.style.color = 'AccentColor';
@@ -542,6 +552,7 @@ async function applyNativeTheme() {
     root.style.removeProperty('--muted2');
     root.style.removeProperty('--border');
     root.style.removeProperty('--bg-rgb');
+    delete root.dataset.nsAccent;
     // Always sync the accent color state whether we apply a native theme or not
     applySystemAccent();
     if (indicator) indicator.style.display = 'none';
@@ -560,29 +571,42 @@ async function applyNativeTheme() {
         if (raw) theme = JSON.parse(raw);
       } catch (_) {}
     } else {
-      // iOS / Web probe fallback
+      // Server API / iOS probe fallback
       try {
-        const isDark = !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
-        let accent = null;
-        if (window.AndroidClipboard && typeof window.AndroidClipboard.getSystemAccentColor === 'function') {
-          accent = window.AndroidClipboard.getSystemAccentColor();
-        }
-        if (!accent) {
-          const testEl = document.createElement('div');
-          testEl.style.color = 'AccentColor';
-          testEl.style.display = 'none';
-          document.head.appendChild(testEl);
-          const comp = getComputedStyle(testEl).color;
-          document.head.removeChild(testEl);
-          const m = comp && comp.match(/^rgb(?:a)?\((\d+),\s*(\d+),\s*(\d+)/);
-          if (m) {
-            const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
-            if (hex !== '#000000' && hex !== '#ffffff') accent = hex;
+        const res = await fetch('/api/system-theme');
+        if (res.ok) theme = await res.json();
+      } catch (_) {}
+      if (!theme) {
+        try {
+          const isDark = !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
+          let accent = null;
+          if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+            const testEl = document.createElement('div');
+            testEl.style.color = 'AccentColor';
+            testEl.style.display = 'none';
+            document.head.appendChild(testEl);
+            const comp = getComputedStyle(testEl).color;
+            document.head.removeChild(testEl);
+            const m = comp && comp.match(/^rgb(?:a)?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (m) {
+              const hex = '#' + [m[1], m[2], m[3]].map(v => parseInt(v, 10).toString(16).padStart(2, '0')).join('');
+              if (hex !== '#000000' && hex !== '#ffffff') accent = hex;
+            }
           }
-        }
-        accent = accent || '#c084fc';
-        theme = {
-          bg: isDark ? '#121214' : '#f8f9fa',
+          accent = accent || '#c084fc';
+          theme = {
+            bg: isDark ? '#121214' : '#f8f9fa',
+            surface: isDark ? '#1e1e24' : '#ffffff',
+            surfaceHover: isDark ? '#282830' : '#f1f3f5',
+            sidebar: isDark ? '#1e1e24' : '#ffffff',
+            text: isDark ? '#f3f4f6' : '#111827',
+            muted: isDark ? '#9ca3af' : '#4b5563',
+            border: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+            accent: accent
+          };
+        } catch (_) {}
+      }
+    }
           surface: isDark ? '#1e1e24' : '#ffffff',
           surfaceHover: isDark ? '#282830' : '#f1f3f5',
           sidebar: isDark ? '#1e1e24' : '#ffffff',
@@ -658,6 +682,8 @@ async function applyNativeTheme() {
       root.style.removeProperty('--muted2');
       root.style.removeProperty('--border');
       root.style.removeProperty('--bg-rgb');
+      delete root.dataset.nsAccent;
+      applySystemAccent();
       if (indicator) indicator.style.display = 'none';
     }
   } catch (e) {
