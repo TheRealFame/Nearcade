@@ -52,6 +52,7 @@ class P2PSignaler {
                     viewerId: viewer.senderId,
                     isDesktopApp: false,
                     supportsWebCodecs: true,
+                    modalities: viewer.modalities || ['input', 'video', 'audio']
                 }, viewer.senderId);
             }
         });

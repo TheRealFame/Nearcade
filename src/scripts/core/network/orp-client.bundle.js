@@ -397,7 +397,8 @@ var ORPClient = class extends EventEmitter {
           ...joinEnv,
           displayName: this.opts.displayName,
           color: this.opts.color ?? "#c084fc",
-          sessionId: this._sessionId
+          sessionId: this._sessionId,
+          modalities: this.opts.modalities ?? ["input", "video", "audio"]
         }));
       };
     });
@@ -601,7 +602,7 @@ var ORPHostSession = class {
       }
       if (msg.type === "join") {
         if (this.viewers.has(senderId)) return;
-        await this._onViewerJoin(senderId, msg.displayName ?? "Viewer", msg.color ?? "#c084fc", ws, timing);
+        await this._onViewerJoin(senderId, msg.displayName ?? "Viewer", msg.color ?? "#c084fc", ws, timing, msg.modalities);
       } else if (msg.type === "ice-candidate" && msg.candidate) {
         const viewer = this.viewers.get(senderId);
         if (viewer == null ? void 0 : viewer.pc) await viewer.pc.addIceCandidate(msg.candidate).catch(() => {
@@ -618,14 +619,17 @@ var ORPHostSession = class {
     });
   }
   // ─── Viewer lifecycle ─────────────────────────────────────────────────────
-  async _onViewerJoin(senderId, displayName, color, ws, timing) {
+  async _onViewerJoin(senderId, displayName, color, ws, timing, rawModalities) {
     const pc2 = new RTCPeerConnection({
       iceServers: this.opts.iceServers ?? ORP_ICE_SERVERS,
       iceCandidatePoolSize: 5
     });
-    const inputChannel = pc2.createDataChannel("orp-input", { ordered: false, maxRetransmits: 0 });
-    const videoChannel = pc2.createDataChannel("orp-video", { ordered: false, maxRetransmits: 0 });
-    videoChannel.binaryType = "arraybuffer";
+    const modalities = rawModalities ?? this.opts.modalities ?? ["input", "video", "audio"];
+    const inputChannel = modalities.includes("input") ? pc2.createDataChannel("orp-input", { ordered: false, maxRetransmits: 0 }) : null;
+    const videoChannel = modalities.includes("video") ? pc2.createDataChannel("orp-video", { ordered: false, maxRetransmits: 0 }) : null;
+    if (videoChannel) {
+      videoChannel.binaryType = "arraybuffer";
+    }
     const viewer = {
       senderId,
       displayName,
@@ -633,6 +637,7 @@ var ORPHostSession = class {
       pc: pc2,
       inputChannel,
       videoChannel,
+      modalities,
       timing,
       connectedAt: Date.now()
     };
@@ -656,18 +661,20 @@ var ORPHostSession = class {
         this._removeViewer(senderId, pc2);
       }
     });
-    inputChannel.addEventListener("message", (ev) => {
-      let payload;
-      try {
-        payload = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
-      if (this._validatePayload(payload)) this.emit("input", payload, senderId);
-    });
-    inputChannel.addEventListener("open", () => {
-      viewer.timing.dataChannelOpen = performance.now();
-    });
+    if (inputChannel) {
+      inputChannel.addEventListener("message", (ev) => {
+        let payload;
+        try {
+          payload = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
+        if (this._validatePayload(payload)) this.emit("input", payload, senderId);
+      });
+      inputChannel.addEventListener("open", () => {
+        viewer.timing.dataChannelOpen = performance.now();
+      });
+    }
     const offer = await pc2.createOffer();
     await pc2.setLocalDescription(offer);
     const offerEnv = await signEnvelope2({
@@ -18521,13 +18528,13 @@ function Bx() {
   }
   e.prototype.format = function() {
     var y = this.auth || "";
-    y && (y = encodeURIComponent(y), y = y.replace(/%3A/gi, ":"), y += "@");
+    y && (y = encodeURIComponent(y), y = y.replace(/%3A/i, ":"), y += "@");
     var O = this.protocol || "", v = this.pathname || "", M2 = this.hash || "", F = false, U = "";
     this.host ? F = y + this.host : this.hostname && (F = y + (this.hostname.indexOf(":") === -1 ? this.hostname : "[" + this.hostname + "]"), this.port && (F += ":" + this.port)), this.query && typeof this.query == "object" && Object.keys(this.query).length && (U = b.stringify(this.query, { arrayFormat: "repeat", addQueryPrefix: false }));
     var Q = this.search || U && "?" + U || "";
     return O && O.substr(-1) !== ":" && (O += ":"), this.slashes || (!O || S[O]) && F !== false ? (F = "//" + (F || ""), v && v.charAt(0) !== "/" && (v = "/" + v)) : F || (F = ""), M2 && M2.charAt(0) !== "#" && (M2 = "#" + M2), Q && Q.charAt(0) !== "?" && (Q = "?" + Q), v = v.replace(/[?#]/g, function(W) {
       return encodeURIComponent(W);
-    }), Q = Q.replace(/#/g, "%23"), O + F + v + Q + M2;
+    }), Q = Q.replace("#", "%23"), O + F + v + Q + M2;
   };
   function R(y, O) {
     return w(y, false, true).resolve(O);
@@ -22283,32 +22290,25 @@ var ORPNostrSession = class _ORPNostrSession {
         console.warn(`[ORP] Failed to send via ${name2}:`, e);
       }
     });
-    if (!room || room === Object.prototype || typeof room !== "object") return;
-    Object.defineProperty(room, "onPeerJoin", {
-      value: (peerId) => {
-        console.log(`[ORP] Peer ${peerId} discovered via ${name2}!`);
-        if (this.readyState === 0) {
-          this.readyState = 1;
-          this.openListeners.forEach((fn) => fn());
-        }
-      },
-      writable: true, configurable: true, enumerable: true
-    });
+    room.onPeerJoin = (peerId) => {
+      console.log(`[ORP] \u{1F7E2} Peer ${peerId} discovered via ${name2}!`);
+      if (this.readyState === 0) {
+        this.readyState = 1;
+        this.openListeners.forEach((fn) => fn());
+      }
+    };
     action.onMessage = (data, meta) => {
       if (data && data.senderId) {
         this.peerIdMap.set(data.senderId, meta.peerId);
       }
-      console.log(`[ORP] Received msg from ${meta.peerId} via ${name2}`);
+      console.log(`[ORP] \u{1F4E9} Received msg from ${meta.peerId} via ${name2}`);
       const rawData = typeof data === "string" ? data : JSON.stringify(data);
       const ev = new MessageEvent("message", { data: rawData });
       this.messageListeners.forEach((fn) => fn(ev));
     };
-    Object.defineProperty(room, "onPeerLeave", {
-      value: (peerId) => {
-        console.log(`[ORP] Peer ${peerId} left via ${name2}!`);
-      },
-      writable: true, configurable: true, enumerable: true
-    });
+    room.onPeerLeave = (peerId) => {
+      console.log(`[ORP] \u{1F534} Peer ${peerId} left via ${name2}!`);
+    };
   }
   // Mock WebSocket API
   addEventListener(type, listener) {

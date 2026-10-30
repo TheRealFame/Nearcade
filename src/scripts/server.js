@@ -144,6 +144,7 @@ const viewerColors = new Map();
 const viewerAvatars = new Map();
 const viewerPlatforms = new Map();
 const viewerWcSupport = new Map();
+const viewerModalities = new Map();
 const inputPerms = new Map();
 const pinAttempts = new Map();
 const urlSpam = new Map();
@@ -2448,7 +2449,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
 
       // Start audio routing as soon as the host session opens
       if (_audioWorker) _audioWorker.postMessage({ type: 'route', processName: null });
-      viewers.forEach((_, id) => hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false })));
+      viewers.forEach((_, id) => hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false, modalities: viewerModalities.get(id) || ['input', 'video', 'audio'] })));
 
       if (tunnelUrl) ws.send(JSON.stringify({ type: "tunnel-url", url: tunnelUrl }));
 
@@ -2554,7 +2555,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
               // Pass through the viewer's reason + PC state so the host can
               // tell a dead-viewer retry (rebuild) from a mid-flight duplicate
               // (ignore) instead of murdering connecting PCs.
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId, reoffer: true, reason: msg.reason || null, viewerPcState: msg.pcState || null, supportsWebCodecs: viewerWcSupport.get(msg.viewerId) !== false }));
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: msg.viewerId, name: viewerNames.get(msg.viewerId) || msg.viewerId, reoffer: true, reason: msg.reason || null, viewerPcState: msg.pcState || null, supportsWebCodecs: viewerWcSupport.get(msg.viewerId) !== false, modalities: viewerModalities.get(msg.viewerId) || ['input', 'video', 'audio'] }));
             }
             // GStreamer native path: the browser host ignores re-offers (its
             // comment says the daemon owns signaling), so a retrying viewer
@@ -2934,7 +2935,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
                   name: viewerNames.get(id),
                   viewerRegion: msg.viewerRegion || null,
                   isDesktopApp: !!msg.isDesktopApp,
-                  supportsWebCodecs: viewerWcSupport.get(id) !== false
+                  supportsWebCodecs: viewerWcSupport.get(id) !== false,
+                  modalities: viewerModalities.get(id) || ['input', 'video', 'audio']
                 }));
               }
               broadcastRoster();
@@ -3305,6 +3307,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
             if (viewerAvatar) viewerAvatars.set(id, viewerAvatar);
             if (viewerPlatform) viewerPlatforms.set(id, viewerPlatform);
             viewerWcSupport.set(id, typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true);
+            viewerModalities.set(id, Array.isArray(msg.modalities) ? msg.modalities : ['input', 'video', 'audio']);
             // Script version check — warn host if viewer script is outdated
             const viewerScriptVer = msg.scriptVersion || null;
             const SERVER_SCRIPT_VER = APP_VERSION;
@@ -3327,7 +3330,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
                 platform: viewerPlatform,
                 color: viewerColor,
                 avatar: viewerAvatar,
-                supportsWebCodecs: typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true
+                supportsWebCodecs: typeof msg.supportsWebCodecs === 'boolean' ? msg.supportsWebCodecs : true,
+                modalities: viewerModalities.get(id) || ['input', 'video', 'audio']
               }));
             }
 
@@ -3423,7 +3427,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
               id = claimedId;
               if (hostWS && hostWS.readyState === 1) {
                 hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: tempId }));
-                hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id), supportsWebCodecs: viewerWcSupport.get(id) !== false }));
+                hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id), supportsWebCodecs: viewerWcSupport.get(id) !== false, modalities: viewerModalities.get(id) || ['input', 'video', 'audio'] }));
               }
               ws.send(JSON.stringify({ type: "your-id", viewerId: id, name: viewerNames.get(id), inputToken: viewerTokens.get(id) }));
               broadcastRoster();
@@ -3433,7 +3437,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
 
           if (msg.type === "request-offer") {
             if (hostWS && hostWS.readyState === 1)
-              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false }));
+              hostWS.send(JSON.stringify({ type: "viewer-joined", viewerId: id, name: viewerNames.get(id) || id, supportsWebCodecs: viewerWcSupport.get(id) !== false, modalities: viewerModalities.get(id) || ['input', 'video', 'audio'] }));
             return;
           }
 
@@ -3627,6 +3631,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
         if (wasActive) {
           viewers.delete(id);
           viewerNames.delete(id);
+          viewerModalities.delete(id);
           viewerGamepads.delete(id);
           viewerHasController.delete(id);
           for (const [hwKey, vid] of hwIdToViewer) {

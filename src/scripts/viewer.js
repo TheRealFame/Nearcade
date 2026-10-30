@@ -3161,13 +3161,16 @@ async function connect() {
     }
     function sendJoinToWS() {
         const liveName = (document.getElementById('nameInput')?.value || myName || '').trim();
+        const isControllerOnly = urlParamsGlobal.has('controller_only') || urlParamsGlobal.has('gamepad_only');
+        const modalities = isControllerOnly ? ['input'] : ['input', 'video', 'audio'];
         ws.send(JSON.stringify({
             type: 'join', viewerId: myId, name: liveName, pin: enteredPin,
             viewerRegion, clientVersion: CLIENT_VERSION, platform: viewerPlatform,
             supportsWebCodecs: typeof VideoDecoder !== 'undefined',
             color: localStorage.getItem('ns_chat_color') || '',
             avatar: localStorage.getItem('ns_avatar') || '',
-            isDesktopApp: urlParamsGlobal.has('compat')
+            isDesktopApp: urlParamsGlobal.has('compat'),
+            modalities: modalities
         }));
         knownNativePads.forEach(pInfo => ws.send(JSON.stringify(Object.assign({ type: 'gpid' }, pInfo))));
     }
@@ -3397,6 +3400,8 @@ async function connect() {
             // We directly dispatch the packet rather than calling connect() to avoid infinite event loops.
             if (_autoJoinedVps && ws && ws.readyState === 1) {
                 const liveName = (document.getElementById('nameInput')?.value || myName || '').trim();
+                const isControllerOnly = urlParamsGlobal.has('controller_only') || urlParamsGlobal.has('gamepad_only');
+                const modalities = isControllerOnly ? ['input'] : ['input', 'video', 'audio'];
                 ws.send(JSON.stringify({
                     type: 'join', 
                     viewerId: typeof myId !== 'undefined' ? myId : null, 
@@ -3409,7 +3414,8 @@ async function connect() {
                     platform: typeof viewerPlatform !== 'undefined' ? viewerPlatform : 'web',
                     color: localStorage.getItem('ns_chat_color') || '',
                     avatar: localStorage.getItem('ns_avatar') || '',
-                    isDesktopApp: window.location.search.includes('compat')
+                    isDesktopApp: window.location.search.includes('compat'),
+                    modalities: modalities
                 }));
             }
 

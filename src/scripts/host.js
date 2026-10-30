@@ -70,6 +70,7 @@ let _vpsAuthOk = false;
 let _smartDb = {};
 let _viewerRegions = {};
 let _viewerWcSupport = {};
+let _viewerModalities = {};
 let _pendingVpsViewers = new Map();
 let hostRegion = '';
 let _tunnelBusy = false;
@@ -1637,6 +1638,7 @@ function connectWS() {
             knownViewers.add(msg.viewerId);
             if (msg.viewerRegion) _viewerRegions[msg.viewerId] = String(msg.viewerRegion).toLowerCase().slice(0, 2);
             if (typeof msg.supportsWebCodecs === 'boolean') _viewerWcSupport[msg.viewerId] = msg.supportsWebCodecs;
+            if (Array.isArray(msg.modalities)) _viewerModalities[msg.viewerId] = msg.modalities;
             if (isNew) {
                 log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' joined', 'ok');
             } else {
@@ -1660,8 +1662,9 @@ function connectWS() {
                     // Inject standard WebRTC tracks into the ORP SDK's PeerConnection if WebCodecs is NOT active
                     const pipelineVal = document.getElementById('pipelineSelect')?.value;
                     const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+                    const wantsVideo = !_viewerModalities[msg.viewerId] || _viewerModalities[msg.viewerId].includes('video');
                     const orpViewer = window.P2PManager.hostSession.viewers.get(msg.viewerId);
-                    if (orpViewer && orpViewer.pc && currentStream) {
+                    if (wantsVideo && orpViewer && orpViewer.pc && currentStream) {
                         // 1. Add to peerConnections map so broadcastToViewers can find it
                         peerConnections[msg.viewerId] = orpViewer.pc;
                         
@@ -1735,6 +1738,7 @@ function connectWS() {
             knownViewers.delete(msg.viewerId);
             delete _viewerRegions[msg.viewerId];
             delete _viewerWcSupport[msg.viewerId];
+            delete _viewerModalities[msg.viewerId];
             _removeViewerVAD(msg.viewerId);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
@@ -1989,8 +1993,10 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
 
     const pipelineVal = document.getElementById('pipelineSelect')?.value;
     const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+    const wantsVideo = !_viewerModalities[viewerId] || _viewerModalities[viewerId].includes('video');
+    const wantsAudio = !_viewerModalities[viewerId] || _viewerModalities[viewerId].includes('audio');
 
-    if (forceWc) {
+    if (forceWc && wantsVideo) {
         // ── THE MISSING UDP TUNNEL ──
         // Explicitly set priority to 'low' so it never starves the 'high' priority input channel
         pc.wcChannel = pc.createDataChannel('webcodecs', { ordered: false, maxRetransmits: 0, priority: 'low' });
@@ -2086,8 +2092,13 @@ async function sendOfferToViewer(viewerId, viewerPcState) {
     }
 
     targetStream.getTracks().forEach(track => {
-        if (track.kind === 'video' && forceWc) {
-            console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
+        if (track.kind === 'video' && (!wantsVideo || forceWc)) {
+            if (!wantsVideo) console.log(`[WebRTC] Skipping video track attachment for ${viewerId} (modality excludes video)`);
+            else console.log(`[WebRTC] Skipping video track attachment for ${viewerId} because WebCodecs is active.`);
+            return;
+        }
+        if (track.kind === 'audio' && !wantsAudio) {
+            console.log(`[WebRTC] Skipping audio track attachment for ${viewerId} (modality excludes audio)`);
             return;
         }
 
