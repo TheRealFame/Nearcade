@@ -7,6 +7,7 @@ const { z } = require('zod');
 const rateLimitMiddleware = require('express-rate-limit');
 require('dotenv').config();
 const si = require('systeminformation');
+const systemDoctor = require('./core/system-doctor.js');
 
 // Helper to anonymize IPs so we never store them
 function hashIp(ip) { return crypto.createHash('sha256').update(ip).digest('hex'); }
@@ -595,10 +596,14 @@ try {
 } catch (e) { }
 
 function getLanIP() {
-  for (const iface of Object.values(os.networkInterfaces()))
-    for (const n of iface)
-      if (n.family === "IPv4" && !n.internal) return n.address;
-  return "127.0.0.1";
+  try {
+    return systemDoctor.sanitizeLanInterfaces().primaryIp;
+  } catch (_) {
+    for (const iface of Object.values(os.networkInterfaces()))
+      for (const n of iface)
+        if (n.family === "IPv4" && !n.internal) return n.address;
+    return "127.0.0.1";
+  }
 }
 function shouldRequirePin(ip, hasTunnelHeader = false) {
   // REQ 5: Arcade Mode PIN Stripping
@@ -811,6 +816,20 @@ async function main() {
   console.log("  LAN URL   : http://" + LAN_IP + ":" + PORT + "/");
   const displayPin = sessionPassword ? '[SAVED PASSWORD ACTIVE]' : PIN;
   console.log("  PIN       : \x1b[1;32m" + displayPin + "\x1b[0m\n");
+
+  // Non-blocking background System Doctor preflight
+  systemDoctor.runAllChecks().then((report) => {
+    if (report.hasFatal) {
+      console.warn(`[doctor] WARNING: ${report.stats.fail} critical system issue(s) detected. Run "npm run doctor" for details.`);
+      for (const c of report.checks) {
+        if (c.status === 'fail') console.warn(`  [doctor] ${c.name}: ${c.message}`);
+      }
+    } else if (report.stats.warn > 0) {
+      console.log(`[doctor] System preflight: ${report.stats.ok} ok, ${report.stats.warn} warning(s).`);
+    } else {
+      console.log(`[doctor] System preflight passed: ${report.stats.ok}/${report.stats.total} checks OK.`);
+    }
+  }).catch(() => { });
 
   const app = express();
   const server = http.createServer(app);
@@ -1606,6 +1625,20 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
         network: { type: 'unknown', iface: '', online: true },
         battery: { hasBattery: false, isCharging: false, percent: null, acConnected: true }
       });
+    }
+  });
+
+  // ── System Doctor Diagnostic API ──────────────────────────────────────────
+  app.get("/api/system-doctor", (req, res) => {
+    res.json(systemDoctor.getCachedReport());
+  });
+
+  app.post("/api/system-doctor/refresh", adminMiddleware, async (req, res) => {
+    try {
+      const report = await systemDoctor.runAllChecks();
+      res.json(report);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
     }
   });
 

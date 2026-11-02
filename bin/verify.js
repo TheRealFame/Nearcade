@@ -93,7 +93,24 @@ async function runTests() {
             req.end();
         });
 
-        // 5. Graceful Shutdown
+        // 5. Test system-doctor API
+        await new Promise((resolve, reject) => {
+            http.get(`http://localhost:${port}/api/system-doctor`, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        const doc = JSON.parse(data);
+                        if (doc && typeof doc.allPassed !== 'undefined') {
+                            console.log("   System Doc   (/api/system-doctor) responsive");
+                            resolve();
+                        } else reject(new Error("Invalid system doctor payload"));
+                    } catch (e) { reject(e); }
+                });
+            }).on('error', reject);
+        });
+
+        // 6. Graceful Shutdown
         runAuxiliaryTests().catch(() => {}).then(() => finishTests(true));
 
     } catch (err) {
@@ -120,6 +137,8 @@ function runAuxiliaryTests() {
         { file: 'node', args: ['--check', 'src/scripts/core/hw-accel-detect.js'], name: 'hw-accel-detect.js syntax' },
         { file: 'node', args: ['--check', 'src/scripts/core/network/signaling.js'], name: 'signaling.js syntax' },
         { file: 'node', args: ['--check', 'src/scripts/host-engine.js'], name: 'host-engine.js syntax' },
+        { file: 'node', args: ['--check', 'src/scripts/core/system-doctor.js'], name: 'system-doctor.js syntax' },
+        { file: 'node', args: ['--check', 'bin/doctor.js'], name: 'doctor.js syntax' },
         { file: 'node', args: ['--check', 'bin/diag-run.js'], name: 'diag-run.js syntax' },
         // ICE ladder regression: small, dupe-free, dead relays disabled,
         // lone-object TURN honored exactly once (prevents 4-offer storms).

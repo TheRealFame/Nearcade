@@ -17,6 +17,7 @@ app.commandLine.appendSwitch('vmodule', 'gpu*=1,render*=1,web_content*=1');
 app.commandLine.appendSwitch('log-file', path.join(CONFIG_DIR, 'nearcade.log'));
 
 powerSaveBlocker.start('prevent-app-suspension');
+powerSaveBlocker.start('prevent-display-sleep');
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 app.setName('Nearcade');
 app.setAppUserModelId('Nearcade');

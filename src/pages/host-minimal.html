@@ -1222,6 +1222,7 @@
           </div>
         </div>
         <div class="hdr-right">
+          <button id="systemDoctorPill" class="codec-badge" style="display:none; cursor:pointer; background:none; font-family:inherit;" onclick="openSystemDoctorModal()" title="System Preflight Status">System Ready</button>
           <span id="codecBadge" class="codec-badge">—</span>
           <button class="gear-btn" onclick="showSettingsModal('input')" title="Controller settings" id="ctrlSettingsBtn">
             <svg style="width:16px; height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1525,6 +1526,110 @@
         slider.value = val;
         slider.dispatchEvent(new Event('input', { bubbles: true }));
       });
+    });
+  </script>
+
+  <!-- System Doctor Diagnostic Modal -->
+  <div id="systemDoctorModal" class="modal-bg gone" style="z-index: 10001;">
+    <div class="modal" style="max-width: 650px; width: 90%;">
+      <div class="modal-head">
+        <h3>System Preflight Diagnostics</h3>
+        <p>Host capability and permission validation</p>
+      </div>
+      <div id="doctorModalBody" style="padding: 16px; max-height: 60vh; overflow-y: auto; font-size: 11px; display: flex; flex-direction: column; gap: 10px;">
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <button onclick="refreshSystemDoctor()" class="btn" style="font-size:11px;">Re-run Diagnostics</button>
+        <button onclick="closeSystemDoctorModal()" class="btn primary" style="font-size:11px;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadSystemDoctorStatus() {
+      try {
+        const res = await fetch('/api/system-doctor');
+        const rep = await res.json();
+        window._latestDoctorReport = rep;
+        const pill = document.getElementById('systemDoctorPill');
+        if (!pill) return;
+        pill.style.display = 'inline-block';
+        if (rep.hasFatal) {
+          pill.style.color = 'var(--danger)';
+          pill.style.borderColor = 'var(--danger)';
+          pill.textContent = 'System Issues (' + rep.stats.fail + ')';
+        } else if (rep.stats && rep.stats.warn > 0) {
+          pill.style.color = 'var(--warn)';
+          pill.style.borderColor = 'var(--warn)';
+          pill.textContent = 'System Warnings (' + rep.stats.warn + ')';
+        } else {
+          pill.style.color = 'var(--accent-green)';
+          pill.style.borderColor = 'var(--accent-green)';
+          pill.textContent = 'System Ready';
+        }
+      } catch (_) {}
+    }
+
+    function openSystemDoctorModal() {
+      const rep = window._latestDoctorReport;
+      const body = document.getElementById('doctorModalBody');
+      if (!body) return;
+      body.innerHTML = '';
+
+      if (!rep || !Array.isArray(rep.checks) || rep.checks.length === 0) {
+        body.innerHTML = '<div style="color:var(--muted)">Diagnostic preflight is running or no data returned yet. Click Re-run Diagnostics below.</div>';
+      } else {
+        rep.checks.forEach(c => {
+          const card = document.createElement('div');
+          card.style.background = '#181818';
+          card.style.border = '1px solid ' + (c.status === 'fail' ? 'var(--danger)' : (c.status === 'warn' ? 'var(--warn)' : 'var(--border)'));
+          card.style.borderRadius = '4px';
+          card.style.padding = '8px 12px';
+
+          let statusBadge = '<span style="color:var(--accent-green); font-weight:600;">[OK]</span> ';
+          if (c.status === 'warn') statusBadge = '<span style="color:var(--warn); font-weight:600;">[WARN]</span> ';
+          if (c.status === 'fail') statusBadge = '<span style="color:var(--danger); font-weight:600;">[FAIL]</span> ';
+          if (c.status === 'info') statusBadge = '<span style="color:var(--muted); font-weight:600;">[INFO]</span> ';
+
+          let html = '<div style="font-weight:600; margin-bottom:4px;">' + statusBadge + (c.name || c.id) + '</div>';
+          html += '<div style="color:#bbb; margin-bottom:4px;">' + (c.message || '') + '</div>';
+
+          if (c.remediation) {
+            html += '<div style="background:#0a0a0a; border:1px solid #333; padding:6px; border-radius:3px; margin-top:6px; font-family:monospace; font-size:10px; color:#ffaa88; word-break:break-all;">'
+              + '<strong>Remediation:</strong> ' + c.remediation
+              + ' <button class="btn" style="padding:2px 6px; font-size:9px; margin-left:8px;" onclick="navigator.clipboard.writeText(\'' + c.remediation.replace(/'/g, "\\'") + '\'); this.textContent=\'Copied!\';">Copy</button>'
+              + '</div>';
+          }
+
+          card.innerHTML = html;
+          body.appendChild(card);
+        });
+      }
+
+      const m = document.getElementById('systemDoctorModal');
+      if (m) m.classList.remove('gone');
+    }
+
+    function closeSystemDoctorModal() {
+      const m = document.getElementById('systemDoctorModal');
+      if (m) m.classList.add('gone');
+    }
+
+    async function refreshSystemDoctor() {
+      const body = document.getElementById('doctorModalBody');
+      if (body) body.innerHTML = '<div style="color:var(--accent)">Running system diagnostics...</div>';
+      try {
+        const res = await fetch('/api/system-doctor/refresh', { method: 'POST' });
+        window._latestDoctorReport = await res.json();
+        openSystemDoctorModal();
+        loadSystemDoctorStatus();
+      } catch (e) {
+        if (body) body.innerHTML = '<div style="color:var(--danger)">Failed to refresh diagnostics: ' + e.message + '</div>';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(loadSystemDoctorStatus, 500);
     });
   </script>
 
