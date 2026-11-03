@@ -557,8 +557,27 @@ if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit
 // standing between a working dashboard and a permanently blank window.
 // Forcing it off turns every GPU hiccup into a black screen.
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
-app.commandLine.appendSwitch('force-high-performance-gpu');
-app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
+// NOTE: force-high-performance-gpu and disable-gpu-driver-bug-workarounds are
+// intentionally EXCLUDED on Windows. DXGI Desktop Duplication requires the
+// capturing process to run on the same GPU adapter that drives the display.
+// On hybrid GPU laptops (Intel iGPU + NVIDIA/AMD dGPU), if the display is
+// driven by the dGPU, forcing ANY specific adapter via Chromium flags causes
+// DXGI_ERROR_UNSUPPORTED on every capture attempt (confirmed regression from
+// NearsecTogether 3.0.0 → Nearcade 3.0.7). Let Windows/DXGI pick the adapter.
+// On Linux/macOS, force-high-performance-gpu is fine (VA-API / Metal).
+if (process.platform !== 'win32') {
+  app.commandLine.appendSwitch('force-high-performance-gpu');
+  // disable-gpu-driver-bug-workarounds was absent in NT 3.0.0 (working build).
+  // On Windows it may suppress workarounds that hybrid GPU setups need.
+  app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
+}
+// On Windows: force ANGLE D3D11 renderer (safe — it's the ANGLE backend, not
+// an adapter preference) but do NOT force the GPU adapter. The OS will
+// select the adapter that owns the display output, which is what DXGI needs.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('use-angle', 'd3d11');
+  console.log('[electron] Windows: ANGLE D3D11 forced. GPU adapter selection left to OS (DXGI requires the adapter that owns the display output).');
+}
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
