@@ -33,11 +33,36 @@ const DEFAULT_CONTROLLERS = {
   },
 };
 
+let _isNvidiaCache = null;
+function isNvidiaLinux() {
+  if (process.platform !== 'linux') return false;
+  if (_isNvidiaCache !== null) return _isNvidiaCache;
+  try {
+    if (fs.existsSync('/proc/driver/nvidia')) {
+      _isNvidiaCache = true;
+      return true;
+    }
+    const lspciOut = require('child_process').execSync('lspci 2>/dev/null', { encoding: 'utf8' });
+    _isNvidiaCache = /nvidia/i.test(lspciOut);
+    return _isNvidiaCache;
+  } catch (_) {
+    _isNvidiaCache = false;
+    return false;
+  }
+}
+
+// On Linux: enable zeroCopy (GPU-Direct Capture) by default for non-NVIDIA GPUs.
+// NVIDIA proprietary drivers interact poorly with Chromium's zero-copy DMA path,
+// so we disable it there to avoid black-screen capture failures.
+function getDefaultZeroCopy() {
+  return process.platform === 'linux' && !isNvidiaLinux();
+}
+
 const DEFAULTS = {
   encoder: 'gpu', codec: 'h264', preset: 'fast',
   alwaysOnTop: false, w: 1280, h: 800,
   tray: true, rumble: true, discordRPC: true,
-  hwDecode: true, fpsUnlock: false, vsyncOff: false, zeroCopy: false,
+  hwDecode: true, fpsUnlock: false, vsyncOff: false, zeroCopy: getDefaultZeroCopy(),
   hidePreviewOnStart: false, captureMic: false,
   ffmpegExperimental: false,
   hostName: '',
@@ -53,15 +78,34 @@ const DEFAULTS = {
   useNativeTheme: false,
   checkForUpdates: true,
   captureMethod: 'webcodecs',
+  gpuPreference: 'auto', // 'auto' | 'integrated' | 'discrete'
 };
 
 function loadSettings() {
   try {
     if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    const defaultZeroCopy = getDefaultZeroCopy();
     if (fs.existsSync(CONFIG_FILE)) {
-      return Object.assign({}, DEFAULTS, JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')));
+      let parsed = {};
+      try { parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) || {}; } catch (_) {}
+      const merged = Object.assign({}, DEFAULTS, parsed);
+      // Only auto-apply zeroCopy default for users who haven't explicitly set it yet
+      if (parsed.zeroCopy === undefined) {
+        merged.zeroCopy = defaultZeroCopy;
+      }
+      return merged;
     }
-    const seed = Object.assign({}, DEFAULTS);
+    const seed = Object.assign({}, DEFAULTS, { zeroCopy: defaultZeroCopy });
+
+    // Log zeroCopy default reasoning on first run (Linux only)
+    if (process.platform === 'linux') {
+      if (defaultZeroCopy) {
+        console.log('[Setup] Non-NVIDIA GPU detected. GPU-Direct Capture (zeroCopy) enabled by default.');
+      } else {
+        console.log('[Setup] NVIDIA GPU detected. GPU-Direct Capture (zeroCopy) disabled by default for compatibility.');
+      }
+    }
+
     try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(seed, null, 2)); } catch (_) { }
     return seed;
   } catch (_) { }

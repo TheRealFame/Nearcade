@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nearcade Identity Persist
 // @namespace    https://github.com/OpenRemotePlay
-// @version      3.0.7
+// @version      3.0.8
 // @description  Persists ALL your viewer settings (name, colors, gamepad mappings, volumes, stream quality) across all Nearcade sessions and tunnels. Install once, your setup follows you everywhere.
 // @updateURL    https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/master/openremoteplay-identity-persist.user.js
 // @downloadURL  https://github.com/OpenRemotePlay/OpenRemotePlay/raw/refs/heads/master/openremoteplay-identity-persist.user.js

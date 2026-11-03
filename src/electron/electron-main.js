@@ -557,26 +557,62 @@ if (_bootFlags.fpsUnlock) app.commandLine.appendSwitch('disable-frame-rate-limit
 // standing between a working dashboard and a permanently blank window.
 // Forcing it off turns every GPU hiccup into a black screen.
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
-// NOTE: force-high-performance-gpu and disable-gpu-driver-bug-workarounds are
-// intentionally EXCLUDED on Windows. DXGI Desktop Duplication requires the
-// capturing process to run on the same GPU adapter that drives the display.
-// On hybrid GPU laptops (Intel iGPU + NVIDIA/AMD dGPU), if the display is
-// driven by the dGPU, forcing ANY specific adapter via Chromium flags causes
-// DXGI_ERROR_UNSUPPORTED on every capture attempt (confirmed regression from
-// NearsecTogether 3.0.0 → Nearcade 3.0.7). Let Windows/DXGI pick the adapter.
-// On Linux/macOS, force-high-performance-gpu is fine (VA-API / Metal).
-if (process.platform !== 'win32') {
-  app.commandLine.appendSwitch('force-high-performance-gpu');
-  // disable-gpu-driver-bug-workarounds was absent in NT 3.0.0 (working build).
-  // On Windows it may suppress workarounds that hybrid GPU setups need.
-  app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
-}
-// On Windows: force ANGLE D3D11 renderer (safe — it's the ANGLE backend, not
-// an adapter preference) but do NOT force the GPU adapter. The OS will
-// select the adapter that owns the display output, which is what DXGI needs.
-if (process.platform === 'win32') {
-  app.commandLine.appendSwitch('use-angle', 'd3d11');
-  console.log('[electron] Windows: ANGLE D3D11 forced. GPU adapter selection left to OS (DXGI requires the adapter that owns the display output).');
+
+// GPU adapter selection for dual-GPU systems (NVIDIA Optimus / AMD Switchable Graphics)
+//
+// DXGI Desktop Duplication (the Windows screen capture API) requires the capturing
+// process to run on the SAME adapter that drives the display output. Forcing the wrong
+// adapter returns DXGI_ERROR_UNSUPPORTED on every capture path — this was the root
+// cause of the regression from NearsecTogether 3.0.0 → Nearcade 3.0.7.
+//
+// Default (gpuPreference = 'auto'): let the OS pick the adapter. Windows will land
+// Electron on the display-owning adapter, which is exactly what DXGI needs.
+//
+// Manual override: the user can set gpuPreference = 'integrated' or 'discrete' in
+// settings (or pass --force-low-power-gpu / --force-high-performance-gpu on the CLI)
+// if they explicitly know their hardware and want to lock a specific adapter.
+// The override is honoured but a warning is logged so support requests include it.
+{
+  const isWin = process.platform === 'win32';
+  const pref = _bootFlags.gpuPreference || 'auto';
+  const forceLow  = pref === 'integrated'
+    || process.argv.includes('--low-power-gpu')
+    || process.argv.includes('--force-low-power-gpu')
+    || process.argv.includes('--force_low_power_gpu');
+  const forceHigh = pref === 'discrete'
+    || process.argv.includes('--high-performance-gpu')
+    || process.argv.includes('--force-high-performance-gpu')
+    || process.argv.includes('--force_high_performance_gpu');
+
+  if (forceLow) {
+    console.log('[electron] GPU preference: forcing low-power (integrated) GPU — WARNING: on hybrid GPU laptops where the display is driven by the dGPU this will break DXGI capture (DXGI_ERROR_UNSUPPORTED). Use auto unless you know your display is on the iGPU.');
+    app.commandLine.appendSwitch('force-low-power-gpu');
+  } else if (forceHigh) {
+    console.log('[electron] GPU preference: forcing high-performance (discrete) GPU');
+    app.commandLine.appendSwitch('force-high-performance-gpu');
+  } else if (!isWin) {
+    // Non-Windows (Linux VA-API / macOS Metal): always prefer the dGPU.
+    // No DXGI constraint applies here.
+    app.commandLine.appendSwitch('force-high-performance-gpu');
+  } else {
+    // Windows auto: leave adapter selection to the OS. DXGI will use the adapter
+    // that owns the display output — the only configuration that works on hybrid
+    // GPU laptops. No flag is appended.
+    console.log('[electron] Windows GPU: adapter selection left to OS (auto). DXGI capture will use the display-owning adapter.');
+  }
+
+  // On Windows: force ANGLE D3D11 renderer backend. This is safe — it selects
+  // the ANGLE rendering backend, not a GPU adapter, and is compatible with DXGI.
+  if (isWin) {
+    app.commandLine.appendSwitch('use-angle', 'd3d11');
+  }
+
+  // disable-gpu-driver-bug-workarounds: suppress only on non-Windows.
+  // Was absent in NT 3.0.0 (working build) and may suppress workarounds
+  // that hybrid GPU setups rely on. Safe to apply on Linux/macOS.
+  if (!isWin) {
+    app.commandLine.appendSwitch('disable-gpu-driver-bug-workarounds');
+  }
 }
 app.commandLine.appendSwitch('disable-rtc-smoothness-algorithm');
 app.commandLine.appendSwitch('disable-hardware-cursors');

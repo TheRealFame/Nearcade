@@ -688,7 +688,7 @@ function _setupWebGL(gl) {
     return tex;
 }
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
-const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '3.0.7';
+const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '3.0.8';
 function semverGte(a, b) {
   const pa = String(a).split('.').map(Number);
   const pb = String(b).split('.').map(Number);
