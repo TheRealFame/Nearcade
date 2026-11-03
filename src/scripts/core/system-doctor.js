@@ -494,18 +494,164 @@ class SystemDoctor {
           });
         }
       }
+    } else if (platform === 'win32') {
+      // On Windows, inspect the GPU topology stored by electron-main after app.getGPUInfo().
+      // This covers: dGPU-only, hybrid iGPU+dGPU, iGPU-only, APU (no discrete), and the
+      // "none_active" failure state that triggers DXGI_ERROR_UNSUPPORTED on every capture path.
+      checks.push(...this.checkWindowsGPUAdapter());
     } else {
       checks.push({
         id: 'platform_hw_encoding',
         subsystem: 'encoder',
         name: 'Hardware Encoding Support',
         status: 'ok',
-        message: `${platform === 'win32' ? 'MediaFoundation / NVENC' : 'VideoToolbox'} hardware acceleration supported.`,
+        message: 'VideoToolbox hardware acceleration supported.',
         remediation: null,
         details: { platform }
       });
     }
 
+    return checks;
+  }
+
+  /**
+   * Probe 4b (Windows-only): GPU adapter classification for DXGI capture safety.
+   *
+   * Reads the GPU topology that electron-main populated via app.getGPUInfo() after
+   * app.whenReady(). Results are stored in process.env.NEARCADE_GPU_INFO so this
+   * server-side module can access them without Electron IPC.
+   *
+   * GPU classes and their implications:
+   *   dgpu       → discrete-only, ideal (DXGI capture and hardware encoding optimal)
+   *   hybrid     → iGPU + dGPU coexist; display may be on either adapter.
+   *                Nearcade now leaves adapter selection to the OS so DXGI picks the
+   *                correct one automatically (fixed in electron-main.js).
+   *   igpu       → integrated-only, single adapter, no ambiguity — capture works.
+   *   apu        → AMD/Intel CPU-integrated graphics, no discrete GPU partner.
+   *                Capture works but encoding throughput is constrained; the CPU
+   *                die also handles rendering load during gameplay.
+   *   none_active → all GPU devices report Active: false (original hybrid-GPU bug
+   *                 symptom). DXGI Desktop Duplication will fail on every attempt.
+   */
+  checkWindowsGPUAdapter() {
+    const checks = [];
+
+    const rawInfo = process.env.NEARCADE_GPU_INFO;
+    if (!rawInfo) {
+      // Electron hasn't finished app.whenReady() yet, or GPU info collection
+      // was skipped (non-Electron mode). Surface as info, not an error.
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'info',
+        message: 'GPU adapter info not yet available. Run the System Doctor after the app has fully started.',
+        remediation: null,
+        details: { reason: 'NEARCADE_GPU_INFO not populated' }
+      });
+      return checks;
+    }
+
+    let info;
+    try {
+      info = JSON.parse(rawInfo);
+    } catch (_) {
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'warn',
+        message: 'GPU info could not be parsed. DXGI capture state is unknown.',
+        remediation: null,
+        details: { raw: rawInfo }
+      });
+      return checks;
+    }
+
+    const { gpuClass, hasActive, isHybrid, isApu, devices } = info;
+
+    // --- none_active: the original hybrid-GPU bug symptom ---
+    if (gpuClass === 'none_active') {
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'fail',
+        message: 'All GPU devices report Active: false. DXGI Desktop Duplication will fail on every capture path (window, full-screen, WinRT, and legacy fallback all return DXGI_ERROR_UNSUPPORTED). This is likely caused by a corrupt GPU driver or an incompatible D3D adapter configuration.',
+        remediation: 'Update or reinstall your GPU driver (Device Manager → Display Adapters → Update Driver). If the issue persists, run: dxdiag /t %TEMP%\\dxdiag.txt and inspect for adapter errors.',
+        details: { gpuClass, devices }
+      });
+      return checks;
+    }
+
+    // --- APU: integrated-only, no discrete GPU partner ---
+    if (gpuClass === 'apu') {
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'warn',
+        message: 'APU detected — no discrete GPU present. Screen capture will work, but your CPU-integrated graphics engine handles both rendering and video encoding simultaneously. During gameplay this may cause encoder frame drops or latency spikes, especially at high resolutions.',
+        remediation: 'Lower the stream resolution or bitrate in Nearcade settings. For sustained high-quality streaming, an external discrete GPU (NVIDIA/AMD dGPU) is recommended.',
+        details: { gpuClass, devices }
+      });
+      return checks;
+    }
+
+    // --- hybrid: iGPU + dGPU coexist ---
+    if (gpuClass === 'hybrid') {
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'ok',
+        message: 'Hybrid GPU system detected (integrated + discrete). Nearcade leaves GPU adapter selection to the OS so DXGI Desktop Duplication automatically runs on the adapter that owns the display output. Capture and hardware encoding should work correctly.',
+        remediation: null,
+        details: { gpuClass, isHybrid: true, devices }
+      });
+      return checks;
+    }
+
+    // --- dgpu: discrete-only, optimal ---
+    if (gpuClass === 'dgpu') {
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'ok',
+        message: 'Discrete GPU detected. DXGI Desktop Duplication and hardware video encoding (NVENC / AMF) are fully supported.',
+        remediation: null,
+        details: { gpuClass, devices }
+      });
+      return checks;
+    }
+
+    // --- igpu: integrated-only (Intel/AMD without discrete partner) ---
+    if (gpuClass === 'igpu') {
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: 'ok',
+        message: 'Integrated GPU detected (single adapter). DXGI capture is unambiguous and should work correctly. Hardware encoding via Intel QuickSync or AMD VCE is available.',
+        remediation: null,
+        details: { gpuClass, devices }
+      });
+      return checks;
+    }
+
+    // --- fallback: unknown class but at least something is active ---
+    checks.push({
+      id: 'win_gpu_adapter',
+      subsystem: 'encoder',
+      name: 'Windows GPU Adapter (DXGI Capture)',
+      status: hasActive ? 'ok' : 'warn',
+      message: hasActive
+        ? 'GPU adapter active. DXGI capture should work.'
+        : 'GPU adapter state could not be determined.',
+      remediation: hasActive ? null : 'Check GPU driver installation in Device Manager.',
+      details: { gpuClass, devices }
+    });
     return checks;
   }
 

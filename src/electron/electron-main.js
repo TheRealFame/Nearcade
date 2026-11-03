@@ -925,6 +925,93 @@ app.whenReady().then(() => {
     callback({ requestHeaders: details.requestHeaders });
   });
 
+  // --- Windows GPU adapter classification ---
+  // After Electron has initialized, interrogate which GPU adapter(s) it landed on.
+  // We classify the setup so the System Doctor can surface actionable warnings:
+  //
+  //   dGPU only      → ideal, DXGI capture will work
+  //   hybrid (iGPU+dGPU) → fine IF Electron is on the display-owning adapter (our fix ensures this)
+  //   iGPU only      → less ideal but workable (only one adapter, no ambiguity)
+  //   APU            → AMD/Intel CPU-integrated graphics with no discrete GPU.
+  //                    Capture works but encoding throughput is limited; warn the user.
+  //   nothing active → all GPUs report active:false (the original bug symptom) → error
+  //
+  // Result is stored in process.env so server.js / system-doctor.js can read it
+  // without needing Electron IPC from within the Node-side module.
+  if (process.platform === 'win32') {
+    app.getGPUInfo('basic').then((gpuInfo) => {
+      try {
+        const gpus = (gpuInfo && gpuInfo.gpuDevice) ? gpuInfo.gpuDevice : [];
+
+        // Vendor ID constants (decimal from Electron's GPU info)
+        const VENDOR_INTEL  = 32902;  // 0x8086
+        const VENDOR_AMD    = 4098;   // 0x1002
+        const VENDOR_NVIDIA = 4318;   // 0x10DE
+        const VENDOR_MS_SW  = 5140;   // 0x1414 — Microsoft Basic Display / WARP software renderer
+
+        const activeGpus = gpus.filter(g => g.active);
+        const allGpus    = gpus.filter(g => g.vendorId !== VENDOR_MS_SW); // exclude software renderer
+        const hasActive  = activeGpus.length > 0;
+
+        const hasIntel  = allGpus.some(g => g.vendorId === VENDOR_INTEL);
+        const hasNvidia = allGpus.some(g => g.vendorId === VENDOR_NVIDIA);
+        const hasAmd    = allGpus.some(g => g.vendorId === VENDOR_AMD);
+        const hasDiscrete = hasNvidia || (hasAmd && allGpus.length > 1);
+
+        // APU: AMD-only with a single physical adapter (no discrete partner).
+        // Also covers Intel-only machines with no dGPU.
+        const isApu = (hasAmd && !hasNvidia && allGpus.length === 1) ||
+                      (hasIntel && !hasNvidia && !hasAmd && allGpus.length === 1);
+        const isHybrid = (hasIntel && hasDiscrete) || (hasAmd && hasNvidia);
+        const isDgpuOnly = hasDiscrete && !hasIntel;
+
+        let gpuClass = 'unknown';
+        if (!hasActive)        gpuClass = 'none_active';
+        else if (isApu)        gpuClass = 'apu';
+        else if (isHybrid)     gpuClass = 'hybrid';
+        else if (isDgpuOnly)   gpuClass = 'dgpu';
+        else                   gpuClass = 'igpu';
+
+        const summary = {
+          gpuClass,
+          hasActive,
+          isHybrid,
+          isApu,
+          devices: gpus.map(g => ({
+            vendor: g.vendorId,
+            device: g.deviceId,
+            active: g.active,
+          })),
+        };
+
+        process.env.NEARCADE_GPU_INFO = JSON.stringify(summary);
+
+        const classLabel = {
+          none_active: 'NO ACTIVE GPU DETECTED — DXGI capture will fail',
+          apu:         'APU (integrated-only) — capture works, encoding throughput limited',
+          hybrid:      'Hybrid GPU (iGPU + dGPU) — DXGI requires display-owning adapter (adapter selection is now left to OS)',
+          dgpu:        'Discrete GPU only — optimal for capture and encoding',
+          igpu:        'Integrated GPU only — capture works, no discrete GPU detected',
+          unknown:     'GPU topology unknown',
+        }[gpuClass] || gpuClass;
+
+        console.log(`[electron] Windows GPU class: ${classLabel}`);
+        console.log(`[electron] Active GPU devices: ${gpus.map(g =>
+          `(Vendor: ${g.vendorId}, Device: ${g.deviceId}, Active: ${g.active})`
+        ).join(' | ')}`);
+
+        if (gpuClass === 'none_active') {
+          console.error('[electron] WARNING: All GPU devices report Active: false. DXGI Desktop Duplication may fail on every capture path. Check GPU driver installation.');
+        }
+        if (gpuClass === 'apu') {
+          console.warn('[electron] INFO: APU detected — no discrete GPU present. Video encoding will use the CPU-integrated graphics engine. For best streaming quality, an external GPU is recommended but not required.');
+        }
+      } catch (gpuErr) {
+        console.warn('[electron] GPU classification failed:', gpuErr.message);
+      }
+    }).catch(e => console.warn('[electron] getGPUInfo failed:', e.message));
+  }
+
   createWindow();
 
   const { dialog, globalShortcut } = require('electron');
