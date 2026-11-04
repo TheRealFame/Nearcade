@@ -72,11 +72,33 @@ try {
   localStorage.removeItem('ns_handheld_session');
 } catch (_) {}
 
+const savedLayout = (() => {
+  try {
+    const raw = localStorage.getItem('ns_layout_mode');
+    if (raw) return raw;
+    const cfg = JSON.parse(localStorage.getItem('ns_app_config') || '{}');
+    return cfg.layoutMode || null;
+  } catch (_) { return null; }
+})();
+
+const isExplicitDefault = savedLayout === 'default';
+
+if (isExplicitDefault) {
+  document.documentElement.classList.remove('handheld-mode');
+  try {
+    localStorage.removeItem('ns_handheld_mode');
+    localStorage.removeItem('ns_handheld_session');
+    sessionStorage.removeItem('ns_handheld_session');
+  } catch (_) {}
+}
+
 // In handheld mode or active handheld session, display virtual cursor immediately
-const isHandheldActive = document.documentElement.classList.contains('handheld-mode') ||
+const isHandheldActive = !isExplicitDefault && (
+  document.documentElement.classList.contains('handheld-mode') ||
   new URLSearchParams(window.location.search).has('handheld') ||
   (typeof window.electronAPI !== 'undefined' && Boolean(window.electronAPI.isHandheld)) ||
-  sessionStorage.getItem('ns_handheld_session') === 'true';
+  sessionStorage.getItem('ns_handheld_session') === 'true'
+);
 
 if (isHandheldActive) {
   document.documentElement.classList.add('handheld-mode');

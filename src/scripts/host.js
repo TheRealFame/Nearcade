@@ -2274,7 +2274,14 @@ async function showSourceSelectionModal(forceGrid = false) {
     const ua = navigator.userAgent.toLowerCase();
     const isLinux = ua.includes('linux');
     const isMac = ua.includes('mac os x');
-    const isDeckOrHandheld = Boolean(
+    const isExplicitDefault = (() => {
+        try {
+            return localStorage.getItem('ns_layout_mode') === 'default' ||
+                (JSON.parse(localStorage.getItem('ns_app_config') || '{}')).layoutMode === 'default';
+        } catch (_) { return false; }
+    })();
+
+    const isDeckOrHandheld = !isExplicitDefault && Boolean(
         window.electronAPI?.isHandheld ||
         document.documentElement.classList.contains('handheld-mode') ||
         sessionStorage.getItem('ns_handheld_session') === 'true' ||
@@ -2805,7 +2812,14 @@ async function startCapture() {
     streamActive = true;
     _updateDiscordRPC();
 
-    const isDeckOrHandheld = Boolean(
+    const isExplicitDefault = (() => {
+        try {
+            return localStorage.getItem('ns_layout_mode') === 'default' ||
+                (JSON.parse(localStorage.getItem('ns_app_config') || '{}')).layoutMode === 'default';
+        } catch (_) { return false; }
+    })();
+
+    const isDeckOrHandheld = !isExplicitDefault && Boolean(
         window.electronAPI?.isHandheld ||
         document.documentElement.classList.contains('handheld-mode') ||
         sessionStorage.getItem('ns_handheld_session') === 'true' ||
@@ -7211,23 +7225,14 @@ function toggleAppSetting(key) {
         window.electronAPI.toggleAlwaysOnTop();
     }
     if (key === 'tournamentMode') {
-        fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tournamentMode: appSettings[key] })
-        }).catch(() => { });
         if (appSettings[key] && pusher) {
             try { pusher.disconnect(); } catch (_) { }
             pusher = null;
             arcadeChannel = null;
         }
     }
-    if (window.electronAPI?.saveSettings) {
-        if (key === 'tray') window.electronAPI.saveSettings({ tray: appSettings[key] });
-        if (key === 'discordRPC') window.electronAPI.saveSettings({ discordRPC: appSettings[key] });
-        if (key === 'rumble') window.electronAPI.saveSettings({ rumble: appSettings[key] });
-        if (key === 'tournamentMode') window.electronAPI.saveSettings({ tournamentMode: appSettings[key] });
-        if (key === 'vrMode') window.electronAPI.saveSettings({ vrMode: appSettings[key] });
+    if (typeof saveAppConfig === 'function') {
+        saveAppConfig({ [key]: appSettings[key] });
     }
     log(I18N.t('Setting') + ' ' + key + ' = ' + appSettings[key], 'ok');
 }
@@ -8126,6 +8131,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         if (typeof loadAppConfig === 'function') {
             const cfg = await loadAppConfig();
+            if (cfg) {
+                if (cfg.tray !== undefined) appSettings.tray = cfg.tray;
+                if (cfg.alwaysOnTop !== undefined) appSettings.alwaysOnTop = cfg.alwaysOnTop;
+                if (cfg.hidePreviewOnStart !== undefined) appSettings.hidePreviewOnStart = cfg.hidePreviewOnStart;
+                if (cfg.captureMic !== undefined) appSettings.captureMic = cfg.captureMic;
+                if (cfg.tournamentMode !== undefined) appSettings.tournamentMode = cfg.tournamentMode;
+                if (cfg.richAudio !== undefined) appSettings.richAudio = cfg.richAudio;
+                if (cfg.vcOverlayPreview !== undefined) appSettings.vcOverlayPreview = cfg.vcOverlayPreview;
+                if (cfg.vrMode !== undefined) appSettings.vrMode = cfg.vrMode;
+                applyAppSettingsUI();
+            }
             let use3D = !!cfg.vrMode;
             if (cfg.overrideLogo === '3d') use3D = true;
             if (cfg.overrideLogo === '2d') use3D = false;

@@ -22,6 +22,24 @@ class SystemDoctor {
   }
 
   /**
+   * Helper to safely read user configuration from nearcade.config.json.
+   */
+  _loadUserConfig() {
+    try {
+      const home = os.homedir();
+      let cfgDir;
+      if (process.platform === 'win32') cfgDir = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+      else if (process.platform === 'darwin') cfgDir = path.join(home, 'Library', 'Application Support', 'Nearcade');
+      else cfgDir = path.join(home, '.config', 'Nearcade');
+      const cfgPath = path.join(cfgDir, 'nearcade.config.json');
+      if (fs.existsSync(cfgPath)) {
+        return JSON.parse(fs.readFileSync(cfgPath, 'utf8')) || {};
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  /**
    * Helper to safely execute a shell command with a timeout.
    * Returns stdout string, or empty string on error/timeout.
    */
@@ -492,6 +510,19 @@ class SystemDoctor {
             remediation: null,
             details: { driver: 'nvidia', uvm: true }
           });
+
+          const userCfg = this._loadUserConfig();
+          if (userCfg.zeroCopy === true) {
+            checks.push({
+              id: 'linux_nvidia_zerocopy',
+              subsystem: 'encoder',
+              name: 'NVIDIA Zero-Copy Capture Compatibility',
+              status: 'warn',
+              message: 'GPU-Direct Capture (zeroCopy) is enabled in settings while running on NVIDIA drivers. Chromium DMA-BUF zero-copy frequently fails on proprietary NVIDIA drivers, which can cause black screen captures.',
+              remediation: 'Disable GPU-Direct Capture (zeroCopy) in Nearcade Settings for NVIDIA stability.',
+              details: { driver: 'nvidia', zeroCopy: true }
+            });
+          }
         }
       }
     } else if (platform === 'win32') {
@@ -581,11 +612,8 @@ class SystemDoctor {
         remediation: 'Update or reinstall your GPU driver (Device Manager → Display Adapters → Update Driver). If the issue persists, run: dxdiag /t %TEMP%\\dxdiag.txt and inspect for adapter errors.',
         details: { gpuClass, devices }
       });
-      return checks;
-    }
-
-    // --- APU: integrated-only, no discrete GPU partner ---
-    if (gpuClass === 'apu') {
+    } else if (gpuClass === 'apu') {
+      // --- APU: integrated-only, no discrete GPU partner ---
       checks.push({
         id: 'win_gpu_adapter',
         subsystem: 'encoder',
@@ -595,11 +623,8 @@ class SystemDoctor {
         remediation: 'Lower the stream resolution or bitrate in Nearcade settings. For sustained high-quality streaming, an external discrete GPU (NVIDIA/AMD dGPU) is recommended.',
         details: { gpuClass, devices }
       });
-      return checks;
-    }
-
-    // --- hybrid: iGPU + dGPU coexist ---
-    if (gpuClass === 'hybrid') {
+    } else if (gpuClass === 'hybrid') {
+      // --- hybrid: iGPU + dGPU coexist ---
       checks.push({
         id: 'win_gpu_adapter',
         subsystem: 'encoder',
@@ -609,11 +634,8 @@ class SystemDoctor {
         remediation: null,
         details: { gpuClass, isHybrid: true, devices }
       });
-      return checks;
-    }
-
-    // --- dgpu: discrete-only, optimal ---
-    if (gpuClass === 'dgpu') {
+    } else if (gpuClass === 'dgpu') {
+      // --- dgpu: discrete-only, optimal ---
       checks.push({
         id: 'win_gpu_adapter',
         subsystem: 'encoder',
@@ -623,11 +645,8 @@ class SystemDoctor {
         remediation: null,
         details: { gpuClass, devices }
       });
-      return checks;
-    }
-
-    // --- igpu: integrated-only (Intel/AMD without discrete partner) ---
-    if (gpuClass === 'igpu') {
+    } else if (gpuClass === 'igpu') {
+      // --- igpu: integrated-only (Intel/AMD without discrete partner) ---
       checks.push({
         id: 'win_gpu_adapter',
         subsystem: 'encoder',
@@ -637,21 +656,47 @@ class SystemDoctor {
         remediation: null,
         details: { gpuClass, devices }
       });
-      return checks;
+    } else {
+      // --- fallback: unknown class but at least something is active ---
+      checks.push({
+        id: 'win_gpu_adapter',
+        subsystem: 'encoder',
+        name: 'Windows GPU Adapter (DXGI Capture)',
+        status: hasActive ? 'ok' : 'warn',
+        message: hasActive
+          ? 'GPU adapter active. DXGI capture should work.'
+          : 'GPU adapter state could not be determined.',
+        remediation: hasActive ? null : 'Check GPU driver installation in Device Manager.',
+        details: { gpuClass, devices }
+      });
     }
 
-    // --- fallback: unknown class but at least something is active ---
-    checks.push({
-      id: 'win_gpu_adapter',
-      subsystem: 'encoder',
-      name: 'Windows GPU Adapter (DXGI Capture)',
-      status: hasActive ? 'ok' : 'warn',
-      message: hasActive
-        ? 'GPU adapter active. DXGI capture should work.'
-        : 'GPU adapter state could not be determined.',
-      remediation: hasActive ? null : 'Check GPU driver installation in Device Manager.',
-      details: { gpuClass, devices }
-    });
+    // Config validation checks
+    const userCfg = this._loadUserConfig();
+    if (isHybrid && userCfg.gpuPreference === 'integrated') {
+      checks.push({
+        id: 'win_hybrid_gpu_pref',
+        subsystem: 'encoder',
+        name: 'Hybrid GPU Preference Setting',
+        status: 'warn',
+        message: 'GPU Preference is set to "integrated" on a hybrid GPU system. If your display is driven by the discrete GPU, DXGI screen capture will fail with "Could not start video source" (DXGI_ERROR_UNSUPPORTED).',
+        remediation: 'Set GPU Preference to "Auto (System Default)" in Nearcade Settings to let Windows choose the display adapter.',
+        details: { gpuPreference: userCfg.gpuPreference, isHybrid: true }
+      });
+    }
+
+    if (userCfg.zeroCopy === true) {
+      checks.push({
+        id: 'win_zerocopy_config',
+        subsystem: 'encoder',
+        name: 'Windows Zero-Copy Capture Compatibility',
+        status: 'warn',
+        message: 'GPU-Direct Capture (zeroCopy) is enabled in settings. On Windows, forcing zeroCopy can cause DXGI capture failures or black frames depending on driver support.',
+        remediation: 'Disable GPU-Direct Capture (zeroCopy) in Nearcade Settings if you experience capture errors.',
+        details: { zeroCopy: true }
+      });
+    }
+
     return checks;
   }
 

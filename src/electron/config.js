@@ -80,6 +80,7 @@ const DEFAULTS = {
   captureMethod: 'webcodecs',
   gpuPreference: 'auto', // 'auto' | 'integrated' | 'discrete'
   layoutMode: 'auto', // 'auto' | 'default' | 'handheld' | 'portrait'
+  configVersion: 4,
 };
 
 function loadSettings() {
@@ -90,10 +91,38 @@ function loadSettings() {
       let parsed = {};
       try { parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) || {}; } catch (_) {}
       const merged = Object.assign({}, DEFAULTS, parsed);
+
+      let needsSave = false;
+      // Migration for 3.0.7 Windows capture regression recovery:
+      // In 3.0.7, Windows installs were written with "gpuPreference": "integrated",
+      // "zeroCopy": true, "fpsUnlock": true, "vsyncOff": true by default.
+      // If updating from 3.0.7 or earlier on Windows without an explicit configVersion >= 4,
+      // recover to safe defaults ('auto' for gpuPreference, false for optimizations).
+      if (process.platform === 'win32') {
+        if (!parsed.configVersion || parsed.configVersion < 4) {
+          if (parsed.gpuPreference === 'integrated') {
+            console.log('[config] Windows 3.0.7 migration: Resetting gpuPreference from "integrated" to "auto" to prevent DXGI_ERROR_UNSUPPORTED on hybrid laptops.');
+            merged.gpuPreference = 'auto';
+            needsSave = true;
+          }
+          if (parsed.zeroCopy === true) { merged.zeroCopy = false; needsSave = true; }
+          if (parsed.fpsUnlock === true) { merged.fpsUnlock = false; needsSave = true; }
+          if (parsed.vsyncOff === true) { merged.vsyncOff = false; needsSave = true; }
+          merged.configVersion = 4;
+          needsSave = true;
+        }
+      }
+
       // Only auto-apply zeroCopy default for users who haven't explicitly set it yet
       if (parsed.zeroCopy === undefined) {
         merged.zeroCopy = defaultZeroCopy;
+        needsSave = true;
       }
+
+      if (needsSave) {
+        try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2)); } catch (_) {}
+      }
+
       return merged;
     }
     const seed = Object.assign({}, DEFAULTS, { zeroCopy: defaultZeroCopy });

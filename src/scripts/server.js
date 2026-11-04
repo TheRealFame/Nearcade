@@ -694,13 +694,30 @@ function broadcastToArcade(msg) {
 }
 
 // ── Persistent config ────────────────────────────────────────────────────────
-const CONFIG_VERSION = 3;
+const CONFIG_VERSION = 4;
 const CONFIG_FILE = path.join(dataDir, 'nearcade.config.json');
 const FRIENDS_FILE = path.join(dataDir, 'friends.json');
 const DEFAULT_ARCADE_URL = 'https://nearcade.cutefame.net';
 
 function migrateConfig(cfg) {
   let v = cfg.configVersion || 0;
+  // Ensure zeroCopy defaults to true on non-NVIDIA Linux hosts if not explicitly set
+  if (cfg.zeroCopy === undefined) {
+    let isNvidia = false;
+    if (process.platform === 'linux') {
+      try {
+        if (fs.existsSync('/proc/driver/nvidia')) isNvidia = true;
+        else {
+          const lspciOut = require('child_process').execSync('lspci 2>/dev/null', { encoding: 'utf8' });
+          isNvidia = /nvidia/i.test(lspciOut);
+        }
+      } catch (_) {}
+      cfg.zeroCopy = !isNvidia;
+    } else {
+      cfg.zeroCopy = false;
+    }
+  }
+
   if (v >= CONFIG_VERSION) return cfg;
   // v0 → v1: rename legacy keys if present
   if (v < 1) {
@@ -719,6 +736,21 @@ function migrateConfig(cfg) {
     if (cfg.useNativeTheme === undefined) cfg.useNativeTheme = true;
     if (cfg.useSystemAccent === undefined) cfg.useSystemAccent = true;
     v = 3;
+  }
+  // v3 → v4: Windows capture regression recovery & platform defaults
+  if (v < 4) {
+    if (process.platform === 'win32') {
+      if (cfg.gpuPreference === 'integrated') {
+        console.log('[server] Config v4 migration: Resetting gpuPreference from "integrated" to "auto" to prevent DXGI_ERROR_UNSUPPORTED on hybrid laptops.');
+        cfg.gpuPreference = 'auto';
+      }
+      if (cfg.zeroCopy === true) cfg.zeroCopy = false;
+      if (cfg.fpsUnlock === true) cfg.fpsUnlock = false;
+      if (cfg.vsyncOff === true) cfg.vsyncOff = false;
+    }
+    if (cfg.gpuPreference === undefined) cfg.gpuPreference = 'auto';
+    if (cfg.layoutMode === undefined) cfg.layoutMode = 'auto';
+    v = 4;
   }
   cfg.configVersion = CONFIG_VERSION;
   return cfg;

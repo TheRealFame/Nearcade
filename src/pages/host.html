@@ -12,7 +12,13 @@
   <script>
     (function checkHandheldEarly() {
       try {
-        const savedMode = localStorage.getItem('ns_layout_mode');
+        let savedMode = localStorage.getItem('ns_layout_mode');
+        if (!savedMode) {
+          try {
+            const cfg = JSON.parse(localStorage.getItem('ns_app_config') || '{}');
+            savedMode = cfg.layoutMode;
+          } catch (_) {}
+        }
         if (savedMode === 'default') {
           document.documentElement.classList.remove('handheld-mode');
           localStorage.removeItem('ns_handheld_mode');
