@@ -108,14 +108,21 @@ function forgetZrokToken(t) {
 // the server runs IN-PROCESS in Electron's main thread, so this is ONLY for
 // the shutdown sweep (bounded, app is exiting). Everything else uses the
 // async variant below.
-// CAUTION: zrok2 has no `delete share` subcommand (it 404s) — v2 releases
-// reservations via `delete name <token>`. v1 keeps `release <token>`.
+// CAUTION: in zrok v2, releasing shares is `delete share <token>`.
+// In zrok v1, it is `release <token>`. We support both and fall back cleanly.
 function deleteZrokShareSync(zrokPath, token) {
   try {
     if (!zrokPath || !token) return false;
-    const args = zrokPath.includes('zrok2') ? ['delete', 'name', token] : ['release', token];
+    const isV2 = zrokPath.includes('zrok2');
+    const args = isV2 ? ['delete', 'share', token] : ['release', token];
     const r = require('child_process').spawnSync(zrokPath, args, { stdio: 'ignore', timeout: 8000 });
-    return !!(r && r.status === 0);
+    if (r && r.status === 0) return true;
+    if (isV2) {
+      // Fallback for reserved names or older v2 variants
+      const r2 = require('child_process').spawnSync(zrokPath, ['delete', 'name', token], { stdio: 'ignore', timeout: 8000 });
+      return !!(r2 && r2.status === 0);
+    }
+    return false;
   } catch (_) { return false; }
 }
 
@@ -124,8 +131,16 @@ function deleteZrokShareAsync(zrokPath, token) {
   return new Promise((resolve) => {
     try {
       if (!zrokPath || !token) return resolve(false);
-      const args = zrokPath.includes('zrok2') ? ['delete', 'name', token] : ['release', token];
-      require('child_process').execFile(zrokPath, args, { timeout: 8000 }, (err) => resolve(!err));
+      const isV2 = zrokPath.includes('zrok2');
+      const args = isV2 ? ['delete', 'share', token] : ['release', token];
+      require('child_process').execFile(zrokPath, args, { timeout: 10000 }, (err) => {
+        if (!err) return resolve(true);
+        if (isV2) {
+          require('child_process').execFile(zrokPath, ['delete', 'name', token], { timeout: 8000 }, (err2) => resolve(!err2));
+        } else {
+          resolve(false);
+        }
+      });
     } catch (_) { resolve(false); }
   });
 }
@@ -169,7 +184,9 @@ async function reapStaleZrokShares(port) {
         // is enough); known-young ones are left alone.
         let ageMs = Infinity;
         try {
-          const cands = [Date.parse(s.createdAt), Date.parse(s.updatedAt)].filter((v) => Number.isFinite(v));
+          const rawCreated = typeof s.createdAt === 'number' ? s.createdAt : Date.parse(s.createdAt);
+          const rawUpdated = typeof s.updatedAt === 'number' ? s.updatedAt : Date.parse(s.updatedAt);
+          const cands = [rawCreated, rawUpdated].filter((v) => Number.isFinite(v));
           if (cands.length) ageMs = nowMs - Math.max(...cands);
         } catch (_) {}
         if (ageMs <= 600000) continue;

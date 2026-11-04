@@ -1465,9 +1465,9 @@ button.spatial-hover,
 .select-picker-item.spatial-hover,
 .tunnel-card.spatial-hover,
 .prompt-chip.spatial-hover {
-    outline: 2px solid var(--accent, #c084fc) !important;
-    outline-offset: 2px !important;
-    box-shadow: 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
+    outline: none !important;
+    border-color: var(--accent, #c084fc) !important;
+    box-shadow: 0 0 0 2px var(--accent, #c084fc), 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
 }
 
 .handheld-prompt-bar {

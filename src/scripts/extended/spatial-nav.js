@@ -38,9 +38,9 @@ if (!document.getElementById('virtual-cursor-style')) {
     .radio-card.spatial-hover,
     .more-card.spatial-hover,
     .select-picker-item.spatial-hover {
-      outline: 2px solid var(--accent, #c084fc) !important;
-      outline-offset: 2px !important;
-      box-shadow: 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
+      outline: none !important;
+      border-color: var(--accent, #c084fc) !important;
+      box-shadow: 0 0 0 2px var(--accent, #c084fc), 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
     }
   `;
   document.head.appendChild(st);
@@ -176,6 +176,13 @@ function getClickTargetAt(x, y) {
 }
 
 function updateVirtualCursorHover(x, y) {
+  if (lastInputType === 'mouse') {
+    if (currentHoverTarget) {
+      currentHoverTarget.classList.remove('spatial-hover', 'virtual-hover');
+      currentHoverTarget = null;
+    }
+    return;
+  }
   const target = getClickTargetAt(x, y);
   if (target !== currentHoverTarget) {
     if (currentHoverTarget) {
@@ -218,7 +225,10 @@ window.addEventListener('mousemove', (e) => {
   if (cursor && cursor.style.display !== 'none') {
     cursor.style.display = 'none';
   }
-  updateVirtualCursorHover(cx, cy);
+  if (currentHoverTarget) {
+    currentHoverTarget.classList.remove('spatial-hover', 'virtual-hover');
+    currentHoverTarget = null;
+  }
 }, { passive: true });
 
 window.addEventListener('touchstart', (e) => {
@@ -229,7 +239,10 @@ window.addEventListener('touchstart', (e) => {
     if (cursor && cursor.style.display !== 'none') {
       cursor.style.display = 'none';
     }
-    updateVirtualCursorHover(cx, cy);
+    if (currentHoverTarget) {
+      currentHoverTarget.classList.remove('spatial-hover', 'virtual-hover');
+      currentHoverTarget = null;
+    }
   }
 }, { passive: true });
 

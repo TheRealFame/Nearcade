@@ -1380,9 +1380,9 @@ html.handheld-mode .info-card.spatial-hover,
 html.handheld-mode .radio-card.spatial-hover,
 html.handheld-mode .more-card.spatial-hover,
 html.handheld-mode .select-picker-item.spatial-hover {
-  outline: 2px solid var(--accent, #c084fc) !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
+  outline: none !important;
+  border-color: var(--accent, #c084fc) !important;
+  box-shadow: 0 0 0 2px var(--accent, #c084fc), 0 0 16px rgba(var(--accent-rgb, 192, 132, 252), 0.5) !important;
 }
 html.handheld-mode #docsFloatBtn,
 html.handheld-mode #gamesLibraryBtn {
@@ -1457,8 +1457,9 @@ html.handheld-mode .nav-btn svg {
 html.handheld-mode .nav-btn:focus-visible,
 html.handheld-mode .connect-card:focus-within,
 html.handheld-mode button:focus-visible {
-  outline: 2px solid var(--accent);
-  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.5);
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 16px rgba(var(--accent-rgb), 0.5);
 }
 
 /* Handheld Bottom-Right Controller Input Prompts */
