@@ -79,6 +79,7 @@ const DEFAULTS = {
   checkForUpdates: true,
   captureMethod: 'webcodecs',
   gpuPreference: 'auto', // 'auto' | 'integrated' | 'discrete'
+  layoutMode: 'auto', // 'auto' | 'default' | 'handheld' | 'portrait'
 };
 
 function loadSettings() {

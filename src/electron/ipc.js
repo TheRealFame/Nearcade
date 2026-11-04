@@ -210,8 +210,29 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('get-controllers', () => loadControllers());
 
+  function updateLayoutModeState(s) {
+    if (!s || typeof s !== 'object' || s.layoutMode === undefined) return;
+    const explicitCliHandheld = process.argv.includes('-handheld') || process.argv.includes('--handheld') || process.argv.includes('-tv') || process.argv.includes('--tv');
+    const explicitCliPortrait = process.argv.includes('-portrait') || process.argv.includes('--portrait');
+    if (!explicitCliHandheld && !explicitCliPortrait) {
+      if (s.layoutMode === 'default') {
+        ctx.isHandheld = false;
+        ctx.isPortrait = false;
+      } else if (s.layoutMode === 'handheld') {
+        ctx.isHandheld = true;
+        ctx.isPortrait = false;
+      } else if (s.layoutMode === 'portrait') {
+        ctx.isPortrait = true;
+        ctx.isHandheld = false;
+      } else {
+        ctx.isHandheld = Boolean(ctx.isGamescopeEnv);
+      }
+    }
+  }
+
   ipcMain.handle('save-settings', (_, s) => {
     ctx.settings = Object.assign(ctx.settings, s);
+    updateLayoutModeState(s);
     saveSettings(s);
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send('settings-updated', ctx.settings);
     return ctx.settings;
@@ -219,6 +240,7 @@ function registerIpcHandlers(ctx) {
 
   ipcMain.handle('save-settings-sync', (_, s) => {
     ctx.settings = Object.assign(ctx.settings, s);
+    updateLayoutModeState(s);
     saveSettingsSync(s);
     if (ctx.win && !ctx.win.isDestroyed()) ctx.win.webContents.send('settings-updated', ctx.settings);
     return ctx.settings;
@@ -227,6 +249,7 @@ function registerIpcHandlers(ctx) {
   ipcMain.handle('hydrate-settings', (_, patch) => {
     if (!patch || typeof patch !== 'object') return ctx.settings;
     ctx.settings = Object.assign(ctx.settings, patch);
+    updateLayoutModeState(patch);
     saveSettings(patch);
     return ctx.settings;
   });

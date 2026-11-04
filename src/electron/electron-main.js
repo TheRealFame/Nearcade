@@ -659,8 +659,27 @@ async function createWindow() {
   const port = await startServer();
   console.log('[electron] server ready on port', port);
 
-  const isPortrait = process.argv.includes('-portrait') || process.argv.includes('--portrait');
-  const isHandheld = process.argv.includes('-handheld') || process.argv.includes('--handheld') || process.argv.includes('-tv') || process.argv.includes('--tv') || isGamescopeEnv;
+  const explicitCliPortrait = process.argv.includes('-portrait') || process.argv.includes('--portrait');
+  const explicitCliHandheld = process.argv.includes('-handheld') || process.argv.includes('--handheld') || process.argv.includes('-tv') || process.argv.includes('--tv');
+
+  let isPortrait = explicitCliPortrait;
+  let isHandheld = explicitCliHandheld;
+
+  if (!explicitCliPortrait && !explicitCliHandheld) {
+    if (settings.layoutMode === 'default') {
+      isPortrait = false;
+      isHandheld = false;
+    } else if (settings.layoutMode === 'handheld') {
+      isHandheld = true;
+      isPortrait = false;
+    } else if (settings.layoutMode === 'portrait') {
+      isPortrait = true;
+      isHandheld = false;
+    } else {
+      isHandheld = Boolean(isGamescopeEnv);
+    }
+  }
+
   const isFullscreen = isGamescopeEnv || process.argv.includes('-fullscreen') || process.argv.includes('--fullscreen') || process.argv.includes('-tv') || process.argv.includes('--tv');
   const safeW = isPortrait ? 420 : (isGamescopeEnv ? 1280 : ((typeof settings.w === 'number' && !isNaN(settings.w)) ? settings.w : 1280));
   const safeH = isPortrait ? 880 : (isGamescopeEnv ? 800 : ((typeof settings.h === 'number' && !isNaN(settings.h)) ? settings.h : 800));

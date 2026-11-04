@@ -116,35 +116,72 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onHardwareGamepad: (cb) => ipcRenderer.on('hardware-gamepad-event', (_e, data) => cb(data)),
 
   isElectron: true,
-  isHandheld: (
-    process.argv.includes('-handheld') ||
-    process.argv.includes('--handheld') ||
-    process.argv.includes('-tv') ||
-    process.argv.includes('--tv') ||
-    (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
-    (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
-    process.env.SteamDeck === '1' ||
-    process.env.SteamGamepadUI === '1' ||
-    process.env.USER === 'deck' ||
-    (typeof location !== 'undefined' && location.search.includes('handheld=1')) ||
-    (process.platform === 'linux' && (() => {
-      try {
-        const os = require('os');
-        if (os && os.hostname && os.hostname() === 'steamdeck') return true;
-      } catch (_) {}
-      try {
-        const fs = require('fs');
-        const board = fs.existsSync('/sys/class/dmi/id/board_name') ? fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim() : '';
-        const vendor = fs.existsSync('/sys/class/dmi/id/sys_vendor') ? fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim() : '';
-        return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
-      } catch (_) {}
-      return false;
-    })())
-  ),
-  isPortrait: (
-    process.argv.includes('-portrait') ||
-    process.argv.includes('--portrait')
-  ),
+  isHandheld: (() => {
+    const explicitCli = process.argv.includes('-handheld') || process.argv.includes('--handheld') || process.argv.includes('-tv') || process.argv.includes('--tv');
+    if (explicitCli) return true;
+    try {
+      const os = require('os');
+      const path = require('path');
+      const fs = require('fs');
+      const home = os.homedir();
+      let configDir;
+      if (process.platform === 'win32') configDir = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+      else if (process.platform === 'darwin') configDir = path.join(home, 'Library', 'Application Support', 'Nearcade');
+      else configDir = path.join(home, '.config', 'Nearcade');
+      const cfgPath = path.join(configDir, 'nearcade.config.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        if (cfg && cfg.layoutMode) {
+          if (cfg.layoutMode === 'default' || cfg.layoutMode === 'portrait') return false;
+          if (cfg.layoutMode === 'handheld') return true;
+        }
+      }
+    } catch (_) {}
+    return (
+      (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
+      (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
+      process.env.SteamDeck === '1' ||
+      process.env.SteamGamepadUI === '1' ||
+      process.env.USER === 'deck' ||
+      (typeof location !== 'undefined' && location.search.includes('handheld=1')) ||
+      (process.platform === 'linux' && (() => {
+        try {
+          const os = require('os');
+          if (os && os.hostname && os.hostname() === 'steamdeck') return true;
+        } catch (_) {}
+        try {
+          const fs = require('fs');
+          const board = fs.existsSync('/sys/class/dmi/id/board_name') ? fs.readFileSync('/sys/class/dmi/id/board_name', 'utf8').trim() : '';
+          const vendor = fs.existsSync('/sys/class/dmi/id/sys_vendor') ? fs.readFileSync('/sys/class/dmi/id/sys_vendor', 'utf8').trim() : '';
+          return board === 'Jupiter' || board === 'Galileo' || vendor === 'Valve';
+        } catch (_) {}
+        return false;
+      })())
+    );
+  })(),
+  isPortrait: (() => {
+    const explicitCli = process.argv.includes('-portrait') || process.argv.includes('--portrait');
+    if (explicitCli) return true;
+    try {
+      const os = require('os');
+      const path = require('path');
+      const fs = require('fs');
+      const home = os.homedir();
+      let configDir;
+      if (process.platform === 'win32') configDir = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Nearcade');
+      else if (process.platform === 'darwin') configDir = path.join(home, 'Library', 'Application Support', 'Nearcade');
+      else configDir = path.join(home, '.config', 'Nearcade');
+      const cfgPath = path.join(configDir, 'nearcade.config.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        if (cfg && cfg.layoutMode) {
+          if (cfg.layoutMode === 'portrait') return true;
+          if (cfg.layoutMode === 'default' || cfg.layoutMode === 'handheld') return false;
+        }
+      }
+    } catch (_) {}
+    return false;
+  })(),
 });
 
 ipcRenderer.on('hardware-gamepad-event', (_e, data) => {

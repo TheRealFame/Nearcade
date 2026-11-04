@@ -193,12 +193,17 @@ function applyLayoutMode(mode) {
     root.classList.remove('portrait-mode');
     initHandheldStatusBar();
   } else if (mode === 'portrait') {
-    try { sessionStorage.removeItem('ns_handheld_session'); } catch (_) {}
+    try {
+      localStorage.removeItem('ns_handheld_mode');
+      localStorage.removeItem('ns_handheld_session');
+      sessionStorage.removeItem('ns_handheld_session');
+    } catch (_) {}
     root.classList.add('portrait-mode');
     root.classList.remove('handheld-mode');
   } else {
     try {
       localStorage.removeItem('ns_handheld_mode');
+      localStorage.removeItem('ns_handheld_session');
       sessionStorage.removeItem('ns_handheld_session');
     } catch (_) {}
     root.classList.remove('handheld-mode', 'portrait-mode');
@@ -206,6 +211,11 @@ function applyLayoutMode(mode) {
 }
 
 function detectDeviceLayout() {
+  const saved = localStorage.getItem('ns_layout_mode');
+  if (saved && saved !== 'auto') {
+    return saved;
+  }
+
   const params = new URLSearchParams(window.location.search);
   if (params.has('handheld') || params.has('tv')) {
     try {
@@ -232,7 +242,7 @@ function detectDeviceLayout() {
     }
   }
 
-  // Retain active handheld session
+  // Retain active handheld session only if not explicitly default
   try {
     if (localStorage.getItem('ns_handheld_mode') === 'true' ||
         localStorage.getItem('ns_handheld_session') === 'true' ||
@@ -272,6 +282,13 @@ function changeLayoutMode(mode) {
   const select = document.getElementById('settingSelectLayoutMode');
   if (select && select.value !== mode) select.value = mode;
 
+  if (typeof appConfig !== 'undefined' && appConfig) {
+    appConfig.layoutMode = mode;
+    try { localStorage.setItem('ns_app_config', JSON.stringify(appConfig)); } catch (_) {}
+    if (typeof saveAppConfigToElectron === 'function') saveAppConfigToElectron();
+    if (typeof syncToNode === 'function') syncToNode();
+  }
+
   if (mode === 'auto') {
     const detected = detectDeviceLayout();
     applyLayoutMode(detected);
@@ -282,6 +299,10 @@ function changeLayoutMode(mode) {
 
 function initLayoutMode() {
   let saved = localStorage.getItem('ns_layout_mode');
+  if (!saved && typeof appConfig !== 'undefined' && appConfig && appConfig.layoutMode) {
+    saved = appConfig.layoutMode;
+    try { localStorage.setItem('ns_layout_mode', saved); } catch (_) {}
+  }
   if (!saved) {
     let sessionIsHandheld = false;
     try { sessionIsHandheld = sessionStorage.getItem('ns_handheld_session') === 'true'; } catch (_) {}
@@ -304,8 +325,8 @@ function initLayoutMode() {
 
   if (typeof window !== 'undefined') {
     window.addEventListener('gamepadconnected', () => {
-      const currentSaved = localStorage.getItem('ns_layout_mode');
-      if (currentSaved === 'auto' || !currentSaved) {
+      const currentSaved = localStorage.getItem('ns_layout_mode') || (typeof appConfig !== 'undefined' && appConfig ? appConfig.layoutMode : null) || 'auto';
+      if (currentSaved === 'auto') {
         applyLayoutMode('handheld');
       }
     });

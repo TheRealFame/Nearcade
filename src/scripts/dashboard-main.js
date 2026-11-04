@@ -150,7 +150,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch (_) {}
   }
-  if (urlParams.has('portrait')) {
+  const savedLayout = localStorage.getItem('ns_layout_mode') || appConfig.layoutMode || 'auto';
+  if (savedLayout !== 'auto') {
+    if (typeof applyLayoutMode === 'function') applyLayoutMode(savedLayout);
+    else document.documentElement.classList.toggle('handheld-mode', savedLayout === 'handheld');
+  } else if (urlParams.has('portrait')) {
     if (typeof applyLayoutMode === 'function') applyLayoutMode('portrait');
     else document.documentElement.classList.add('portrait-mode');
   } else if (urlParams.has('handheld') || urlParams.has('tv') || (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.isHandheld)) {
@@ -792,6 +796,9 @@ async function loadAndSyncSettings() {
   if (localStorage.getItem('ns_host_avatar')) {
     appConfig.hostAvatar = localStorage.getItem('ns_host_avatar');
   }
+  if (localStorage.getItem('ns_layout_mode')) {
+    appConfig.layoutMode = localStorage.getItem('ns_layout_mode');
+  }
 
   // Sync UI immediately with zero delay!
   syncSettingsUI();
@@ -804,6 +811,9 @@ async function loadAndSyncSettings() {
       const elecConfig = await window.electronAPI.getSettings();
       if (elecConfig) {
         Object.assign(appConfig, elecConfig);
+        if (elecConfig.layoutMode) {
+          try { localStorage.setItem('ns_layout_mode', elecConfig.layoutMode); } catch (_) {}
+        }
         try { localStorage.setItem('ns_app_config', JSON.stringify(appConfig)); } catch (_) {}
         syncSettingsUI();
         await applySystemAccent();
@@ -821,6 +831,9 @@ async function loadAndSyncSettings() {
         const netConfig = await res.json();
         if (netConfig && typeof netConfig === 'object') {
           Object.assign(appConfig, netConfig);
+          if (netConfig.layoutMode) {
+            try { localStorage.setItem('ns_layout_mode', netConfig.layoutMode); } catch (_) {}
+          }
           try { localStorage.setItem('ns_app_config', JSON.stringify(appConfig)); } catch (_) {}
           syncSettingsUI();
           await applySystemAccent();
@@ -901,7 +914,7 @@ function syncSettingsUI() {
   document.getElementById('settingTrackHandheldMode')?.classList.toggle('on', document.documentElement.classList.contains('handheld-mode'));
   const layoutSel = document.getElementById('settingSelectLayoutMode');
   if (layoutSel) {
-    layoutSel.value = localStorage.getItem('ns_layout_mode') || 'auto';
+    layoutSel.value = appConfig.layoutMode || localStorage.getItem('ns_layout_mode') || 'auto';
   }
 
   const brandText = document.querySelector('.brand-text');

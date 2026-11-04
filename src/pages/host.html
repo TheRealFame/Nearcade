@@ -11,6 +11,26 @@
   <script src="/js/extended/ui/native-theme.js"></script>
   <script>
     (function checkHandheldEarly() {
+      try {
+        const savedMode = localStorage.getItem('ns_layout_mode');
+        if (savedMode === 'default') {
+          document.documentElement.classList.remove('handheld-mode');
+          localStorage.removeItem('ns_handheld_mode');
+          localStorage.removeItem('ns_handheld_session');
+          sessionStorage.removeItem('ns_handheld_session');
+          return;
+        }
+        if (savedMode === 'portrait') {
+          document.documentElement.classList.remove('handheld-mode');
+          document.documentElement.classList.add('portrait-mode');
+          return;
+        }
+        if (savedMode === 'handheld') {
+          document.documentElement.classList.add('handheld-mode');
+          return;
+        }
+      } catch (_) {}
+
       const params = new URLSearchParams(window.location.search);
       const isHandheld = params.has('handheld') ||
         (typeof window.electronAPI !== 'undefined' && window.electronAPI.isHandheld) ||

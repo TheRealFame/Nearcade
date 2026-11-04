@@ -643,6 +643,8 @@ background: var(--bg);
     flex-direction: column;
     overflow: hidden;
     min-height: 0;
+    position: relative;
+    z-index: 20;
 }
 
 .panel-header {
@@ -1476,12 +1478,30 @@ html.handheld-mode .handheld-prompt-bar {
     display: flex;
     position: fixed;
     bottom: 18px;
-    right: 24px;
+    right: calc(336px + 24px);
     gap: 8px;
     align-items: center;
-    z-index: 999999;
+    z-index: 990;
     user-select: none;
     pointer-events: auto;
+    transition: opacity 0.2s ease, right 0.2s ease;
+}
+
+.app-shell.tournament-mode ~ .handheld-prompt-bar {
+    right: 24px;
+}
+
+@media (max-width: 800px) {
+    html.handheld-mode .handheld-prompt-bar {
+        right: 24px;
+    }
+}
+
+/* Ensure prompt chips never obscure chat when interacting with chat input */
+.right-panel:focus-within ~ .handheld-prompt-bar,
+body:has(#chatMsg:focus) .handheld-prompt-bar {
+    opacity: 0.15;
+    pointer-events: none;
 }
 
 @media screen and (orientation: portrait) {
