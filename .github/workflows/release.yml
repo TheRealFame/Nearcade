@@ -184,7 +184,7 @@ jobs:
           if [ "$RUNNER_OS" == "macOS" ]; then
             npx electron-builder --mac --x64 --arm64 --publish always
           elif [ "$RUNNER_OS" == "Linux" ]; then
-            npx electron-builder --linux --publish always
+            npx electron-builder --linux AppImage deb --publish always
           else
             npx electron-builder --win portable --publish always
           fi
