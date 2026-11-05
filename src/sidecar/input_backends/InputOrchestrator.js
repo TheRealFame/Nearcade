@@ -602,12 +602,50 @@ function _claimSlot(slotIndex, viewerId, profileKey) {
 }
 
 function _freeSlot(viewerId) {
-    const slot = viewerSlots.get(viewerId);
+    if (!viewerId) return;
+
+    // Collect all slot keys belonging to this viewer (exact match and prefix padIds like viewerId_0, viewerId_99)
+    const keysToFree = new Set();
+    if (viewerSlots.has(viewerId)) {
+        keysToFree.add(viewerId);
+    }
+    const padPrefix = viewerId + '_';
+    for (const key of viewerSlots.keys()) {
+        if (key === viewerId || key.startsWith(padPrefix)) {
+            keysToFree.add(key);
+        }
+    }
+
+    // If nothing found in viewerSlots directly, also check slotViewers
+    for (const [slot, owner] of slotViewers.entries()) {
+        if (owner === viewerId || owner.startsWith(padPrefix)) {
+            keysToFree.add(owner);
+        }
+    }
+
+    if (keysToFree.size === 0) {
+        // Forward disconnect anyway to sidecars so any orphan native devices are purged
+        if (_pythonProc) {
+            try {
+                _pythonProc.stdin.write(JSON.stringify({ type: 'disconnect_viewer', viewer_id: viewerId }) + '\n');
+            } catch (_) {}
+        }
+        return;
+    }
+
+    for (const key of keysToFree) {
+        _freeSingleSlot(key);
+    }
+}
+
+function _freeSingleSlot(padId) {
+    const slot = viewerSlots.get(padId);
     if (slot === undefined) return;
 
     if (_pythonProc) {
         try {
-            _pythonProc.stdin.write(JSON.stringify({ type: 'free_slot', pad_id: viewerId, slot: slot }) + '\n');
+            _pythonProc.stdin.write(JSON.stringify({ type: 'free_slot', pad_id: padId, slot: slot }) + '\n');
+            _pythonProc.stdin.write(JSON.stringify({ type: 'disconnect_viewer', viewer_id: padId }) + '\n');
         } catch (_) {}
     }
 
@@ -622,7 +660,7 @@ function _freeSlot(viewerId) {
         try {
             if (fs.existsSync(pth)) {
                 let active = JSON.parse(fs.readFileSync(pth, 'utf8'));
-                delete active[viewerId];
+                delete active[padId];
                 fs.writeFileSync(pth, JSON.stringify(active, null, 2));
             }
         } catch (e) {
@@ -630,22 +668,19 @@ function _freeSlot(viewerId) {
         }
     }
 
-    viewerSlots.delete(viewerId);
+    viewerSlots.delete(padId);
     slotViewers.delete(slot);
     slotLastUsed.delete(slot);
-    kbmStates.delete(viewerId);
+    kbmStates.delete(padId);
     
-    if (typeof viewerModes !== 'undefined') viewerModes.delete(viewerId);
-    if (typeof viewerCtrlType !== 'undefined') viewerCtrlType.delete(viewerId);
+    if (typeof viewerModes !== 'undefined') viewerModes.delete(padId);
+    if (typeof viewerCtrlType !== 'undefined') viewerCtrlType.delete(padId);
     
-    const padPrefix = viewerId + '_';
     [viewerHostSlots, lastPacketTime, lastPacketSequence, lastGamepadVars, viewerSeq].forEach(map => {
-        for (const key of map.keys()) {
-            if (key.startsWith(padPrefix)) map.delete(key);
-        }
+        if (map && map.delete) map.delete(padId);
     });
-    activeInputStreams.delete(viewerId);
-    activeInputStreams.delete(padPrefix + '0');
+    if (activeInputStreams) activeInputStreams.delete(padId);
+    console.log(`[input] FREED slot ${slot} for ${padId}`);
 }
 
 // ── Clear active controllers on startup ───────────────────────────────────────
@@ -1340,5 +1375,23 @@ setInterval(() => {
         }
     }
 }, 16);
+
+// ── 5-MINUTE INACTIVITY SLOT REAPER ──────────────────────────────────────────
+// Automatically reaps virtual controller slots that have received no input for
+// 5 minutes (300,000 ms), preventing ghost controllers from accumulating when
+// viewers close their browser/mobile app or drop connection without a clean close.
+const _inactivityReaper = setInterval(() => {
+    const now = Date.now();
+    for (const [slot, lastUsed] of Array.from(slotLastUsed.entries())) {
+        if (now - lastUsed > 300000) { // 5 minutes of silence
+            const owner = slotViewers.get(slot);
+            if (owner) {
+                console.warn(`[input] Inactivity timeout (>5m): reaping ghost controller slot ${slot} (${owner})`);
+                _freeSingleSlot(owner);
+            }
+        }
+    }
+}, 15000);
+if (_inactivityReaper.unref) _inactivityReaper.unref();
 
 module.exports = { init, send, sendBinary, destroy, events, getViewerForSlot, setHidMaestroEnabled, setWindowsExperimentalEnabled, setAndroidExperimentalEnabled, get _bridge() { return _bridge; } };

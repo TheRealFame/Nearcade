@@ -398,15 +398,30 @@ let sysAudioCtx = null;
 let nextAudioTime = 0;
 // Note: stopReconnect and vpsConnected are declared below near connect()
 let useVps = false;
-let myName = localStorage.getItem('ns_name') || urlParamsGlobal.get('name') || '';
+let myName = urlParamsGlobal.get('name') || localStorage.getItem('ns_name') || '';
+if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
+if (urlParamsGlobal.get("color")) localStorage.setItem("ns_chat_color", urlParamsGlobal.get("color"));
+if (urlParamsGlobal.get("avatar")) localStorage.setItem("ns_avatar", urlParamsGlobal.get("avatar"));
+
 const nameInputEl = document.getElementById("nameInput");
 if (nameInputEl) {
     nameInputEl.value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
+    if (!myName) myName = nameInputEl.value;
     nameInputEl.addEventListener('input', (e) => {
-        updateJoystickTheme(e.target.value);
+        const val = e.target.value.trim();
+        updateJoystickTheme(val);
+        if (val) {
+            myName = val;
+            localStorage.setItem('ns_name', val);
+            if (ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({ type: 'set-name', name: val }));
+            }
+            if (typeof window.P2PManager !== 'undefined' && window.P2PManager?.clientSession?.sendToHost) {
+                try { window.P2PManager.clientSession.sendToHost({ type: 'set-name', name: val }); } catch (_) {}
+            }
+        }
     });
 }
-if (urlParamsGlobal.get("name")) localStorage.setItem("ns_name", myName);
 
 (function checkSecureContext() {
     if (typeof VideoDecoder === 'undefined' || !window.isSecureContext) {
@@ -847,17 +862,17 @@ async function createPC() {
                                 if (overlay) {
                                     overlay.style.backgroundColor = 'rgba(8, 8, 8, 0.9)';
                                     overlay.style.display = 'flex';
-                                    let actionBtn = '';
+                                    let actionBtn = '<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;justify-content:center;">' +
+                                        '<button class="pin-submit-btn" onclick="window.reconnectSession()" style="background:var(--accent);">Reconnect</button>';
                                     if (window.electronAPI) {
-                                        actionBtn = '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
-                                        setTimeout(() => window.electronAPI.backToDashboard(), 3000);
+                                        actionBtn += '<button class="pin-submit-btn" onclick="window.electronAPI.backToDashboard()" style="background:rgba(255,255,255,0.1);">Leave</button>';
                                     } else if (window.AndroidClipboard && typeof window.AndroidClipboard.backToDashboard === 'function') {
-                                        actionBtn = '<button class="pin-submit-btn" onclick="window.AndroidClipboard.backToDashboard()" style="margin-top:8px;">Leave Session</button>';
-                                        setTimeout(() => window.AndroidClipboard.backToDashboard(), 3000);
+                                        actionBtn += '<button class="pin-submit-btn" onclick="window.AndroidClipboard.backToDashboard()" style="background:rgba(255,255,255,0.1);">Leave</button>';
                                     } else {
-                                        actionBtn = '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'/\'; }, 50);" style="margin-top:8px;">Leave Session</button>';
+                                        actionBtn += '<button class="pin-submit-btn" onclick="window.dispatchEvent(new Event(\'ns-close-tab\')); setTimeout(() => { window.close(); location.href=\'/\'; }, 50);" style="background:rgba(255,255,255,0.1);">Leave</button>';
                                     }
-                                    overlay.innerHTML = '<div class="brand-wrap" style="flex-direction:column; gap:16px;"><span style="font-size:24px;font-weight:700;">Connection Lost</span><span style="font-size:14px;color:var(--muted);max-width:300px;text-align:center;">The connection to the host was dropped. Returning to dashboard...</span>' + actionBtn + '</div>';
+                                    actionBtn += '</div>';
+                                    overlay.innerHTML = '<div class="brand-wrap" style="flex-direction:column; gap:16px;"><span style="font-size:24px;font-weight:700;">Connection Lost</span><span style="font-size:14px;color:var(--muted);max-width:300px;text-align:center;">The connection was suspended while inactive or backgrounded.</span>' + actionBtn + '</div>';
                                 }
                             }
                         }, 10000);
@@ -4441,7 +4456,27 @@ async function acquireWakeLock() {
         wakeLock.addEventListener('release', () => { if (document.visibilityState === 'visible') acquireWakeLock(); });
     } catch { }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acquireWakeLock(); });
+window.reconnectSession = function reconnectSession() {
+    window.sessionEndedByHost = false;
+    stopReconnect = false;
+    viewerReconnectAttempts = 0;
+    const overlay = document.getElementById('overlay');
+    if (overlay) overlay.classList.add('gone');
+    setStatus('Reconnecting...');
+    if (typeof connect === 'function') connect();
+};
+
+document.addEventListener('visibilitychange', () => { 
+    if (document.visibilityState === 'visible') {
+        acquireWakeLock();
+        // Check if connection was severed while backgrounded
+        const isDisconnected = !ws || ws.readyState > 1 || (pc && (pc.connectionState === 'disconnected' || pc.connectionState === 'failed'));
+        if (isDisconnected && window._joinAttempted && !window.sessionEndedByHost) {
+            console.log('[viewer] Foreground resumed with dropped connection — auto-reconnecting...');
+            window.reconnectSession();
+        }
+    }
+});
 acquireWakeLock();
 
 // -- STATS HUD -----------------------------------------------------------------

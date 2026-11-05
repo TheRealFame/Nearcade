@@ -219,8 +219,22 @@ fn handle_json_message(msg: InMessage, state_mux: &Arc<Mutex<AppState>>) {
             }
         },
         "free_slot" => {
+            if let Some(pad) = msg.pad_id {
+                if let Some(mut t) = st.devices.remove(&pad) {
+                    let _ = t.update(&vigem_client::XGamepad::default());
+                    let _ = t.unplug();
+                    log(&format!("Unplugged virtual gamepad: {}", pad));
+                }
+                st.devices_by_slot.retain(|_, v| v != &pad);
+            }
             if let Some(slot) = msg.slot {
-                st.devices_by_slot.remove(&slot);
+                if let Some(pad) = st.devices_by_slot.remove(&slot) {
+                    if let Some(mut t) = st.devices.remove(&pad) {
+                        let _ = t.update(&vigem_client::XGamepad::default());
+                        let _ = t.unplug();
+                        log(&format!("Unplugged virtual gamepad for slot {}: {}", slot, pad));
+                    }
+                }
             }
         },
         "flush_neutral" | "disconnect_viewer" | "destroy_all" => {

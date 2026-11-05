@@ -3015,10 +3015,13 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
             if (!id || !viewers.has(id)) return;
             viewers.delete(id);
             viewerNames.delete(id);
-            const padId = id + '_0';
-            toUinput({ type: 'flush_neutral', viewer_id: padId });
-            toUinput({ type: 'disconnect_viewer', viewer_id: padId });
-            inputPerms.delete(padId);
+            toUinput({ type: 'flush_neutral', viewer_id: id });
+            toUinput({ type: 'disconnect_viewer', viewer_id: id });
+            toUinput({ type: 'disconnect_viewer', viewer_id: id + '_0' });
+            toUinput({ type: 'disconnect_viewer', viewer_id: id + '_99' });
+            inputPerms.delete(id);
+            inputPerms.delete(id + '_0');
+            inputPerms.delete(id + '_99');
             if (hostWS && hostWS.readyState === 1) {
               hostWS.send(JSON.stringify({ type: 'viewer-left', viewerId: id }));
             }
@@ -3697,6 +3700,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
           viewers.delete(id);
           viewerNames.delete(id);
           viewerModalities.delete(id);
+          const pads = viewerGamepads.get(id);
           viewerGamepads.delete(id);
           viewerHasController.delete(id);
           for (const [hwKey, vid] of hwIdToViewer) {
@@ -3704,9 +3708,19 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
           }
           if (hadController) {
             playLeaveSound();
-            toUinput({ type: 'flush_neutral', viewer_id: id });
-            toUinput({ type: 'disconnect_viewer', viewer_id: id });
           }
+          toUinput({ type: 'flush_neutral', viewer_id: id });
+          toUinput({ type: 'disconnect_viewer', viewer_id: id });
+          toUinput({ type: 'disconnect_viewer', viewer_id: id + '_0' });
+          toUinput({ type: 'disconnect_viewer', viewer_id: id + '_99' });
+          if (pads) {
+            for (const pIdx of pads) {
+              toUinput({ type: 'disconnect_viewer', viewer_id: id + '_' + pIdx });
+            }
+          }
+          inputPerms.delete(id);
+          inputPerms.delete(id + '_0');
+          inputPerms.delete(id + '_99');
           broadcastRoster();
           const leftName = viewerNames.get(id) || id;
           if (hostWS && hostWS.readyState === 1) hostWS.send(JSON.stringify({ type: "viewer-left", viewerId: id, name: leftName }));

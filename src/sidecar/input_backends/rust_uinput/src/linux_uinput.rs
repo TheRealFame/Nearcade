@@ -268,7 +268,23 @@ fn handle_json(msg: In, st: &Arc<Mutex<State>>) {
             }
         }
 
-        "free_slot" => { if let Some(s) = msg.slot { g.slot_map.remove(&s); } }
+        "free_slot" => {
+            if let Some(s) = msg.slot {
+                if let Some(pad) = g.slot_map.remove(&s) {
+                    if let Some(dev) = g.devices.remove(&pad) {
+                        drop(dev);
+                        log(&format!("Destroyed uinput gamepad slot {s}: {pad}"));
+                    }
+                }
+            }
+            if let Some(pad) = msg.pad_id {
+                if let Some(dev) = g.devices.remove(&pad) {
+                    drop(dev);
+                    log(&format!("Destroyed uinput gamepad: {pad}"));
+                }
+                g.slot_map.retain(|_, v| v != &pad);
+            }
+        }
 
         "kbm" | "keyboard" => {
             let mode = g.modes.get(&vid).cloned().unwrap_or_else(|| "gamepad".into());

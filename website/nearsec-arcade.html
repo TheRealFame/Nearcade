@@ -732,15 +732,21 @@
     const isInstalled = document.documentElement.dataset.nsPersist === 'true';
     const wasClicked = localStorage.getItem('ns_tm_installed') === '1';
     const isElectron = typeof window.electronAPI !== 'undefined' || navigator.userAgent.includes('Nearcade') || navigator.userAgent.includes('Electron');
+    const isMobile = typeof window.Capacitor !== 'undefined' || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || !!window.AndroidClipboard;
+    const isApp = isElectron || isMobile || window.location.protocol === 'capacitor:' || window.location.protocol === 'file:';
     const btnInstall = document.getElementById('btnInstallPwa');
     const btnProfile = document.getElementById('btnProfile');
 
-    if (isInstalled || wasClicked || isElectron) {
-      if (btnInstall) btnInstall.style.display = 'none';
-      if (btnProfile) btnProfile.style.display = 'flex';
-    } else {
-      if (btnProfile) btnProfile.style.display = 'none';
-      if (btnInstall) btnInstall.style.display = 'flex';
+    // Profile should ALWAYS be available to set username and avatar
+    if (btnProfile) btnProfile.style.display = 'flex';
+
+    // "Install Extension" is desktop Tampermonkey only; never show in mobile apps or mobile browsers
+    if (btnInstall) {
+      if (isApp || isInstalled || wasClicked) {
+        btnInstall.style.display = 'none';
+      } else {
+        btnInstall.style.display = 'flex';
+      }
     }
   }
 

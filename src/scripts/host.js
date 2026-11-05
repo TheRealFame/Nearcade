@@ -1645,12 +1645,10 @@ function connectWS() {
                 log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' re-offer requested', 'ok');
             }
 
-            // Desktop App users are auto-assigned KBM Emulated so Steam controllers work flawlessly
-            if (msg.isDesktopApp && msg.name && !msg.name.startsWith('Guest') && !savedViewerModes[msg.name]) {
-                setTimeout(() => changeInputMode(msg.viewerId, 'kbm_emulated', msg.name), 200);
-            } else if (msg.isDesktopApp && msg.name && msg.name.startsWith('Guest')) {
-                // If they didn't set a name, we can't save it to savedViewerModes, but we still apply it
-                setTimeout(() => changeInputMode(msg.viewerId, 'kbm_emulated'), 200);
+            // Restore saved input mode if configured for this user, or apply host default
+            const targetMode = (msg.name && savedViewerModes[msg.name]) || ctrlSettings.defaultInputMode || 'gamepad';
+            if (targetMode !== 'gamepad') {
+                setTimeout(() => changeInputMode(msg.viewerId, targetMode, msg.name), 200);
             }
             if (currentStream === 'gstreamer') {
                 // Native C++ daemon handles its own WebRTC signaling via backend

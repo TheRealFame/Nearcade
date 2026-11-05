@@ -4636,6 +4636,12 @@
         if (val) localStorage.setItem('ns_name', val);
         if (typeof window.vcUpdateSelf === 'function') window.vcUpdateSelf(val, undefined);
         updatePreview();
+        if (window.ws && window.ws.readyState === 1) {
+          window.ws.send(JSON.stringify({ type: 'set-name', name: val }));
+        }
+        if (typeof window.P2PManager !== 'undefined' && window.P2PManager?.clientSession?.sendToHost) {
+          try { window.P2PManager.clientSession.sendToHost({ type: 'set-name', name: val }); } catch (_) {}
+        }
       }
 
       window.setColor = function (clr) {

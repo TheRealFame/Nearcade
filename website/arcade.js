@@ -646,6 +646,14 @@ async function _doJoin() {
     const currentLang = safeGetLS('ns_lang', 'en');
     joinUrl += (joinUrl.includes('?') ? '&' : '?') + 'lang=' + currentLang;
 
+    // Forward player identity from website/app localStorage across domains
+    const savedName = safeGetLS('ns_name', '');
+    if (savedName) joinUrl += (joinUrl.includes('?') ? '&' : '?') + 'name=' + encodeURIComponent(savedName);
+    const savedColor = safeGetLS('ns_chat_color', '');
+    if (savedColor) joinUrl += (joinUrl.includes('?') ? '&' : '?') + 'color=' + encodeURIComponent(savedColor);
+    const savedAvatar = safeGetLS('ns_avatar', '');
+    if (savedAvatar) joinUrl += (joinUrl.includes('?') ? '&' : '?') + 'avatar=' + encodeURIComponent(savedAvatar);
+
     closeJoin();
 
     const isElectron = new URLSearchParams(window.location.search).get('electron') === '1';
