@@ -481,14 +481,9 @@ function startLinuxJoystickBridge(targetWin) {
 const _enabledFeatures = new Set();
 const _disabledFeatures = new Set();
 
-if (process.platform === 'win32') {
-  // Windows WGC (Windows.Graphics.Capture) + WinRT capture support.
-  // WGC is DWM-compositor-backed, allowing cross-adapter screen and window
-  // captures on dual-GPU (Intel/AMD iGPU + NVIDIA/AMD dGPU) laptops.
-  _enabledFeatures.add('AllowWgcScreenCapturer');
-  _enabledFeatures.add('AllowWgcWindowCapturer');
-  _enabledFeatures.add('WinrtScreenCapture');
-}
+// NOTE: WGC screen capturer feature switches are deliberately NOT enabled on Windows.
+// WGC screen capture fails with "Could not start video source" on Intel UHD / hybrid systems.
+// Leaving it omitted forces Chromium to use native DXGI Desktop Duplication (the rock-solid 3.0.0 pipeline).
 
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');

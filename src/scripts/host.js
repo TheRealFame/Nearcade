@@ -2585,15 +2585,8 @@ async function hotSwapCapture() {
                 await window.electronAPI.setSelectedSource(window._lastSourceId, window._lastSourceName);
             }
             if (isWindowsLoc) {
-                mediaPromise = navigator.mediaDevices.getUserMedia({
-                    audio: false,
-                    video: {
-                        mandatory: {
-                            chromeMediaSource: 'desktop',
-                            chromeMediaSourceId: window._lastSourceId
-                        }
-                    }
-                }).catch(() => navigator.mediaDevices.getDisplayMedia({ video: {}, audio: false }));
+                const videoConstraint = {}; // Electron 44+ strictly rejects frameRate constraints on WinRT
+                mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraint, audio: false });
             } else {
                 // On Linux and macOS, setDisplayMediaRequestHandler does not suppress the native OS picker!
                 // We must use getUserMedia with chromeMediaSourceId to bypass it.
@@ -3236,55 +3229,29 @@ async function startCapture() {
                 const isWindowCap = selectedSourceId.startsWith('window:');
                 let vidStream;
 
+                await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                const videoConstraint = isWindows ? {} : { frameRate: { ideal: fpsVal } };
+
                 if (isWindows) {
+                    const wantsAudio = audioSettings.forceAudioEnabled && !isWindowCap;
                     try {
-                        vidStream = await navigator.mediaDevices.getUserMedia({
-                            audio: false,
-                            video: {
-                                mandatory: {
-                                    chromeMediaSource: 'desktop',
-                                    chromeMediaSourceId: selectedSourceId
-                                }
-                            }
+                        vidStream = await navigator.mediaDevices.getDisplayMedia({
+                            audio: wantsAudio,
+                            video: videoConstraint
                         });
-                        console.log('[host] Direct Windows getUserMedia desktop capture acquired for', selectedSourceId);
-                    } catch (gumErr) {
-                        console.warn('[host] Direct getUserMedia attempt failed (' + gumErr.message + '), trying setDisplayMediaRequestHandler...');
-                        try {
-                            await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                    } catch (eAudio) {
+                        // If WASAPI loopback audio fails or has no active endpoint, fall back to video-only
+                        if (wantsAudio) {
+                            console.warn('[host] Capture with loopback audio failed (' + eAudio.message + '), retrying without audio...');
                             vidStream = await navigator.mediaDevices.getDisplayMedia({
                                 audio: false,
-                                video: {}
+                                video: videoConstraint
                             });
-                        } catch (gdmErr) {
-                            if (isWindowCap) {
-                                console.warn('[host] Window capture unavailable for this game, falling back to full screen (DXGI)...');
-                                log(I18N.t('Window capture unavailable for this game, falling back to full screen...'), 'warn');
-                                try {
-                                    vidStream = await navigator.mediaDevices.getUserMedia({
-                                        audio: false,
-                                        video: {
-                                            mandatory: {
-                                                chromeMediaSource: 'desktop',
-                                                chromeMediaSourceId: 'screen:0:0'
-                                            }
-                                        }
-                                    });
-                                } catch (_) {
-                                    await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
-                                    vidStream = await navigator.mediaDevices.getDisplayMedia({
-                                        audio: false,
-                                        video: {}
-                                    });
-                                }
-                            } else {
-                                throw gdmErr;
-                            }
+                        } else {
+                            throw eAudio;
                         }
                     }
                 } else {
-                    await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
-                    const videoConstraint = { frameRate: { ideal: fpsVal } };
                     vidStream = await navigator.mediaDevices.getDisplayMedia({
                         audio: false,
                         video: videoConstraint
@@ -3293,9 +3260,10 @@ async function startCapture() {
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                // Capture system audio separately on Windows/macOS if enabled so WASAPI failure never blocks video
-                const needsAudioTrack = (!isLinux && audioSettings.forceAudioEnabled);
-                if (needsAudioTrack) {
+                // macOS does not support 'loopback' in getDisplayMedia — capture macOS system audio via getUserMedia
+                const isMac = navigator.userAgent.includes('Mac OS X') || navigator.platform.toLowerCase().includes('mac');
+                const needsLegacyAudio = isMac && audioSettings.forceAudioEnabled;
+                if (needsLegacyAudio) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
                             audio: { mandatory: { chromeMediaSource: 'desktop' } },
@@ -3325,26 +3293,40 @@ async function startCapture() {
                 } else if (e.name === 'StaleSourceError') {
                     // Handled gracefully above, do not log a second scary warning
                 } else {
-                    console.error('[host] Source selection failed, falling back to native picker:', e);
+                    console.error('[host] Source selection failed, falling back to full screen / native picker:', e);
                     log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
                 }
                 selectedSourceId = null;
-                try {
-                    screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
-                } catch (e2) {
-                    if (isWindows) {
-                        log('Ultimate native picker fallback failed, attempting legacy Windows capture...', 'warn');
-                        try {
-                            screenStream = await navigator.mediaDevices.getUserMedia({
-                                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
-                                audio: false
-                            });
-                        } catch (e3) {
-                            console.error('[host] Capture failed [Windows Desktop Media API]:', e3);
-                            log('Capture failed [Windows/Mac Desktop API]: ' + e3.message, 'err');
+                // If an individual window capture failed on Windows, gracefully fall back to full screen (DXGI)
+                if (isWindows && isWindowCap) {
+                    try {
+                        log('Window capture unavailable for this game, falling back to full screen (DXGI)...', 'warn');
+                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                        screenStream = await navigator.mediaDevices.getDisplayMedia({
+                            audio: audioSettings.forceAudioEnabled,
+                            video: {}
+                        });
+                    } catch (_) {}
+                }
+                if (!screenStream) {
+                    try {
+                        screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+                    } catch (e2) {
+                        if (isWindows) {
+                            log('Ultimate native picker fallback failed, attempting legacy Windows capture...', 'warn');
+                            try {
+                                await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                                    audio: false,
+                                    video: {}
+                                });
+                            } catch (e3) {
+                                console.error('[host] Capture failed [Windows Desktop Media API]:', e3);
+                                log('Capture failed [Windows/Mac Desktop API]: ' + e3.message, 'err');
+                            }
+                        } else {
+                            throw e2;
                         }
-                    } else {
-                        throw e2;
                     }
                 }
             }
@@ -3356,8 +3338,9 @@ async function startCapture() {
                 if (isWindows) {
                     log('Native picker failed, attempting legacy Windows capture...', 'warn');
                     try {
-                        screenStream = await navigator.mediaDevices.getUserMedia({
-                            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
+                        await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                        screenStream = await navigator.mediaDevices.getDisplayMedia({
+                            video: {},
                             audio: false
                         });
                     } catch (e3) {
