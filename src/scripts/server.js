@@ -947,14 +947,14 @@ async function main() {
   app.use('/docs', express.static(path.join(__dirname, '..', '..', 'assets', 'locales', 'docs')));
 
   // ── Dynamic version.js — always reflects package.json ──────────────────
-  app.get('/js/version.js', (req, res) => {
+  app.get(['/js/version.js', '/js/extended/misc/version.js'], (req, res) => {
     res.type('application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     const cfg = loadConfig();
     const arcadeUrl = cfg.arcadeUrl || 'https://nearcade.cutefame.net';
-    res.send(`window.NEARCADE_VERSION = "${APP_VERSION}";\nwindow.NEARCADE_COMMIT = "${COMMIT_HASH}";\nwindow.NEARCADE_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.NEARCADE_VERSION + (window.NEARCADE_COMMIT ? " ("+window.NEARCADE_COMMIT+")" : ""));`);
+    res.send(`window.CLIENT_VERSION = "${APP_VERSION}";\nwindow.NEARCADE_VERSION = "${APP_VERSION}";\nwindow.NEARCADE_COMMIT = "${COMMIT_HASH}";\nwindow.NEARCADE_ARCADE_URL = "${arcadeUrl}";\nconsole.log("[Nearcade] Version loaded:", window.CLIENT_VERSION + (window.NEARCADE_COMMIT ? " ("+window.NEARCADE_COMMIT+")" : ""));`);
   });
   
   // Fix 404 error from legacy paths loading native-theme.js

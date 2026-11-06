@@ -7136,7 +7136,7 @@ function _doArcadeRegister() {
                 hasPin: arcadeConfig.requirePin,
                 inputOnly: localStorage.getItem('ns_input_only') === 'true',
                 url: info.tunnelUrl,
-                version: window.NEARCADE_VERSION || '0.0.0',
+                version: (info && info.version) || window.NEARCADE_VERSION || window.CLIENT_VERSION || '3.0.8',
                 hostRegion,
                 os: getHostOS(),
                 codecType,
