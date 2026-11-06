@@ -315,10 +315,6 @@ if (process.platform === 'linux') {
     app.commandLine.appendSwitch('disable-dev-shm-usage');
 }
 
-if (process.platform === 'win32') {
-  app.commandLine.appendSwitch('enable-features', 'WinrtScreenCapture');
-}
-
 const isSteamDeckHardware = (process.platform === 'linux' && (
   fs.existsSync('/sys/class/dmi/id/product_name') && (() => {
     try {
@@ -480,9 +476,23 @@ function startLinuxJoystickBridge(targetWin) {
   });
 }
 
+// ── Consolidated Feature Flags ───────────────────────────────────────────────
+// Keep features in sets to ensure switches are never silently overwritten.
+const _enabledFeatures = new Set();
+const _disabledFeatures = new Set();
+
+if (process.platform === 'win32') {
+  // Windows WGC (Windows.Graphics.Capture) + WinRT capture support.
+  // WGC is DWM-compositor-backed, allowing cross-adapter screen and window
+  // captures on dual-GPU (Intel/AMD iGPU + NVIDIA/AMD dGPU) laptops.
+  _enabledFeatures.add('AllowWgcScreenCapturer');
+  _enabledFeatures.add('AllowWgcWindowCapturer');
+  _enabledFeatures.add('WinrtScreenCapture');
+}
+
 if (isArcadeWorker && process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
-  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+  _enabledFeatures.add('WebRTCPipeWireCapturer');
 } else if (process.platform === 'linux') {
   const isGamescope = (process.env.XDG_CURRENT_DESKTOP || '').toLowerCase().includes('gamescope') ||
     (process.env.DESKTOP_SESSION || '').toLowerCase().includes('gamescope') ||
@@ -497,8 +507,17 @@ if (isArcadeWorker && process.platform === 'linux') {
     
     // Choose Wayland if available, otherwise X11
     app.commandLine.appendSwitch('ozone-platform-hint', process.env.NEARCADE_OZONE || 'auto');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,CanvasOopRasterization,UseOzonePlatform,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
-    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
+    _enabledFeatures.add('WebRTCPipeWireCapturer');
+    _enabledFeatures.add('CanvasOopRasterization');
+    _enabledFeatures.add('UseOzonePlatform');
+    _enabledFeatures.add('WaylandWindowDecorations');
+    _enabledFeatures.add('VaapiVideoEncoder');
+    _enabledFeatures.add('VaapiVideoDecoder');
+    _enabledFeatures.add('VaapiIgnoreDriverChecks');
+    _enabledFeatures.add('AcceleratedVideoEncoder');
+    _enabledFeatures.add('AcceleratedVideoDecodeLinuxZeroCopyGL');
+    _enabledFeatures.add('UseMultiPlaneFormatForHardwareVideo');
+    _disabledFeatures.add('UseChromeOSDirectVideoDecoder');
     
     // Gamescope often struggles with Chromium's sandbox, so these are kept disabled
     app.commandLine.appendSwitch('no-sandbox');
@@ -509,8 +528,16 @@ if (isArcadeWorker && process.platform === 'linux') {
     // NOTE: if the GPU process cannot initialize GL here, the compositor
     // fallback below (SwiftShader) is what keeps the dashboard painting.
     app.commandLine.appendSwitch('ozone-platform-hint', process.env.NEARCADE_OZONE || 'auto');
-    app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,WaylandWindowDecorations,VaapiVideoEncoder,VaapiVideoDecoder,CanvasOopRasterization,VaapiIgnoreDriverChecks,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxZeroCopyGL,UseMultiPlaneFormatForHardwareVideo');
-    app.commandLine.appendSwitch('disable-features', 'UseChromeOSDirectVideoDecoder');
+    _enabledFeatures.add('WebRTCPipeWireCapturer');
+    _enabledFeatures.add('WaylandWindowDecorations');
+    _enabledFeatures.add('VaapiVideoEncoder');
+    _enabledFeatures.add('VaapiVideoDecoder');
+    _enabledFeatures.add('CanvasOopRasterization');
+    _enabledFeatures.add('VaapiIgnoreDriverChecks');
+    _enabledFeatures.add('AcceleratedVideoEncoder');
+    _enabledFeatures.add('AcceleratedVideoDecodeLinuxZeroCopyGL');
+    _enabledFeatures.add('UseMultiPlaneFormatForHardwareVideo');
+    _disabledFeatures.add('UseChromeOSDirectVideoDecoder');
   }
   app.commandLine.appendSwitch('enable-zero-copy');
 
@@ -542,8 +569,15 @@ if (isArcadeWorker && process.platform === 'linux') {
 // or Gamescope sessions get it, where boot is impossible otherwise.
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
-// app.commandLine.appendSwitch('use-gl', 'desktop'); // causes GL init failure on some drivers
-app.commandLine.appendSwitch('enable-features', 'VaapiVideoEncoder,VaapiVideoDecoder,PlatformHEVCDecoderSupport');
+// Common decoding features across all platforms
+_enabledFeatures.add('PlatformHEVCDecoderSupport');
+
+if (_enabledFeatures.size > 0) {
+  app.commandLine.appendSwitch('enable-features', Array.from(_enabledFeatures).join(','));
+}
+if (_disabledFeatures.size > 0) {
+  app.commandLine.appendSwitch('disable-features', Array.from(_disabledFeatures).join(','));
+}
 // Uncapped compositing is gated behind the user's explicit settings —
 // forcing it always made the shell burn CPU/GPU presenting a mostly-static
 // dashboard at hundreds of fps. Background flags below stay unconditional:
@@ -1021,11 +1055,20 @@ app.whenReady().then(() => {
         const isDgpuOnly = hasDiscrete && !hasIntel;
 
         let gpuClass = 'unknown';
-        if (!hasActive)        gpuClass = 'none_active';
-        else if (isApu)        gpuClass = 'apu';
-        else if (isHybrid)     gpuClass = 'hybrid';
-        else if (isDgpuOnly)   gpuClass = 'dgpu';
-        else                   gpuClass = 'igpu';
+        if (allGpus.length === 0) {
+          gpuClass = 'none_active';
+        } else if (isHybrid) {
+          gpuClass = 'hybrid';
+        } else if (isDgpuOnly) {
+          gpuClass = 'dgpu';
+        } else if (isApu) {
+          gpuClass = 'apu';
+        } else if (!hasActive) {
+          // Hardware GPUs enumerated, but Chromium basic GPUInfo hasn't activated an adapter context yet
+          gpuClass = hasDiscrete ? 'hybrid' : 'igpu';
+        } else {
+          gpuClass = 'igpu';
+        }
 
         const summary = {
           gpuClass,

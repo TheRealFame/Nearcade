@@ -186,7 +186,7 @@ jobs:
           elif [ "$RUNNER_OS" == "Linux" ]; then
             npx electron-builder --linux AppImage deb --publish always
           else
-            npx electron-builder --win portable --publish always
+            npx electron-builder --win nsis portable --publish always
           fi
           
           if [ "$RUNNER_OS" == "Windows" ]; then

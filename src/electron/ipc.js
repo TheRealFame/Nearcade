@@ -1305,11 +1305,11 @@ function registerIpcHandlers(ctx) {
         // WINDOWS AUDIO FIX: 'loopback' enables capturing desktop audio on Windows.
         // Do not pass audio on other platforms; PipeWire handles it separately.
         if (process.platform === 'win32') {
-          if (chosenSource.id.startsWith('window:')) {
-            // Requesting loopback audio on a window source crashes getDisplayMedia on Windows VMs.
-            callback({ video: chosenSource });
-          } else {
+          const wantsAudio = Boolean(request && (request.audioRequested || request.audio));
+          if (wantsAudio && !chosenSource.id.startsWith('window:')) {
             callback({ video: chosenSource, audio: 'loopback' });
+          } else {
+            callback({ video: chosenSource });
           }
         } else {
           callback({ video: chosenSource });

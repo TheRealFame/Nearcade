@@ -46,6 +46,7 @@ let selectedMicDeviceId = localStorage.getItem('ns_audio_input') || 'default';
 let selectedOutputDeviceId = localStorage.getItem('ns_audio_output') || 'default';
 
 let previewHidden = false;
+let arcadeOverrodePin = false;
 let _lastChatFingerprint = '';
 let _lastChatTimestamp = 0;
 const CHAT_DEDUP_WINDOW_MS = 1200;
@@ -2584,8 +2585,15 @@ async function hotSwapCapture() {
                 await window.electronAPI.setSelectedSource(window._lastSourceId, window._lastSourceName);
             }
             if (isWindowsLoc) {
-                const videoConstraint = {}; // Electron 44+ strictly rejects frameRate constraints on WinRT
-                mediaPromise = navigator.mediaDevices.getDisplayMedia({ video: videoConstraint, audio: false });
+                mediaPromise = navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'desktop',
+                            chromeMediaSourceId: window._lastSourceId
+                        }
+                    }
+                }).catch(() => navigator.mediaDevices.getDisplayMedia({ video: {}, audio: false }));
             } else {
                 // On Linux and macOS, setDisplayMediaRequestHandler does not suppress the native OS picker!
                 // We must use getUserMedia with chromeMediaSourceId to bypass it.
@@ -3228,35 +3236,66 @@ async function startCapture() {
                 const isWindowCap = selectedSourceId.startsWith('window:');
                 let vidStream;
 
-                {
-                    // Both windows and screens go through setDisplayMediaRequestHandler.
-                    // Direct getUserMedia + chromeMediaSourceId is incompatible with the
-                    // WinrtScreenCapture feature switch on Windows and reliably throws
-                    // "Could not start video source" for window sources — the OS picker
-                    // bug this used to work around no longer applies once selection is
-                    // routed through the main-process handler for both source types.
+                if (isWindows) {
+                    try {
+                        vidStream = await navigator.mediaDevices.getUserMedia({
+                            audio: false,
+                            video: {
+                                mandatory: {
+                                    chromeMediaSource: 'desktop',
+                                    chromeMediaSourceId: selectedSourceId
+                                }
+                            }
+                        });
+                        console.log('[host] Direct Windows getUserMedia desktop capture acquired for', selectedSourceId);
+                    } catch (gumErr) {
+                        console.warn('[host] Direct getUserMedia attempt failed (' + gumErr.message + '), trying setDisplayMediaRequestHandler...');
+                        try {
+                            await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
+                            vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                audio: false,
+                                video: {}
+                            });
+                        } catch (gdmErr) {
+                            if (isWindowCap) {
+                                console.warn('[host] Window capture unavailable for this game, falling back to full screen (DXGI)...');
+                                log(I18N.t('Window capture unavailable for this game, falling back to full screen...'), 'warn');
+                                try {
+                                    vidStream = await navigator.mediaDevices.getUserMedia({
+                                        audio: false,
+                                        video: {
+                                            mandatory: {
+                                                chromeMediaSource: 'desktop',
+                                                chromeMediaSourceId: 'screen:0:0'
+                                            }
+                                        }
+                                    });
+                                } catch (_) {
+                                    await window.electronAPI.setSelectedSource('screen:0:0', 'Screen 1');
+                                    vidStream = await navigator.mediaDevices.getDisplayMedia({
+                                        audio: false,
+                                        video: {}
+                                    });
+                                }
+                            } else {
+                                throw gdmErr;
+                            }
+                        }
+                    }
+                } else {
                     await window.electronAPI.setSelectedSource(selectedSourceId, selectedSourceName);
-                    // Windows' WinRT window-capture backend throws "Could not start
-                    // video source" (post-resolution, mid-stream) when ANY frameRate
-                    // constraint — even ideal-only — is applied to a window capture.
-                    // Screen captures tolerate it fine. Omit it entirely for windows.
-                    // Electron 44+ / Chromium 130+ strictly rejects frameRate constraints on WinRT for BOTH windows and screens.
-                    const videoConstraint = isWindows
-                        ? {}
-                        : { frameRate: { ideal: fpsVal } };
+                    const videoConstraint = { frameRate: { ideal: fpsVal } };
                     vidStream = await navigator.mediaDevices.getDisplayMedia({
-                        audio: isWindows && audioSettings.forceAudioEnabled && !isWindowCap,
+                        audio: false,
                         video: videoConstraint
                     });
                 }
                 log(I18N.t('Using selected source:') + ' ' + selectedSourceId, 'ok');
 
                 let tempAudioTrack = null;
-                // Windows loopback audio comes directly from getDisplayMedia via ipc.js intercept (screens only).
-                // macOS does not support 'loopback'. Windows VMs crash when applying loopback to window captures.
-                // We disable legacy system audio capture on Windows completely for window captures to prevent crashes.
-                const needsLegacyAudio = (!isLinux && audioSettings.forceAudioEnabled) && !isWindows;
-                if (needsLegacyAudio) {
+                // Capture system audio separately on Windows/macOS if enabled so WASAPI failure never blocks video
+                const needsAudioTrack = (!isLinux && audioSettings.forceAudioEnabled);
+                if (needsAudioTrack) {
                     try {
                         const audStream = await navigator.mediaDevices.getUserMedia({
                             audio: { mandatory: { chromeMediaSource: 'desktop' } },
@@ -3267,6 +3306,7 @@ async function startCapture() {
                         if (audErr.name === 'NotAllowedError' || audErr.name === 'AbortError') {
                             sysChat(I18N.t('System audio capture cancelled by user.'));
                         } else {
+                            console.warn('[host] Could not attach system audio to capture:', audErr.message);
                             log(I18N.t('Could not attach system audio to window capture.'), 'warn');
                         }
                     }
@@ -3285,6 +3325,7 @@ async function startCapture() {
                 } else if (e.name === 'StaleSourceError') {
                     // Handled gracefully above, do not log a second scary warning
                 } else {
+                    console.error('[host] Source selection failed, falling back to native picker:', e);
                     log(I18N.t('Source selection failed, falling back to native picker:') + ' ' + e.message, 'warn');
                 }
                 selectedSourceId = null;
@@ -3292,11 +3333,16 @@ async function startCapture() {
                     screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
                 } catch (e2) {
                     if (isWindows) {
-                        log('Ultimate native picker fallback failed, attempting legacy Windows VM capture...', 'warn');
-                        screenStream = await navigator.mediaDevices.getUserMedia({
-                            video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
-                            audio: false
-                        });
+                        log('Ultimate native picker fallback failed, attempting legacy Windows capture...', 'warn');
+                        try {
+                            screenStream = await navigator.mediaDevices.getUserMedia({
+                                video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
+                                audio: false
+                            });
+                        } catch (e3) {
+                            console.error('[host] Capture failed [Windows Desktop Media API]:', e3);
+                            log('Capture failed [Windows/Mac Desktop API]: ' + e3.message, 'err');
+                        }
                     } else {
                         throw e2;
                     }
@@ -3308,11 +3354,15 @@ async function startCapture() {
                 screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
             } catch (e) {
                 if (isWindows) {
-                    log('Native picker failed, attempting legacy Windows VM capture...', 'warn');
-                    screenStream = await navigator.mediaDevices.getUserMedia({
-                        video: { mandatory: { chromeMediaSource: 'desktop', maxFrameRate: fpsVal } },
-                        audio: false
-                    });
+                    log('Native picker failed, attempting legacy Windows capture...', 'warn');
+                    try {
+                        screenStream = await navigator.mediaDevices.getUserMedia({
+                            video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: 'screen:0:0' } },
+                            audio: false
+                        });
+                    } catch (e3) {
+                        console.error('[host] Native picker fallback failed:', e3);
+                    }
                 }
             }
         } else if (!screenStream) {
@@ -3804,6 +3854,7 @@ function stopCapture() {
     Object.values(peerConnections).forEach(pc => { try { pc.close(); } catch (_) { } });
     peerConnections = {};
     streamActive = false;
+    _stopConnectionWatchdog();
     _updateDiscordRPC();
 
     if (ws && ws.readyState === 1) {
@@ -4700,13 +4751,27 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
     const MAX_STALL_RECOVERIES = 3;
 
     function _startConnectionWatchdog() {
-        if (_connWatchdogInterval) return;
+        if (_connWatchdogInterval) {
+            clearInterval(_connWatchdogInterval);
+            _connWatchdogInterval = null;
+        }
         _lastFrameReceived = performance.now();
         _connectionStallCount = 0;
         
         _connWatchdogInterval = setInterval(() => {
             if (!_wcEncoder || _wcEncoder.state !== 'configured') return;
             
+            // Only monitor stalls if there are active connected viewers.
+            // When 0 viewers are connected (host preview or idle), static screen delivers
+            // 0 frames normally and must NOT trigger stall reconnection storms.
+            const hasConnectedViewers = Object.values(peerConnections).some(pc => 
+                pc && (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected')
+            );
+            if (!hasConnectedViewers) {
+                _lastFrameReceived = performance.now();
+                return;
+            }
+
             const elapsed = performance.now() - _lastFrameReceived;
             if (elapsed > CONNECTION_STALL_TIMEOUT) {
                 _connectionStallCount++;
@@ -4732,11 +4797,13 @@ async function startWebCodecsNetworkPipeline(videoTrack) {
         }, 2000); // Check every 2 seconds
     }
 
-function _stopConnectionWatchdog() {
+    function _stopConnectionWatchdog() {
         if (_connWatchdogInterval) {
             clearInterval(_connWatchdogInterval);
             _connWatchdogInterval = null;
         }
+        _lastFrameReceived = 0;
+        _connectionStallCount = 0;
     }
 
     function _forceFullReconnect() {

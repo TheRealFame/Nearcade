@@ -145,7 +145,7 @@
     },
     "portable": {
       "requestExecutionLevel": "user",
-      "artifactName": "Nearcade-${version}.exe",
+      "artifactName": "Nearcade-${version}-Portable.exe",
       "unpackDirName": "nearcade-portable"
     },
     "mac": {
