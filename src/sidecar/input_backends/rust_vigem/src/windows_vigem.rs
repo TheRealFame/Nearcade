@@ -185,7 +185,8 @@ fn handle_binary_payload(slot: u8, payload: &[u8], state_mux: &Arc<Mutex<AppStat
 
 fn handle_json_message(msg: InMessage, state_mux: &Arc<Mutex<AppState>>) {
     let mut st = state_mux.lock().unwrap();
-    let vid = msg.viewer_id.or(msg.viewerId).unwrap_or_default();
+    let vid = msg.viewer_id.or(msg.viewerId).or(msg.pad_id.clone()).unwrap_or_default();
+    let base_vid = vid.split('_').next().unwrap_or("").to_string();
     
     match msg.msg_type.as_str() {
         "set-input-mode" => {
@@ -237,17 +238,32 @@ fn handle_json_message(msg: InMessage, state_mux: &Arc<Mutex<AppState>>) {
                 }
             }
         },
-        "flush_neutral" | "disconnect_viewer" | "destroy_all" => {
-            let keys: Vec<String> = st.devices.keys().filter(|k| k.starts_with(&vid) || **k == vid).cloned().collect();
+        "flush_neutral" => {
+            let keys: Vec<String> = st.devices.keys().filter(|k| k.starts_with(&vid) || **k == vid || (!base_vid.is_empty() && k.starts_with(&base_vid))).cloned().collect();
+            for k in keys {
+                if let Some(t) = st.devices.get_mut(&k) {
+                    let _ = t.update(&vigem_client::XGamepad::default());
+                }
+            }
+        },
+        "disconnect_viewer" => {
+            let keys: Vec<String> = st.devices.keys().filter(|k| k.starts_with(&vid) || **k == vid || (!base_vid.is_empty() && k.starts_with(&base_vid))).cloned().collect();
             for k in keys {
                 if let Some(mut t) = st.devices.remove(&k) {
                     let _ = t.update(&vigem_client::XGamepad::default());
                     let _ = t.unplug();
+                    st.devices_by_slot.retain(|_, v| v != &k);
+                    log(&format!("Unplugged virtual gamepad on viewer disconnect: {}", k));
                 }
             }
-            if msg.msg_type == "destroy_all" {
-                st.devices.clear();
+        },
+        "destroy_all" => {
+            for (k, mut t) in st.devices.drain() {
+                let _ = t.update(&vigem_client::XGamepad::default());
+                let _ = t.unplug();
+                log(&format!("Unplugged virtual gamepad on destroy_all: {}", k));
             }
+            st.devices_by_slot.clear();
         },
         "kbm" | "keyboard" => {
             // handle KBM injection with Enigo

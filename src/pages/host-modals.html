@@ -290,6 +290,26 @@
   </div>
 </div>
 
+<!-- Arcade Failure Notice Modal -->
+<div class="modal-bg gone" id="arcadeFailureModal" style="z-index: 10002;">
+  <div class="modal" style="width: 440px; position:relative;">
+    <div class="modal-head">
+      <h3 style="color:var(--warn); display:flex; align-items:center; gap:8px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Arcade Registration Failed
+      </h3>
+      <button class="modal-close" onclick="closeArcadeFailureModal()">&times;</button>
+    </div>
+    <div class="modal-body" style="padding: 20px; font-size: 13px; color: var(--text); line-height: 1.6;">
+      <div id="arcadeFailureMessage" style="background:rgba(255,255,255,0.04); border:1px solid var(--border); padding:12px; border-radius:6px; margin-bottom:12px; word-break:break-word;"></div>
+      <p style="color:var(--dim); font-size:12px; margin:0;">The session could not be listed on the public Nearcade Arcade directory and has been stopped.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeArcadeFailureModal()">Dismiss</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg gone" id="tunnelModal">
   <div class="modal" style="position:relative; transform: scale(0.93);">
     <div class="modal-loading gone" id="tunnelLoading">
@@ -620,14 +640,14 @@
         <div class="ctrl-modal-row" style="flex-direction:column;gap:8px;cursor:default;">
           <div class="ctrl-row-text">
             <div class="ctrl-row-label">Decoding Pipeline</div>
-            <div class="ctrl-row-desc">WebRTC uses standard browser jitter buffers. WebCodecs bypasses them for ultra-low latency. Hybrid (Encoded Transform) merges WebCodecs hardware decoding with WebRTC network transport for adaptive packet loss resiliency.</div>
+            <div class="ctrl-row-desc">WebRTC uses standard browser jitter buffers. WebCodecs bypasses them for ultra-low latency. Hybrid combines WebRTC network transport with WebCodecs hardware decoding for packet loss resiliency.</div>
           </div>
           <select id="pipelineSelect" class="form-select" onchange="saveCaptureMethod(this.value)">
             <option value="webcodecs" selected>WebCodecs (Latency Focused / Recommended)</option>
             <option value="native">WebRTC (Standard / Compatibility Fallback)</option>
             <option value="custom_webcodecs" style="color:var(--warn);">Nearcade Gen 2 (Raw Hardware GL /
               Sub-Millisecond)</option>
-            <option value="encoded_transform">Hybrid / Encoded Transform (WebCodecs + Native Network)</option>
+            <option value="encoded_transform">Hybrid (WebRTC Transport + WebCodecs Hardware Decode)</option>
 
             <option id="optWebTransport" value="webtransport" style="display:none;" disabled>WebTransport (VPS Only)
             </option>

@@ -59,6 +59,7 @@ function getThemeColors() {
         if (isDark) {
             theme.bg = '#0d0d0d';
             theme.surface = '#18181b';
+            theme.sidebar = '#141414';
             theme.surfaceHover = '#27272a';
             theme.text = '#fafafa';
             theme.muted = '#71717a';
@@ -67,6 +68,7 @@ function getThemeColors() {
         } else {
             theme.bg = '#fafafa';
             theme.surface = '#ffffff';
+            theme.sidebar = '#ffffff';
             theme.surfaceHover = '#f4f4f5';
             theme.text = '#18181b';
             theme.muted = '#71717a';

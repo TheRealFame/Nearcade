@@ -20,6 +20,15 @@ const gameArtLimiter = rateLimitMiddleware({
 const gameArtCacheDir = path.join(os.homedir(), '.cache', 'Nearcade', 'game-art');
 const GAME_ART_MAX_MB = 200;
 
+const PLACEHOLDER_SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 215" width="460" height="215">' +
+  '<rect width="460" height="215" fill="#141720"/>' +
+  '<circle cx="230" cy="107" r="28" fill="#1e2330"/>' +
+  '<path d="M220 107h20m-10-10v20" stroke="#4a5568" stroke-width="3" stroke-linecap="round"/>' +
+  '</svg>',
+  'utf8'
+);
+
 function evictGameArtCache() {
   try {
     const files = fs.readdirSync(gameArtCacheDir).map(f => {
@@ -46,6 +55,12 @@ module.exports = function(app) {
       res.setHeader('Cache-Control', 'public, max-age=86400');
       return res.sendFile(cachePath);
     }
+    const nonePath = path.join(gameArtCacheDir, appId + '.none');
+    if (fs.existsSync(nonePath)) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(PLACEHOLDER_SVG);
+    }
     const urls = [
       `https://shared.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
       `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
@@ -53,7 +68,12 @@ module.exports = function(app) {
     ];
     let idx = 0;
     function tryFetch() {
-      if (idx >= urls.length) return res.status(404).end();
+      if (idx >= urls.length) {
+        try { fs.writeFileSync(nonePath, ''); } catch (_) {}
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(PLACEHOLDER_SVG);
+      }
       const url = urls[idx++];
       https.get(url, (resp) => {
         if (resp.statusCode !== 200) { resp.resume(); return tryFetch(); }

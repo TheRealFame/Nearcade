@@ -27,7 +27,7 @@
         const isProtectedUI = location.pathname.includes('/host') || location.pathname.includes('index.html') || location.pathname === '/';
         if (!isProtectedUI) {
           r.style.setProperty('--bg', theme.bg);
-          r.style.setProperty('--sidebar', theme.sidebar);
+          r.style.setProperty('--sidebar', theme.sidebar || theme.surface || '#141414');
           r.style.setProperty('--surface', theme.surface);
           r.style.setProperty('--surface-hover', theme.surfaceHover);
           r.style.setProperty('--text', theme.text);

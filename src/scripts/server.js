@@ -1614,6 +1614,9 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     res.status(404).end();
   });
 
+  let activeGameProc = null;
+  let activeGameCmd = null;
+
   app.get("/api/status", (req, res) => {
     res.json({
       online: !!hostWS,
@@ -1621,8 +1624,11 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       viewers: viewers.size,
       controllers: controllerViewerCount(),
       tunnel: tunnelUrl,
+      tunnelUrl: tunnelUrl,
       version: APP_VERSION,
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      running: !!activeGameProc,
+      command: activeGameCmd
     });
   });
 
@@ -1843,20 +1849,39 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
 
   app.post("/api/open-terminal", adminMiddleware, express.json(), (req, res) => {
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
-    const { cmd, name } = req.body || {};
+    const { cmd, name, mode } = req.body || {};
     if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false });
     if (cmd.length > 2000) return res.status(400).json({ ok: false, reason: 'command too long' });
     const title = String(name || "Auto-Host").replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100);
     const safeCmd = String(cmd).replace(/[^a-zA-Z0-9 _=\\/.:@%~#+$(){}[\]!^,|-]/g, '');
+    const { spawn } = require("child_process");
+
+    if (mode === 'background') {
+      try {
+        const proc = spawn('bash', ['-c', safeCmd], { stdio: 'ignore', detached: true });
+        proc.unref();
+        return res.json({ ok: true, background: true });
+      } catch (err) {
+        return res.status(500).json({ ok: false, reason: err.message });
+      }
+    }
+
     const terms = [
       { cmd: 'gnome-terminal', args: ['--title', title, '--', 'bash', '-c', `${safeCmd}; exec bash`] },
       { cmd: 'xterm', args: ['-title', title, '-e', 'bash', '-c', `${safeCmd}; exec bash`] },
       { cmd: 'konsole', args: ['--title', title, '-e', 'bash', '-c', `${safeCmd}; exec bash`] }
     ];
-    const { spawn } = require("child_process");
     let i = 0;
     (function t() {
-      if (i >= terms.length) return res.json({ ok: false, reason: "no terminal found" });
+      if (i >= terms.length) {
+        try {
+          const proc = spawn('bash', ['-c', safeCmd], { stdio: 'ignore', detached: true });
+          proc.unref();
+          return res.json({ ok: true, fallbackBackground: true });
+        } catch (e) {
+          return res.json({ ok: false, reason: "no terminal found" });
+        }
+      }
       const term = terms[i++];
       const proc = spawn(term.cmd, term.args, { stdio: 'ignore', detached: true });
       proc.on('error', () => t());
@@ -1864,7 +1889,25 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     })();
   });
 
-  let activeGameProc = null;
+  app.get("/api/autohost/preflight", adminMiddleware, (_req, res) => {
+    const isLinux = process.platform === "linux";
+    let hasXvfb = false;
+    if (isLinux) {
+      try {
+        const { execSync } = require("child_process");
+        execSync("which xvfb-run", { stdio: "ignore" });
+        hasXvfb = true;
+      } catch (_) {
+        hasXvfb = false;
+      }
+    }
+    res.json({
+      platform: process.platform,
+      isLinux,
+      hasXvfb,
+      pulseSink: process.env.PULSE_SINK || "NearcadeVirtual"
+    });
+  });
 
   app.post("/api/force-route", adminMiddleware, express.json(), (req, res) => {
     if (!pb) {
@@ -1917,6 +1960,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       try { process.kill(-activeGameProc.pid); } catch (e) { }
       try { activeGameProc.kill(); } catch (e) { }
       activeGameProc = null;
+      activeGameCmd = null;
     }
 
     if (req.body && req.body.command && req.body.command !== 'KILL_ONLY') {
@@ -1957,6 +2001,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       spawnEnv.PULSE_SINK = "NearcadeVirtual";
 
       // ── LIFECYCLE MONITORING: Do NOT detach. Monitor the game and crash if it dies. ──
+      activeGameCmd = rawCommand;
       activeGameProc = spawn(cmd, safeParts, {
         stdio: 'ignore',
         env: spawnEnv
@@ -1975,6 +2020,7 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       activeGameProc.on('exit', (code) => {
         console.log(`[server] Game process exited with code ${code}.`);
         activeGameProc = null;
+        activeGameCmd = null;
         if (process.argv.includes('--arcade-worker')) {
           console.log("[server] Arcade Worker: Game terminated externally. Executing suicide protocol...");
           process.exit(0);
@@ -3364,7 +3410,17 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
           // This is the first message from the viewer after ws.onopen.
           // We update the name here, then fire viewer-joined to the host.
           if (msg.type === "join") {
-            if (_joinHandled) return; // replay + your-id re-send would double-fire
+            if (_joinHandled) {
+              const updatedName = sanitize(String(msg.name || '')).slice(0, 20);
+              if (updatedName && updatedName !== viewerNames.get(id)) {
+                viewerNames.set(id, updatedName);
+                if (hostWS && hostWS.readyState === 1) {
+                  hostWS.send(JSON.stringify({ type: "viewer-renamed", viewerId: id, name: updatedName }));
+                }
+                broadcastRoster();
+              }
+              return;
+            }
             _joinHandled = true;
             let joinName = sanitize(String(msg.name || '')).slice(0, 20) || defaultName;
             viewerNames.set(id, joinName);
@@ -3846,6 +3902,12 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
           _handleJson();
         }
       });
+
+      ws.on("close", () => {
+        if (myId) {
+          toUinput({ type: 'flush_neutral', viewer_id: myId });
+        }
+      });
     }
   });
 
@@ -4074,6 +4136,7 @@ function cleanup(isElectron = false) {
     const { execSync, execFileSync } = require('child_process');
 
     // THE FIX: Mute sink BEFORE unloading to prevent deafening buzz if unloaded out of order
+    try { execSync('pactl set-sink-mute NearcadeVirtual 1', { stdio: 'ignore' }); } catch (_) { }
     try { execSync('pactl set-sink-mute NearsecVirtual 1', { stdio: 'ignore' }); } catch (_) { }
 
     // THE FIX: Unload loopback BEFORE the sink to prevent the audio buzz
@@ -4089,12 +4152,27 @@ function cleanup(isElectron = false) {
       }
     }
 
-    // Belt and braces PulseAudio cleanup
+    // Belt and braces PulseAudio cleanup:
     // Strictly unload loopback/remap modules BEFORE their sinks to avoid the
-    // deafening PulseAudio buzz. Matches BOTH the legacy 'Nearcade' names and
-    // the current 'Nearcade' names in case old modules are still resident.
-    try { execSync("pactl list short modules | awk '/module-loopback.*(NearsecVirtual|NearcadeVirtual)/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) { }
-    try { execSync("pactl list short modules | awk '/NearsecAppAudio|NearcadeAppAudio|NearsecAppMic|NearcadeAppMic|NearsecVirtualCapture|NearcadeVirtualCapture|NearcadeMic_|NearsecVirtual|NearcadeVirtual/{print $1}' | xargs -r pactl unload-module", { stdio: 'ignore' }); } catch (_) { }
+    // deafening PulseAudio buzz. Matches BOTH 'Nearcade' and legacy 'Nearsec' names.
+    try {
+      const pModules = execSync('pactl list short modules 2>/dev/null', { encoding: 'utf8' });
+      const pLines = (pModules || '').split('\n').filter(Boolean);
+      const loopbacks = [];
+      const others = [];
+      for (const line of pLines) {
+        if (/NearsecVirtual|NearcadeVirtual|NearsecAppAudio|NearcadeAppAudio|NearsecAppMic|NearcadeAppMic|NearsecVirtualCapture|NearcadeVirtualCapture|NearcadeMic_/.test(line)) {
+          const modId = line.trim().split(/\s+/)[0];
+          if (/^\d+$/.test(modId)) {
+            if (line.includes('module-loopback')) loopbacks.push(modId);
+            else others.push(modId);
+          }
+        }
+      }
+      for (const id of loopbacks.concat(others)) {
+        try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
+      }
+    } catch (_) { }
 
     // PipeWire node cleanup — destroy any pw-loopback nodes created by the worker
     try {

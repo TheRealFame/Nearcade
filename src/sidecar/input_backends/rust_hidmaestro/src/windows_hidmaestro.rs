@@ -46,9 +46,11 @@ enum Out {
 #[allow(non_snake_case)]
 struct In {
     #[serde(rename = "type")] msg_type: String,
-    pad_id:  Option<String>,
-    slot:    Option<u8>,
-    profile: Option<String>,
+    pad_id:    Option<String>,
+    viewer_id: Option<String>,
+    viewerId:  Option<String>,
+    slot:      Option<u8>,
+    profile:   Option<String>,
     // Gamepad JSON state (alternate path, prefer binary UDP)
     lx: Option<f64>, ly: Option<f64>,
     rx: Option<f64>, ry: Option<f64>,
@@ -259,10 +261,14 @@ fn handle_json(msg: In, slots: &Arc<Mutex<SlotMap>>, bridge: &Arc<Mutex<Option<H
             }
         }
 
-        "flush_neutral" | "disconnect_viewer" => {
-            if let Some(ref pad) = msg.pad_id {
-                if let Some(&slot) = sl.pad_to_slot.get(pad) {
-                    // Send a zeroed state for this slot
+        "flush_neutral" => {
+            let vid = msg.viewer_id.as_deref().or(msg.viewerId.as_deref()).or(msg.pad_id.as_deref()).unwrap_or("");
+            let matching_pads: Vec<String> = sl.pad_to_slot.keys()
+                .filter(|k| !vid.is_empty() && (k.starts_with(vid) || *k == vid))
+                .cloned()
+                .collect();
+            for pad in matching_pads {
+                if let Some(&slot) = sl.pad_to_slot.get(&pad) {
                     if let Some(ref mut hm) = *brd {
                         hm.send(json!({
                             "type": "state", "slot": slot,
@@ -270,7 +276,21 @@ fn handle_json(msg: In, slots: &Arc<Mutex<SlotMap>>, bridge: &Arc<Mutex<Option<H
                             "lt": 0, "rt": 0, "btns": 0,
                         }));
                     }
-                    sl.pad_to_slot.remove(pad);
+                }
+            }
+        }
+
+        "disconnect_viewer" => {
+            let vid = msg.viewer_id.as_deref().or(msg.viewerId.as_deref()).or(msg.pad_id.as_deref()).unwrap_or("");
+            let matching_pads: Vec<String> = sl.pad_to_slot.keys()
+                .filter(|k| !vid.is_empty() && (k.starts_with(vid) || *k == vid))
+                .cloned()
+                .collect();
+            for pad in matching_pads {
+                if let Some(slot) = sl.pad_to_slot.remove(&pad) {
+                    if let Some(ref mut hm) = *brd {
+                        hm.send(json!({ "type": "free", "slot": slot }));
+                    }
                 }
             }
         }

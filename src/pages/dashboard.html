@@ -55,14 +55,24 @@
       }
     })();
   </script>
+  <style>
+    html, body {
+      background: #080808;
+      color: #e8e8e8;
+    }
+    #sidebar {
+      background: #141414;
+    }
+  </style>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/css/dashboard-autohost.css">
   <link rel="stylesheet" href="/css/scrollbars.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
-<body>
+<body style="background: var(--bg, #080808);">
   <!-- Error / Warning Popup Overlay -->
   <div id="ns-error-popup"
     style="display:none; position:fixed; top:20px; left:50%; transform:translateX(-50%); z-index:9999999; background:#d32f2f; color:#fff; padding:12px 24px; border-radius:8px; font-family:monospace; box-shadow:0 8px 16px rgba(0,0,0,0.5); font-weight:bold; align-items:center; gap:12px;">
@@ -618,7 +628,7 @@
   <div id="sidebarBackdrop" onclick="closeMobileDrawer()"></div>
 
   <div id="app">
-    <div id="sidebar">
+    <div id="sidebar" style="background: var(--sidebar, #141414);">
       <div class="sidebar-header">
         <button class="collapse-btn" onclick="toggleSidebar()" title="Toggle Sidebar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -810,43 +820,317 @@
       </div>
 
       <div class="panel" id="panel-containers">
-        <div class="settings-container">
-          <h1>Unattended Auto-Hosts</h1>
-          <p class="sub">Deploy and manage headless game sessions that auto-reset when empty.</p>
+        <div class="settings-container autohost-settings-container" style="max-width: 1100px; padding: 24px 20px;">
+          <div class="autohost-shell">
+            <!-- Top Horizontal Line Navbar with 3 Tabs -->
+            <div class="autohost-navbar-line">
+              <div class="autohost-tabs-wrapper" id="autoHostTabsNav">
+                <button type="button" class="autohost-tab-link active" onclick="switchAutoHostTab('setup')">Setup</button>
+                <button type="button" class="autohost-tab-link" onclick="switchAutoHostTab('monitor')">Monitor</button>
+                <button type="button" class="autohost-tab-link" onclick="switchAutoHostTab('settings')">Settings</button>
+              </div>
 
-          <div class="settings-section">
-            <h2>Deploy New Game</h2>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-              <h4 style="margin: 0;">Game/Lobby Name</h4>
-              <input type="text" id="autoName" list="arcadeGameTitles" placeholder="e.g., Sonic the Fighters 24/7"
-                style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
-              <datalist id="arcadeGameTitles"></datalist>
+              <div class="autohost-navbar-actions">
+                <select id="autoHostConfigSelector" class="autohost-config-select" onchange="onAutoHostPresetSelected(this.value)">
+                  <option value="new">+ New Auto-Host</option>
+                </select>
+                <select id="autoLaunchMode" class="autohost-mode-pill" title="Execution Mode" onchange="onLaunchModeChanged(this.value)">
+                  <option value="background">Background Headless</option>
+                  <option value="terminal">Debug Terminal</option>
+                </select>
+                <button type="button" id="autoDeployBtn" class="autohost-btn-action autohost-btn-deploy" onclick="deployCurrentAutoHost()">Deploy Auto-Host</button>
+              </div>
             </div>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-              <h4 style="margin: 0;">Terminal Launch Command</h4>
-              <input type="text" id="autoCmd" placeholder="steam steam://rungameid/APPID  (or any shell command)"
-                style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
-            </div>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-              <h4 style="margin: 0;">Dedicated Tunnel Provider</h4>
-              <select id="autoTunnel"
-                style="width: 100%; padding: 8px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
-                <option value="default">Use Global App Default</option>
-                <option value="cloudflared">Cloudflare (Random URL)</option>
-                <option value="zrok">zrok.io (Best Performance)</option>
-                <option value="playit">playit.gg</option>
-              </select>
-            </div>
-            <button class="btn-confirm" onclick="saveAutoHost()"
-              style="width:100%;padding:12px;margin-top:12px;border-radius:6px;cursor:pointer;background:var(--accent);color:#000;font-weight:bold;border:none;">Save
-              Configuration</button>
-            <button id="btnOpenTerminal" onclick="openAutoHostTerminal()"
-              style="display:none;width:100%;padding:10px;margin-top:8px;border-radius:6px;cursor:pointer;background:rgba(52,211,153,0.12);color:#34d399;font-weight:bold;border:1px solid rgba(52,211,153,0.3);font-family:inherit;font-size:12px;">⌘
-              Open Terminal for Auto-Host</button>
-          </div>
 
-          <div class="settings-section" id="activeAutoHostsList">
-            <h2>Saved Configurations</h2>
+            <!-- Preflight Diagnostics Banner -->
+            <div id="autohostPreflightAlert" class="autohost-alert" style="display: none;">
+              <div id="autohostPreflightMsg">Checking environment...</div>
+              <div id="autohostPreflightCode" class="autohost-alert-code" style="display: none;">sudo apt install xvfb</div>
+            </div>
+
+            <!-- TAB 1: Setup -->
+            <div id="autohostTabSetup" class="autohost-tab-panel active">
+              <div class="autohost-card">
+                <div class="autohost-card-header">
+                  <div>
+                    <div class="autohost-card-title">Select Installed Game</div>
+                    <div class="autohost-card-sub">Choose a game to auto-fill its title, launch parameters, and cover art.</div>
+                  </div>
+                  <div class="autohost-segmented-group" id="autoGameFilterNav">
+                    <button type="button" class="autohost-segmented-btn active" onclick="filterAutoGames('all')">All</button>
+                    <button type="button" class="autohost-segmented-btn" onclick="filterAutoGames('steam')">Steam</button>
+                    <button type="button" class="autohost-segmented-btn" onclick="filterAutoGames('heroic_lutris')">Heroic / Lutris</button>
+                    <button type="button" class="autohost-segmented-btn" onclick="filterAutoGames('emulators')">Emulators</button>
+                    <button type="button" class="autohost-segmented-btn" onclick="filterAutoGames('custom')">Custom</button>
+                  </div>
+                </div>
+
+                <div class="autohost-search-row">
+                  <input type="text" id="autoGameSearch" class="autohost-search-input" placeholder="Search installed games..." oninput="onAutoGameSearch(this.value)">
+                  <button type="button" class="autohost-btn-sm" onclick="loadAutoHostGames(true)">Rescan Games</button>
+                </div>
+
+                <div id="autoGamesGrid" class="autohost-games-grid">
+                  <div style="padding: 24px; text-align: center; color: var(--muted); grid-column: 1 / -1;">Scanning installed game libraries...</div>
+                </div>
+
+                <!-- Selected Game & Custom Override -->
+                <div id="autoSelectedGameBanner" class="autohost-selected-banner">
+                  <div class="autohost-selected-info">
+                    <img id="autoSelectedThumb" class="autohost-selected-thumb" src="" alt="" style="display: none;">
+                    <div>
+                      <div id="autoSelectedTitle" style="font-size: 13px; font-weight: 700; color: var(--text);">No Game Selected</div>
+                      <div id="autoSelectedMeta" style="font-size: 11px; color: var(--muted);">Pick a game above or enter custom parameters below.</div>
+                    </div>
+                  </div>
+                  <button type="button" class="autohost-btn-sm" onclick="toggleCustomCommandDrawer()">Toggle Custom Command</button>
+                </div>
+
+                <!-- Parameters (Collapsible / Editable) -->
+                <div id="autoCustomDrawer" style="margin-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+                  <div>
+                    <label style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Game / Lobby Name</label>
+                    <input type="text" id="autoName" list="arcadeGameTitles" placeholder="e.g., Sonic the Fighters 24/7"
+                      style="width: 100%; margin-top: 4px; padding: 8px 10px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-family: inherit; font-size: 12px;">
+                    <datalist id="arcadeGameTitles"></datalist>
+                  </div>
+
+                  <div>
+                    <label style="font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase;">Terminal Launch Command</label>
+                    <input type="text" id="autoCmd" placeholder="steam steam://rungameid/APPID (or any shell command)"
+                      style="width: 100%; margin-top: 4px; padding: 8px 10px; background: #000; border: 1px solid var(--border); color: #fff; border-radius: 6px; font-family: monospace; font-size: 12px;">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Dedicated Tunnel Provider -->
+              <div class="autohost-card">
+                <div class="autohost-card-header">
+                  <div>
+                    <div class="autohost-card-title">Dedicated Tunnel Provider</div>
+                    <div class="autohost-card-sub">Select the network relay used for public or private player connections.</div>
+                  </div>
+                </div>
+
+                <div class="autohost-providers-grid" id="autoProvidersGrid">
+                  <div class="autohost-provider-card selected" data-provider="default" onclick="selectAutoTunnelProvider('default')">
+                    <div class="autohost-provider-title">Global App Default</div>
+                    <div class="autohost-provider-desc">Uses the default tunnel configured in app settings.</div>
+                  </div>
+                  <div class="autohost-provider-card" data-provider="zrok" onclick="selectAutoTunnelProvider('zrok')">
+                    <div class="autohost-provider-title">zrok.io (Recommended)</div>
+                    <div class="autohost-provider-desc">Best performance and low latency peer-to-peer traversal.</div>
+                  </div>
+                  <div class="autohost-provider-card" data-provider="cloudflared" onclick="selectAutoTunnelProvider('cloudflared')">
+                    <div class="autohost-provider-title">Cloudflare</div>
+                    <div class="autohost-provider-desc">High compatibility worldwide with random public URL.</div>
+                  </div>
+                  <div class="autohost-provider-card" data-provider="playit" onclick="selectAutoTunnelProvider('playit')">
+                    <div class="autohost-provider-title">playit.gg</div>
+                    <div class="autohost-provider-desc">Gaming tunnel provider with dedicated port forwarding.</div>
+                  </div>
+                  <div class="autohost-provider-card" data-provider="p2p" onclick="selectAutoTunnelProvider('p2p')">
+                    <div class="autohost-provider-title">Local P2P Only</div>
+                    <div class="autohost-provider-desc">Direct local network connection without cloud relays.</div>
+                  </div>
+                </div>
+                <select id="autoTunnel" style="display: none;">
+                  <option value="default">Use Global App Default</option>
+                  <option value="zrok">zrok.io (Best Performance)</option>
+                  <option value="cloudflared">Cloudflare (Random URL)</option>
+                  <option value="playit">playit.gg</option>
+                  <option value="p2p">Local P2P</option>
+                </select>
+
+                <div style="display: flex; gap: 8px; margin-top: 14px;">
+                  <button type="button" class="btn-confirm" onclick="saveAutoHost()"
+                    style="flex: 1; padding: 10px; border-radius: 6px; cursor: pointer; background: var(--accent); color: #000; font-weight: bold; border: none; font-size: 12px;">Save Configuration</button>
+                  <button type="button" id="btnOpenTerminal" onclick="openAutoHostTerminal()"
+                    style="display: none; padding: 10px 14px; border-radius: 6px; cursor: pointer; background: rgba(52,211,153,0.12); color: #34d399; font-weight: bold; border: 1px solid rgba(52,211,153,0.3); font-family: inherit; font-size: 12px;">Terminal</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 2: Monitor (Mini Dashboard Interface) -->
+            <div id="autohostTabMonitor" class="autohost-tab-panel">
+              <div class="autohost-monitor-layout">
+                <!-- Left: Concurrent Instances List -->
+                <div class="autohost-instances-pane">
+                  <div class="autohost-card" style="padding: 14px;">
+                    <div class="autohost-card-header" style="margin-bottom: 8px;">
+                      <div class="autohost-card-title">Active Auto-Hosts</div>
+                      <span id="autoMonitorRunningBadge" class="autohost-pill-badge">0 Live</span>
+                    </div>
+                    <div id="autoMonitorInstancesList" style="display: flex; flex-direction: column; gap: 8px;">
+                      <!-- Populated dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Right: Viewport and Mini Dashboard -->
+                <div class="autohost-viewport-card">
+                  <div class="autohost-viewport-header">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <div class="autohost-status-dot" id="autoMonitorStatusDot"></div>
+                      <div id="autoMonitorTargetTitle" style="font-size: 14px; font-weight: 700; color: var(--text);">No Session Selected</div>
+                      <div id="autoMonitorTargetTag" class="autohost-pill-badge">Standby</div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <button type="button" class="autohost-svg-btn" onclick="openMonitorFullscreen()" title="Open Full Host View (host.html)">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                      </button>
+                      <button type="button" class="autohost-svg-btn" onclick="openMonitorPopout()" title="Pop Out in New Window">
+                        <svg viewBox="0 0 24 24">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6m4-3h6v6m-11 5L21 3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Viewport Screen -->
+                  <div class="autohost-viewport-box" id="autoMonitorViewportBox">
+                    <div class="autohost-viewport-placeholder" id="autoMonitorPlaceholder">
+                      <div style="font-size: 14px; font-weight: 600; color: var(--text);">Virtual Display Screen</div>
+                      <div style="max-width: 360px;">Headless game sessions run in isolated memory display (:99). Click the full screen icon above to interact via host.html.</div>
+                    </div>
+                    <iframe id="autoMonitorIframe" src="" style="display: none; width: 100%; height: 100%; border: none;" allow="gamepad"></iframe>
+                  </div>
+
+                  <!-- Viewport Stats -->
+                  <div class="autohost-stats-row">
+                    <div class="autohost-stat-tile">
+                      <div class="autohost-stat-val" id="autoMonitorRes">1280 x 720</div>
+                      <div class="autohost-stat-lbl">Virtual Resolution</div>
+                    </div>
+                    <div class="autohost-stat-tile">
+                      <div class="autohost-stat-val" id="autoMonitorFps">60 fps</div>
+                      <div class="autohost-stat-lbl">Target Framerate</div>
+                    </div>
+                    <div class="autohost-stat-tile">
+                      <div class="autohost-stat-val" id="autoMonitorViewers">0 Players</div>
+                      <div class="autohost-stat-lbl">Connected Viewers</div>
+                    </div>
+                    <div class="autohost-stat-tile">
+                      <div class="autohost-stat-val" id="autoMonitorTunnel">Default</div>
+                      <div class="autohost-stat-lbl">Tunnel Relay</div>
+                    </div>
+                  </div>
+
+                  <!-- Monitor Action Bar -->
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 8px;">
+                      <button type="button" id="autoMonitorLaunchBtn" class="autohost-btn-sm primary" onclick="launchSelectedMonitorSession()">Launch Session</button>
+                      <button type="button" id="autoMonitorStopBtn" class="autohost-btn-sm danger" style="display: none;" onclick="killGame()">Stop Session</button>
+                    </div>
+                    <button type="button" class="autohost-btn-sm" onclick="copyActiveArcadeLink()">Copy Arcade Share Link</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- TAB 3: Settings -->
+            <div id="autohostTabSettings" class="autohost-tab-panel">
+              <div class="autohost-card">
+                <div class="autohost-card-header">
+                  <div>
+                    <div class="autohost-card-title">Session Automation Rules</div>
+                    <div class="autohost-card-sub">Configure how sessions reset when viewers disconnect.</div>
+                  </div>
+                </div>
+
+                <div class="autohost-row">
+                  <div class="autohost-row-info">
+                    <h4>Auto-Reset When Empty</h4>
+                    <p>Automatically restarts the game back to the title screen when all players disconnect.</p>
+                  </div>
+                  <div class="toggle on" id="autoResetToggle" onclick="this.classList.toggle('on')">
+                    <div class="toggle-thumb"></div>
+                  </div>
+                </div>
+
+                <div class="autohost-row">
+                  <div class="autohost-row-info">
+                    <h4>Max Player Slots</h4>
+                    <p>Maximum number of simultaneous remote controllers permitted.</p>
+                  </div>
+                  <div class="autohost-segmented-group" id="autoMaxPlayersGroup">
+                    <button type="button" class="autohost-segmented-btn" onclick="selectAutoMaxPlayers('1')">1P</button>
+                    <button type="button" class="autohost-segmented-btn" onclick="selectAutoMaxPlayers('2')">2P</button>
+                    <button type="button" class="autohost-segmented-btn active" onclick="selectAutoMaxPlayers('4')">4P</button>
+                    <button type="button" class="autohost-segmented-btn" onclick="selectAutoMaxPlayers('8')">8P</button>
+                  </div>
+                  <input type="hidden" id="autoMaxPlayers" value="4">
+                </div>
+
+                <div class="autohost-row">
+                  <div class="autohost-row-info">
+                    <h4>Lock Session with Room PIN</h4>
+                    <p>Requires viewers to input your host PIN to join or spectate.</p>
+                  </div>
+                  <div class="toggle" id="autoPinToggle" onclick="this.classList.toggle('on')">
+                    <div class="toggle-thumb"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="autohost-card">
+                <div class="autohost-card-header">
+                  <div>
+                    <div class="autohost-card-title">Display and Audio Isolation</div>
+                    <div class="autohost-card-sub">Diagnostics for headless display and virtual audio cable.</div>
+                  </div>
+                  <button type="button" class="autohost-btn-sm" onclick="checkAutoHostPreflight()">Run Preflight</button>
+                </div>
+
+                <div class="autohost-row">
+                  <div class="autohost-row-info">
+                    <h4>Virtual Framebuffer (xvfb-run)</h4>
+                    <p id="preflightXvfbDesc">Checking xvfb installation...</p>
+                  </div>
+                  <div id="preflightXvfbBadge" class="autohost-pill-badge">Checking</div>
+                </div>
+
+                <div class="autohost-row">
+                  <div class="autohost-row-info">
+                    <h4>Virtual Audio Loopback</h4>
+                    <p>Verifies NearcadeVirtual audio sink isolation.</p>
+                  </div>
+                  <div id="preflightAudioBadge" class="autohost-pill-badge">NearcadeVirtual</div>
+                </div>
+              </div>
+
+              <!-- Saved Configurations & Raw JSON Editor -->
+              <div class="autohost-card">
+                <div class="autohost-card-header">
+                  <div>
+                    <div class="autohost-card-title">Saved Configurations</div>
+                    <div class="autohost-card-sub">Manage saved auto-host profiles.</div>
+                  </div>
+                  <button type="button" class="autohost-btn-sm" onclick="openAutoHostEditor()">Edit JSON</button>
+                </div>
+
+                <div id="activeAutoHostsList">
+                  <div style="padding: 24px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;">No configurations saved yet.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Persistent Bottom Telemetry Bar -->
+            <div class="autohost-telemetry-bar">
+              <div class="autohost-telemetry-left">
+                <div class="autohost-status-dot" id="autoTeleDot"></div>
+                <span id="autoTeleStatusText">Standby - Ready to deploy</span>
+              </div>
+              <div class="autohost-telemetry-right">
+                <div class="autohost-pill-badge" id="autoTeleDisplay">Display: :99</div>
+                <div class="autohost-pill-badge" id="autoTeleAudio">Audio: NearcadeVirtual</div>
+                <div class="autohost-pill-badge" id="autoTeleTunnel">Tunnel: default</div>
+                <button type="button" id="autoTeleLinkBtn" class="autohost-btn-sm primary" style="display: none;" onclick="copyActiveArcadeLink()">Copy Arcade Link</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -896,7 +896,6 @@ window._launchGame = function (launcher) {
 };
 
 function stopArcadeOnly() {
-    if (!isArcade) return;
     isArcade = false;
     if (arcadePingInterval) {
         clearInterval(arcadePingInterval);
@@ -907,10 +906,10 @@ function stopArcadeOnly() {
             body: JSON.stringify({ id: hostSessionId })
         }).catch(() => { });
         log(I18N.t('Arcade Mode: Session ended on Arcade'), 'warn');
-        const btnArcade = document.getElementById('btnArcade');
-        if (btnArcade) {
-            btnArcade.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
-        }
+    }
+    const btnArcade = document.getElementById('btnArcade');
+    if (btnArcade) {
+        btnArcade.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
     }
     const pinToggle = document.getElementById('pinToggle');
     if (pinToggle) { pinToggle.disabled = false; pinToggle.style.opacity = ''; pinToggle.style.cursor = ''; }
@@ -921,8 +920,33 @@ function stopArcadeOnly() {
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: true }));
         log(I18N.t('PIN re-enabled after Arcade session'), 'ok');
     }
+    const pinDisplay = document.getElementById('pinVal');
+    if (pinDisplay && pinDisplay.dataset.originalPin) {
+        pinDisplay.textContent = pinDisplay.dataset.originalPin;
+        delete pinDisplay.dataset.originalPin;
+    }
+    const pinSwitch = document.getElementById('arcadeRequirePin');
+    if (pinSwitch) {
+        pinSwitch.disabled = false;
+        pinSwitch.title = '';
+    }
     log(I18N.t('Arcade Mode: Stopped — stream continues'), 'warn');
     sysChat('Arcade session ended. Stream still active.');
+}
+
+function showArcadeFailure(message) {
+    const modal = document.getElementById('arcadeFailureModal');
+    const msgEl = document.getElementById('arcadeFailureMessage');
+    if (msgEl) msgEl.textContent = message;
+    if (modal) modal.classList.remove('gone');
+    log(I18N.t('⚠ Arcade Registration Failed: ') + message, 'err');
+    sysChat('Arcade registration failed: ' + message);
+    stopArcadeOnly();
+}
+
+function closeArcadeFailureModal() {
+    const modal = document.getElementById('arcadeFailureModal');
+    if (modal) modal.classList.add('gone');
 }
 
 function setCapDot(state) {
@@ -1741,6 +1765,16 @@ function connectWS() {
             _removeViewerVAD(msg.viewerId);
             if (peerConnections[msg.viewerId]) { peerConnections[msg.viewerId].close(); delete peerConnections[msg.viewerId]; }
             log(I18N.t('Viewer') + ' ' + (msg.name || msg.viewerId) + ' left');
+        }
+        if (msg.type === 'viewer-renamed') {
+            const vId = msg.viewerId;
+            const newName = msg.name || vId;
+            log(I18N.t('Viewer') + ' ' + vId + ' ' + I18N.t('is now known as') + ' ' + newName, 'ok');
+            if (window._rosterData) {
+                const item = window._rosterData.find(x => x.id === vId || x.id.startsWith(vId + '_'));
+                if (item) item.name = newName;
+                renderRoster(window._rosterData);
+            }
         }
         if (msg.type === 'roster') {
             _lastRosterList = msg.viewers || [];
@@ -7088,95 +7122,148 @@ const getHostOS = () => {
     return "Unknown OS";
 };
 
-function _doArcadeRegister() {
-    fetch('/api/info').then(r => r.json()).then(info => {
-        if (!info.tunnelUrl) {
-            log(I18N.t('⚠ Arcade: No tunnel URL yet. Start a tunnel first, then launch Arcade.'), 'warn');
-            return;
-        }
-        log(I18N.t('Arcade Mode: ${arcadeConfig.title} (${arcadeConfig.maxPlayers} players) → ${info.tunnelUrl}').replace('${arcadeConfig.title}', arcadeConfig.title).replace('${arcadeConfig.maxPlayers}', arcadeConfig.maxPlayers).replace('${info.tunnelUrl}', info.tunnelUrl), 'ok');
+async function _doArcadeRegister() {
+    let info;
+    try {
+        const r = await fetch('/api/info');
+        info = await r.json();
+    } catch (_) {
+        showArcadeFailure(I18N.t('Could not read server info. Please ensure the Nearcade server is running.'));
+        return;
+    }
 
-        if (info.tunnelUrl && !info.tunnelUrl.includes('voiceMode')) {
-            const _sep = info.tunnelUrl.includes('?') ? '&' : '?';
-            info.tunnelUrl += _sep + 'voiceMode=' + (arcadeConfig.captureMic ? 'push-to-talk' : 'off');
-        }
-        // Disable PIN toggle while arcade is active
-        const pinToggle = document.getElementById('pinToggle');
-        if (pinToggle) { pinToggle.disabled = true; pinToggle.style.opacity = '0.4'; pinToggle.style.cursor = 'not-allowed'; }
+    if (!info || !info.tunnelUrl) {
+        showArcadeFailure(I18N.t('No tunnel active. Start a tunnel first (Cloudflare, zrok, etc.) before launching an Arcade session.'));
+        return;
+    }
 
-        if (!arcadeConfig.requirePin && pinEnabled) {
-            pinEnabled = false;
-            arcadeOverrodePin = true;
-            if (pinToggle) { pinToggle.textContent = 'OFF'; pinToggle.className = 'pin-toggle-btn'; }
-            if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: false }));
-            if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) _vpsWs.send(JSON.stringify({ type: 'set-pin', enabled: false }));
-            log(I18N.t('PIN disabled for Arcade session'), 'ok');
-        }
+    if (localStorage.getItem('ns_input_only') === 'true') {
+        showArcadeFailure(I18N.t('Input Only mode cannot be listed on the public Arcade directory. Disable Input Only in Settings to host an Arcade session.'));
+        return;
+    }
 
-        const getPingData = () => {
-            const pipelineVal = document.getElementById('pipelineSelect')?.value;
-            const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
-            const arcadeProtocol = arcadeConfig.pipeline || document.getElementById('arcadePipelineSelect')?.value || 'auto';
-            let codecType;
-            if (arcadeProtocol && arcadeProtocol !== 'auto') {
-                codecType = arcadeProtocol;
-            } else if (pipelineVal === 'encoded_transform' || pipelineVal === 'hybrid') {
-                codecType = 'Hybrid';
-            } else if (forceWc) {
-                codecType = 'WebCodecs';
-            } else {
-                codecType = 'WebRTC';
-            }
-            const codec = localStorage.getItem('ns_codec') || document.getElementById('codecSelect')?.value || 'Auto';
-            return {
-                id: hostSessionId,
-                game: arcadeConfig.title,
-                hostName: localStorage.getItem('ns_name') || '',
-                thumbnail: arcadeConfig.thumbnail,
-                hasPin: arcadeConfig.requirePin,
-                inputOnly: localStorage.getItem('ns_input_only') === 'true',
-                url: info.tunnelUrl,
-                version: (info && info.version) || window.NEARCADE_VERSION || window.CLIENT_VERSION || '3.0.8',
-                hostRegion,
-                os: getHostOS(),
-                codecType,
-                codec,
-                category: arcadeConfig.category,
-                players: knownViewers.size + 1,
-                maxPlayers: parseInt(arcadeConfig.maxPlayers) || 4,
-                region: `${knownViewers.size + 1}/${parseInt(arcadeConfig.maxPlayers) || 4} Players`,
-                themePayload: localStorage.getItem('ns_native_theme_payload') || null,
-                accentColor: localStorage.getItem('ns_chat_color') || null
-            };
+    const clientVer = (info && info.version) || window.NEARCADE_VERSION || window.CLIENT_VERSION;
+    if (!clientVer || clientVer === '0.0.0') {
+        showArcadeFailure(I18N.t('Client version is missing or invalid. Please restart Nearcade.'));
+        return;
+    }
+
+    log(I18N.t('Arcade Mode: ${arcadeConfig.title} (${arcadeConfig.maxPlayers} players) → ${info.tunnelUrl}').replace('${arcadeConfig.title}', arcadeConfig.title).replace('${arcadeConfig.maxPlayers}', arcadeConfig.maxPlayers).replace('${info.tunnelUrl}', info.tunnelUrl), 'ok');
+
+    if (info.tunnelUrl && !info.tunnelUrl.includes('voiceMode')) {
+        const _sep = info.tunnelUrl.includes('?') ? '&' : '?';
+        info.tunnelUrl += _sep + 'voiceMode=' + (arcadeConfig.captureMic ? 'push-to-talk' : 'off');
+    }
+    // Disable PIN toggle while arcade is active
+    const pinToggle = document.getElementById('pinToggle');
+    if (pinToggle) { pinToggle.disabled = true; pinToggle.style.opacity = '0.4'; pinToggle.style.cursor = 'not-allowed'; }
+
+    if (!arcadeConfig.requirePin && pinEnabled) {
+        pinEnabled = false;
+        arcadeOverrodePin = true;
+        if (pinToggle) { pinToggle.textContent = 'OFF'; pinToggle.className = 'pin-toggle-btn'; }
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'set-pin', enabled: false }));
+        if (typeof _vpsWs !== 'undefined' && _vpsWs && _vpsWs.readyState === 1) _vpsWs.send(JSON.stringify({ type: 'set-pin', enabled: false }));
+        log(I18N.t('PIN disabled for Arcade session'), 'ok');
+    }
+
+    const getPingData = () => {
+        const pipelineVal = document.getElementById('pipelineSelect')?.value;
+        const forceWc = (new URLSearchParams(window.location.search)).get('wc') === '1' || pipelineVal === 'webcodecs' || pipelineVal === 'custom_webcodecs';
+        const arcadeProtocol = arcadeConfig.pipeline || document.getElementById('arcadePipelineSelect')?.value || 'auto';
+        let codecType;
+        if (arcadeProtocol && arcadeProtocol !== 'auto') {
+            codecType = arcadeProtocol;
+        } else if (pipelineVal === 'encoded_transform' || pipelineVal === 'hybrid') {
+            codecType = 'Hybrid';
+        } else if (forceWc) {
+            codecType = 'WebCodecs';
+        } else {
+            codecType = 'WebRTC';
+        }
+        const codec = localStorage.getItem('ns_codec') || document.getElementById('codecSelect')?.value || 'Auto';
+        return {
+            id: hostSessionId,
+            game: arcadeConfig.title,
+            hostName: localStorage.getItem('ns_name') || '',
+            thumbnail: arcadeConfig.thumbnail,
+            hasPin: arcadeConfig.requirePin,
+            inputOnly: false,
+            url: info.tunnelUrl,
+            version: (info && info.version) || window.NEARCADE_VERSION || window.CLIENT_VERSION || '',
+            hostRegion,
+            os: getHostOS(),
+            codecType,
+            codec,
+            category: arcadeConfig.category,
+            players: knownViewers.size + 1,
+            maxPlayers: parseInt(arcadeConfig.maxPlayers) || 4,
+            region: `${knownViewers.size + 1}/${parseInt(arcadeConfig.maxPlayers) || 4} Players`,
+            themePayload: localStorage.getItem('ns_native_theme_payload') || null,
+            accentColor: localStorage.getItem('ns_chat_color') || null
         };
+    };
 
-        if (!appSettings.tournamentMode) {
-            arcadeChannel.trigger('client-session-ping', getPingData());
-
-            // Ping server to maintain session and trigger webhook
-            fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/ping', {
+    if (!appSettings.tournamentMode) {
+        const pingPayload = getPingData();
+        const arcadeApiUrl = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/ping';
+        try {
+            const pingRes = await fetch(arcadeApiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(getPingData())
-            }).catch(e => console.error('[Arcade] Server ping failed:', e));
-        } else {
-            console.log('[Tournament] Arcade pings disabled');
+                body: JSON.stringify(pingPayload)
+            });
+            if (!pingRes.ok) {
+                let errMsg = '';
+                try {
+                    const data = await pingRes.json();
+                    errMsg = data.error || data.message;
+                } catch (_) {
+                    try { errMsg = await pingRes.text(); } catch (_) {}
+                }
+                if (pingRes.status === 403) {
+                    errMsg = errMsg || 'Tunnel domain was not approved by the Arcade directory or session is forbidden.';
+                } else if (pingRes.status === 429) {
+                    errMsg = errMsg || 'Too many registration requests. Please wait 10 seconds before retrying.';
+                }
+                showArcadeFailure(errMsg || `Arcade server rejected session (HTTP ${pingRes.status}: ${pingRes.statusText})`);
+                return;
+            }
+        } catch (netErr) {
+            showArcadeFailure('Network connection to Arcade server failed: ' + (netErr.message || netErr));
+            return;
         }
 
-        sysChat(I18N.t('Arcade Mode started:') + ' ' + arcadeConfig.title);
-        document.getElementById('btnArcade').innerHTML = '<span style="color:var(--green); font-weight:bold; font-size: 10px;">ARCADE<br>LIVE</span>';
+        if (arcadeChannel) arcadeChannel.trigger('client-session-ping', pingPayload);
+    } else {
+        console.log('[Tournament] Arcade pings disabled');
+    }
 
-        if (arcadePingInterval) clearInterval(arcadePingInterval);
-        if (!appSettings.tournamentMode) {
-            arcadePingInterval = setInterval(() => {
-                arcadeChannel.trigger('client-session-ping', getPingData());
-            }, 10000);
-        }
+    sysChat(I18N.t('Arcade Mode started:') + ' ' + arcadeConfig.title);
+    document.getElementById('btnArcade').innerHTML = '<span style="color:var(--green); font-weight:bold; font-size: 10px;">ARCADE<br>LIVE</span>';
 
-        isArcade = true;
-        if (!appSettings.tournamentMode) _updateDiscordRPC();
+    if (arcadePingInterval) clearInterval(arcadePingInterval);
+    if (!appSettings.tournamentMode) {
+        arcadePingInterval = setInterval(async () => {
+            const data = getPingData();
+            if (arcadeChannel) arcadeChannel.trigger('client-session-ping', data);
+            try {
+                const res = await fetch((window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net') + '/api/arcade/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!res.ok && res.status !== 429) {
+                    console.warn('[Arcade] Heartbeat ping rejected:', res.status);
+                }
+            } catch (e) {
+                console.warn('[Arcade] Heartbeat ping failed:', e);
+            }
+        }, 10000);
+    }
 
-    }).catch(() => log(I18N.t('Arcade: Could not read server info'), 'err'));
+    isArcade = true;
+    if (!appSettings.tournamentMode) _updateDiscordRPC();
 }
 
 const SVG_EYE_OPEN = '<img src="/assets/icons/eye.svg"     style="width:20px;height:20px;filter:invert(0.6);pointer-events:none;" alt="">';

@@ -407,20 +407,24 @@ const nameInputEl = document.getElementById("nameInput");
 if (nameInputEl) {
     nameInputEl.value = myName || "Guest" + Math.floor(Math.random() * 9000 + 1000);
     if (!myName) myName = nameInputEl.value;
-    nameInputEl.addEventListener('input', (e) => {
-        const val = e.target.value.trim();
+    const handleNameUpdate = (val) => {
+        val = (val || '').trim();
         updateJoystickTheme(val);
         if (val) {
             myName = val;
+            window.myName = val;
             localStorage.setItem('ns_name', val);
-            if (ws && ws.readyState === 1) {
-                ws.send(JSON.stringify({ type: 'set-name', name: val }));
+            const activeWs = ws || window.ws;
+            if (activeWs && activeWs.readyState === 1) {
+                activeWs.send(JSON.stringify({ type: 'set-name', name: val }));
             }
             if (typeof window.P2PManager !== 'undefined' && window.P2PManager?.clientSession?.sendToHost) {
                 try { window.P2PManager.clientSession.sendToHost({ type: 'set-name', name: val }); } catch (_) {}
             }
         }
-    });
+    };
+    nameInputEl.addEventListener('input', (e) => handleNameUpdate(e.target.value));
+    nameInputEl.addEventListener('change', (e) => handleNameUpdate(e.target.value));
 }
 
 (function checkSecureContext() {
@@ -703,7 +707,7 @@ function _setupWebGL(gl) {
     return tex;
 }
 const CONTROLLER_GUIDE_STORAGE_KEY = 'ns_controller_guide_ack';
-const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '3.0.8';
+const CLIENT_VERSION = window.CLIENT_VERSION || window.NEARCADE_VERSION || '';
 function semverGte(a, b) {
   const pa = String(a).split('.').map(Number);
   const pb = String(b).split('.').map(Number);
@@ -3026,6 +3030,7 @@ async function connect() {
                 }
             }
         };
+        window.ws = ws;
 
         if (window.P2PManager) {
             if (window._turnFetchPromise) await window._turnFetchPromise;
@@ -3120,6 +3125,7 @@ async function connect() {
             removeEventListener: () => {},
             _sig: sig,
         };
+        window.ws = ws;
         sig.on('connected', () => { if (_sigOnOpen) _sigOnOpen({}); });
         sig.on('disconnected', (d) => {
             if (_sigOnClose) _sigOnClose({ code: d.code || 1000, reason: d.reason || '' });
@@ -3425,7 +3431,7 @@ async function connect() {
                     supportsWebCodecs: typeof VideoDecoder !== 'undefined',
                     password: enteredPassword || '',
                     viewerRegion: window._myRegion || '',
-                    clientVersion: typeof CLIENT_VERSION !== 'undefined' ? CLIENT_VERSION : '3.0.4',
+                    clientVersion: (typeof CLIENT_VERSION !== 'undefined' && CLIENT_VERSION) ? CLIENT_VERSION : (window.NEARCADE_VERSION || ''),
                     platform: typeof viewerPlatform !== 'undefined' ? viewerPlatform : 'web',
                     color: localStorage.getItem('ns_chat_color') || '',
                     avatar: localStorage.getItem('ns_avatar') || '',
@@ -3965,7 +3971,7 @@ async function connect() {
             if (ws !== thisWs) return;
 
             const AUTH_CODES = new Set([4001, 4002, 4003, 4004]);
-            if (AUTH_CODES.has(event.code) || stopReconnect) {
+            if (AUTH_CODES.has(event.code)) {
                 if (event.code === 4004) {
                     // Wrong session password — show the password input, not the PIN screen
                     const pwScreen = document.getElementById('passwordScreen');
@@ -4462,6 +4468,9 @@ window.reconnectSession = function reconnectSession() {
     viewerReconnectAttempts = 0;
     const overlay = document.getElementById('overlay');
     if (overlay) overlay.classList.add('gone');
+    if (!pinRequired) {
+        document.getElementById('pinScreen')?.classList.add('gone');
+    }
     setStatus('Reconnecting...');
     if (typeof connect === 'function') connect();
 };
@@ -4469,6 +4478,9 @@ window.reconnectSession = function reconnectSession() {
 document.addEventListener('visibilitychange', () => { 
     if (document.visibilityState === 'visible') {
         acquireWakeLock();
+        if (!pinRequired) {
+            document.getElementById('pinScreen')?.classList.add('gone');
+        }
         // Check if connection was severed while backgrounded
         const isDisconnected = !ws || ws.readyState > 1 || (pc && (pc.connectionState === 'disconnected' || pc.connectionState === 'failed'));
         if (isDisconnected && window._joinAttempted && !window.sessionEndedByHost) {

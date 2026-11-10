@@ -604,21 +604,23 @@ function _claimSlot(slotIndex, viewerId, profileKey) {
 function _freeSlot(viewerId) {
     if (!viewerId) return;
 
+    const baseId = String(viewerId).replace(/_\d+$/, '');
+    const padPrefix = baseId + '_';
+
     // Collect all slot keys belonging to this viewer (exact match and prefix padIds like viewerId_0, viewerId_99)
     const keysToFree = new Set();
-    if (viewerSlots.has(viewerId)) {
-        keysToFree.add(viewerId);
-    }
-    const padPrefix = viewerId + '_';
+    if (viewerSlots.has(viewerId)) keysToFree.add(viewerId);
+    if (viewerSlots.has(baseId)) keysToFree.add(baseId);
+
     for (const key of viewerSlots.keys()) {
-        if (key === viewerId || key.startsWith(padPrefix)) {
+        if (key === viewerId || key === baseId || key.startsWith(padPrefix)) {
             keysToFree.add(key);
         }
     }
 
     // If nothing found in viewerSlots directly, also check slotViewers
     for (const [slot, owner] of slotViewers.entries()) {
-        if (owner === viewerId || owner.startsWith(padPrefix)) {
+        if (owner === viewerId || owner === baseId || owner.startsWith(padPrefix)) {
             keysToFree.add(owner);
         }
     }
@@ -628,6 +630,9 @@ function _freeSlot(viewerId) {
         if (_pythonProc) {
             try {
                 _pythonProc.stdin.write(JSON.stringify({ type: 'disconnect_viewer', viewer_id: viewerId }) + '\n');
+                if (baseId !== viewerId) {
+                    _pythonProc.stdin.write(JSON.stringify({ type: 'disconnect_viewer', viewer_id: baseId }) + '\n');
+                }
             } catch (_) {}
         }
         return;
@@ -1184,6 +1189,14 @@ function send(msg) {
                 lx: validated.lx || 0, ly: validated.ly || 0,
                 rx: validated.rx || 0, ry: validated.ry || 0,
             });
+        }
+        if (msg.type === 'disconnect_viewer') {
+            _freeSlot(msg.viewer_id || msg.viewerId || msg.pad_id);
+        } else if (msg.type === 'destroy_all') {
+            destroy();
+        } else if (msg.type === 'set-ctrl-type') {
+            if (msg.viewerId) viewerCtrlType.set(msg.viewerId, msg.ctrlType || 'xbox360');
+            _defaultProfileKey = msg.ctrlType || 'xbox360';
         }
         return;
     }

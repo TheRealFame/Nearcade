@@ -77,6 +77,12 @@ async function initVirtualAudio() {
     return;
   }
 
+  if (process.env.NEARCADE_TEST === '1') {
+    log('Ready (test mode — simulated without modifying host audio devices).');
+    parentPort.postMessage({ type: 'ready', hwSink: 'test-sink' });
+    return;
+  }
+
   await cleanupStaleSinks();
 
   log('Initializing Legacy Virtual Cable & Loopback...');

@@ -105,6 +105,13 @@ async function run() {
 }
 function cleanup(code) {
     console.log(code ? '\n LAN sim FAILED\n' : '\n LAN sim PASSED\n');
-    try { srv.kill('SIGKILL'); } catch (_) {}
-    process.exit(code);
+    srv.kill('SIGTERM');
+    const to = setTimeout(() => {
+        try { srv.kill('SIGKILL'); } catch (_) {}
+        process.exit(code);
+    }, 5000);
+    srv.on('close', () => {
+        clearTimeout(to);
+        process.exit(code);
+    });
 }

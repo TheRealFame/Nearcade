@@ -237,10 +237,22 @@ function _electronSignalCleanup(signal) {
     const { execSync } = require('child_process');
     if (process.platform === 'linux') {
       try {
-        execSync(
-          "pactl list short modules | awk '/NearsecVirtual|NearsecVirtualCapture/{print $1}' | xargs -r pactl unload-module",
-          { stdio: 'ignore' }
-        );
+        const pModules = execSync('pactl list short modules 2>/dev/null', { encoding: 'utf8' });
+        const pLines = (pModules || '').split('\n').filter(Boolean);
+        const loopbacks = [];
+        const others = [];
+        for (const line of pLines) {
+          if (/NearsecVirtual|NearcadeVirtual|NearsecAppAudio|NearcadeAppAudio|NearsecAppMic|NearcadeAppMic|NearsecVirtualCapture|NearcadeVirtualCapture|NearcadeMic_/.test(line)) {
+            const modId = line.trim().split(/\s+/)[0];
+            if (/^\d+$/.test(modId)) {
+              if (line.includes('module-loopback')) loopbacks.push(modId);
+              else others.push(modId);
+            }
+          }
+        }
+        for (const id of loopbacks.concat(others)) {
+          try { execSync(`pactl unload-module ${id}`, { stdio: 'ignore' }); } catch (_) { }
+        }
       } catch (_) { }
     }
   }
@@ -262,7 +274,10 @@ if (process.platform === 'linux') {
     for (const line of moduleList.split('\n')) {
       if (
         line.includes('NearsecVirtual') || line.includes('NearsecVirtualCapture') ||
-        line.includes('NearsecAppAudio') || line.includes('NearsecAppMic')
+        line.includes('NearcadeVirtual') || line.includes('NearcadeVirtualCapture') ||
+        line.includes('NearsecAppAudio') || line.includes('NearsecAppMic') ||
+        line.includes('NearcadeAppAudio') || line.includes('NearcadeAppMic') ||
+        line.includes('NearcadeMic_')
       ) {
         const id = line.trim().split(/\s+/)[0];
         if (id && /^\d+$/.test(id)) staleIds.push(id);
@@ -720,7 +735,7 @@ async function createWindow() {
     minHeight: isPortrait ? 480 : 500,
     title: 'Nearcade',
     icon: path.join(__dirname, '..', '..', 'assets', 'NearcadeLogo.png'),
-    backgroundColor: require('electron').nativeTheme.shouldUseDarkColors ? '#111111' : '#e2e8f0',
+    backgroundColor: '#080808',
     alwaysOnTop: settings.alwaysOnTop,
     show: isGamescopeEnv ? true : false,
     fullscreen: isFullscreen ? true : false,

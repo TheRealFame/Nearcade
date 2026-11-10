@@ -98,7 +98,7 @@ function showAppConfirm(title, message, okLabel = 'OK', cancelLabel = 'Cancel') 
       if (themeStr) {
         const theme = JSON.parse(themeStr);
         root.style.setProperty('--bg', theme.bg);
-        root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
+        root.style.setProperty('--sidebar', theme.sidebar || theme.surface || '#141414');
         root.style.setProperty('--surface', theme.surface);
         root.style.setProperty('--surface-hover', theme.surfaceHover);
         root.style.setProperty('--text', theme.text);
@@ -599,7 +599,7 @@ async function applyNativeTheme() {
   }
     if (theme) {
       root.style.setProperty('--bg', theme.bg);
-      root.style.setProperty('--sidebar', theme.surface || theme.sidebar);
+      root.style.setProperty('--sidebar', theme.sidebar || theme.surface || '#141414');
       root.style.setProperty('--surface', theme.surface);
       root.style.setProperty('--surface-hover', theme.surfaceHover);
       root.style.setProperty('--text', theme.text);

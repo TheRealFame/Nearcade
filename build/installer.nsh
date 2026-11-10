@@ -42,5 +42,4 @@
     skipVigem:
   ${EndIf}
   WriteRegStr HKCU "Software\Nearcade" "InstallDir" "$INSTDIR"
-  WriteUninstaller "$INSTDIR\Uninstall.exe"
 !macroend
