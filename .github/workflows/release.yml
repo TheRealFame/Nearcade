@@ -27,20 +27,33 @@ permissions:
   contents: write
 
 jobs:
+  filter-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.set-targets.outputs.targets }}
+    steps:
+      - id: set-targets
+        run: |
+          TARGET="${{ inputs.target_os || 'all' }}"
+          if [ "$TARGET" = "windows" ]; then
+            echo 'targets=["windows-latest"]' >> $GITHUB_OUTPUT
+          elif [ "$TARGET" = "linux" ]; then
+            echo 'targets=["ubuntu-latest"]' >> $GITHUB_OUTPUT
+          elif [ "$TARGET" = "macos" ]; then
+            echo 'targets=["macos-latest"]' >> $GITHUB_OUTPUT
+          else
+            echo 'targets=["ubuntu-latest", "windows-latest", "macos-latest"]' >> $GITHUB_OUTPUT
+          fi
+
   # ── 1. DESKTOP BUILDS ──
   release-desktop:
+    needs: filter-matrix
+    if: github.event_name != 'workflow_dispatch' || inputs.target_os != 'android'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            target: windows
-          - os: ubuntu-latest
-            target: linux
-          - os: macos-latest
-            target: macos
-    if: github.event_name != 'workflow_dispatch' || inputs.target_os == 'all' || inputs.target_os == matrix.target
+        os: ${{ fromJson(needs.filter-matrix.outputs.targets) }}
 
     steps:
       - name: Checkout Code
