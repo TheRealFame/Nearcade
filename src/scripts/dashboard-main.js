@@ -1246,16 +1246,23 @@ async function joinDirectLink() {
   }
 
   // Check if it's a URL
-  const isUrl = inputVal.startsWith('http://') || inputVal.startsWith('https://');
+  let parsedUrl = null;
+  try {
+    const candidate = new URL(inputVal);
+    if (candidate.protocol === 'http:' || candidate.protocol === 'https:') {
+      parsedUrl = candidate;
+    }
+  } catch (_) {}
 
-  if (isUrl) {
+  if (parsedUrl) {
     if (errEl) errEl.textContent = '';
     if (window.electronAPI) {
-      window.electronAPI.joinSession(inputVal, { game: 'Direct Connect' }, pinVal);
+      window.electronAPI.joinSession(parsedUrl.toString(), { game: 'Direct Connect' }, pinVal);
     } else {
-      let viewerUrl = inputVal + (inputVal.includes('?') ? '&' : '?') + 'client=1&compat=1';
-      if (pinVal) viewerUrl += `&pin=${encodeURIComponent(pinVal)}`;
-      window.location.href = viewerUrl;
+      parsedUrl.searchParams.set('client', '1');
+      parsedUrl.searchParams.set('compat', '1');
+      if (pinVal) parsedUrl.searchParams.set('pin', pinVal);
+      window.location.href = parsedUrl.toString();
     }
   } else {
     // It's a Room Code
@@ -1272,9 +1279,11 @@ async function joinDirectLink() {
 
 window.addEventListener('message', (event) => {
   const _arcadeOrigin = (window.NEARCADE_ARCADE_URL || 'https://nearcade.cutefame.net');
-  if (event.origin.includes(new URL(_arcadeOrigin).hostname) && event.data?.type === 'JOIN_SESSION') {
-    if (window.electronAPI) window.electronAPI.joinSession(event.data.url, { game: event.data.game });
-  }
+  try {
+    if (event.origin === new URL(_arcadeOrigin).origin && event.data?.type === 'JOIN_SESSION') {
+      if (window.electronAPI) window.electronAPI.joinSession(event.data.url, { game: event.data.game });
+    }
+  } catch (_) {}
 });
 
 

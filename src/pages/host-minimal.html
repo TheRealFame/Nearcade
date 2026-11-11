@@ -1586,22 +1586,47 @@
           card.style.borderRadius = '4px';
           card.style.padding = '8px 12px';
 
-          let statusBadge = '<span style="color:var(--accent-green); font-weight:600;">[OK]</span> ';
-          if (c.status === 'warn') statusBadge = '<span style="color:var(--warn); font-weight:600;">[WARN]</span> ';
-          if (c.status === 'fail') statusBadge = '<span style="color:var(--danger); font-weight:600;">[FAIL]</span> ';
-          if (c.status === 'info') statusBadge = '<span style="color:var(--muted); font-weight:600;">[INFO]</span> ';
+          const header = document.createElement('div');
+          header.style.fontWeight = '600';
+          header.style.marginBottom = '4px';
 
-          let html = '<div style="font-weight:600; margin-bottom:4px;">' + statusBadge + (c.name || c.id) + '</div>';
-          html += '<div style="color:#bbb; margin-bottom:4px;">' + (c.message || '') + '</div>';
+          const badge = document.createElement('span');
+          badge.style.fontWeight = '600';
+          if (c.status === 'warn') { badge.style.color = 'var(--warn)'; badge.textContent = '[WARN] '; }
+          else if (c.status === 'fail') { badge.style.color = 'var(--danger)'; badge.textContent = '[FAIL] '; }
+          else if (c.status === 'info') { badge.style.color = 'var(--muted)'; badge.textContent = '[INFO] '; }
+          else { badge.style.color = 'var(--accent-green)'; badge.textContent = '[OK] '; }
+          header.appendChild(badge);
+          header.appendChild(document.createTextNode(String(c.name || c.id || '')));
+          card.appendChild(header);
+
+          const msgEl = document.createElement('div');
+          msgEl.style.color = '#bbb';
+          msgEl.style.marginBottom = '4px';
+          msgEl.textContent = String(c.message || '');
+          card.appendChild(msgEl);
 
           if (c.remediation) {
-            html += '<div style="background:#0a0a0a; border:1px solid #333; padding:6px; border-radius:3px; margin-top:6px; font-family:monospace; font-size:10px; color:#ffaa88; word-break:break-all;">'
-              + '<strong>Remediation:</strong> ' + c.remediation
-              + ' <button class="btn" style="padding:2px 6px; font-size:9px; margin-left:8px;" onclick="navigator.clipboard.writeText(\'' + c.remediation.replace(/'/g, "\\'") + '\'); this.textContent=\'Copied!\';">Copy</button>'
-              + '</div>';
+            const remBox = document.createElement('div');
+            remBox.style.cssText = 'background:#0a0a0a; border:1px solid #333; padding:6px; border-radius:3px; margin-top:6px; font-family:monospace; font-size:10px; color:#ffaa88; word-break:break-all;';
+
+            const remLabel = document.createElement('strong');
+            remLabel.textContent = 'Remediation: ';
+            remBox.appendChild(remLabel);
+            remBox.appendChild(document.createTextNode(String(c.remediation)));
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'btn';
+            copyBtn.style.cssText = 'padding:2px 6px; font-size:9px; margin-left:8px;';
+            copyBtn.textContent = 'Copy';
+            copyBtn.addEventListener('click', () => {
+              navigator.clipboard.writeText(String(c.remediation));
+              copyBtn.textContent = 'Copied!';
+            });
+            remBox.appendChild(copyBtn);
+            card.appendChild(remBox);
           }
 
-          card.innerHTML = html;
           body.appendChild(card);
         });
       }

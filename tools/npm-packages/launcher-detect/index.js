@@ -56,7 +56,7 @@ function tryExecFile(file, args = [], opts = {}) {
 // to xdg-open, which on KDE routes schemes through KIO workers and
 // can pop up sandbox/worker dialogs.
 function desktopFileHandler(launcherId) {
-  const scheme = SCHEMES[launcherId];
+  const scheme = Object.prototype.hasOwnProperty.call(SCHEMES, launcherId) ? SCHEMES[launcherId] : null;
   if (!scheme) return null;
   const desktopFile = tryExecFile('xdg-mime', ['query', 'default', scheme]);
   if (!desktopFile || desktopFile.includes('/')) return null;
@@ -166,29 +166,40 @@ function detect() {
 }
 
 function buildUrl(launcherId, gameId) {
-  const proto = PROTOCOLS[launcherId];
-  if (!proto) throw new Error(`Unknown launcher: ${launcherId}`);
-  return proto + String(gameId);
+  if (!Object.prototype.hasOwnProperty.call(PROTOCOLS, launcherId)) {
+    throw new Error(`Unknown launcher: ${launcherId}`);
+  }
+  const safeIdMatch = String(gameId).match(/^[a-zA-Z0-9\-_\.]+$/);
+  if (!safeIdMatch) {
+    throw new Error('Invalid gameId format: unsafe characters detected');
+  }
+  return PROTOCOLS[launcherId] + safeIdMatch[0];
 }
 
 function launch(launcherId, gameId) {
-  // Fix for js/command-line-injection (CodeQL)
-  // Ensure gameId only contains safe alphanumeric characters, dashes, dots, and underscores.
-  if (!/^[a-zA-Z0-9\-_\.]+$/.test(String(gameId))) {
+  const safeLauncher = (typeof launcherId === 'string' && Object.prototype.hasOwnProperty.call(PROTOCOLS, launcherId))
+    ? launcherId
+    : null;
+  if (!safeLauncher) {
+    throw new Error(`Unknown launcher: ${launcherId}`);
+  }
+  const safeIdMatch = String(gameId).match(/^[a-zA-Z0-9\-_\.]+$/);
+  if (!safeIdMatch) {
     throw new Error('Invalid gameId format: unsafe characters detected');
   }
+  const safeGameId = safeIdMatch[0];
 
-  const url = buildUrl(launcherId, gameId);
+  const url = buildUrl(safeLauncher, safeGameId);
   const platform = os.platform();
   const { execFileSync, spawn } = require('child_process');
 
   try {
     if (platform === 'win32') {
-      tryExecFile('cmd.exe', ['/c', 'start', '/low', '""', url]);
+      spawn('explorer.exe', [url], { detached: true, stdio: 'ignore' }).unref();
     } else if (platform === 'darwin') {
       execFileSync('open', [url], { timeout: 3000 });
     } else {
-      if (launcherId === 'steam') {
+      if (safeLauncher === 'steam') {
         const runtimeDir = process.env.XDG_RUNTIME_DIR || '/run/user/' + os.userInfo().uid;
         const baseMounts = process.env.STEAM_COMPAT_MOUNTS ? process.env.STEAM_COMPAT_MOUNTS + ':' : '';
         const env = Object.assign({}, process.env, {
@@ -200,7 +211,7 @@ function launch(launcherId, gameId) {
           // Point the containerized OpenXR loader straight at the wivrn runtime.
           XR_RUNTIME_JSON: path.join(os.homedir(), '.local', 'share', 'openxr', '1', 'active_runtime.json')
         });
-        spawn('steam', ['-applaunch', gameId], { detached: true, stdio: 'ignore', env }).unref();
+        spawn('steam', ['-applaunch', safeGameId], { detached: true, stdio: 'ignore', env }).unref();
       } else {
         // Launch known launchers directly instead of xdg-open. On KDE,
         // xdg-open routes custom URL schemes through KIO workers, which can
@@ -208,21 +219,21 @@ function launch(launcherId, gameId) {
         // app is not running. Direct spawn keeps the flow popup-free.
         const flatpaks = tryExecFile('flatpak', ['list', '--columns=application']);
         let cmd = null, args = null;
-        if (launcherId === 'heroic') {
+        if (safeLauncher === 'heroic') {
           if (tryExecFile('which', ['heroic'])) { cmd = 'heroic'; args = [url]; }
           else if (flatpaks.includes('com.heroicgameslauncher')) { cmd = 'flatpak'; args = ['run', 'com.heroicgameslauncher', url]; }
-        } else if (launcherId === 'lutris') {
+        } else if (safeLauncher === 'lutris') {
           if (tryExecFile('which', ['lutris'])) { cmd = 'lutris'; args = [url]; }
           else if (flatpaks.includes('net.lutris.Lutris')) { cmd = 'flatpak'; args = ['run', 'net.lutris.Lutris', url]; }
-        } else if (launcherId === 'epic') {
-          if (tryExecFile('which', ['legendary'])) { cmd = 'legendary'; args = ['launch', String(gameId)]; }
+        } else if (safeLauncher === 'epic') {
+          if (tryExecFile('which', ['legendary'])) { cmd = 'legendary'; args = ['launch', safeGameId]; }
         }
         if (cmd) {
           spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
         } else {
           // Exotic install (AppImage, snap, wrapper script) — run the
           // registered scheme handler directly, still bypassing xdg-open/KIO.
-          const handler = desktopFileHandler(launcherId);
+          const handler = desktopFileHandler(safeLauncher);
           if (handler) {
             spawn(handler.cmd, handler.args.concat([url]), { detached: true, stdio: 'ignore' }).unref();
           } else {

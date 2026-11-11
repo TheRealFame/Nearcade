@@ -453,17 +453,33 @@ function openBrowser(url) {
 // Shared end-to-end check: a printed URL is NOT a working tunnel (zrok taught
 // us that; Cloudflare's restricted edges answer 404/530 HTML). Resolves true
 // only when the public URL serves OUR /api/info with a version field.
+function isPublicHttpUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    if (u.username || u.password) return null;
+    const h = u.hostname.toLowerCase();
+    if (!h || h === 'localhost' || h === '::1' || h === '0.0.0.0' || h.startsWith('127.') || h.startsWith('169.254.')) {
+      return null;
+    }
+    return u.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
 function verifyTunnelUrl(url, { tries = 4, gapMs = 1500, timeoutMs = 2500 } = {}) {
   return new Promise((resolve) => {
     let n = 0, done = false;
-    const apiUrl = url.replace(/\/?(\?.*)?$/, '/api/info$1');
+    const safeApiUrl = isPublicHttpUrl(String(url || '').replace(/\/?(\?.*)?$/, '/api/info$1'));
+    if (!safeApiUrl) return resolve(false);
     const probe = async () => {
       if (done) return;
       n++;
       try {
         const ctl = new AbortController();
         const to = setTimeout(() => ctl.abort(), timeoutMs);
-        const r = await fetch(apiUrl, {
+        const r = await fetch(safeApiUrl, {
           signal: ctl.signal,
           headers: {
             'skip_zrok_interstitial': 'true',
@@ -1397,26 +1413,26 @@ async function startTunnel(port, provider, options = {}) {
   currentTunnelProvider = provider; // provisionally claim, set a live URL below
   currentTunnelBypassCustomUrl = wantBypass;
   if (provider) {
-    const providerMap = {
-      zrok: (p) => startTunnelZrok(p, 3, options),
-      cloudflared: (p) => startTunnelCloudflared(p, options),
-      playit: startTunnelPlayit,
-      localhostrun: startTunnelLocalhostRun,
-      serveo: startTunnelServeo,
-      vps: (p) => startTunnelVps(p, process.env.VPS_HOST || ''),
-      bore: startTunnelBore,
-      ngrok: startTunnelNgrok,
-      outray: (p) => startTunnelOutray(p, options),
-      frp: startTunnelFrp,
-      'tailscale-funnel': startTunnelTailscaleFunnel,
-      'tailscale-serve': startTunnelTailscaleServe,
-      'tailscale-mesh': startTunnelTailscaleMesh,
-      zerotier: startTunnelZeroTier,
-      netmaker: startTunnelNetmaker,
-      'wireguard-direct': startTunnelWireguardDirect,
-    };
-    const fn = (typeof provider === 'string' && Object.prototype.hasOwnProperty.call(providerMap, provider))
-      ? providerMap[provider]
+    const providerMap = new Map([
+      ['zrok', (p) => startTunnelZrok(p, 3, options)],
+      ['cloudflared', (p) => startTunnelCloudflared(p, options)],
+      ['playit', startTunnelPlayit],
+      ['localhostrun', startTunnelLocalhostRun],
+      ['serveo', startTunnelServeo],
+      ['vps', (p) => startTunnelVps(p, process.env.VPS_HOST || '')],
+      ['bore', startTunnelBore],
+      ['ngrok', startTunnelNgrok],
+      ['outray', (p) => startTunnelOutray(p, options)],
+      ['frp', startTunnelFrp],
+      ['tailscale-funnel', startTunnelTailscaleFunnel],
+      ['tailscale-serve', startTunnelTailscaleServe],
+      ['tailscale-mesh', startTunnelTailscaleMesh],
+      ['zerotier', startTunnelZeroTier],
+      ['netmaker', startTunnelNetmaker],
+      ['wireguard-direct', startTunnelWireguardDirect],
+    ]);
+    const fn = (typeof provider === 'string' && providerMap.has(provider))
+      ? providerMap.get(provider)
       : ((p) => startTunnelAuto(p, options));
     if (fn) {
       const r = await fn(port);
@@ -1452,8 +1468,23 @@ async function startTunnelAuto(port) {
 
   const last = getLastProvider();
   if (last && last !== forced) {
-    const autoMap = { zrok: startTunnelZrok, cloudflared: startTunnelCloudflared, playit: startTunnelPlayit, localhostrun: startTunnelLocalhostRun, serveo: startTunnelServeo, bore: startTunnelBore, ngrok: startTunnelNgrok, frp: startTunnelFrp, 'tailscale-funnel': startTunnelTailscaleFunnel, 'tailscale-serve': startTunnelTailscaleServe, 'tailscale-mesh': startTunnelTailscaleMesh, zerotier: startTunnelZeroTier, netmaker: startTunnelNetmaker, 'wireguard-direct': startTunnelWireguardDirect };
-    const fn = (typeof last === 'string' && Object.prototype.hasOwnProperty.call(autoMap, last)) ? autoMap[last] : null;
+    const autoMap = new Map([
+      ['zrok', startTunnelZrok],
+      ['cloudflared', startTunnelCloudflared],
+      ['playit', startTunnelPlayit],
+      ['localhostrun', startTunnelLocalhostRun],
+      ['serveo', startTunnelServeo],
+      ['bore', startTunnelBore],
+      ['ngrok', startTunnelNgrok],
+      ['frp', startTunnelFrp],
+      ['tailscale-funnel', startTunnelTailscaleFunnel],
+      ['tailscale-serve', startTunnelTailscaleServe],
+      ['tailscale-mesh', startTunnelTailscaleMesh],
+      ['zerotier', startTunnelZeroTier],
+      ['netmaker', startTunnelNetmaker],
+      ['wireguard-direct', startTunnelWireguardDirect],
+    ]);
+    const fn = typeof last === 'string' ? autoMap.get(last) : null;
     if (fn) { const r = await fn(port); if (r && r.url) return r; }
   }
 

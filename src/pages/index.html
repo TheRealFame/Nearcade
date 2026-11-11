@@ -4482,7 +4482,7 @@
       // appear here — the host decides to join you from their side.
       const friendUuidInput = document.getElementById('friendUuidInput');
       const friendUrlInput = document.getElementById('friendUrlInput');
-      const friendPairingInput = document.getElementById('friendSecretInput') || document.getElementById('friendCodeInput');
+      const friendPairingInput = document.getElementById('friendCodeInput');
       if (friendUuidInput) {
         friendUuidInput.value = localStorage.getItem('ns_friend_uuid') || '';
         friendUuidInput.addEventListener('input', () => {
@@ -4496,7 +4496,7 @@
         });
       }
       if (friendPairingInput) {
-        friendPairingInput.value = localStorage.getItem('ns_friend_code') || localStorage.getItem('ns_friend_secret') || '';
+        friendPairingInput.value = localStorage.getItem('ns_friend_code') || '';
         friendPairingInput.addEventListener('input', () => {
           localStorage.setItem('ns_friend_code', friendPairingInput.value.trim().toLowerCase());
         });
@@ -4519,7 +4519,7 @@
         const name = (document.getElementById('nameInput')?.value.trim() || localStorage.getItem('ns_name') || 'Guest').slice(0, 32);
         const uuid = (localStorage.getItem('ns_friend_uuid') || '').trim().toLowerCase();
         const url = (localStorage.getItem('ns_friend_url') || '').trim();
-        const pairCode = (localStorage.getItem('ns_friend_code') || localStorage.getItem('ns_friend_secret') || '').trim().toLowerCase();
+        const pairCode = (localStorage.getItem('ns_friend_code') || '').trim().toLowerCase();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid)) {
           if (res) res.textContent = I18N.t('Enter your Friend ID above — it is how the host verifies it is really you.');
           return;

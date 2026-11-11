@@ -7748,11 +7748,11 @@ if (urlParams.get('auto') === '1') {
                 document.getElementById('arcadeRequirePin').checked = false;
 
                 if (target && target.cmd) {
-                    console.log(`[Headless] Launching game process: ${target.cmd}`);
+                    console.log(`[Headless] Launching game process: ${target.name || target.cmd}`);
                     fetch('/api/restart-game', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ command: target.cmd })
+                        body: JSON.stringify({ presetId: target.id, presetName: target.name })
                     });
                 }
 

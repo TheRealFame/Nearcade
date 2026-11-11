@@ -581,6 +581,7 @@ function deployCurrentAutoHost() {
     body: JSON.stringify({
       cmd: buildAutoHostCommand({ name, tunnel }),
       name,
+      tunnel,
       mode
     })
   })).then(r => r.json()).then(d => {

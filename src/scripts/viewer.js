@@ -4000,13 +4000,13 @@ async function connect() {
                 return;
             }
             if (event.code === 1006) {
-                const isTunnelDomain = location.hostname.includes('shares.zrok.io') ||
-                    location.hostname.includes('trycloudflare.com') ||
-                    location.hostname.includes('ngrok-free.app') ||
-                    location.hostname.includes('ngrok.app') ||
-                    location.hostname.includes('localtunnel.me') ||
-                    location.hostname.includes('lhr.life') ||
-                    window._tunnelInterstitialDetected;
+                const _host = location.hostname.toLowerCase();
+                const _tunnelSuffixes = [
+                    'shares.zrok.io', 'trycloudflare.com', 'ngrok-free.app',
+                    'ngrok.app', 'localtunnel.me', 'lhr.life'
+                ];
+                const isTunnelDomain = window._tunnelInterstitialDetected ||
+                    _tunnelSuffixes.some(d => _host === d || _host.endsWith('.' + d));
                 if (isTunnelDomain && typeof _showTunnelApprovalNotice === 'function') {
                     _showTunnelApprovalNotice();
                 }

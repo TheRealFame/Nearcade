@@ -1584,12 +1584,18 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
 
   require('./core/server/game-art.js')(app);
 
+  const ALLOWED_LAUNCHERS = new Set(['steam', 'heroic', 'lutris', 'epic', 'uplay', 'origin', 'bnet']);
   app.post("/api/launch-game", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     const { launch } = freshLauncherDetect();
     const { launcher, gameId } = req.body || {};
-    if (!launcher || !gameId) return res.status(400).json({ error: 'Missing launcher or gameId' });
+    const safeLauncher = typeof launcher === 'string' && ALLOWED_LAUNCHERS.has(launcher) ? launcher : null;
+    const rawGameId = (typeof gameId === 'string' || typeof gameId === 'number') ? String(gameId) : '';
+    const safeGameIdMatch = rawGameId.match(/^[a-zA-Z0-9\-_.]+$/);
+    if (!safeLauncher || !safeGameIdMatch) {
+      return res.status(400).json({ error: 'Invalid or missing launcher or gameId' });
+    }
     try {
-      launch(launcher, String(gameId));
+      launch(safeLauncher, safeGameIdMatch[0]);
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -1600,17 +1606,21 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
 
   app.get("/api/local-image", adminMiddleware, fileApiLimiter, (req, res) => {
     const filePath = req.query.path;
-    if (!filePath || typeof filePath !== 'string') return res.status(400).end();
+    if (!filePath || typeof filePath !== 'string' || filePath.includes('\0') || filePath.split(/[/\\]/).includes('..')) {
+      return res.status(400).end();
+    }
     const resolvedPath = path.resolve(filePath);
     const allowedExts = ['.png', '.jpg', '.jpeg', '.webp', '.ico', '.bmp', '.svg'];
     if (!allowedExts.includes(path.extname(resolvedPath).toLowerCase())) {
       return res.status(403).end();
     }
     // Allow reading image files for launcher covers
-    if (fs.existsSync(resolvedPath)) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.sendFile(resolvedPath);
-    }
+    try {
+      if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.sendFile(resolvedPath);
+      }
+    } catch (_) {}
     res.status(404).end();
   });
 
@@ -1847,18 +1857,30 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
   });
 
 
-  app.post("/api/open-terminal", adminMiddleware, express.json(), (req, res) => {
+  app.post("/api/open-terminal", adminMiddleware, actionLimiter, express.json(), (req, res) => {
     if (process.platform !== "linux") return res.status(400).json({ ok: false, reason: "Linux only" });
-    const { cmd, name, mode } = req.body || {};
-    if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false });
-    if (cmd.length > 2000) return res.status(400).json({ ok: false, reason: 'command too long' });
-    const title = String(name || "Auto-Host").replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100);
-    const safeCmd = String(cmd).replace(/[^a-zA-Z0-9 _=\\/.:@%~#+$(){}[\]!^,|-]/g, '');
+    const { cmd, name, tunnel, mode } = req.body || {};
+    const title = String(name || "Auto-Host").replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || "Auto-Host";
+
+    let safeTunnel = typeof tunnel === 'string' ? tunnel.trim() : '';
+    if (!safeTunnel && typeof cmd === 'string') {
+      const tm = cmd.match(/--game-tunnel\s+([a-zA-Z0-9-]+)/);
+      if (tm) safeTunnel = tm[1];
+    }
+    safeTunnel = /^[a-zA-Z0-9-]+$/.test(safeTunnel) && safeTunnel !== 'default' ? safeTunnel : '';
+
+    const startArcadeScript = path.resolve(__dirname, '..', '..', 'bin', 'start-arcade.sh');
+    if (!fs.existsSync(startArcadeScript)) {
+      return res.status(500).json({ ok: false, reason: 'start-arcade.sh not found' });
+    }
+    const scriptArgs = ['--game-name', title];
+    if (safeTunnel) scriptArgs.push('--game-tunnel', safeTunnel);
+
     const { spawn } = require("child_process");
 
     if (mode === 'background') {
       try {
-        const proc = spawn('bash', ['-c', safeCmd], { stdio: 'ignore', detached: true });
+        const proc = spawn('bash', [startArcadeScript, ...scriptArgs], { stdio: 'ignore', detached: true });
         proc.unref();
         return res.json({ ok: true, background: true });
       } catch (err) {
@@ -1866,16 +1888,18 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       }
     }
 
+    const termRunner = '"$1" "${@:2}"; exec bash';
+    const bashExecArgs = ['bash', '-c', termRunner, '_', startArcadeScript, ...scriptArgs];
     const terms = [
-      { cmd: 'gnome-terminal', args: ['--title', title, '--', 'bash', '-c', `${safeCmd}; exec bash`] },
-      { cmd: 'xterm', args: ['-title', title, '-e', 'bash', '-c', `${safeCmd}; exec bash`] },
-      { cmd: 'konsole', args: ['--title', title, '-e', 'bash', '-c', `${safeCmd}; exec bash`] }
+      { cmd: 'gnome-terminal', args: ['--title', title, '--', ...bashExecArgs] },
+      { cmd: 'xterm', args: ['-title', title, '-e', ...bashExecArgs] },
+      { cmd: 'konsole', args: ['-title', title, '-e', ...bashExecArgs] }
     ];
     let i = 0;
     (function t() {
       if (i >= terms.length) {
         try {
-          const proc = spawn('bash', ['-c', safeCmd], { stdio: 'ignore', detached: true });
+          const proc = spawn('bash', [startArcadeScript, ...scriptArgs], { stdio: 'ignore', detached: true });
           proc.unref();
           return res.json({ ok: true, fallbackBackground: true });
         } catch (e) {
@@ -1889,17 +1913,19 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
     })();
   });
 
-  app.get("/api/autohost/preflight", adminMiddleware, (_req, res) => {
+  app.get("/api/autohost/preflight", adminMiddleware, fileApiLimiter, (_req, res) => {
     const isLinux = process.platform === "linux";
     let hasXvfb = false;
     if (isLinux) {
-      try {
-        const { execSync } = require("child_process");
-        execSync("which xvfb-run", { stdio: "ignore" });
-        hasXvfb = true;
-      } catch (_) {
-        hasXvfb = false;
-      }
+      const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+      hasXvfb = pathDirs.some((dir) => {
+        try {
+          fs.accessSync(path.join(dir, 'xvfb-run'), fs.constants.X_OK);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      });
     }
     res.json({
       platform: process.platform,
@@ -1963,8 +1989,25 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       activeGameCmd = null;
     }
 
-    if (req.body && req.body.command && req.body.command !== 'KILL_ONLY') {
-      const rawCommand = String(req.body.command || '').trim();
+    const body = req.body || {};
+    if (body.command === 'KILL_ONLY') {
+      return res.json({ success: true });
+    }
+
+    const savedHosts = Array.isArray(loadConfig().autoHosts) ? loadConfig().autoHosts : [];
+    let matchedPreset = null;
+    if (body.presetId) {
+      matchedPreset = savedHosts.find(h => h && h.id === String(body.presetId));
+    }
+    if (!matchedPreset && body.presetName) {
+      matchedPreset = savedHosts.find(h => h && h.name === String(body.presetName));
+    }
+    if (!matchedPreset && body.command) {
+      matchedPreset = savedHosts.find(h => h && h.cmd === String(body.command));
+    }
+
+    if (matchedPreset && matchedPreset.cmd) {
+      const rawCommand = String(matchedPreset.cmd).trim();
       const tokens = rawCommand.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
       let cmd = tokens.shift();
       if (!cmd || typeof cmd !== 'string') return res.status(400).json({ ok: false, reason: 'invalid command' });
@@ -1977,13 +2020,23 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
         return res.status(400).json({ ok: false, reason: 'invalid command path' });
       }
 
-      const ALLOWED_GAMES = ['steam', 'Heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak', 'bash', 'sh'];
+      const BLOCKED_SHELLS = new Set([
+        'bash', 'sh', 'zsh', 'dash', 'fish', 'ksh', 'csh', 'tcsh',
+        'cmd', 'cmd.exe', 'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe',
+        'wscript.exe', 'cscript.exe', 'mshta.exe'
+      ]);
       const baseCmd = path.basename(cmd).toLowerCase();
+      if (BLOCKED_SHELLS.has(baseCmd)) {
+        console.warn(`[security] BLOCKED restart-game shell binary: "${cmd}"`);
+        return res.status(403).json({ ok: false, reason: 'shell binaries not allowed' });
+      }
+
+      const ALLOWED_GAMES = ['steam', 'heroic', 'lutris', 'wine', 'mangohud', 'cs2', 'xenia', 'yuzu', 'ryujinx', 'pcsx2', 'dolphin-emu', 'rpcs3', 'ppsspp', 'duckstation', 'melonds', 'citra', 'flycast', 'redream', 'ares', 'bigpemu', 'cemu', 'mame', 'scummvm', 'vrchat', 'firefox', 'chromium', 'google-chrome', 'flatpak'];
       const allowMatch = (target) => {
         const t = target.toLowerCase();
-        return ALLOWED_GAMES.some(a => t === a.toLowerCase() || t.startsWith(a.toLowerCase()) || t.endsWith(a.toLowerCase())) || t.endsWith('.exe') || t.endsWith('.appimage');
+        return ALLOWED_GAMES.some(a => t === a || t.startsWith(a + '-')) || t.endsWith('.exe') || t.endsWith('.appimage');
       };
-      if (!allowMatch(cmd) && !allowMatch(baseCmd)) {
+      if (!allowMatch(baseCmd)) {
         console.warn(`[security] BLOCKED restart-game: "${cmd}" not in allowlist`);
         return res.status(403).json({ ok: false, reason: 'game not in allowlist' });
       }
@@ -2008,9 +2061,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       });
 
       // Extract the binary name to look for in PipeWire
-      // (If launching via Steam, you might need to hardcode specific names here based on the command)
       let binaryName = cmd;
-      if (req.body.command.includes('cs2')) binaryName = 'cs2';
+      if (rawCommand.includes('cs2')) binaryName = 'cs2';
 
       // Wait 4 seconds for the game window and audio engine to open, then route it
       setTimeout(() => {
@@ -2026,6 +2078,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
           process.exit(0);
         }
       });
+    } else if (body.command) {
+      return res.status(403).json({ ok: false, reason: 'command must belong to a saved Auto-Host preset' });
     }
     res.json({ success: true });
   });
@@ -2059,9 +2113,15 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
 
     const bypassCustomUrl = !!(req.body && req.body.bypassCustomUrl);
     const cfg = loadConfig();
-    const customUrl = (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain)
-      ? ('https://' + req.body.cfToken.domain.replace(/^https?:\/\//, ''))
-      : (cfg && cfg.customUrl ? cfg.customUrl : '');
+    const normalizeCustomDomain = (raw) => {
+      const stripped = String(raw || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+      if (!stripped || !/^[a-zA-Z0-9.-]+(?::\d{1,5})?$/.test(stripped)) return '';
+      return 'https://' + stripped;
+    };
+    const requestedCustomUrl = (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain)
+      ? normalizeCustomDomain(req.body.cfToken.domain)
+      : '';
+    const customUrl = requestedCustomUrl || (cfg && cfg.customUrl ? cfg.customUrl : '');
 
     // Let tunnels.startTunnel handle stopping the previous process and returning the result
     const tunnelOptions = {
@@ -2071,8 +2131,8 @@ app.post("/api/shutdown", adminMiddleware, actionLimiter, (req, res) => {
       bypassCustomUrl,
       customUrl
     };
-    if (!bypassCustomUrl && req.body && req.body.cfToken && req.body.cfToken.domain) {
-      saveConfig({ customUrl: 'https://' + req.body.cfToken.domain.replace(/^https?:\/\//, '') });
+    if (requestedCustomUrl) {
+      saveConfig({ customUrl: requestedCustomUrl });
     }
     const startPromise = (provider === 'portforward') ? Promise.resolve(null) : tunnels.startTunnel(PORT, provider, tunnelOptions);
 
