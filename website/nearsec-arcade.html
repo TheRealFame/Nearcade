@@ -625,7 +625,7 @@
        If the file is missing (network error, build path issue), the inline fallback
        below provides a no-op I18N shim so the rest of the page still functions. -->
   <!-- Controller Guide Modal -->
-<div id="controllerGuideModal" class="hidden">
+<div id="controllerGuideModal" class="hidden" onclick="if(event.target===this)closeControllerGuide()">
   <div id="controllerGuideCard">
     <div id="controllerGuideTop">
       <div id="controllerGuideTitle">Controller Setup Guide</div>
@@ -637,7 +637,7 @@
 
     <iframe
       id="controllerGuideFrame"
-      src="/gamepad-popup.html"
+      src="/pages/gamepad-popup.html"
       scrolling="no">
     </iframe>
 
@@ -697,9 +697,12 @@
   "></script>
   <script>
   function openControllerGuide() {
-    document
-      .getElementById("controllerGuideModal")
-      .classList.remove("hidden");
+    const modal = document.getElementById("controllerGuideModal");
+    const frame = document.getElementById("controllerGuideFrame");
+    if (frame && (!frame.getAttribute("src") || frame.getAttribute("src") === "/gamepad-popup.html")) {
+      frame.src = "/pages/gamepad-popup.html";
+    }
+    if (modal) modal.classList.remove("hidden");
   }
 
   function closeControllerGuide() {

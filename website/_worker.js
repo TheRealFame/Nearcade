@@ -583,16 +583,36 @@ if (env.BANS_KV) {
       }
 
       // Home page
-      if (url.pathname === "/" || url.pathname === "/home") {
+      if (url.pathname === "/home" || url.pathname === "/home.html") {
         if (env.ASSETS) {
-          const asset = await env.ASSETS.fetch(new Request("https://nearcade.cutefame.net/nearcade-home.html", request));
-          if (asset.status === 200) return asset;
+          const asset = await env.ASSETS.fetch(new Request("https://nearcade.cutefame.net/nearsec-home.html", request));
+          if (asset.status < 400) return asset;
+        }
+      }
+
+      // Popup aliases for environments where worker intercepts requests before asset CDN
+      if (url.pathname === "/gamepad-popup" || url.pathname === "/gamepad-popup.html") {
+        if (env.ASSETS) {
+          const asset = await env.ASSETS.fetch(new Request(new URL("/pages/gamepad-popup.html", request.url), request));
+          if (asset.status < 400) return asset;
+        }
+      }
+      if (url.pathname === "/keyboard-popup" || url.pathname === "/keyboard-popup.html") {
+        if (env.ASSETS) {
+          const asset = await env.ASSETS.fetch(new Request(new URL("/pages/keyboard-popup.html", request.url), request));
+          if (asset.status < 400) return asset;
+        }
+      }
+      if (url.pathname === "/display-color-tweaks" || url.pathname === "/display-color-tweaks.html") {
+        if (env.ASSETS) {
+          const asset = await env.ASSETS.fetch(new Request(new URL("/pages/display-color-tweaks.html", request.url), request));
+          if (asset.status < 400) return asset;
         }
       }
 
       // Static assets
       if (env.ASSETS) return env.ASSETS.fetch(request);
-      return new Response("OK", { status: 200, headers: CORS });
+      return new Response("Not Found", { status: 404, headers: CORS });
     } catch (e) {
       console.error("[Worker] Global Error:", e.message);
       return json({ error: e.message }, 500);
