@@ -593,19 +593,22 @@ if (env.BANS_KV) {
       // Popup aliases for environments where worker intercepts requests before asset CDN
       if (url.pathname === "/gamepad-popup" || url.pathname === "/gamepad-popup.html") {
         if (env.ASSETS) {
-          const asset = await env.ASSETS.fetch(new Request(new URL("/pages/gamepad-popup.html", request.url), request));
+          const targetUrl = new URL("/pages/gamepad-popup.html" + url.search, request.url);
+          const asset = await env.ASSETS.fetch(new Request(targetUrl, request));
           if (asset.status < 400) return asset;
         }
       }
       if (url.pathname === "/keyboard-popup" || url.pathname === "/keyboard-popup.html") {
         if (env.ASSETS) {
-          const asset = await env.ASSETS.fetch(new Request(new URL("/pages/keyboard-popup.html", request.url), request));
+          const targetUrl = new URL("/pages/keyboard-popup.html" + url.search, request.url);
+          const asset = await env.ASSETS.fetch(new Request(targetUrl, request));
           if (asset.status < 400) return asset;
         }
       }
       if (url.pathname === "/display-color-tweaks" || url.pathname === "/display-color-tweaks.html") {
         if (env.ASSETS) {
-          const asset = await env.ASSETS.fetch(new Request(new URL("/pages/display-color-tweaks.html", request.url), request));
+          const targetUrl = new URL("/pages/display-color-tweaks.html" + url.search, request.url);
+          const asset = await env.ASSETS.fetch(new Request(targetUrl, request));
           if (asset.status < 400) return asset;
         }
       }

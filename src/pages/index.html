@@ -2386,10 +2386,10 @@
     }
 
     #controllerGuideCard {
-      width: 500px;
-      height: 570px;
-      max-width: 90vw;
-      max-height: 90vh;
+      width: 520px;
+      height: 600px;
+      max-width: 92vw;
+      max-height: 92vh;
       background: var(--surface);
       border: 1px solid var(--border2);
       border-radius: 16px;
@@ -2438,7 +2438,7 @@
       flex: 1;
       width: 100%;
       border: none;
-      background: var(--bg);
+      background: transparent;
     }
 
     #controllerGuideConfirm {
@@ -4315,7 +4315,7 @@
         <div id="controllerGuideTitle">Controller Guide</div>
         <button id="controllerGuideClose" onclick="closeControllerGuide()">Close</button>
       </div>
-      <iframe id="controllerGuideFrame" src="/gamepad-popup.html"></iframe>
+      <iframe id="controllerGuideFrame" src="/gamepad-popup.html?embedded=1"></iframe>
       <button id="controllerGuideConfirm" onclick="acknowledgeControllerGuide()">Got it</button>
     </div>
   </div>

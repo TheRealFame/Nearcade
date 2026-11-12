@@ -374,11 +374,11 @@
   }
 
   #controllerGuideCard {
-    width: 500px;
-    height: 570px;
+    width: 520px;
+    height: 600px;
 
-    max-width: 90vw;
-    max-height: 90vh;
+    max-width: 92vw;
+    max-height: 92vh;
 
     background: var(--surface);
 
@@ -441,7 +441,7 @@
     flex: 1;
     width: 100%;
     border: none;
-    background: #000;
+    background: transparent;
   }
 
   #controllerGuideConfirm {
@@ -637,7 +637,7 @@
 
     <iframe
       id="controllerGuideFrame"
-      src="/pages/gamepad-popup.html"
+      src="/pages/gamepad-popup.html?embedded=1"
       scrolling="no">
     </iframe>
 
@@ -700,7 +700,7 @@
     const modal = document.getElementById("controllerGuideModal");
     const frame = document.getElementById("controllerGuideFrame");
     if (frame && (!frame.getAttribute("src") || frame.getAttribute("src") === "/gamepad-popup.html")) {
-      frame.src = "/pages/gamepad-popup.html";
+      frame.src = "/pages/gamepad-popup.html?embedded=1";
     }
     if (modal) modal.classList.remove("hidden");
   }
